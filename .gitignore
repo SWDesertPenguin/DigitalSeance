@@ -1,0 +1,10 @@
+.env
+*.db
+data/
+__pycache__/
+.ruff_cache/
+.claude/settings.json
+.claude/credentials*
+.claude/auth*
+.claude/*.key
+.claude/*.token
