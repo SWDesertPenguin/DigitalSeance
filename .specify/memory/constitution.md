@@ -1,7 +1,20 @@
+<!--
+Sync Impact Report
+  Version change: 0.5 → 0.5.1
+  Change type: PATCH — governance metadata normalization
+  Modified principles: none
+  Added sections: none
+  Removed sections: none
+  Templates requiring updates:
+    - .specify/templates/plan-template.md ✅ no update needed
+    - .specify/templates/spec-template.md ✅ no update needed
+    - .specify/templates/tasks-template.md ✅ no update needed
+  Follow-up TODOs: none
+-->
+
 # SACP Constitution
 
-Version: 0.5
-Date: 2026-04-11
+**Version**: 0.5.1 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-04-11
 
 ---
 
