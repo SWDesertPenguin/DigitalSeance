@@ -1,0 +1,948 @@
+# NIST 800-53B Control Baselines
+
+# Control Baselines for Information Systems and Organizations
+**** | NIST SP 800-53B | October 2020
+
+This publication provides security and privacy control baselines for the Federal Government. There are three security control baselines (one for each system impact level -- low-impact, moderate-impact, and high-impact), as well as a privacy baseline that is applied to systems irrespective of impact level. In addition to the control baselines, this publication provides tailoring guidance and a set of working assumptions that help guide and inform the control selection process. Finally, this publication provides guidance on the development of overlays to facilitate control baseline customization for specific communities of interest, technologies, and environments of operation.
+
+---
+
+## Control Baselines by Family
+### AC: ?
+- **AC-1**  | Low: True | Moderate: True | High: True
+- **AC-2**  | Low: True | Moderate: True | High: True
+- **AC-2(1)**  | Low: False | Moderate: True | High: True
+- **AC-2(2)**  | Low: False | Moderate: True | High: True
+- **AC-2(3)**  | Low: False | Moderate: True | High: True
+- **AC-2(4)**  | Low: False | Moderate: True | High: True
+- **AC-2(5)**  | Low: False | Moderate: True | High: True
+- **AC-2(6)**  | Low: False | Moderate: False | High: False
+- **AC-2(7)**  | Low: False | Moderate: False | High: False
+- **AC-2(8)**  | Low: False | Moderate: False | High: False
+- **AC-2(9)**  | Low: False | Moderate: False | High: False
+- **AC-2(10)**  | Low:  | Moderate:  | High:
+- **AC-2(11)**  | Low: False | Moderate: False | High: True
+- **AC-2(12)**  | Low: False | Moderate: False | High: True
+- **AC-2(13)**  | Low: False | Moderate: True | High: True
+- **AC-3**  | Low: True | Moderate: True | High: True
+- **AC-3(1)**  | Low:  | Moderate:  | High:
+- **AC-3(2)**  | Low: False | Moderate: False | High: False
+- **AC-3(3)**  | Low: False | Moderate: False | High: False
+- **AC-3(4)**  | Low: False | Moderate: False | High: False
+- **AC-3(5)**  | Low: False | Moderate: False | High: False
+- **AC-3(6)**  | Low:  | Moderate:  | High:
+- **AC-3(7)**  | Low: False | Moderate: False | High: False
+- **AC-3(8)**  | Low: False | Moderate: False | High: False
+- **AC-3(9)**  | Low: False | Moderate: False | High: False
+- **AC-3(10)**  | Low: False | Moderate: False | High: False
+- **AC-3(11)**  | Low: False | Moderate: False | High: False
+- **AC-3(12)**  | Low: False | Moderate: False | High: False
+- **AC-3(13)**  | Low: False | Moderate: False | High: False
+- **AC-3(14)**  | Low: False | Moderate: False | High: False
+- **AC-3(15)**  | Low: False | Moderate: False | High: False
+- **AC-4**  | Low: False | Moderate: True | High: True
+- **AC-4(1)**  | Low: False | Moderate: False | High: False
+- **AC-4(2)**  | Low: False | Moderate: False | High: False
+- **AC-4(3)**  | Low: False | Moderate: False | High: False
+- **AC-4(4)**  | Low: False | Moderate: False | High: True
+- **AC-4(5)**  | Low: False | Moderate: False | High: False
+- **AC-4(6)**  | Low: False | Moderate: False | High: False
+- **AC-4(7)**  | Low: False | Moderate: False | High: False
+- **AC-4(8)**  | Low: False | Moderate: False | High: False
+- **AC-4(9)**  | Low: False | Moderate: False | High: False
+- **AC-4(10)**  | Low: False | Moderate: False | High: False
+- **AC-4(11)**  | Low: False | Moderate: False | High: False
+- **AC-4(12)**  | Low: False | Moderate: False | High: False
+- **AC-4(13)**  | Low: False | Moderate: False | High: False
+- **AC-4(14)**  | Low: False | Moderate: False | High: False
+- **AC-4(15)**  | Low: False | Moderate: False | High: False
+- **AC-4(16)**  | Low:  | Moderate:  | High:
+- **AC-4(17)**  | Low: False | Moderate: False | High: False
+- **AC-4(18)**  | Low:  | Moderate:  | High:
+- **AC-4(19)**  | Low: False | Moderate: False | High: False
+- **AC-4(20)**  | Low: False | Moderate: False | High: False
+- **AC-4(21)**  | Low: False | Moderate: False | High: False
+- **AC-4(22)**  | Low: False | Moderate: False | High: False
+- **AC-4(23)**  | Low: False | Moderate: False | High: False
+- **AC-4(24)**  | Low: False | Moderate: False | High: False
+- **AC-4(25)**  | Low: False | Moderate: False | High: False
+- **AC-4(26)**  | Low: False | Moderate: False | High: False
+- **AC-4(27)**  | Low: False | Moderate: False | High: False
+- **AC-4(28)**  | Low: False | Moderate: False | High: False
+- **AC-4(29)**  | Low: False | Moderate: False | High: False
+- **AC-4(30)**  | Low: False | Moderate: False | High: False
+- **AC-4(31)**  | Low: False | Moderate: False | High: False
+- **AC-4(32)**  | Low: False | Moderate: False | High: False
+- **AC-5**  | Low: False | Moderate: True | High: True
+- **AC-6**  | Low: False | Moderate: True | High: True
+- **AC-6(1)**  | Low: False | Moderate: True | High: True
+- **AC-6(2)**  | Low: False | Moderate: True | High: True
+- **AC-6(3)**  | Low: False | Moderate: False | High: True
+- **AC-6(4)**  | Low: False | Moderate: False | High: False
+- **AC-6(5)**  | Low: False | Moderate: True | High: True
+- **AC-6(6)**  | Low: False | Moderate: False | High: False
+- **AC-6(7)**  | Low: False | Moderate: True | High: True
+- **AC-6(8)**  | Low: False | Moderate: False | High: False
+- **AC-6(9)**  | Low: False | Moderate: True | High: True
+- **AC-6(10)**  | Low: False | Moderate: True | High: True
+- **AC-7**  | Low: True | Moderate: True | High: True
+- **AC-7(1)**  | Low:  | Moderate:  | High:
+- **AC-7(2)**  | Low: False | Moderate: False | High: False
+- **AC-7(3)**  | Low: False | Moderate: False | High: False
+- **AC-7(4)**  | Low: False | Moderate: False | High: False
+- **AC-8**  | Low: True | Moderate: True | High: True
+- **AC-9**  | Low: False | Moderate: False | High: False
+- **AC-9(1)**  | Low: False | Moderate: False | High: False
+- **AC-9(2)**  | Low: False | Moderate: False | High: False
+- **AC-9(3)**  | Low: False | Moderate: False | High: False
+- **AC-9(4)**  | Low: False | Moderate: False | High: False
+- **AC-10**  | Low: False | Moderate: False | High: True
+- **AC-11**  | Low: False | Moderate: True | High: True
+- **AC-11(1)**  | Low: False | Moderate: True | High: True
+- **AC-12**  | Low: False | Moderate: True | High: True
+- **AC-12(1)**  | Low: False | Moderate: False | High: False
+- **AC-12(2)**  | Low: False | Moderate: False | High: False
+- **AC-12(3)**  | Low: False | Moderate: False | High: False
+- **AC-13**  | Low:  | Moderate:  | High:
+- **AC-14**  | Low: True | Moderate: True | High: True
+- **AC-14(1)**  | Low:  | Moderate:  | High:
+- **AC-15**  | Low:  | Moderate:  | High:
+- **AC-16**  | Low: False | Moderate: False | High: False
+- **AC-16(1)**  | Low: False | Moderate: False | High: False
+- **AC-16(2)**  | Low: False | Moderate: False | High: False
+- **AC-16(3)**  | Low: False | Moderate: False | High: False
+- **AC-16(4)**  | Low: False | Moderate: False | High: False
+- **AC-16(5)**  | Low: False | Moderate: False | High: False
+- **AC-16(6)**  | Low: False | Moderate: False | High: False
+- **AC-16(7)**  | Low: False | Moderate: False | High: False
+- **AC-16(8)**  | Low: False | Moderate: False | High: False
+- **AC-16(9)**  | Low: False | Moderate: False | High: False
+- **AC-16(10)**  | Low: False | Moderate: False | High: False
+- **AC-17**  | Low: True | Moderate: True | High: True
+- **AC-17(1)**  | Low: False | Moderate: True | High: True
+- **AC-17(2)**  | Low: False | Moderate: True | High: True
+- **AC-17(3)**  | Low: False | Moderate: True | High: True
+- **AC-17(4)**  | Low: False | Moderate: True | High: True
+- **AC-17(5)**  | Low:  | Moderate:  | High:
+- **AC-17(6)**  | Low: False | Moderate: False | High: False
+- **AC-17(7)**  | Low:  | Moderate:  | High:
+- **AC-17(8)**  | Low:  | Moderate:  | High:
+- **AC-17(9)**  | Low: False | Moderate: False | High: False
+- **AC-17(10)**  | Low: False | Moderate: False | High: False
+- **AC-18**  | Low: True | Moderate: True | High: True
+- **AC-18(1)**  | Low: False | Moderate: True | High: True
+- **AC-18(2)**  | Low:  | Moderate:  | High:
+- **AC-18(3)**  | Low: False | Moderate: True | High: True
+- **AC-18(4)**  | Low: False | Moderate: False | High: True
+- **AC-18(5)**  | Low: False | Moderate: False | High: True
+- **AC-19**  | Low: True | Moderate: True | High: True
+- **AC-19(1)**  | Low:  | Moderate:  | High:
+- **AC-19(2)**  | Low:  | Moderate:  | High:
+- **AC-19(3)**  | Low:  | Moderate:  | High:
+- **AC-19(4)**  | Low: False | Moderate: False | High: False
+- **AC-19(5)**  | Low: False | Moderate: True | High: True
+- **AC-20**  | Low: True | Moderate: True | High: True
+- **AC-20(1)**  | Low: False | Moderate: True | High: True
+- **AC-20(2)**  | Low: False | Moderate: True | High: True
+- **AC-20(3)**  | Low: False | Moderate: False | High: False
+- **AC-20(4)**  | Low: False | Moderate: False | High: False
+- **AC-20(5)**  | Low: False | Moderate: False | High: False
+- **AC-21**  | Low: False | Moderate: True | High: True
+- **AC-21(1)**  | Low: False | Moderate: False | High: False
+- **AC-21(2)**  | Low: False | Moderate: False | High: False
+- **AC-22**  | Low: True | Moderate: True | High: True
+- **AC-23**  | Low: False | Moderate: False | High: False
+- **AC-24**  | Low: False | Moderate: False | High: False
+- **AC-24(1)**  | Low: False | Moderate: False | High: False
+- **AC-24(2)**  | Low: False | Moderate: False | High: False
+- **AC-25**  | Low: False | Moderate: False | High: False
+
+### AT: ?
+- **AT-1**  | Low: True | Moderate: True | High: True
+- **AT-2**  | Low: True | Moderate: True | High: True
+- **AT-2(1)**  | Low: False | Moderate: False | High: False
+- **AT-2(2)**  | Low: True | Moderate: True | High: True
+- **AT-2(3)**  | Low: False | Moderate: True | High: True
+- **AT-2(4)**  | Low: False | Moderate: False | High: False
+- **AT-2(5)**  | Low: False | Moderate: False | High: False
+- **AT-2(6)**  | Low: False | Moderate: False | High: False
+- **AT-3**  | Low: True | Moderate: True | High: True
+- **AT-3(1)**  | Low: False | Moderate: False | High: False
+- **AT-3(2)**  | Low: False | Moderate: False | High: False
+- **AT-3(3)**  | Low: False | Moderate: False | High: False
+- **AT-3(4)**  | Low:  | Moderate:  | High:
+- **AT-3(5)**  | Low: False | Moderate: False | High: False
+- **AT-4**  | Low: True | Moderate: True | High: True
+- **AT-5**  | Low:  | Moderate:  | High:
+- **AT-6**  | Low: False | Moderate: False | High: False
+
+### AU: ?
+- **AU-1**  | Low: True | Moderate: True | High: True
+- **AU-2**  | Low: True | Moderate: True | High: True
+- **AU-2(1)**  | Low:  | Moderate:  | High:
+- **AU-2(2)**  | Low:  | Moderate:  | High:
+- **AU-2(3)**  | Low:  | Moderate:  | High:
+- **AU-2(4)**  | Low:  | Moderate:  | High:
+- **AU-3**  | Low: True | Moderate: True | High: True
+- **AU-3(1)**  | Low: False | Moderate: True | High: True
+- **AU-3(2)**  | Low:  | Moderate:  | High:
+- **AU-3(3)**  | Low: False | Moderate: False | High: False
+- **AU-4**  | Low: True | Moderate: True | High: True
+- **AU-4(1)**  | Low: False | Moderate: False | High: False
+- **AU-5**  | Low: True | Moderate: True | High: True
+- **AU-5(1)**  | Low: False | Moderate: False | High: True
+- **AU-5(2)**  | Low: False | Moderate: False | High: True
+- **AU-5(3)**  | Low: False | Moderate: False | High: False
+- **AU-5(4)**  | Low: False | Moderate: False | High: False
+- **AU-5(5)**  | Low: False | Moderate: False | High: False
+- **AU-6**  | Low: True | Moderate: True | High: True
+- **AU-6(1)**  | Low: False | Moderate: True | High: True
+- **AU-6(2)**  | Low:  | Moderate:  | High:
+- **AU-6(3)**  | Low: False | Moderate: True | High: True
+- **AU-6(4)**  | Low: False | Moderate: False | High: False
+- **AU-6(5)**  | Low: False | Moderate: False | High: True
+- **AU-6(6)**  | Low: False | Moderate: False | High: True
+- **AU-6(7)**  | Low: False | Moderate: False | High: False
+- **AU-6(8)**  | Low: False | Moderate: False | High: False
+- **AU-6(9)**  | Low: False | Moderate: False | High: False
+- **AU-6(10)**  | Low:  | Moderate:  | High:
+- **AU-7**  | Low: False | Moderate: True | High: True
+- **AU-7(1)**  | Low: False | Moderate: True | High: True
+- **AU-7(2)**  | Low:  | Moderate:  | High:
+- **AU-8**  | Low: True | Moderate: True | High: True
+- **AU-8(1)**  | Low:  | Moderate:  | High:
+- **AU-8(2)**  | Low:  | Moderate:  | High:
+- **AU-9**  | Low: True | Moderate: True | High: True
+- **AU-9(1)**  | Low: False | Moderate: False | High: False
+- **AU-9(2)**  | Low: False | Moderate: False | High: True
+- **AU-9(3)**  | Low: False | Moderate: False | High: True
+- **AU-9(4)**  | Low: False | Moderate: True | High: True
+- **AU-9(5)**  | Low: False | Moderate: False | High: False
+- **AU-9(6)**  | Low: False | Moderate: False | High: False
+- **AU-9(7)**  | Low: False | Moderate: False | High: False
+- **AU-10**  | Low: False | Moderate: False | High: True
+- **AU-10(1)**  | Low: False | Moderate: False | High: False
+- **AU-10(2)**  | Low: False | Moderate: False | High: False
+- **AU-10(3)**  | Low: False | Moderate: False | High: False
+- **AU-10(4)**  | Low: False | Moderate: False | High: False
+- **AU-10(5)**  | Low:  | Moderate:  | High:
+- **AU-11**  | Low: True | Moderate: True | High: True
+- **AU-11(1)**  | Low: False | Moderate: False | High: False
+- **AU-12**  | Low: True | Moderate: True | High: True
+- **AU-12(1)**  | Low: False | Moderate: False | High: True
+- **AU-12(2)**  | Low: False | Moderate: False | High: False
+- **AU-12(3)**  | Low: False | Moderate: False | High: True
+- **AU-12(4)**  | Low: False | Moderate: False | High: False
+- **AU-13**  | Low: False | Moderate: False | High: False
+- **AU-13(1)**  | Low: False | Moderate: False | High: False
+- **AU-13(2)**  | Low: False | Moderate: False | High: False
+- **AU-13(3)**  | Low: False | Moderate: False | High: False
+- **AU-14**  | Low: False | Moderate: False | High: False
+- **AU-14(1)**  | Low: False | Moderate: False | High: False
+- **AU-14(2)**  | Low:  | Moderate:  | High:
+- **AU-14(3)**  | Low: False | Moderate: False | High: False
+- **AU-15**  | Low:  | Moderate:  | High:
+- **AU-16**  | Low: False | Moderate: False | High: False
+- **AU-16(1)**  | Low: False | Moderate: False | High: False
+- **AU-16(2)**  | Low: False | Moderate: False | High: False
+- **AU-16(3)**  | Low: False | Moderate: False | High: False
+
+### CA: ?
+- **CA-1**  | Low: True | Moderate: True | High: True
+- **CA-2**  | Low: True | Moderate: True | High: True
+- **CA-2(1)**  | Low: False | Moderate: True | High: True
+- **CA-2(2)**  | Low: False | Moderate: False | High: True
+- **CA-2(3)**  | Low: False | Moderate: False | High: False
+- **CA-3**  | Low: True | Moderate: True | High: True
+- **CA-3(1)**  | Low:  | Moderate:  | High:
+- **CA-3(2)**  | Low:  | Moderate:  | High:
+- **CA-3(3)**  | Low:  | Moderate:  | High:
+- **CA-3(4)**  | Low:  | Moderate:  | High:
+- **CA-3(5)**  | Low:  | Moderate:  | High:
+- **CA-3(6)**  | Low: False | Moderate: False | High: True
+- **CA-3(7)**  | Low: False | Moderate: False | High: False
+- **CA-4**  | Low:  | Moderate:  | High:
+- **CA-5**  | Low: True | Moderate: True | High: True
+- **CA-5(1)**  | Low: False | Moderate: False | High: False
+- **CA-6**  | Low: True | Moderate: True | High: True
+- **CA-6(1)**  | Low: False | Moderate: False | High: False
+- **CA-6(2)**  | Low: False | Moderate: False | High: False
+- **CA-7**  | Low: True | Moderate: True | High: True
+- **CA-7(1)**  | Low: False | Moderate: False | High: True
+- **CA-7(2)**  | Low:  | Moderate:  | High:
+- **CA-7(3)**  | Low: False | Moderate: False | High: False
+- **CA-7(4)**  | Low: True | Moderate: True | High: True
+- **CA-7(5)**  | Low: False | Moderate: False | High: False
+- **CA-7(6)**  | Low: False | Moderate: False | High: False
+- **CA-8**  | Low: False | Moderate: False | High: True
+- **CA-8(1)**  | Low: False | Moderate: False | High: True
+- **CA-8(2)**  | Low: False | Moderate: False | High: False
+- **CA-8(3)**  | Low: False | Moderate: False | High: False
+- **CA-9**  | Low: False | Moderate: True | High: True
+- **CA-9(1)**  | Low: False | Moderate: False | High: False
+
+### CM: ?
+- **CM-1**  | Low: True | Moderate: True | High: True
+- **CM-2**  | Low: True | Moderate: True | High: True
+- **CM-2(1)**  | Low:  | Moderate:  | High:
+- **CM-2(2)**  | Low: False | Moderate: True | High: True
+- **CM-2(3)**  | Low: False | Moderate: True | High: True
+- **CM-2(4)**  | Low:  | Moderate:  | High:
+- **CM-2(5)**  | Low:  | Moderate:  | High:
+- **CM-2(6)**  | Low: False | Moderate: False | High: False
+- **CM-2(7)**  | Low: False | Moderate: True | High: True
+- **CM-3**  | Low: False | Moderate: True | High: True
+- **CM-3(1)**  | Low: False | Moderate: False | High: True
+- **CM-3(2)**  | Low: False | Moderate: True | High: True
+- **CM-3(3)**  | Low: False | Moderate: False | High: False
+- **CM-3(4)**  | Low: False | Moderate: True | High: True
+- **CM-3(5)**  | Low: False | Moderate: False | High: False
+- **CM-3(6)**  | Low: False | Moderate: False | High: True
+- **CM-3(7)**  | Low: False | Moderate: False | High: False
+- **CM-3(8)**  | Low: False | Moderate: False | High: False
+- **CM-4**  | Low: True | Moderate: True | High: True
+- **CM-4(1)**  | Low: False | Moderate: False | High: True
+- **CM-4(2)**  | Low: False | Moderate: True | High: True
+- **CM-5**  | Low: False | Moderate: True | High: True
+- **CM-5(1)**  | Low: False | Moderate: False | High: True
+- **CM-5(2)**  | Low:  | Moderate:  | High:
+- **CM-5(3)**  | Low:  | Moderate:  | High:
+- **CM-5(4)**  | Low: False | Moderate: False | High: False
+- **CM-5(5)**  | Low: False | Moderate: False | High: False
+- **CM-5(6)**  | Low: False | Moderate: False | High: False
+- **CM-5(7)**  | Low:  | Moderate:  | High:
+- **CM-6**  | Low: True | Moderate: True | High: True
+- **CM-6(1)**  | Low: False | Moderate: False | High: True
+- **CM-6(2)**  | Low: False | Moderate: False | High: True
+- **CM-6(3)**  | Low:  | Moderate:  | High:
+- **CM-6(4)**  | Low:  | Moderate:  | High:
+- **CM-7**  | Low: True | Moderate: True | High: True
+- **CM-7(1)**  | Low: False | Moderate: True | High: True
+- **CM-7(2)**  | Low: False | Moderate: True | High: True
+- **CM-7(3)**  | Low: False | Moderate: False | High: False
+- **CM-7(4)**  | Low: False | Moderate: False | High: False
+- **CM-7(5)**  | Low: False | Moderate: True | High: True
+- **CM-7(6)**  | Low: False | Moderate: False | High: False
+- **CM-7(7)**  | Low: False | Moderate: False | High: False
+- **CM-7(8)**  | Low: False | Moderate: False | High: False
+- **CM-7(9)**  | Low: False | Moderate: False | High: False
+- **CM-8**  | Low: True | Moderate: True | High: True
+- **CM-8(1)**  | Low: False | Moderate: True | High: True
+- **CM-8(2)**  | Low: False | Moderate: False | High: True
+- **CM-8(3)**  | Low: False | Moderate: True | High: True
+- **CM-8(4)**  | Low: False | Moderate: False | High: True
+- **CM-8(5)**  | Low:  | Moderate:  | High:
+- **CM-8(6)**  | Low: False | Moderate: False | High: False
+- **CM-8(7)**  | Low: False | Moderate: False | High: False
+- **CM-8(8)**  | Low: False | Moderate: False | High: False
+- **CM-8(9)**  | Low: False | Moderate: False | High: False
+- **CM-9**  | Low: False | Moderate: True | High: True
+- **CM-9(1)**  | Low: False | Moderate: False | High: False
+- **CM-10**  | Low: True | Moderate: True | High: True
+- **CM-10(1)**  | Low: False | Moderate: False | High: False
+- **CM-11**  | Low: True | Moderate: True | High: True
+- **CM-11(1)**  | Low:  | Moderate:  | High:
+- **CM-11(2)**  | Low: False | Moderate: False | High: False
+- **CM-11(3)**  | Low: False | Moderate: False | High: False
+- **CM-12**  | Low: False | Moderate: True | High: True
+- **CM-12(1)**  | Low: False | Moderate: True | High: True
+- **CM-13**  | Low: False | Moderate: False | High: False
+- **CM-14**  | Low: False | Moderate: False | High: False
+
+### CP: ?
+- **CP-1**  | Low: True | Moderate: True | High: True
+- **CP-2**  | Low: True | Moderate: True | High: True
+- **CP-2(1)**  | Low: False | Moderate: True | High: True
+- **CP-2(2)**  | Low: False | Moderate: False | High: True
+- **CP-2(3)**  | Low: False | Moderate: True | High: True
+- **CP-2(4)**  | Low:  | Moderate:  | High:
+- **CP-2(5)**  | Low: False | Moderate: False | High: True
+- **CP-2(6)**  | Low: False | Moderate: False | High: False
+- **CP-2(7)**  | Low: False | Moderate: False | High: False
+- **CP-2(8)**  | Low: False | Moderate: True | High: True
+- **CP-3**  | Low: True | Moderate: True | High: True
+- **CP-3(1)**  | Low: False | Moderate: False | High: True
+- **CP-3(2)**  | Low: False | Moderate: False | High: False
+- **CP-4**  | Low: True | Moderate: True | High: True
+- **CP-4(1)**  | Low: False | Moderate: True | High: True
+- **CP-4(2)**  | Low: False | Moderate: False | High: True
+- **CP-4(3)**  | Low: False | Moderate: False | High: False
+- **CP-4(4)**  | Low: False | Moderate: False | High: False
+- **CP-4(5)**  | Low: False | Moderate: False | High: False
+- **CP-5**  | Low:  | Moderate:  | High:
+- **CP-6**  | Low: False | Moderate: True | High: True
+- **CP-6(1)**  | Low: False | Moderate: True | High: True
+- **CP-6(2)**  | Low: False | Moderate: False | High: True
+- **CP-6(3)**  | Low: False | Moderate: True | High: True
+- **CP-7**  | Low: False | Moderate: True | High: True
+- **CP-7(1)**  | Low: False | Moderate: True | High: True
+- **CP-7(2)**  | Low: False | Moderate: True | High: True
+- **CP-7(3)**  | Low: False | Moderate: True | High: True
+- **CP-7(4)**  | Low: False | Moderate: False | High: True
+- **CP-7(5)**  | Low:  | Moderate:  | High:
+- **CP-7(6)**  | Low: False | Moderate: False | High: False
+- **CP-8**  | Low: False | Moderate: True | High: True
+- **CP-8(1)**  | Low: False | Moderate: True | High: True
+- **CP-8(2)**  | Low: False | Moderate: True | High: True
+- **CP-8(3)**  | Low: False | Moderate: False | High: True
+- **CP-8(4)**  | Low: False | Moderate: False | High: True
+- **CP-8(5)**  | Low: False | Moderate: False | High: False
+- **CP-9**  | Low: True | Moderate: True | High: True
+- **CP-9(1)**  | Low: False | Moderate: True | High: True
+- **CP-9(2)**  | Low: False | Moderate: False | High: True
+- **CP-9(3)**  | Low: False | Moderate: False | High: True
+- **CP-9(4)**  | Low:  | Moderate:  | High:
+- **CP-9(5)**  | Low: False | Moderate: False | High: True
+- **CP-9(6)**  | Low: False | Moderate: False | High: False
+- **CP-9(7)**  | Low: False | Moderate: False | High: False
+- **CP-9(8)**  | Low: False | Moderate: True | High: True
+- **CP-10**  | Low: True | Moderate: True | High: True
+- **CP-10(1)**  | Low:  | Moderate:  | High:
+- **CP-10(2)**  | Low: False | Moderate: True | High: True
+- **CP-10(3)**  | Low:  | Moderate:  | High:
+- **CP-10(4)**  | Low: False | Moderate: False | High: True
+- **CP-10(5)**  | Low:  | Moderate:  | High:
+- **CP-10(6)**  | Low: False | Moderate: False | High: False
+- **CP-11**  | Low: False | Moderate: False | High: False
+- **CP-12**  | Low: False | Moderate: False | High: False
+- **CP-13**  | Low: False | Moderate: False | High: False
+
+### IA: ?
+- **IA-1**  | Low: True | Moderate: True | High: True
+- **IA-2**  | Low: True | Moderate: True | High: True
+- **IA-2(1)**  | Low: True | Moderate: True | High: True
+- **IA-2(2)**  | Low: True | Moderate: True | High: True
+- **IA-2(3)**  | Low:  | Moderate:  | High:
+- **IA-2(4)**  | Low:  | Moderate:  | High:
+- **IA-2(5)**  | Low: False | Moderate: False | High: True
+- **IA-2(6)**  | Low: False | Moderate: False | High: False
+- **IA-2(7)**  | Low:  | Moderate:  | High:
+- **IA-2(8)**  | Low: True | Moderate: True | High: True
+- **IA-2(9)**  | Low:  | Moderate:  | High:
+- **IA-2(10)**  | Low: False | Moderate: False | High: False
+- **IA-2(11)**  | Low:  | Moderate:  | High:
+- **IA-2(12)**  | Low: True | Moderate: True | High: True
+- **IA-2(13)**  | Low: False | Moderate: False | High: False
+- **IA-3**  | Low: False | Moderate: True | High: True
+- **IA-3(1)**  | Low: False | Moderate: False | High: False
+- **IA-3(2)**  | Low:  | Moderate:  | High:
+- **IA-3(3)**  | Low: False | Moderate: False | High: False
+- **IA-3(4)**  | Low: False | Moderate: False | High: False
+- **IA-4**  | Low: True | Moderate: True | High: True
+- **IA-4(1)**  | Low: False | Moderate: False | High: False
+- **IA-4(2)**  | Low:  | Moderate:  | High:
+- **IA-4(3)**  | Low:  | Moderate:  | High:
+- **IA-4(4)**  | Low: False | Moderate: True | High: True
+- **IA-4(5)**  | Low: False | Moderate: False | High: False
+- **IA-4(6)**  | Low: False | Moderate: False | High: False
+- **IA-4(7)**  | Low:  | Moderate:  | High:
+- **IA-4(8)**  | Low: False | Moderate: False | High: False
+- **IA-4(9)**  | Low: False | Moderate: False | High: False
+- **IA-5**  | Low: True | Moderate: True | High: True
+- **IA-5(1)**  | Low: True | Moderate: True | High: True
+- **IA-5(2)**  | Low: False | Moderate: True | High: True
+- **IA-5(3)**  | Low:  | Moderate:  | High:
+- **IA-5(4)**  | Low:  | Moderate:  | High:
+- **IA-5(5)**  | Low: False | Moderate: False | High: False
+- **IA-5(6)**  | Low: False | Moderate: True | High: True
+- **IA-5(7)**  | Low: False | Moderate: False | High: False
+- **IA-5(8)**  | Low: False | Moderate: False | High: False
+- **IA-5(9)**  | Low: False | Moderate: False | High: False
+- **IA-5(10)**  | Low: False | Moderate: False | High: False
+- **IA-5(11)**  | Low:  | Moderate:  | High:
+- **IA-5(12)**  | Low: False | Moderate: False | High: False
+- **IA-5(13)**  | Low: False | Moderate: False | High: False
+- **IA-5(14)**  | Low: False | Moderate: False | High: False
+- **IA-5(15)**  | Low: False | Moderate: False | High: False
+- **IA-5(16)**  | Low: False | Moderate: False | High: False
+- **IA-5(17)**  | Low: False | Moderate: False | High: False
+- **IA-5(18)**  | Low: False | Moderate: False | High: False
+- **IA-6**  | Low: True | Moderate: True | High: True
+- **IA-7**  | Low: True | Moderate: True | High: True
+- **IA-8**  | Low: True | Moderate: True | High: True
+- **IA-8(1)**  | Low: True | Moderate: True | High: True
+- **IA-8(2)**  | Low: True | Moderate: True | High: True
+- **IA-8(3)**  | Low:  | Moderate:  | High:
+- **IA-8(4)**  | Low: True | Moderate: True | High: True
+- **IA-8(5)**  | Low: False | Moderate: False | High: False
+- **IA-8(6)**  | Low: False | Moderate: False | High: False
+- **IA-9**  | Low: False | Moderate: False | High: False
+- **IA-9(1)**  | Low:  | Moderate:  | High:
+- **IA-9(2)**  | Low:  | Moderate:  | High:
+- **IA-10**  | Low: False | Moderate: False | High: False
+- **IA-11**  | Low: True | Moderate: True | High: True
+- **IA-12**  | Low: False | Moderate: True | High: True
+- **IA-12(1)**  | Low: False | Moderate: False | High: False
+- **IA-12(2)**  | Low: False | Moderate: True | High: True
+- **IA-12(3)**  | Low: False | Moderate: True | High: True
+- **IA-12(4)**  | Low: False | Moderate: False | High: True
+- **IA-12(5)**  | Low: False | Moderate: True | High: True
+- **IA-12(6)**  | Low: False | Moderate: False | High: False
+
+### IR: ?
+- **IR-1**  | Low: True | Moderate: True | High: True
+- **IR-2**  | Low: True | Moderate: True | High: True
+- **IR-2(1)**  | Low: False | Moderate: False | High: True
+- **IR-2(2)**  | Low: False | Moderate: False | High: True
+- **IR-2(3)**  | Low: False | Moderate: False | High: False
+- **IR-3**  | Low: False | Moderate: True | High: True
+- **IR-3(1)**  | Low: False | Moderate: False | High: False
+- **IR-3(2)**  | Low: False | Moderate: True | High: True
+- **IR-3(3)**  | Low: False | Moderate: False | High: False
+- **IR-4**  | Low: True | Moderate: True | High: True
+- **IR-4(1)**  | Low: False | Moderate: True | High: True
+- **IR-4(2)**  | Low: False | Moderate: False | High: False
+- **IR-4(3)**  | Low: False | Moderate: False | High: False
+- **IR-4(4)**  | Low: False | Moderate: False | High: True
+- **IR-4(5)**  | Low: False | Moderate: False | High: False
+- **IR-4(6)**  | Low: False | Moderate: False | High: False
+- **IR-4(7)**  | Low: False | Moderate: False | High: False
+- **IR-4(8)**  | Low: False | Moderate: False | High: False
+- **IR-4(9)**  | Low: False | Moderate: False | High: False
+- **IR-4(10)**  | Low: False | Moderate: False | High: False
+- **IR-4(11)**  | Low: False | Moderate: False | High: True
+- **IR-4(12)**  | Low: False | Moderate: False | High: False
+- **IR-4(13)**  | Low: False | Moderate: False | High: False
+- **IR-4(14)**  | Low: False | Moderate: False | High: False
+- **IR-4(15)**  | Low: False | Moderate: False | High: False
+- **IR-5**  | Low: True | Moderate: True | High: True
+- **IR-5(1)**  | Low: False | Moderate: False | High: True
+- **IR-6**  | Low: True | Moderate: True | High: True
+- **IR-6(1)**  | Low: False | Moderate: True | High: True
+- **IR-6(2)**  | Low: False | Moderate: False | High: False
+- **IR-6(3)**  | Low: False | Moderate: True | High: True
+- **IR-7**  | Low: True | Moderate: True | High: True
+- **IR-7(1)**  | Low: False | Moderate: True | High: True
+- **IR-7(2)**  | Low: False | Moderate: False | High: False
+- **IR-8**  | Low: True | Moderate: True | High: True
+- **IR-8(1)**  | Low: False | Moderate: False | High: False
+- **IR-9**  | Low: False | Moderate: False | High: False
+- **IR-9(1)**  | Low:  | Moderate:  | High:
+- **IR-9(2)**  | Low: False | Moderate: False | High: False
+- **IR-9(3)**  | Low: False | Moderate: False | High: False
+- **IR-9(4)**  | Low: False | Moderate: False | High: False
+- **IR-10**  | Low:  | Moderate:  | High:
+
+### MA: ?
+- **MA-1**  | Low: True | Moderate: True | High: True
+- **MA-2**  | Low: True | Moderate: True | High: True
+- **MA-2(1)**  | Low:  | Moderate:  | High:
+- **MA-2(2)**  | Low: False | Moderate: False | High: True
+- **MA-3**  | Low: False | Moderate: True | High: True
+- **MA-3(1)**  | Low: False | Moderate: True | High: True
+- **MA-3(2)**  | Low: False | Moderate: True | High: True
+- **MA-3(3)**  | Low: False | Moderate: True | High: True
+- **MA-3(4)**  | Low: False | Moderate: False | High: False
+- **MA-3(5)**  | Low: False | Moderate: False | High: False
+- **MA-3(6)**  | Low: False | Moderate: False | High: False
+- **MA-4**  | Low: True | Moderate: True | High: True
+- **MA-4(1)**  | Low: False | Moderate: False | High: False
+- **MA-4(2)**  | Low:  | Moderate:  | High:
+- **MA-4(3)**  | Low: False | Moderate: False | High: True
+- **MA-4(4)**  | Low: False | Moderate: False | High: False
+- **MA-4(5)**  | Low: False | Moderate: False | High: False
+- **MA-4(6)**  | Low: False | Moderate: False | High: False
+- **MA-4(7)**  | Low: False | Moderate: False | High: False
+- **MA-5**  | Low: True | Moderate: True | High: True
+- **MA-5(1)**  | Low: False | Moderate: False | High: True
+- **MA-5(2)**  | Low: False | Moderate: False | High: False
+- **MA-5(3)**  | Low: False | Moderate: False | High: False
+- **MA-5(4)**  | Low: False | Moderate: False | High: False
+- **MA-5(5)**  | Low: False | Moderate: False | High: False
+- **MA-6**  | Low: False | Moderate: True | High: True
+- **MA-6(1)**  | Low: False | Moderate: False | High: False
+- **MA-6(2)**  | Low: False | Moderate: False | High: False
+- **MA-6(3)**  | Low: False | Moderate: False | High: False
+- **MA-7**  | Low: False | Moderate: False | High: False
+
+### MP: ?
+- **MP-1**  | Low: True | Moderate: True | High: True
+- **MP-2**  | Low: True | Moderate: True | High: True
+- **MP-2(1)**  | Low:  | Moderate:  | High:
+- **MP-2(2)**  | Low:  | Moderate:  | High:
+- **MP-3**  | Low: False | Moderate: True | High: True
+- **MP-4**  | Low: False | Moderate: True | High: True
+- **MP-4(1)**  | Low:  | Moderate:  | High:
+- **MP-4(2)**  | Low: False | Moderate: False | High: False
+- **MP-5**  | Low: False | Moderate: True | High: True
+- **MP-5(1)**  | Low:  | Moderate:  | High:
+- **MP-5(2)**  | Low:  | Moderate:  | High:
+- **MP-5(3)**  | Low: False | Moderate: False | High: False
+- **MP-5(4)**  | Low:  | Moderate:  | High:
+- **MP-6**  | Low: True | Moderate: True | High: True
+- **MP-6(1)**  | Low: False | Moderate: False | High: True
+- **MP-6(2)**  | Low: False | Moderate: False | High: True
+- **MP-6(3)**  | Low: False | Moderate: False | High: True
+- **MP-6(4)**  | Low:  | Moderate:  | High:
+- **MP-6(5)**  | Low:  | Moderate:  | High:
+- **MP-6(6)**  | Low:  | Moderate:  | High:
+- **MP-6(7)**  | Low: False | Moderate: False | High: False
+- **MP-6(8)**  | Low: False | Moderate: False | High: False
+- **MP-7**  | Low: True | Moderate: True | High: True
+- **MP-7(1)**  | Low:  | Moderate:  | High:
+- **MP-7(2)**  | Low: False | Moderate: False | High: False
+- **MP-8**  | Low: False | Moderate: False | High: False
+- **MP-8(1)**  | Low: False | Moderate: False | High: False
+- **MP-8(2)**  | Low: False | Moderate: False | High: False
+- **MP-8(3)**  | Low: False | Moderate: False | High: False
+- **MP-8(4)**  | Low: False | Moderate: False | High: False
+
+### PE: ?
+- **PE-1**  | Low: True | Moderate: True | High: True
+- **PE-2**  | Low: True | Moderate: True | High: True
+- **PE-2(1)**  | Low: False | Moderate: False | High: False
+- **PE-2(2)**  | Low: False | Moderate: False | High: False
+- **PE-2(3)**  | Low: False | Moderate: False | High: False
+- **PE-3**  | Low: True | Moderate: True | High: True
+- **PE-3(1)**  | Low: False | Moderate: False | High: True
+- **PE-3(2)**  | Low: False | Moderate: False | High: False
+- **PE-3(3)**  | Low: False | Moderate: False | High: False
+- **PE-3(4)**  | Low: False | Moderate: False | High: False
+- **PE-3(5)**  | Low: False | Moderate: False | High: False
+- **PE-3(6)**  | Low:  | Moderate:  | High:
+- **PE-3(7)**  | Low: False | Moderate: False | High: False
+- **PE-3(8)**  | Low: False | Moderate: False | High: False
+- **PE-4**  | Low: False | Moderate: True | High: True
+- **PE-5**  | Low: False | Moderate: True | High: True
+- **PE-5(1)**  | Low:  | Moderate:  | High:
+- **PE-5(2)**  | Low: False | Moderate: False | High: False
+- **PE-5(3)**  | Low:  | Moderate:  | High:
+- **PE-6**  | Low: True | Moderate: True | High: True
+- **PE-6(1)**  | Low: False | Moderate: True | High: True
+- **PE-6(2)**  | Low: False | Moderate: False | High: False
+- **PE-6(3)**  | Low: False | Moderate: False | High: False
+- **PE-6(4)**  | Low: False | Moderate: False | High: True
+- **PE-7**  | Low:  | Moderate:  | High:
+- **PE-8**  | Low: True | Moderate: True | High: True
+- **PE-8(1)**  | Low: False | Moderate: False | High: True
+- **PE-8(2)**  | Low:  | Moderate:  | High:
+- **PE-8(3)**  | Low: False | Moderate: False | High: False
+- **PE-9**  | Low: False | Moderate: False | High: True
+- **PE-9(1)**  | Low: False | Moderate: False | High: False
+- **PE-9(2)**  | Low: False | Moderate: False | High: False
+- **PE-10**  | Low: False | Moderate: True | High: True
+- **PE-10(1)**  | Low:  | Moderate:  | High:
+- **PE-11**  | Low: False | Moderate: True | High: True
+- **PE-11(1)**  | Low: False | Moderate: False | High: True
+- **PE-11(2)**  | Low: False | Moderate: False | High: False
+- **PE-12**  | Low: True | Moderate: True | High: True
+- **PE-12(1)**  | Low: False | Moderate: False | High: False
+- **PE-13**  | Low: True | Moderate: True | High: True
+- **PE-13(1)**  | Low: False | Moderate: True | High: True
+- **PE-13(2)**  | Low: False | Moderate: False | High: True
+- **PE-13(3)**  | Low:  | Moderate:  | High:
+- **PE-13(4)**  | Low: False | Moderate: False | High: False
+- **PE-14**  | Low: True | Moderate: True | High: True
+- **PE-14(1)**  | Low: False | Moderate: False | High: False
+- **PE-14(2)**  | Low: False | Moderate: False | High: False
+- **PE-15**  | Low: True | Moderate: True | High: True
+- **PE-15(1)**  | Low: False | Moderate: False | High: True
+- **PE-16**  | Low: True | Moderate: True | High: True
+- **PE-17**  | Low: False | Moderate: True | High: True
+- **PE-18**  | Low: False | Moderate: False | High: True
+- **PE-18(1)**  | Low:  | Moderate:  | High:
+- **PE-19**  | Low: False | Moderate: False | High: False
+- **PE-19(1)**  | Low: False | Moderate: False | High: False
+- **PE-20**  | Low: False | Moderate: False | High: False
+- **PE-21**  | Low: False | Moderate: False | High: False
+- **PE-22**  | Low: False | Moderate: False | High: False
+- **PE-23**  | Low: False | Moderate: False | High: False
+
+### PL: ?
+- **PL-1**  | Low: True | Moderate: True | High: True
+- **PL-2**  | Low: True | Moderate: True | High: True
+- **PL-2(1)**  | Low:  | Moderate:  | High:
+- **PL-2(2)**  | Low:  | Moderate:  | High:
+- **PL-2(3)**  | Low:  | Moderate:  | High:
+- **PL-3**  | Low:  | Moderate:  | High:
+- **PL-4**  | Low: True | Moderate: True | High: True
+- **PL-4(1)**  | Low: True | Moderate: True | High: True
+- **PL-5**  | Low:  | Moderate:  | High:
+- **PL-6**  | Low:  | Moderate:  | High:
+- **PL-7**  | Low: False | Moderate: False | High: False
+- **PL-8**  | Low: False | Moderate: True | High: True
+- **PL-8(1)**  | Low: False | Moderate: False | High: False
+- **PL-8(2)**  | Low: False | Moderate: False | High: False
+- **PL-9**  | Low: False | Moderate: False | High: False
+- **PL-10**  | Low: True | Moderate: True | High: True
+- **PL-11**  | Low: True | Moderate: True | High: True
+
+### PM: ?
+- **PM-1**  | Low: False | Moderate: False | High: False
+- **PM-2**  | Low: False | Moderate: False | High: False
+- **PM-3**  | Low: False | Moderate: False | High: False
+- **PM-4**  | Low: False | Moderate: False | High: False
+- **PM-5**  | Low: False | Moderate: False | High: False
+- **PM-5(1)**  | Low: False | Moderate: False | High: False
+- **PM-6**  | Low: False | Moderate: False | High: False
+- **PM-7**  | Low: False | Moderate: False | High: False
+- **PM-7(1)**  | Low: False | Moderate: False | High: False
+- **PM-8**  | Low: False | Moderate: False | High: False
+- **PM-9**  | Low: False | Moderate: False | High: False
+- **PM-10**  | Low: False | Moderate: False | High: False
+- **PM-11**  | Low: False | Moderate: False | High: False
+- **PM-12**  | Low: False | Moderate: False | High: False
+- **PM-13**  | Low: False | Moderate: False | High: False
+- **PM-14**  | Low: False | Moderate: False | High: False
+- **PM-15**  | Low: False | Moderate: False | High: False
+- **PM-16**  | Low: False | Moderate: False | High: False
+- **PM-16(1)**  | Low: False | Moderate: False | High: False
+- **PM-17**  | Low: False | Moderate: False | High: False
+- **PM-18**  | Low: False | Moderate: False | High: False
+- **PM-19**  | Low: False | Moderate: False | High: False
+- **PM-20**  | Low: False | Moderate: False | High: False
+- **PM-20(1)**  | Low: False | Moderate: False | High: False
+- **PM-21**  | Low: False | Moderate: False | High: False
+- **PM-22**  | Low: False | Moderate: False | High: False
+- **PM-23**  | Low: False | Moderate: False | High: False
+- **PM-24**  | Low: False | Moderate: False | High: False
+- **PM-25**  | Low: False | Moderate: False | High: False
+- **PM-26**  | Low: False | Moderate: False | High: False
+- **PM-27**  | Low: False | Moderate: False | High: False
+- **PM-28**  | Low: False | Moderate: False | High: False
+- **PM-29**  | Low: False | Moderate: False | High: False
+- **PM-30**  | Low: False | Moderate: False | High: False
+- **PM-30(1)**  | Low: False | Moderate: False | High: False
+- **PM-31**  | Low: False | Moderate: False | High: False
+- **PM-32**  | Low: False | Moderate: False | High: False
+
+### PS: ?
+- **PS-1**  | Low: True | Moderate: True | High: True
+- **PS-2**  | Low: True | Moderate: True | High: True
+- **PS-3**  | Low: True | Moderate: True | High: True
+- **PS-3(1)**  | Low: False | Moderate: False | High: False
+- **PS-3(2)**  | Low: False | Moderate: False | High: False
+- **PS-3(3)**  | Low: False | Moderate: False | High: False
+- **PS-3(4)**  | Low: False | Moderate: False | High: False
+- **PS-4**  | Low: True | Moderate: True | High: True
+- **PS-4(1)**  | Low: False | Moderate: False | High: False
+- **PS-4(2)**  | Low: False | Moderate: False | High: True
+- **PS-5**  | Low: True | Moderate: True | High: True
+- **PS-6**  | Low: True | Moderate: True | High: True
+- **PS-6(1)**  | Low:  | Moderate:  | High:
+- **PS-6(2)**  | Low: False | Moderate: False | High: False
+- **PS-6(3)**  | Low: False | Moderate: False | High: False
+- **PS-7**  | Low: True | Moderate: True | High: True
+- **PS-8**  | Low: True | Moderate: True | High: True
+- **PS-9**  | Low: True | Moderate: True | High: True
+
+### PT: ?
+- **PT-1**  | Low: False | Moderate: False | High: False
+- **PT-2**  | Low: False | Moderate: False | High: False
+- **PT-2(1)**  | Low: False | Moderate: False | High: False
+- **PT-2(2)**  | Low: False | Moderate: False | High: False
+- **PT-3**  | Low: False | Moderate: False | High: False
+- **PT-3(1)**  | Low: False | Moderate: False | High: False
+- **PT-3(2)**  | Low: False | Moderate: False | High: False
+- **PT-4**  | Low: False | Moderate: False | High: False
+- **PT-4(1)**  | Low: False | Moderate: False | High: False
+- **PT-4(2)**  | Low: False | Moderate: False | High: False
+- **PT-4(3)**  | Low: False | Moderate: False | High: False
+- **PT-5**  | Low: False | Moderate: False | High: False
+- **PT-5(1)**  | Low: False | Moderate: False | High: False
+- **PT-5(2)**  | Low: False | Moderate: False | High: False
+- **PT-6**  | Low: False | Moderate: False | High: False
+- **PT-6(1)**  | Low: False | Moderate: False | High: False
+- **PT-6(2)**  | Low: False | Moderate: False | High: False
+- **PT-7**  | Low: False | Moderate: False | High: False
+- **PT-7(1)**  | Low: False | Moderate: False | High: False
+- **PT-7(2)**  | Low: False | Moderate: False | High: False
+- **PT-8**  | Low: False | Moderate: False | High: False
+
+### RA: ?
+- **RA-1**  | Low: True | Moderate: True | High: True
+- **RA-2**  | Low: True | Moderate: True | High: True
+- **RA-2(1)**  | Low: False | Moderate: False | High: False
+- **RA-3**  | Low: True | Moderate: True | High: True
+- **RA-3(1)**  | Low: True | Moderate: True | High: True
+- **RA-3(2)**  | Low: False | Moderate: False | High: False
+- **RA-3(3)**  | Low: False | Moderate: False | High: False
+- **RA-3(4)**  | Low: False | Moderate: False | High: False
+- **RA-4**  | Low:  | Moderate:  | High:
+- **RA-5**  | Low: True | Moderate: True | High: True
+- **RA-5(1)**  | Low:  | Moderate:  | High:
+- **RA-5(2)**  | Low: True | Moderate: True | High: True
+- **RA-5(3)**  | Low: False | Moderate: False | High: False
+- **RA-5(4)**  | Low: False | Moderate: False | High: True
+- **RA-5(5)**  | Low: False | Moderate: True | High: True
+- **RA-5(6)**  | Low: False | Moderate: False | High: False
+- **RA-5(7)**  | Low:  | Moderate:  | High:
+- **RA-5(8)**  | Low: False | Moderate: False | High: False
+- **RA-5(9)**  | Low:  | Moderate:  | High:
+- **RA-5(10)**  | Low: False | Moderate: False | High: False
+- **RA-5(11)**  | Low: True | Moderate: True | High: True
+- **RA-6**  | Low: False | Moderate: False | High: False
+- **RA-7**  | Low: True | Moderate: True | High: True
+- **RA-8**  | Low: False | Moderate: False | High: False
+- **RA-9**  | Low: False | Moderate: True | High: True
+- **RA-10**  | Low: False | Moderate: False | High: False
+
+### SA: ?
+- **SA-1**  | Low: True | Moderate: True | High: True
+- **SA-2**  | Low: True | Moderate: True | High: True
+- **SA-3**  | Low: True | Moderate: True | High: True
+- **SA-4**  | Low: True | Moderate: True | High: True
+- **SA-4(1)**  | Low: False | Moderate: True | High: True
+- **SA-4(2)**  | Low: False | Moderate: True | High: True
+- **SA-4(3)**  | Low: False | Moderate: False | High: False
+- **SA-4(4)**  | Low:  | Moderate:  | High:
+- **SA-4(5)**  | Low: False | Moderate: False | High: True
+- **SA-4(6)**  | Low: False | Moderate: False | High: False
+- **SA-4(7)**  | Low: False | Moderate: False | High: False
+- **SA-4(8)**  | Low: False | Moderate: False | High: False
+- **SA-4(9)**  | Low: False | Moderate: True | High: True
+- **SA-4(10)**  | Low: True | Moderate: True | High: True
+- **SA-4(11)**  | Low: False | Moderate: False | High: False
+- **SA-4(12)**  | Low: False | Moderate: False | High: False
+- **SA-5**  | Low: False | Moderate: True | High: True
+- **SA-5(1)**  | Low:  | Moderate:  | High:
+- **SA-5(2)**  | Low:  | Moderate:  | High:
+- **SA-5(3)**  | Low:  | Moderate:  | High:
+- **SA-5(4)**  | Low:  | Moderate:  | High:
+- **SA-5(5)**  | Low:  | Moderate:  | High:
+- **SA-6**  | Low:  | Moderate:  | High:
+- **SA-7**  | Low:  | Moderate:  | High:
+- **SA-8**  | Low: False | Moderate: True | High: True
+- **SA-8(33)**  | Low: False | Moderate: False | High: False
+- **SA-9**  | Low: True | Moderate: True | High: True
+- **SA-9(2)**  | Low: False | Moderate: True | High: True
+- **SA-10**  | Low: False | Moderate: True | High: True
+- **SA-11**  | Low: False | Moderate: True | High: True
+- **SA-12**  | Low:  | Moderate:  | High:
+- **SA-13**  | Low:  | Moderate:  | High:
+- **SA-14**  | Low:  | Moderate:  | High:
+- **SA-14(1)**  | Low:  | Moderate:  | High:
+- **SA-15**  | Low: False | Moderate: False | High: True
+- **SA-15(3)**  | Low: False | Moderate: True | High: True
+- **SA-16**  | Low: False | Moderate: False | High: True
+- **SA-17**  | Low: False | Moderate: False | High: True
+- **SA-18**  | Low:  | Moderate:  | High:
+- **SA-19**  | Low:  | Moderate:  | High:
+- **SA-20**  | Low: False | Moderate: False | High: False
+- **SA-21**  | Low: False | Moderate: False | High: True
+- **SA-21(1)**  | Low:  | Moderate:  | High:
+- **SA-22**  | Low: True | Moderate: True | High: True
+- **SA-22(1)**  | Low:  | Moderate:  | High:
+- **SA-23**  | Low: False | Moderate: False | High: False
+
+### SC: ?
+- **SC-1**  | Low: True | Moderate: True | High: True
+- **SC-2**  | Low: False | Moderate: True | High: True
+- **SC-3**  | Low: False | Moderate: False | High: True
+- **SC-4**  | Low: False | Moderate: True | High: True
+- **SC-4(1)**  | Low:  | Moderate:  | High:
+- **SC-5**  | Low: True | Moderate: True | High: True
+- **SC-7**  | Low: True | Moderate: True | High: True
+- **SC-7(1)**  | Low:  | Moderate:  | High:
+- **SC-7(2)**  | Low:  | Moderate:  | High:
+- **SC-7(3)**  | Low: False | Moderate: True | High: True
+- **SC-7(4)**  | Low: False | Moderate: True | High: True
+- **SC-7(5)**  | Low: False | Moderate: True | High: True
+- **SC-7(7)**  | Low: False | Moderate: True | High: True
+- **SC-7(8)**  | Low: False | Moderate: True | High: True
+- **SC-7(18)**  | Low: False | Moderate: False | High: True
+- **SC-7(21)**  | Low: False | Moderate: False | High: True
+- **SC-7(24)**  | Low: False | Moderate: False | High: False
+- **SC-8**  | Low: False | Moderate: True | High: True
+- **SC-8(1)**  | Low: False | Moderate: True | High: True
+- **SC-9**  | Low:  | Moderate:  | High:
+- **SC-10**  | Low: False | Moderate: True | High: True
+- **SC-12**  | Low: True | Moderate: True | High: True
+- **SC-12(1)**  | Low: False | Moderate: False | High: True
+- **SC-13**  | Low: True | Moderate: True | High: True
+- **SC-13(1)**  | Low:  | Moderate:  | High:
+- **SC-13(2)**  | Low:  | Moderate:  | High:
+- **SC-13(3)**  | Low:  | Moderate:  | High:
+- **SC-13(4)**  | Low:  | Moderate:  | High:
+- **SC-14**  | Low:  | Moderate:  | High:
+- **SC-15**  | Low: True | Moderate: True | High: True
+- **SC-15(2)**  | Low:  | Moderate:  | High:
+- **SC-17**  | Low: False | Moderate: True | High: True
+- **SC-18**  | Low: False | Moderate: True | High: True
+- **SC-19**  | Low:  | Moderate:  | High:
+- **SC-20**  | Low: True | Moderate: True | High: True
+- **SC-20(1)**  | Low:  | Moderate:  | High:
+- **SC-21**  | Low: True | Moderate: True | High: True
+- **SC-21(1)**  | Low:  | Moderate:  | High:
+- **SC-22**  | Low: True | Moderate: True | High: True
+- **SC-23**  | Low: False | Moderate: True | High: True
+- **SC-24**  | Low: False | Moderate: False | High: True
+- **SC-28**  | Low: False | Moderate: True | High: True
+- **SC-28(1)**  | Low: False | Moderate: True | High: True
+- **SC-39**  | Low: True | Moderate: True | High: True
+
+### SI: ?
+- **SI-1**  | Low: True | Moderate: True | High: True
+- **SI-2**  | Low: True | Moderate: True | High: True
+- **SI-2(2)**  | Low: False | Moderate: True | High: True
+- **SI-3**  | Low: True | Moderate: True | High: True
+- **SI-4**  | Low: True | Moderate: True | High: True
+- **SI-4(2)**  | Low: False | Moderate: True | High: True
+- **SI-4(4)**  | Low: False | Moderate: True | High: True
+- **SI-4(5)**  | Low: False | Moderate: True | High: True
+- **SI-4(10)**  | Low: False | Moderate: False | High: True
+- **SI-4(12)**  | Low: False | Moderate: False | High: True
+- **SI-4(14)**  | Low: False | Moderate: False | High: True
+- **SI-4(20)**  | Low: False | Moderate: False | High: True
+- **SI-4(22)**  | Low: False | Moderate: False | High: True
+- **SI-5**  | Low: True | Moderate: True | High: True
+- **SI-5(1)**  | Low: False | Moderate: False | High: True
+- **SI-6**  | Low: False | Moderate: False | High: True
+- **SI-7**  | Low: False | Moderate: True | High: True
+- **SI-7(1)**  | Low: False | Moderate: True | High: True
+- **SI-7(2)**  | Low: False | Moderate: False | High: True
+- **SI-7(5)**  | Low: False | Moderate: False | High: True
+- **SI-7(7)**  | Low: False | Moderate: True | High: True
+- **SI-7(15)**  | Low: False | Moderate: False | High: True
+- **SI-8**  | Low: False | Moderate: True | High: True
+- **SI-8(2)**  | Low: False | Moderate: True | High: True
+- **SI-10**  | Low: False | Moderate: True | High: True
+- **SI-11**  | Low: False | Moderate: False | High: True
+- **SI-12**  | Low: True | Moderate: True | High: True
+- **SI-12(1)**  | Low: False | Moderate: False | High: False
+- **SI-12(2)**  | Low: False | Moderate: False | High: False
+- **SI-12(3)**  | Low: False | Moderate: False | High: False
+- **SI-16**  | Low: False | Moderate: True | High: True
+- **SI-18**  | Low: False | Moderate: False | High: False
+- **SI-18(4)**  | Low: False | Moderate: False | High: False
+- **SI-19**  | Low: False | Moderate: False | High: False
+
+### SR: ?
+- **SR-1**  | Low: True | Moderate: True | High: True
+- **SR-2**  | Low: True | Moderate: True | High: True
+- **SR-2(1)**  | Low: True | Moderate: True | High: True
+- **SR-3**  | Low: True | Moderate: True | High: True
+- **SR-3(1)**  | Low: False | Moderate: False | High: False
+- **SR-3(2)**  | Low: False | Moderate: False | High: False
+- **SR-3(3)**  | Low: False | Moderate: False | High: False
+- **SR-4**  | Low: False | Moderate: False | High: False
+- **SR-5**  | Low: True | Moderate: True | High: True
+- **SR-5(1)**  | Low: False | Moderate: False | High: False
+- **SR-5(2)**  | Low: False | Moderate: False | High: False
+- **SR-6**  | Low: False | Moderate: True | High: True
+- **SR-6(1)**  | Low: False | Moderate: False | High: False
+- **SR-7**  | Low: False | Moderate: False | High: False
+- **SR-8**  | Low: True | Moderate: True | High: True
+- **SR-9**  | Low: False | Moderate: False | High: True
+- **SR-9(1)**  | Low: False | Moderate: False | High: True
+- **SR-10**  | Low: True | Moderate: True | High: True
+- **SR-11**  | Low: True | Moderate: True | High: True
+- **SR-11(1)**  | Low: True | Moderate: True | High: True
+- **SR-11(2)**  | Low: True | Moderate: True | High: True
+- **SR-11(3)**  | Low: False | Moderate: False | High: False
+- **SR-12**  | Low: True | Moderate: True | High: True
+
+---
+
+## Tailoring Guidance
+### description
+After selecting an appropriate control baseline, organizations initiate a tailoring process to align the controls more closely with the specific security and privacy requirements identified by the organization.
+
+### tailoring_activities
+['Identifying and designating common controls', 'Applying scoping considerations', 'Selecting compensating controls', 'Assigning values to organization-defined control parameters via explicit assignment and selection operations', 'Supplementing baselines with additional controls and control enhancements', 'Providing specification information for control implementation']
+
+### scoping_considerations
+[{'type': 'Control Implementation, Applicability, and Placement', 'description': 'Controls are applicable only to system components that provide or support the security or privacy functions or capabilities addressed by the controls.'}, {'type': 'Operational and Environmental Considerations', 'description': 'Where operational or environmental factors are absent or diverge from baseline assumptions, it is justifiable to tailor the baseline. Includes mobile devices, single-user systems, air-gapped systems, cyber-physical systems, IoT devices, limited functionality systems.'}, {'type': 'Technology Considerations', 'description': 'Controls referring to specific technologies are applicable only if those technologies are implemented or required for use within organizational systems.'}, {'type': 'Mission and Business Considerations', 'description': 'Certain controls may not be appropriate if implementing those controls has the potential to degrade, debilitate, or interfere with organizational mission or business functions.'}, {'type': 'Security Objective Considerations', 'description': 'Controls that support only one or two security objectives may be downgraded to a lower baseline if supported by risk assessment.'}, {'type': 'Legal and Policy Considerations', 'description': 'Controls used to meet legislative, regulatory, or policy requirements are not to be tailored out, but some may only apply in specified circumstances.'}]
+
+### security_objective_downgrade_candidates
+{'confidentiality_only': ['AC-21', 'MA-3(3)', 'MP-3', 'MP-4', 'MP-5', 'MP-6(1)', 'MP-6(2)', 'PE-4', 'PE-5', 'SC-4'], 'integrity_only': ['CM-5', 'CM-5(1)', 'CM-5(3)', 'SI-7', 'SI-7(1)', 'SI-7(5)', 'SI-10'], 'availability_only': ['CP-2(1)', 'CP-2(2)', 'CP-2(3)', 'CP-2(5)', 'CP-2(8)', 'CP-3(1)', 'CP-4(1)', 'CP-4(2)', 'CP-6', 'CP-6(1)', 'CP-6(2)', 'CP-6(3)', 'CP-7', 'CP-7(1)', 'CP-7(2)', 'CP-7(3)', 'CP-7(4)', 'CP-7(6)', 'CP-8', 'CP-8(1)', 'CP-8(2)', 'CP-8(3)', 'CP-8(4)', 'CP-8(5)', 'CP-9(2)', 'CP-9(3)', 'CP-9(5)', 'CP-9(6)', 'CP-10(2)', 'CP-10(4)', 'CP-11', 'MA-6', 'PE-9', 'PE-10', 'PE-11', 'PE-11(1)', 'PE-13(1)', 'PE-13(2)', 'PE-15(1)']}
