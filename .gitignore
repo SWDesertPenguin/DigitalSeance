@@ -1,10 +1,54 @@
+# === Secrets & credentials (highest priority) ===
 .env
-*.db
-data/
-__pycache__/
-.ruff_cache/
+*.pem
+*.key
+*.crt
+*.p12
+*.fernet
+
+# === Claude Code ===
 .claude/settings.json
 .claude/credentials*
 .claude/auth*
 .claude/*.key
 .claude/*.token
+
+# === Python ===
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.python-version
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# === Node (Phase 2 web UI) ===
+node_modules/
+
+# === Database ===
+*.db
+*.db-shm
+*.db-wal
+data/
+pgdata/
+postgres-data/
+
+# === Docker ===
+docker-compose.override.yml
+
+# === Logs ===
+*.log
+logs/
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
