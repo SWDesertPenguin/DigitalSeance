@@ -50,7 +50,7 @@ repos:
     hooks:
       - id: standards-lint
         name: standards lint (25/5 enforcement)
-        entry: python scripts/lint_code_standards.py
+        entry: uv run python scripts/lint_code_standards.py --baseline logs/standards-baseline/baseline.txt
         language: system
         types: [python]
         pass_filenames: true
