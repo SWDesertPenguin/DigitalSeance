@@ -1,0 +1,374 @@
+"""Shared pytest fixtures for SACP database tests."""
+
+from __future__ import annotations
+
+import os
+import uuid
+from collections.abc import AsyncGenerator
+
+import asyncpg
+import pytest
+
+# Ensure test database URL is set
+TEST_DB_URL = os.environ.get(
+    "SACP_TEST_DATABASE_URL",
+    "postgresql://sacp:changeme@localhost:5432/sacp_test",
+)
+
+
+@pytest.fixture(scope="session")
+def event_loop_policy() -> object:
+    """Use default event loop policy for all async tests."""
+    import asyncio
+
+    return asyncio.DefaultEventLoopPolicy()
+
+
+@pytest.fixture(scope="session")
+async def _create_test_db() -> AsyncGenerator[str, None]:
+    """Create a temporary test database, yield URL, then drop it."""
+    db_name = f"sacp_test_{uuid.uuid4().hex[:8]}"
+    admin_url = TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
+
+    conn = await asyncpg.connect(admin_url)
+    await conn.execute(f"DROP DATABASE IF EXISTS {db_name}")
+    await conn.execute(f"CREATE DATABASE {db_name}")
+    await conn.close()
+
+    test_url = TEST_DB_URL.rsplit("/", 1)[0] + f"/{db_name}"
+    yield test_url
+
+    conn = await asyncpg.connect(admin_url)
+    await conn.execute(f"DROP DATABASE IF EXISTS {db_name}")
+    await conn.close()
+
+
+@pytest.fixture(scope="session")
+async def _run_migrations(_create_test_db: str) -> str:
+    """Run Alembic migrations on the test database."""
+    conn = await asyncpg.connect(_create_test_db)
+    try:
+        await _apply_schema(conn)
+    finally:
+        await conn.close()
+    return _create_test_db
+
+
+async def _apply_schema(conn: asyncpg.Connection) -> None:
+    """Apply the initial schema directly via raw DDL for test speed."""
+    await _execute_schema_sql(conn)
+
+
+async def _execute_schema_sql(conn: asyncpg.Connection) -> None:
+    """Execute raw schema DDL for test database setup."""
+    schema_sql = _get_schema_sql()
+    for statement in schema_sql:
+        if statement.strip():
+            await conn.execute(statement)
+
+
+def _get_schema_sql() -> list[str]:
+    """Return the DDL statements for the full schema."""
+    return [
+        _sessions_ddl(),
+        _participants_ddl(),
+        _sessions_fk_ddl(),
+        _branches_ddl(),
+        _messages_ddl(),
+        _routing_log_ddl(),
+        _usage_log_ddl(),
+        _convergence_log_ddl(),
+        _admin_audit_log_ddl(),
+        _interrupt_queue_ddl(),
+        _review_gate_drafts_ddl(),
+        _invites_ddl(),
+        _proposals_ddl(),
+        _votes_ddl(),
+        *_index_ddls(),
+    ]
+
+
+def _sessions_ddl() -> str:
+    return """
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            status TEXT NOT NULL DEFAULT 'active',
+            current_turn INTEGER NOT NULL DEFAULT 0,
+            last_summary_turn INTEGER NOT NULL DEFAULT 0,
+            facilitator_id TEXT,
+            auto_approve BOOLEAN DEFAULT FALSE,
+            auto_archive_days INTEGER,
+            auto_delete_days INTEGER,
+            parent_session_id TEXT,
+            cadence_preset TEXT DEFAULT 'cruise',
+            complexity_classifier_mode TEXT DEFAULT 'pattern',
+            min_model_tier TEXT DEFAULT 'low',
+            acceptance_mode TEXT DEFAULT 'unanimous'
+        )
+    """
+
+
+def _participants_ddl() -> str:
+    return _PARTICIPANTS_TABLE_DDL
+
+
+_PARTICIPANTS_TABLE_DDL = """
+    CREATE TABLE participants (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id),
+        display_name TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'pending',
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        model_tier TEXT NOT NULL,
+        prompt_tier TEXT DEFAULT 'mid',
+        model_family TEXT NOT NULL,
+        context_window INTEGER NOT NULL,
+        supports_tools BOOLEAN DEFAULT TRUE,
+        supports_streaming BOOLEAN DEFAULT TRUE,
+        domain_tags TEXT NOT NULL DEFAULT '[]',
+        routing_preference TEXT DEFAULT 'always',
+        observer_interval INTEGER DEFAULT 10,
+        burst_interval INTEGER DEFAULT 20,
+        review_gate_timeout INTEGER DEFAULT 600,
+        turns_since_last_burst INTEGER DEFAULT 0,
+        turn_timeout_seconds INTEGER DEFAULT 60,
+        consecutive_timeouts INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'active',
+        budget_hourly REAL,
+        budget_daily REAL,
+        max_tokens_per_turn INTEGER,
+        cost_per_input_token REAL,
+        cost_per_output_token REAL,
+        system_prompt TEXT NOT NULL DEFAULT '',
+        api_endpoint TEXT,
+        api_key_encrypted TEXT,
+        auth_token_hash TEXT,
+        last_seen TIMESTAMP,
+        invited_by TEXT REFERENCES participants(id),
+        approved_at TIMESTAMP
+    )
+"""
+
+
+def _sessions_fk_ddl() -> str:
+    return """
+        ALTER TABLE sessions
+        ADD CONSTRAINT fk_sessions_facilitator
+        FOREIGN KEY (facilitator_id) REFERENCES participants(id)
+    """
+
+
+def _branches_ddl() -> str:
+    return """
+        CREATE TABLE branches (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id),
+            parent_branch_id TEXT REFERENCES branches(id),
+            branch_point_turn INTEGER NOT NULL DEFAULT 0,
+            name TEXT NOT NULL,
+            status TEXT DEFAULT 'active',
+            created_by TEXT NOT NULL REFERENCES participants(id),
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """
+
+
+def _messages_ddl() -> str:
+    return """
+        CREATE TABLE messages (
+            turn_number INTEGER NOT NULL,
+            session_id TEXT NOT NULL REFERENCES sessions(id),
+            branch_id TEXT NOT NULL DEFAULT 'main'
+                REFERENCES branches(id),
+            parent_turn INTEGER,
+            speaker_id TEXT NOT NULL REFERENCES participants(id),
+            speaker_type TEXT NOT NULL,
+            delegated_from TEXT REFERENCES participants(id),
+            complexity_score TEXT NOT NULL,
+            content TEXT NOT NULL,
+            token_count INTEGER NOT NULL,
+            cost_usd REAL,
+            created_at TIMESTAMP DEFAULT NOW(),
+            summary_epoch INTEGER,
+            PRIMARY KEY (turn_number, session_id, branch_id)
+        )
+    """
+
+
+def _routing_log_ddl() -> str:
+    return """
+        CREATE TABLE routing_log (
+            id SERIAL PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id),
+            turn_number INTEGER NOT NULL,
+            intended_participant TEXT NOT NULL
+                REFERENCES participants(id),
+            actual_participant TEXT NOT NULL
+                REFERENCES participants(id),
+            routing_action TEXT NOT NULL,
+            complexity_score TEXT NOT NULL,
+            domain_match BOOLEAN NOT NULL,
+            reason TEXT NOT NULL,
+            timestamp TIMESTAMP DEFAULT NOW()
+        )
+    """
+
+
+def _usage_log_ddl() -> str:
+    return """
+        CREATE TABLE usage_log (
+            id SERIAL PRIMARY KEY,
+            participant_id TEXT NOT NULL
+                REFERENCES participants(id),
+            turn_number INTEGER NOT NULL,
+            input_tokens INTEGER NOT NULL,
+            output_tokens INTEGER NOT NULL,
+            cost_usd REAL NOT NULL,
+            timestamp TIMESTAMP DEFAULT NOW()
+        )
+    """
+
+
+def _convergence_log_ddl() -> str:
+    return """
+        CREATE TABLE convergence_log (
+            turn_number INTEGER PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id),
+            embedding BYTEA NOT NULL,
+            similarity_score REAL NOT NULL,
+            divergence_prompted BOOLEAN DEFAULT FALSE,
+            escalated_to_human BOOLEAN DEFAULT FALSE
+        )
+    """
+
+
+def _admin_audit_log_ddl() -> str:
+    return """
+        CREATE TABLE admin_audit_log (
+            id SERIAL PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id),
+            facilitator_id TEXT NOT NULL
+                REFERENCES participants(id),
+            action TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            previous_value TEXT,
+            new_value TEXT,
+            timestamp TIMESTAMP DEFAULT NOW()
+        )
+    """
+
+
+def _interrupt_queue_ddl() -> str:
+    return """
+        CREATE TABLE interrupt_queue (
+            id SERIAL PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id),
+            participant_id TEXT NOT NULL
+                REFERENCES participants(id),
+            content TEXT NOT NULL,
+            priority INTEGER DEFAULT 1,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT NOW(),
+            delivered_at TIMESTAMP
+        )
+    """
+
+
+def _review_gate_drafts_ddl() -> str:
+    return """
+        CREATE TABLE review_gate_drafts (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id),
+            participant_id TEXT NOT NULL
+                REFERENCES participants(id),
+            turn_number INTEGER NOT NULL,
+            draft_content TEXT NOT NULL,
+            context_summary TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            edited_content TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            resolved_at TIMESTAMP
+        )
+    """
+
+
+def _invites_ddl() -> str:
+    return """
+        CREATE TABLE invites (
+            token_hash TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id),
+            created_by TEXT NOT NULL
+                REFERENCES participants(id),
+            max_uses INTEGER DEFAULT 1,
+            uses INTEGER DEFAULT 0,
+            expires_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """
+
+
+def _proposals_ddl() -> str:
+    return """
+        CREATE TABLE proposals (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id),
+            proposed_by TEXT NOT NULL
+                REFERENCES participants(id),
+            topic TEXT NOT NULL,
+            position TEXT NOT NULL,
+            status TEXT DEFAULT 'open',
+            acceptance_mode TEXT NOT NULL,
+            expires_at TIMESTAMP,
+            resolved_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """
+
+
+def _votes_ddl() -> str:
+    return """
+        CREATE TABLE votes (
+            proposal_id TEXT NOT NULL REFERENCES proposals(id),
+            participant_id TEXT NOT NULL
+                REFERENCES participants(id),
+            vote TEXT NOT NULL,
+            comment TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (proposal_id, participant_id)
+        )
+    """
+
+
+def _index_ddls() -> list[str]:
+    return [
+        "CREATE INDEX idx_messages_recent ON messages (session_id, branch_id, turn_number DESC)",
+        "CREATE INDEX idx_interrupt_pending"
+        " ON interrupt_queue (session_id, status, priority DESC, created_at)",
+        "CREATE INDEX idx_routing_session_turn ON routing_log (session_id, turn_number)",
+        "CREATE INDEX idx_usage_participant ON usage_log (participant_id, timestamp)",
+        "CREATE INDEX idx_participants_session ON participants (session_id, status)",
+        "CREATE INDEX idx_invites_session ON invites (session_id)",
+        "CREATE INDEX idx_proposals_session ON proposals (session_id, status)",
+        "CREATE INDEX idx_review_gate_pending ON review_gate_drafts (session_id, status)",
+    ]
+
+
+@pytest.fixture
+async def pool(_run_migrations: str) -> AsyncGenerator[asyncpg.Pool, None]:
+    """Provide a connection pool to the test database."""
+    p = await asyncpg.create_pool(_run_migrations, min_size=1, max_size=5)
+    yield p
+    await p.close()
+
+
+@pytest.fixture
+async def conn(pool: asyncpg.Pool) -> AsyncGenerator[asyncpg.Connection, None]:
+    """Provide a single connection with transaction rollback."""
+    async with pool.acquire() as connection:
+        tr = connection.transaction()
+        await tr.start()
+        yield connection
+        await tr.rollback()
