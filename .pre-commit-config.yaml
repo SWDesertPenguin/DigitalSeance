@@ -2,6 +2,9 @@
 #
 # Install once: uv tool install pre-commit && pre-commit install
 # Run on demand: pre-commit run --all-files
+#
+# Hook order: secret detection first, then hygiene, then lint/format,
+# then security analysis, then coding standards enforcement.
 
 repos:
   # --- Secret detection (must run first) ---
@@ -32,3 +35,22 @@ repos:
       - id: ruff
         args: ["--fix", "--exit-non-zero-on-fix"]
       - id: ruff-format
+
+  # --- Python security analysis (SAST) ---
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.3
+    hooks:
+      - id: bandit
+        name: bandit (Python SAST)
+        args: ["-c", "pyproject.toml"]
+        additional_dependencies: ["bandit[toml]"]
+
+  # --- Coding standards enforcement (25-line/5-arg) ---
+  - repo: local
+    hooks:
+      - id: standards-lint
+        name: standards lint (25/5 enforcement)
+        entry: python scripts/lint_code_standards.py
+        language: system
+        types: [python]
+        pass_filenames: true
