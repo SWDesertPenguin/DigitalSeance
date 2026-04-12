@@ -60,8 +60,18 @@ def _attach_services(
     encryption_key: str,
 ) -> None:
     """Attach shared services to app state."""
+    _attach_auth_and_repos(app, pool, encryption_key)
+    _attach_orchestrator(app, pool, encryption_key)
+
+
+def _attach_auth_and_repos(
+    app: FastAPI,
+    pool: object,
+    encryption_key: str,
+) -> None:
+    """Attach auth, repos, and rate limiter."""
     from src.auth.service import AuthService
-    from src.orchestrator.loop import ConversationLoop
+    from src.mcp_server.rate_limiter import RateLimiter
     from src.repositories.interrupt_repo import InterruptRepository
     from src.repositories.invite_repo import InviteRepository
     from src.repositories.message_repo import MessageRepository
@@ -69,19 +79,21 @@ def _attach_services(
     from src.repositories.session_repo import SessionRepository
 
     app.state.pool = pool
-    app.state.auth_service = AuthService(
-        pool,
-        encryption_key=encryption_key,
-    )
+    app.state.auth_service = AuthService(pool, encryption_key=encryption_key)
     app.state.session_repo = SessionRepository(pool)
-    app.state.participant_repo = ParticipantRepository(
-        pool,
-        encryption_key=encryption_key,
-    )
+    app.state.participant_repo = ParticipantRepository(pool, encryption_key=encryption_key)
     app.state.message_repo = MessageRepository(pool)
     app.state.interrupt_repo = InterruptRepository(pool)
     app.state.invite_repo = InviteRepository(pool)
-    app.state.conversation_loop = ConversationLoop(
-        pool,
-        encryption_key=encryption_key,
-    )
+    app.state.rate_limiter = RateLimiter()
+
+
+def _attach_orchestrator(
+    app: FastAPI,
+    pool: object,
+    encryption_key: str,
+) -> None:
+    """Attach conversation loop."""
+    from src.orchestrator.loop import ConversationLoop
+
+    app.state.conversation_loop = ConversationLoop(pool, encryption_key=encryption_key)
