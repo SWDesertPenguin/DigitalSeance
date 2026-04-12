@@ -7,9 +7,12 @@ import asyncpg
 from src.models.message import Message
 from src.models.participant import Participant
 from src.orchestrator.types import ContextMessage
+from src.prompts.tiers import assemble_prompt
 from src.repositories.interrupt_repo import InterruptRepository
 from src.repositories.message_repo import MessageRepository
 from src.repositories.proposal_repo import ProposalRepository
+from src.security.sanitizer import sanitize
+from src.security.spotlighting import should_spotlight, spotlight
 
 INTERJECTION_BUDGET = 500
 PROPOSAL_BUDGET = 500
@@ -97,11 +100,14 @@ def _add_system_prompt(
     context: list[ContextMessage],
     participant: Participant,
 ) -> int:
-    """Add system prompt as first context message."""
-    if participant.system_prompt:
-        ctx = ContextMessage("system", participant.system_prompt, None)
-        context.append(ctx)
-        return _estimate_tokens(ctx.content)
+    """Add tiered system prompt as first context message."""
+    prompt = assemble_prompt(
+        prompt_tier=participant.prompt_tier,
+        custom_prompt=participant.system_prompt,
+    )
+    ctx = ContextMessage("system", prompt, None)
+    context.append(ctx)
+    return _estimate_tokens(ctx.content)
     return 0
 
 
@@ -143,16 +149,25 @@ def _add_messages(
     used: int,
     budget: int,
 ) -> int:
-    """Add messages respecting token budget."""
+    """Add messages with sanitization + spotlighting."""
     for msg in messages:
-        tokens = _estimate_tokens(msg.content)
+        content = _secure_content(msg)
+        tokens = _estimate_tokens(content)
         if used + tokens > budget:
             break
         role = _message_role(msg.speaker_type)
-        marker = f"<sacp:{msg.speaker_type}>{msg.content}"
-        context.append(ContextMessage(role, marker, msg.turn_number))
+        context.append(ContextMessage(role, content, msg.turn_number))
         used += tokens
     return used
+
+
+def _secure_content(msg: Message) -> str:
+    """Sanitize and optionally spotlight a message."""
+    cleaned = sanitize(msg.content)
+    tagged = f"<sacp:{msg.speaker_type}>{cleaned}"
+    if should_spotlight(msg.speaker_type):
+        return spotlight(tagged, msg.speaker_id)
+    return tagged
 
 
 def _add_summary(
