@@ -17,6 +17,11 @@ _FERNET_TOKENS = re.compile(r"gAAAAA[a-zA-Z0-9_-]{40,}")
 
 _CREDENTIAL_PATTERNS = [_API_KEYS, _ANTHROPIC_KEYS, _JWT_TOKENS, _FERNET_TOKENS]
 
+# Context assembly markers that must not leak into stored messages
+_SPOTLIGHT_MARKER = re.compile(r"\^[0-9a-f]{6}\^")
+_SACP_TAGS = re.compile(r"</?sacp:(?:human|ai)>")
+_CANARY_TOKEN = re.compile(r"\[Internal:\s*CANARY_[0-9a-f]+\]")
+
 
 def filter_exfiltration(text: str) -> tuple[str, list[str]]:
     """Strip exfiltration patterns. Returns (cleaned, flags)."""
@@ -26,6 +31,7 @@ def filter_exfiltration(text: str) -> tuple[str, list[str]]:
     result = _strip_html_src(result, flags)
     result = _flag_data_urls(result, flags)
     result = _redact_credentials(result, flags)
+    result = _strip_context_markers(result, flags)
     return result, flags
 
 
@@ -57,4 +63,19 @@ def _redact_credentials(text: str, flags: list[str]) -> str:
         if pattern.search(result):
             flags.append("credential_redacted")
             result = pattern.sub("[REDACTED]", result)
+    return result
+
+
+def _strip_context_markers(text: str, flags: list[str]) -> str:
+    """Remove spotlighting markers, SACP tags, and canary tokens."""
+    result = text
+    if _SPOTLIGHT_MARKER.search(result):
+        flags.append("spotlight_marker_stripped")
+        result = _SPOTLIGHT_MARKER.sub("", result)
+    if _SACP_TAGS.search(result):
+        flags.append("sacp_tag_stripped")
+        result = _SACP_TAGS.sub("", result)
+    if _CANARY_TOKEN.search(result):
+        flags.append("canary_token_stripped")
+        result = _CANARY_TOKEN.sub("", result)
     return result
