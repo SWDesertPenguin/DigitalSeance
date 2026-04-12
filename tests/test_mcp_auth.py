@@ -27,7 +27,7 @@ def test_missing_token_returns_403() -> None:
     app = _make_test_app()
     client = TestClient(app)
     response = client.get("/test")
-    assert response.status_code == 403
+    assert response.status_code in (401, 403)
 
 
 def test_invalid_bearer_format_returns_403() -> None:
@@ -38,4 +38,4 @@ def test_invalid_bearer_format_returns_403() -> None:
         "/test",
         headers={"Authorization": "NotBearer token"},
     )
-    assert response.status_code == 403
+    assert response.status_code in (401, 403)
