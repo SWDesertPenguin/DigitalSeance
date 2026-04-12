@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from src.auth.service import AuthService
+from src.mcp_server.rate_limiter import RateLimiter
 from src.models.participant import Participant
 from src.repositories.errors import (
     AuthRequiredError,
@@ -22,6 +23,11 @@ async def get_auth_service(request: Request) -> AuthService:
     return request.app.state.auth_service
 
 
+def get_rate_limiter(request: Request) -> RateLimiter:
+    """Extract RateLimiter from app state."""
+    return request.app.state.rate_limiter
+
+
 async def get_current_participant(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
@@ -30,7 +36,7 @@ async def get_current_participant(
     """Validate bearer token and return authenticated participant."""
     client_ip = _get_client_ip(request)
     try:
-        return await auth_service.authenticate(
+        participant = await auth_service.authenticate(
             credentials.credentials,
             client_ip,
         )
@@ -38,6 +44,10 @@ async def get_current_participant(
         raise HTTPException(status_code=401, detail="Invalid or expired token") from e
     except IPBindingMismatchError as e:
         raise HTTPException(status_code=403, detail="IP binding mismatch") from e
+    # Rate limit check after successful auth
+    limiter = get_rate_limiter(request)
+    limiter.check(participant.id)
+    return participant
 
 
 def _get_client_ip(request: Request) -> str:
