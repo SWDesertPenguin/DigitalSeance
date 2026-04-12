@@ -9,6 +9,7 @@ import asyncpg
 
 from src.api_bridge.format import to_provider_messages
 from src.api_bridge.provider import dispatch_with_retry
+from src.orchestrator.branch import get_main_branch_id
 from src.orchestrator.budget import BudgetEnforcer
 from src.orchestrator.circuit_breaker import CircuitBreaker
 from src.orchestrator.context import ContextAssembler
@@ -34,6 +35,7 @@ class _TurnContext:
 
     session_id: str
     encryption_key: str
+    pool: asyncpg.Pool
     msg_repo: MessageRepository
     log_repo: LogRepository
     gate_repo: ReviewGateRepository
@@ -95,6 +97,7 @@ class ConversationLoop:
         ctx = _TurnContext(
             session_id=session_id,
             encryption_key=self._encryption_key,
+            pool=self._pool,
             msg_repo=self._msg_repo,
             log_repo=self._log_repo,
             gate_repo=self._gate_repo,
@@ -221,9 +224,10 @@ async def _persist_turn(
     response: ProviderResponse,
 ) -> TurnResult:
     """Persist response as message and log routing + usage."""
+    branch_id = await get_main_branch_id(ctx.pool, ctx.session_id)
     msg = await ctx.msg_repo.append_message(
         session_id=ctx.session_id,
-        branch_id="main",
+        branch_id=branch_id,
         speaker_id=speaker.id,
         speaker_type="ai",
         content=response.content,
