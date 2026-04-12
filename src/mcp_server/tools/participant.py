@@ -49,9 +49,10 @@ async def get_history(
 ) -> dict:
     """Get recent conversation history."""
     msg_repo = request.app.state.message_repo
+    branch_id = await _get_branch_id(request, participant.session_id)
     messages = await msg_repo.get_recent(
         participant.session_id,
-        "main",
+        branch_id,
         limit,
     )
     return {"messages": [_format_message(m) for m in messages]}
@@ -64,13 +65,25 @@ async def get_summary(
 ) -> dict:
     """Get latest summarization checkpoint."""
     msg_repo = request.app.state.message_repo
+    branch_id = await _get_branch_id(request, participant.session_id)
     summaries = await msg_repo.get_summaries(
         participant.session_id,
-        "main",
+        branch_id,
     )
     if not summaries:
         return {"summary": None}
     return {"summary": summaries[-1].content}
+
+
+async def _get_branch_id(request: Request, session_id: str) -> str:
+    """Look up the main branch ID for a session."""
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        result = await conn.fetchval(
+            "SELECT id FROM branches WHERE session_id = $1 LIMIT 1",
+            session_id,
+        )
+    return result or "main"
 
 
 @router.post("/set_routing_preference")
