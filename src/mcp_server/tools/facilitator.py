@@ -10,6 +10,41 @@ from src.models.participant import Participant
 router = APIRouter(prefix="/tools/facilitator", tags=["facilitator"])
 
 
+@router.post("/add_participant")
+async def add_participant(
+    request: Request,
+    *,
+    display_name: str,
+    provider: str,
+    model: str,
+    model_tier: str,
+    model_family: str,
+    context_window: int,
+    api_key: str = "",
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Add a participant directly (facilitator only, auto-approved)."""
+    p_repo = request.app.state.participant_repo
+    new_p, token = await p_repo.add_participant(
+        session_id=participant.session_id,
+        display_name=display_name,
+        provider=provider,
+        model=model,
+        model_tier=model_tier,
+        model_family=model_family,
+        context_window=context_window,
+        api_key=api_key or None,
+        auto_approve=True,
+    )
+    auth = request.app.state.auth_service
+    auth_token = await auth.rotate_token(new_p.id)
+    return {
+        "participant_id": new_p.id,
+        "auth_token": auth_token,
+        "role": new_p.role,
+    }
+
+
 @router.post("/create_invite")
 async def create_invite(
     request: Request,

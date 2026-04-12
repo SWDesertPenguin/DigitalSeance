@@ -27,8 +27,9 @@ async def create_session(
     model_tier: str,
     model_family: str,
     context_window: int,
+    api_key: str = "",
 ) -> dict:
-    """Create a new session (no auth — returns facilitator token)."""
+    """Create a new session. Returns facilitator token."""
     session_repo = request.app.state.session_repo
     session, facilitator, branch = await session_repo.create_session(
         name,
@@ -39,7 +40,33 @@ async def create_session(
         facilitator_model_family=model_family,
         facilitator_context_window=context_window,
     )
-    return _format_created(session, facilitator, branch)
+    # Set API key and generate auth token if provided
+    token = None
+    if api_key:
+        p_repo = request.app.state.participant_repo
+        auth = request.app.state.auth_service
+        await _set_facilitator_key(p_repo, facilitator.id, api_key)
+        token = await auth.rotate_token(facilitator.id)
+    result = _format_created(session, facilitator, branch)
+    if token:
+        result["auth_token"] = token
+    return result
+
+
+async def _set_facilitator_key(
+    p_repo: object,
+    facilitator_id: str,
+    api_key: str,
+) -> None:
+    """Encrypt and store the facilitator's API key."""
+    from src.database.encryption import encrypt_value
+
+    encrypted = encrypt_value(api_key, key=p_repo._encryption_key)
+    await p_repo._execute(
+        "UPDATE participants SET api_key_encrypted = $1" " WHERE id = $2",
+        encrypted,
+        facilitator_id,
+    )
 
 
 @router.post("/pause")
