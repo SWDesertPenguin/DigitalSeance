@@ -360,10 +360,27 @@ def _index_ddls() -> list[str]:
 
 @pytest.fixture
 async def pool(_run_migrations: str) -> AsyncGenerator[asyncpg.Pool, None]:
-    """Provide a connection pool to the test database."""
+    """Provide a connection pool, truncate all tables before each test."""
     p = await asyncpg.create_pool(_run_migrations, min_size=1, max_size=5)
+    await _truncate_all(p)
     yield p
     await p.close()
+
+
+async def _truncate_all(pool: asyncpg.Pool) -> None:
+    """Truncate all tables for test isolation."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "TRUNCATE votes, proposals, invites,"
+            " review_gate_drafts, interrupt_queue,"
+            " admin_audit_log, convergence_log,"
+            " usage_log, routing_log,"
+            " messages, branches"
+            " CASCADE"
+        )
+        await conn.execute("UPDATE sessions SET facilitator_id = NULL")
+        await conn.execute("TRUNCATE participants CASCADE")
+        await conn.execute("TRUNCATE sessions CASCADE")
 
 
 @pytest.fixture
