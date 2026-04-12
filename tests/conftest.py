@@ -148,7 +148,9 @@ _PARTICIPANTS_TABLE_DDL = """
         auth_token_hash TEXT,
         last_seen TIMESTAMP,
         invited_by TEXT REFERENCES participants(id),
-        approved_at TIMESTAMP
+        approved_at TIMESTAMP,
+        token_expires_at TIMESTAMP,
+        bound_ip TEXT
     )
 """
 
