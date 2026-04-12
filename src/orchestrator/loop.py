@@ -1,0 +1,307 @@
+"""Conversation loop — serialized turn execution engine."""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+
+import asyncpg
+
+from src.api_bridge.format import to_provider_messages
+from src.api_bridge.provider import dispatch_with_retry
+from src.orchestrator.budget import BudgetEnforcer
+from src.orchestrator.circuit_breaker import CircuitBreaker
+from src.orchestrator.context import ContextAssembler
+from src.orchestrator.router import TurnRouter
+from src.orchestrator.types import ProviderResponse, TurnResult
+from src.repositories.errors import (
+    AllParticipantsExhaustedError,
+    ProviderDispatchError,
+)
+from src.repositories.interrupt_repo import InterruptRepository
+from src.repositories.log_repo import LogRepository
+from src.repositories.message_repo import MessageRepository
+from src.repositories.review_gate_repo import ReviewGateRepository
+
+log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _TurnContext:
+    """Bundles all dependencies for a single turn."""
+
+    session_id: str
+    encryption_key: str
+    msg_repo: MessageRepository
+    log_repo: LogRepository
+    gate_repo: ReviewGateRepository
+
+
+class ConversationLoop:
+    """Serialized turn execution engine for SACP sessions."""
+
+    def __init__(
+        self,
+        pool: asyncpg.Pool,
+        *,
+        encryption_key: str,
+    ) -> None:
+        self._pool = pool
+        self._encryption_key = encryption_key
+        self._assembler = ContextAssembler(pool)
+        self._router = TurnRouter(pool, encryption_key=encryption_key)
+        self._budget = BudgetEnforcer(LogRepository(pool))
+        self._breaker = CircuitBreaker(pool)
+        self._int_repo = InterruptRepository(pool)
+        self._msg_repo = MessageRepository(pool)
+        self._log_repo = LogRepository(pool)
+        self._gate_repo = ReviewGateRepository(pool)
+
+    async def execute_turn(self, session_id: str) -> TurnResult:
+        """Execute a single turn iteration."""
+        await _deliver_interrupts(self._int_repo, session_id)
+        speaker = await self._router.next_speaker(session_id)
+        if speaker is None:
+            raise AllParticipantsExhaustedError("No active participants")
+
+        skip = await _check_skip_conditions(
+            self._budget,
+            self._breaker,
+            speaker,
+            session_id,
+        )
+        if skip:
+            return skip
+
+        return await self._execute_routed_turn(session_id, speaker)
+
+    async def _execute_routed_turn(
+        self,
+        session_id: str,
+        speaker: object,
+    ) -> TurnResult:
+        """Route, assemble, dispatch, and persist a turn."""
+        interjections = await self._int_repo.get_pending(session_id)
+        decision = await self._router.route(
+            speaker,
+            has_interjection=len(interjections) > 0,
+        )
+        if decision.action in ("skipped", "burst_accumulating"):
+            await _log_routing(self._log_repo, session_id, decision)
+            return _skip_from_decision(session_id, decision)
+
+        ctx = _TurnContext(
+            session_id=session_id,
+            encryption_key=self._encryption_key,
+            msg_repo=self._msg_repo,
+            log_repo=self._log_repo,
+            gate_repo=self._gate_repo,
+        )
+        return await _dispatch_and_persist(
+            ctx,
+            self._assembler,
+            self._breaker,
+            speaker,
+            decision,
+        )
+
+
+async def _deliver_interrupts(
+    int_repo: InterruptRepository,
+    session_id: str,
+) -> None:
+    """Deliver all pending interjections."""
+    pending = await int_repo.get_pending(session_id)
+    for intr in pending:
+        await int_repo.mark_delivered(intr.id)
+
+
+async def _check_skip_conditions(
+    budget: BudgetEnforcer,
+    breaker: CircuitBreaker,
+    speaker: object,
+    session_id: str,
+) -> TurnResult | None:
+    """Return a skip result if speaker should be skipped."""
+    if not await budget.check_budget(speaker):
+        return _skip_result(session_id, speaker.id, "budget_exceeded")
+    if await breaker.is_open(speaker.id):
+        return _skip_result(session_id, speaker.id, "circuit_open")
+    return None
+
+
+async def _dispatch_and_persist(
+    ctx: _TurnContext,
+    assembler: ContextAssembler,
+    breaker: CircuitBreaker,
+    speaker: object,
+    decision: object,
+) -> TurnResult:
+    """Assemble context, dispatch to provider, persist result."""
+    context = await assembler.assemble(
+        session_id=ctx.session_id,
+        participant=speaker,
+    )
+    messages = to_provider_messages(context)
+
+    try:
+        response = await _dispatch_to_provider(
+            speaker,
+            messages,
+            ctx.encryption_key,
+        )
+        await breaker.record_success(speaker.id)
+    except ProviderDispatchError:
+        log.warning("Provider dispatch failed for %s", speaker.id)
+        await breaker.record_failure(speaker.id)
+        return _skip_result(ctx.session_id, speaker.id, "provider_error")
+
+    if decision.action == "review_gated":
+        return await _stage_for_review(ctx, speaker, decision, response)
+    return await _persist_turn(ctx, speaker, decision, response)
+
+
+async def _dispatch_to_provider(
+    speaker: object,
+    messages: list[dict[str, str]],
+    encryption_key: str,
+) -> ProviderResponse:
+    """Dispatch context to the speaker's AI provider."""
+    return await dispatch_with_retry(
+        model=speaker.model,
+        messages=messages,
+        api_key_encrypted=speaker.api_key_encrypted,
+        encryption_key=encryption_key,
+        api_base=speaker.api_endpoint,
+        timeout=speaker.turn_timeout_seconds,
+        max_tokens=speaker.max_tokens_per_turn,
+    )
+
+
+async def _persist_turn(
+    ctx: _TurnContext,
+    speaker: object,
+    decision: object,
+    response: ProviderResponse,
+) -> TurnResult:
+    """Persist response as message and log routing + usage."""
+    msg = await ctx.msg_repo.append_message(
+        session_id=ctx.session_id,
+        branch_id="main",
+        speaker_id=speaker.id,
+        speaker_type="ai",
+        content=response.content,
+        token_count=response.input_tokens + response.output_tokens,
+        complexity_score=decision.complexity,
+        cost_usd=response.cost_usd,
+    )
+    await _log_routing(ctx.log_repo, ctx.session_id, decision)
+    await _log_usage(ctx.log_repo, speaker, msg.turn_number, response)
+    return _turn_result(ctx.session_id, msg.turn_number, speaker, decision, response)
+
+
+async def _stage_for_review(
+    ctx: _TurnContext,
+    speaker: object,
+    decision: object,
+    response: ProviderResponse,
+) -> TurnResult:
+    """Stage response as review gate draft."""
+    await ctx.gate_repo.create_draft(
+        session_id=ctx.session_id,
+        participant_id=speaker.id,
+        turn_number=0,
+        draft_content=response.content,
+        context_summary="Auto-generated turn response",
+    )
+    await _log_routing(ctx.log_repo, ctx.session_id, decision)
+    return _turn_result(ctx.session_id, -1, speaker, decision, response)
+
+
+async def _log_routing(
+    log_repo: LogRepository,
+    session_id: str,
+    decision: object,
+) -> None:
+    """Log the routing decision."""
+    await log_repo.log_routing(
+        session_id=session_id,
+        turn_number=0,
+        intended=decision.intended,
+        actual=decision.actual,
+        action=decision.action,
+        complexity=decision.complexity,
+        domain_match=decision.domain_match,
+        reason=decision.reason,
+    )
+
+
+async def _log_usage(
+    log_repo: LogRepository,
+    speaker: object,
+    turn_number: int,
+    response: ProviderResponse,
+) -> None:
+    """Log token usage for the turn."""
+    await log_repo.log_usage(
+        participant_id=speaker.id,
+        turn_number=turn_number,
+        input_tokens=response.input_tokens,
+        output_tokens=response.output_tokens,
+        cost_usd=response.cost_usd,
+    )
+
+
+def _turn_result(
+    session_id: str,
+    turn_number: int,
+    speaker: object,
+    decision: object,
+    response: ProviderResponse,
+) -> TurnResult:
+    """Build a TurnResult from components."""
+    return TurnResult(
+        session_id=session_id,
+        turn_number=turn_number,
+        speaker_id=speaker.id,
+        action=decision.action,
+        tokens_used=response.input_tokens + response.output_tokens,
+        cost_usd=response.cost_usd,
+        skipped=False,
+        skip_reason=None,
+    )
+
+
+def _skip_result(
+    session_id: str,
+    speaker_id: str,
+    reason: str,
+) -> TurnResult:
+    """Create a skipped turn result."""
+    return TurnResult(
+        session_id=session_id,
+        turn_number=-1,
+        speaker_id=speaker_id,
+        action="skipped",
+        tokens_used=0,
+        cost_usd=0.0,
+        skipped=True,
+        skip_reason=reason,
+    )
+
+
+def _skip_from_decision(
+    session_id: str,
+    decision: object,
+) -> TurnResult:
+    """Create a skipped result from a routing decision."""
+    return TurnResult(
+        session_id=session_id,
+        turn_number=-1,
+        speaker_id=decision.intended,
+        action=decision.action,
+        tokens_used=0,
+        cost_usd=0.0,
+        skipped=True,
+        skip_reason=decision.reason,
+    )
