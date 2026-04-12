@@ -6,6 +6,7 @@ import asyncio
 import json
 
 from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel
 
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
@@ -16,36 +17,40 @@ router = APIRouter(prefix="/tools/session", tags=["session"])
 _loop_tasks: dict[str, asyncio.Task] = {}
 
 
+class _CreateSessionBody(BaseModel):
+    """Request body for session creation."""
+
+    name: str
+    display_name: str
+    provider: str
+    model: str
+    model_tier: str
+    model_family: str
+    context_window: int
+    api_key: str = ""
+
+
 @router.post("/create")
 async def create_session(
     request: Request,
-    name: str,
-    *,
-    display_name: str,
-    provider: str,
-    model: str,
-    model_tier: str,
-    model_family: str,
-    context_window: int,
-    api_key: str = "",
+    body: _CreateSessionBody,
 ) -> dict:
-    """Create a new session. Returns facilitator token."""
+    """Create a new session. API key sent in body, never in URL."""
     session_repo = request.app.state.session_repo
     session, facilitator, branch = await session_repo.create_session(
-        name,
-        facilitator_display_name=display_name,
-        facilitator_provider=provider,
-        facilitator_model=model,
-        facilitator_model_tier=model_tier,
-        facilitator_model_family=model_family,
-        facilitator_context_window=context_window,
+        body.name,
+        facilitator_display_name=body.display_name,
+        facilitator_provider=body.provider,
+        facilitator_model=body.model,
+        facilitator_model_tier=body.model_tier,
+        facilitator_model_family=body.model_family,
+        facilitator_context_window=body.context_window,
     )
-    # Set API key and generate auth token if provided
     token = None
-    if api_key:
+    if body.api_key:
         p_repo = request.app.state.participant_repo
         auth = request.app.state.auth_service
-        await _set_facilitator_key(p_repo, facilitator.id, api_key)
+        await _set_facilitator_key(p_repo, facilitator.id, body.api_key)
         token = await auth.rotate_token(facilitator.id)
     result = _format_created(session, facilitator, branch)
     if token:
