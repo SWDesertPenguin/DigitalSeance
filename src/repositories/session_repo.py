@@ -317,6 +317,11 @@ async def _delete_participants_and_session(
         "UPDATE sessions SET facilitator_id = NULL WHERE id = $1",
         session_id,
     )
+    # Remove audit log entries to allow participant deletion
+    await conn.execute(
+        "DELETE FROM admin_audit_log WHERE session_id = $1",
+        session_id,
+    )
     await conn.execute(
         "DELETE FROM participants WHERE session_id = $1",
         session_id,
