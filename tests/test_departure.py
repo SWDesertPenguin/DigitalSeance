@@ -65,7 +65,7 @@ async def test_departure_invalidates_auth_token(
     session_with_participant: tuple[str, str, str, str],
 ) -> None:
     """Auth token hash is invalidated on departure."""
-    _, pid, _ = session_with_participant
+    _, pid, _, _ = session_with_participant
     repo = ParticipantRepository(pool, encryption_key=TEST_KEY)
 
     await repo.depart_participant(pid)
@@ -79,7 +79,7 @@ async def test_departure_sets_offline_status(
     session_with_participant: tuple[str, str, str, str],
 ) -> None:
     """Status changes to offline on departure."""
-    _, pid, _ = session_with_participant
+    _, pid, _, _ = session_with_participant
     repo = ParticipantRepository(pool, encryption_key=TEST_KEY)
 
     await repo.depart_participant(pid)
