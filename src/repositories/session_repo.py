@@ -9,6 +9,7 @@ import asyncpg
 from src.models.participant import Participant
 from src.models.session import Branch, Session
 from src.repositories.base import BaseRepository
+from src.repositories.errors import InvalidTransitionError
 
 
 class SessionRepository(BaseRepository):
@@ -68,6 +69,30 @@ class SessionRepository(BaseRepository):
                 "SELECT * FROM sessions ORDER BY created_at DESC",
             )
         return [Session.from_record(r) for r in rows]
+
+    async def update_status(
+        self,
+        session_id: str,
+        new_status: str,
+    ) -> Session:
+        """Transition session status with validation."""
+        session = await self.get_session(session_id)
+        if session is None:
+            msg = f"Session {session_id} not found"
+            raise ValueError(msg)
+        _validate_transition(session.status, new_status)
+        await self._execute(
+            "UPDATE sessions SET status = $1 WHERE id = $2",
+            new_status,
+            session_id,
+        )
+        return await self.get_session(session_id)  # type: ignore[return-value]
+
+    async def delete_session(self, session_id: str) -> None:
+        """Atomically remove all session data except audit log."""
+        async with self._pool.acquire() as conn, conn.transaction():
+            await _log_deletion(conn, session_id)
+            await _delete_session_data(conn, session_id)
 
 
 def _generate_ids() -> dict[str, str]:
@@ -194,3 +219,84 @@ async def _fetch_branch(
         branch_id,
     )
     return Branch.from_record(record)
+
+
+# --- Lifecycle helpers ---
+
+_VALID_TRANSITIONS: dict[str, set[str]] = {
+    "active": {"paused", "archived", "deleted"},
+    "paused": {"active", "archived", "deleted"},
+    "archived": {"deleted"},
+}
+
+
+def _validate_transition(current: str, target: str) -> None:
+    """Raise InvalidTransitionError if the transition is illegal."""
+    allowed = _VALID_TRANSITIONS.get(current, set())
+    if target not in allowed:
+        msg = f"Cannot transition from '{current}' to '{target}'"
+        raise InvalidTransitionError(msg)
+
+
+async def _log_deletion(
+    conn: asyncpg.Connection,
+    session_id: str,
+) -> None:
+    """Record deletion in admin_audit_log before removing data."""
+    facilitator_id = await conn.fetchval(
+        "SELECT facilitator_id FROM sessions WHERE id = $1",
+        session_id,
+    )
+    await conn.execute(
+        """INSERT INTO admin_audit_log
+           (session_id, facilitator_id, action, target_id)
+           VALUES ($1, $2, 'delete_session', $1)""",
+        session_id,
+        facilitator_id,
+    )
+
+
+_DELETE_TABLES = [
+    "votes",
+    "proposals",
+    "invites",
+    "review_gate_drafts",
+    "interrupt_queue",
+    "convergence_log",
+    "usage_log",
+    "routing_log",
+    "messages",
+    "branches",
+]
+
+
+async def _delete_session_data(
+    conn: asyncpg.Connection,
+    session_id: str,
+) -> None:
+    """Remove all session data except admin_audit_log."""
+    for table in _DELETE_TABLES:
+        await conn.execute(
+            f"DELETE FROM {table} WHERE session_id = $1",  # noqa: S608
+            session_id,
+        )
+    await _delete_participants_and_session(conn, session_id)
+
+
+async def _delete_participants_and_session(
+    conn: asyncpg.Connection,
+    session_id: str,
+) -> None:
+    """Remove participants and the session record itself."""
+    await conn.execute(
+        "UPDATE sessions SET facilitator_id = NULL WHERE id = $1",
+        session_id,
+    )
+    await conn.execute(
+        "DELETE FROM participants WHERE session_id = $1",
+        session_id,
+    )
+    await conn.execute(
+        "DELETE FROM sessions WHERE id = $1",
+        session_id,
+    )
