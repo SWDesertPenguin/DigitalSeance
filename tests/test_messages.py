@@ -228,6 +228,6 @@ async def test_get_summaries_filters_by_type(
         summary_epoch=1,
     )
 
-    summaries = await repo.get_summaries(session_id, "main")
+    summaries = await repo.get_summaries(session_id, branch_id)
     assert len(summaries) == 1
     assert summaries[0].speaker_type == "summary"
