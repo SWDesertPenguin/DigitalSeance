@@ -10,6 +10,7 @@ import asyncpg
 from src.api_bridge.format import to_provider_messages
 from src.api_bridge.provider import dispatch_with_retry
 from src.models.participant import Participant
+from src.orchestrator.branch import get_main_branch_id
 from src.orchestrator.types import ContextMessage
 from src.repositories.message_repo import MessageRepository
 from src.repositories.participant_repo import ParticipantRepository
@@ -90,6 +91,7 @@ class SummarizationManager:
         """Fetch turns, generate summary, persist result."""
         turns = await _fetch_turns_since(
             self._msg_repo,
+            self._pool,
             session_id,
             session.last_summary_turn,
         )
@@ -102,6 +104,7 @@ class SummarizationManager:
         )
         await _store_summary(
             self._msg_repo,
+            self._pool,
             session_id,
             summary_json,
             session.current_turn,
@@ -132,13 +135,15 @@ async def _find_cheapest_model(
 
 async def _fetch_turns_since(
     msg_repo: MessageRepository,
+    pool: asyncpg.Pool,
     session_id: str,
     last_summary_turn: int,
 ) -> list[ContextMessage]:
     """Fetch turns since the last checkpoint as context messages."""
+    bid = await get_main_branch_id(pool, session_id)
     messages = await msg_repo.get_range(
         session_id,
-        "main",
+        bid,
         start_turn=last_summary_turn + 1,
         end_turn=last_summary_turn + 1000,
     )
@@ -215,14 +220,16 @@ def _narrative_fallback(content: str) -> str:
 
 async def _store_summary(
     msg_repo: MessageRepository,
+    pool: asyncpg.Pool,
     session_id: str,
     summary_json: str,
     current_turn: int,
 ) -> None:
     """Store summary as an immutable message."""
+    bid = await get_main_branch_id(pool, session_id)
     await msg_repo.append_message(
         session_id=session_id,
-        branch_id="main",
+        branch_id=bid,
         speaker_id="system",
         speaker_type="summary",
         content=summary_json,
