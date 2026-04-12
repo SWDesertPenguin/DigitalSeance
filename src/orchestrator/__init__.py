@@ -10,6 +10,7 @@ from src.orchestrator.convergence import ConvergenceDetector
 from src.orchestrator.loop import ConversationLoop
 from src.orchestrator.quality import detect_repetition
 from src.orchestrator.router import TurnRouter
+from src.orchestrator.summarizer import SummarizationManager
 from src.orchestrator.types import (
     ContextMessage,
     ProviderResponse,
@@ -30,6 +31,7 @@ __all__ = [
     "RoutingDecision",
     "TurnResult",
     "TurnRouter",
+    "SummarizationManager",
     "classify",
     "detect_repetition",
 ]
