@@ -1,8 +1,10 @@
-FROM python:3.11-alpine
+FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN apk add --no-cache gcc musl-dev libffi-dev
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc libpq-dev && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir .
