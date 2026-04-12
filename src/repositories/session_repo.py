@@ -70,6 +70,18 @@ class SessionRepository(BaseRepository):
             )
         return [Session.from_record(r) for r in rows]
 
+    async def update_facilitator(
+        self,
+        session_id: str,
+        new_facilitator_id: str,
+    ) -> None:
+        """Update the session's facilitator reference."""
+        await self._execute(
+            "UPDATE sessions SET facilitator_id = $1 WHERE id = $2",
+            new_facilitator_id,
+            session_id,
+        )
+
     async def update_status(
         self,
         session_id: str,
