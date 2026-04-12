@@ -6,6 +6,7 @@ import asyncpg
 
 from src.models.message import Message
 from src.models.participant import Participant
+from src.orchestrator.branch import get_main_branch_id
 from src.orchestrator.types import ContextMessage
 from src.prompts.tiers import assemble_prompt
 from src.repositories.interrupt_repo import InterruptRepository
@@ -24,6 +25,7 @@ class ContextAssembler:
     """Builds context payloads with strict priority ordering."""
 
     def __init__(self, pool: asyncpg.Pool) -> None:
+        self._pool = pool
         self._msg_repo = MessageRepository(pool)
         self._int_repo = InterruptRepository(pool)
         self._prop_repo = ProposalRepository(pool)
@@ -49,20 +51,18 @@ class ContextAssembler:
         budget: int,
     ) -> int:
         """Add P2-P6 content in priority order."""
+        bid = await get_main_branch_id(self._pool, session_id)
+
         interjections = await self._int_repo.get_pending(session_id)
         used = _add_interjections(context, interjections, used)
 
         proposals = await self._prop_repo.get_open_proposals(session_id)
         used = _add_proposals(context, proposals, used)
 
-        recent = await self._msg_repo.get_recent(
-            session_id,
-            "main",
-            MVC_FLOOR_TURNS,
-        )
+        recent = await self._msg_repo.get_recent(session_id, bid, MVC_FLOOR_TURNS)
         used = _add_messages(context, recent, used, budget)
 
-        summaries = await self._msg_repo.get_summaries(session_id, "main")
+        summaries = await self._msg_repo.get_summaries(session_id, bid)
         if summaries:
             used = _add_summary(context, summaries[-1], used, budget)
 
@@ -79,7 +79,8 @@ class ContextAssembler:
         already: list[Message],
     ) -> None:
         """Fill remaining budget with additional history."""
-        more = await self._msg_repo.get_recent(session_id, "main", 50)
+        bid = await get_main_branch_id(self._pool, session_id)
+        more = await self._msg_repo.get_recent(session_id, bid, 50)
         _add_history(context, more, used, budget, already)
 
 
