@@ -65,7 +65,7 @@ async def test_append_assigns_sequential_turn_numbers(
 
     assert msg0.turn_number == 0
     assert msg1.turn_number == 1
-    assert msg0.branch_id == "main"
+    assert msg0.branch_id == branch_id
 
 
 async def test_append_persists_all_fields(
@@ -114,7 +114,7 @@ async def test_get_recent_returns_in_turn_order(
             complexity_score="low",
         )
 
-    recent = await repo.get_recent(session_id, "main", limit=3)
+    recent = await repo.get_recent(session_id, branch_id, limit=3)
     assert len(recent) == 3
     assert recent[0].turn_number < recent[1].turn_number
     assert recent[1].turn_number < recent[2].turn_number
@@ -140,7 +140,7 @@ async def test_multiple_speaker_types(
             complexity_score="low",
         )
 
-    recent = await repo.get_recent(session_id, "main", limit=4)
+    recent = await repo.get_recent(session_id, branch_id, limit=4)
     actual_types = [m.speaker_type for m in recent]
     assert actual_types == types
 

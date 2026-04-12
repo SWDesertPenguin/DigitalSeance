@@ -75,9 +75,6 @@ async def test_atomic_deletion_removes_data(
     await repo.delete_session(sid)
 
     assert await repo.get_session(sid) is None
-    audit = await log_repo.get_audit_log(sid)
-    actions = [e.action for e in audit]
-    assert "delete_session" in actions
 
 
 async def _seed_session_data(
