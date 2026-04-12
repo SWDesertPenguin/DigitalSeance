@@ -16,10 +16,10 @@ TEST_KEY = Fernet.generate_key().decode()
 @pytest.fixture
 async def session_and_speaker(
     pool: asyncpg.Pool,
-) -> tuple[str, str]:
-    """Create a session and return (session_id, speaker_id)."""
+) -> tuple[str, str, str]:
+    """Create a session and return (session_id, speaker_id, branch_id)."""
     repo = SessionRepository(pool)
-    session, participant, _ = await repo.create_session(
+    session, participant, branch = await repo.create_session(
         "Message Test Session",
         facilitator_display_name="Alice",
         facilitator_provider="anthropic",
@@ -28,7 +28,7 @@ async def session_and_speaker(
         facilitator_model_family="claude",
         facilitator_context_window=200000,
     )
-    return session.id, participant.id
+    return session.id, participant.id, branch.id
 
 
 @pytest.fixture
@@ -39,14 +39,14 @@ def repo(pool: asyncpg.Pool) -> MessageRepository:
 
 async def test_append_assigns_sequential_turn_numbers(
     repo: MessageRepository,
-    session_and_speaker: tuple[str, str],
+    session_and_speaker: tuple[str, str, str],
 ) -> None:
     """Messages get sequential turn numbers starting from 0."""
-    session_id, speaker_id = session_and_speaker
+    session_id, speaker_id, branch_id = session_and_speaker
 
     msg0 = await repo.append_message(
         session_id=session_id,
-        branch_id="main",
+        branch_id=branch_id,
         speaker_id=speaker_id,
         speaker_type="human",
         content="First message",
@@ -55,7 +55,7 @@ async def test_append_assigns_sequential_turn_numbers(
     )
     msg1 = await repo.append_message(
         session_id=session_id,
-        branch_id="main",
+        branch_id=branch_id,
         speaker_id=speaker_id,
         speaker_type="ai",
         content="Second message",
@@ -65,19 +65,19 @@ async def test_append_assigns_sequential_turn_numbers(
 
     assert msg0.turn_number == 0
     assert msg1.turn_number == 1
-    assert msg0.branch_id == "main"
+    assert msg0.branch_id == branch_id
 
 
 async def test_append_persists_all_fields(
     repo: MessageRepository,
-    session_and_speaker: tuple[str, str],
+    session_and_speaker: tuple[str, str, str],
 ) -> None:
     """All message fields are persisted correctly."""
-    session_id, speaker_id = session_and_speaker
+    session_id, speaker_id, branch_id = session_and_speaker
 
     msg = await repo.append_message(
         session_id=session_id,
-        branch_id="main",
+        branch_id=branch_id,
         speaker_id=speaker_id,
         speaker_type="ai",
         content="Test content here",
@@ -92,21 +92,21 @@ async def test_append_persists_all_fields(
     assert msg.token_count == 42
     assert msg.speaker_type == "ai"
     assert msg.complexity_score == "high"
-    assert msg.cost_usd == 0.003
+    assert msg.cost_usd == pytest.approx(0.003)
     assert msg.summary_epoch == 1
 
 
 async def test_get_recent_returns_in_turn_order(
     repo: MessageRepository,
-    session_and_speaker: tuple[str, str],
+    session_and_speaker: tuple[str, str, str],
 ) -> None:
     """get_recent returns messages in ascending turn order."""
-    session_id, speaker_id = session_and_speaker
+    session_id, speaker_id, branch_id = session_and_speaker
 
     for i in range(5):
         await repo.append_message(
             session_id=session_id,
-            branch_id="main",
+            branch_id=branch_id,
             speaker_id=speaker_id,
             speaker_type="ai",
             content=f"Message {i}",
@@ -114,7 +114,7 @@ async def test_get_recent_returns_in_turn_order(
             complexity_score="low",
         )
 
-    recent = await repo.get_recent(session_id, "main", limit=3)
+    recent = await repo.get_recent(session_id, branch_id, limit=3)
     assert len(recent) == 3
     assert recent[0].turn_number < recent[1].turn_number
     assert recent[1].turn_number < recent[2].turn_number
@@ -123,16 +123,16 @@ async def test_get_recent_returns_in_turn_order(
 
 async def test_multiple_speaker_types(
     repo: MessageRepository,
-    session_and_speaker: tuple[str, str],
+    session_and_speaker: tuple[str, str, str],
 ) -> None:
     """Messages with different speaker types persist correctly."""
-    session_id, speaker_id = session_and_speaker
+    session_id, speaker_id, branch_id = session_and_speaker
     types = ["human", "ai", "system", "summary"]
 
     for st in types:
         await repo.append_message(
             session_id=session_id,
-            branch_id="main",
+            branch_id=branch_id,
             speaker_id=speaker_id,
             speaker_type=st,
             content=f"{st} content",
@@ -140,21 +140,21 @@ async def test_multiple_speaker_types(
             complexity_score="low",
         )
 
-    recent = await repo.get_recent(session_id, "main", limit=4)
+    recent = await repo.get_recent(session_id, branch_id, limit=4)
     actual_types = [m.speaker_type for m in recent]
     assert actual_types == types
 
 
 async def test_parent_turn_tree_structure(
     repo: MessageRepository,
-    session_and_speaker: tuple[str, str],
+    session_and_speaker: tuple[str, str, str],
 ) -> None:
     """parent_turn enables tree navigation."""
-    session_id, speaker_id = session_and_speaker
+    session_id, speaker_id, branch_id = session_and_speaker
 
     msg0 = await repo.append_message(
         session_id=session_id,
-        branch_id="main",
+        branch_id=branch_id,
         speaker_id=speaker_id,
         speaker_type="human",
         content="Root",
@@ -163,7 +163,7 @@ async def test_parent_turn_tree_structure(
     )
     msg1 = await repo.append_message(
         session_id=session_id,
-        branch_id="main",
+        branch_id=branch_id,
         speaker_id=speaker_id,
         speaker_type="ai",
         content="Reply",
@@ -177,11 +177,11 @@ async def test_parent_turn_tree_structure(
 
 async def test_append_rejects_inactive_session(
     repo: MessageRepository,
-    session_and_speaker: tuple[str, str],
+    session_and_speaker: tuple[str, str, str],
     pool: asyncpg.Pool,
 ) -> None:
     """Appending to a non-active session raises SessionNotActiveError."""
-    session_id, speaker_id = session_and_speaker
+    session_id, speaker_id, branch_id = session_and_speaker
 
     async with pool.acquire() as conn:
         await conn.execute(
@@ -192,7 +192,7 @@ async def test_append_rejects_inactive_session(
     with pytest.raises(SessionNotActiveError):
         await repo.append_message(
             session_id=session_id,
-            branch_id="main",
+            branch_id=branch_id,
             speaker_id=speaker_id,
             speaker_type="human",
             content="Should fail",
@@ -203,14 +203,14 @@ async def test_append_rejects_inactive_session(
 
 async def test_get_summaries_filters_by_type(
     repo: MessageRepository,
-    session_and_speaker: tuple[str, str],
+    session_and_speaker: tuple[str, str, str],
 ) -> None:
     """get_summaries returns only summary-type messages."""
-    session_id, speaker_id = session_and_speaker
+    session_id, speaker_id, branch_id = session_and_speaker
 
     await repo.append_message(
         session_id=session_id,
-        branch_id="main",
+        branch_id=branch_id,
         speaker_id=speaker_id,
         speaker_type="ai",
         content="Regular message",
@@ -219,7 +219,7 @@ async def test_get_summaries_filters_by_type(
     )
     await repo.append_message(
         session_id=session_id,
-        branch_id="main",
+        branch_id=branch_id,
         speaker_id=speaker_id,
         speaker_type="summary",
         content='{"decisions": []}',
@@ -228,6 +228,6 @@ async def test_get_summaries_filters_by_type(
         summary_epoch=1,
     )
 
-    summaries = await repo.get_summaries(session_id, "main")
+    summaries = await repo.get_summaries(session_id, branch_id)
     assert len(summaries) == 1
     assert summaries[0].speaker_type == "summary"

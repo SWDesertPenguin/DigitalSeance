@@ -19,7 +19,7 @@ async def session_with_participant(
 ) -> tuple[str, str, str]:
     """Create session + participant, return (session_id, pid, original_key)."""
     session_repo = SessionRepository(pool)
-    session, facilitator, _ = await session_repo.create_session(
+    session, facilitator, branch = await session_repo.create_session(
         "Departure Test",
         facilitator_display_name="Facilitator",
         facilitator_provider="anthropic",
@@ -41,15 +41,15 @@ async def session_with_participant(
         auth_token="original-token",  # noqa: S106
         auto_approve=True,
     )
-    return session.id, participant.id, participant.api_key_encrypted
+    return session.id, participant.id, participant.api_key_encrypted, branch.id
 
 
 async def test_departure_overwrites_api_key(
     pool: asyncpg.Pool,
-    session_with_participant: tuple[str, str, str],
+    session_with_participant: tuple[str, str, str, str],
 ) -> None:
     """API key is overwritten (not nulled) on departure."""
-    _, pid, original_encrypted = session_with_participant
+    _, pid, original_encrypted, _ = session_with_participant
     repo = ParticipantRepository(pool, encryption_key=TEST_KEY)
 
     await repo.depart_participant(pid)
@@ -62,10 +62,10 @@ async def test_departure_overwrites_api_key(
 
 async def test_departure_invalidates_auth_token(
     pool: asyncpg.Pool,
-    session_with_participant: tuple[str, str, str],
+    session_with_participant: tuple[str, str, str, str],
 ) -> None:
     """Auth token hash is invalidated on departure."""
-    _, pid, _ = session_with_participant
+    _, pid, _, _ = session_with_participant
     repo = ParticipantRepository(pool, encryption_key=TEST_KEY)
 
     await repo.depart_participant(pid)
@@ -76,10 +76,10 @@ async def test_departure_invalidates_auth_token(
 
 async def test_departure_sets_offline_status(
     pool: asyncpg.Pool,
-    session_with_participant: tuple[str, str, str],
+    session_with_participant: tuple[str, str, str, str],
 ) -> None:
     """Status changes to offline on departure."""
-    _, pid, _ = session_with_participant
+    _, pid, _, _ = session_with_participant
     repo = ParticipantRepository(pool, encryption_key=TEST_KEY)
 
     await repo.depart_participant(pid)
@@ -90,16 +90,16 @@ async def test_departure_sets_offline_status(
 
 async def test_departure_retains_messages(
     pool: asyncpg.Pool,
-    session_with_participant: tuple[str, str, str],
+    session_with_participant: tuple[str, str, str, str],
 ) -> None:
     """Messages from departed participant remain in transcript."""
-    sid, pid, _ = session_with_participant
+    sid, pid, _, bid = session_with_participant
     msg_repo = MessageRepository(pool)
     participant_repo = ParticipantRepository(pool, encryption_key=TEST_KEY)
 
     await msg_repo.append_message(
         session_id=sid,
-        branch_id="main",
+        branch_id=bid,
         speaker_id=pid,
         speaker_type="human",
         content="I was here",

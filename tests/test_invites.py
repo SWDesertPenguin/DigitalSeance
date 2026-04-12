@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import asyncpg
 import pytest
@@ -87,7 +87,7 @@ async def test_expired_invite_rejected(
 ) -> None:
     """Expired invites are rejected."""
     sid, pid = session_and_facilitator
-    past = datetime.now(tz=UTC) - timedelta(hours=1)
+    past = datetime.utcnow() - timedelta(hours=1)  # noqa: DTZ003
     _, plaintext = await repo.create_invite(
         session_id=sid,
         created_by=pid,

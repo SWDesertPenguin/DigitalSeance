@@ -38,7 +38,7 @@ async def test_create_session_returns_session_participant_branch(
     assert participant.provider == "anthropic"
     assert participant.model_family == "claude"
 
-    assert branch.id == "main"
+    assert branch.id.startswith("main-")
     assert branch.session_id == session.id
     assert branch.name == "main"
     assert branch.parent_branch_id is None

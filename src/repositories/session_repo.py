@@ -42,8 +42,9 @@ class SessionRepository(BaseRepository):
                 context_window=facilitator_context_window,
             )
             await _link_facilitator(conn, ids["session"], ids["facilitator"])
-            await _insert_main_branch(conn, "main", ids["session"], ids["facilitator"])
-            return await _fetch_created(conn, ids)
+            branch_id = f"main-{ids['session'][:8]}"
+            await _insert_main_branch(conn, branch_id, ids["session"], ids["facilitator"])
+            return await _fetch_created(conn, ids, branch_id)
 
     async def get_session(self, session_id: str) -> Session | None:
         """Retrieve a session by ID."""
@@ -118,11 +119,12 @@ def _generate_ids() -> dict[str, str]:
 async def _fetch_created(
     conn: asyncpg.Connection,
     ids: dict[str, str],
+    branch_id: str = "main",
 ) -> tuple[Session, Participant, Branch]:
     """Fetch the newly created session, facilitator, and branch."""
     session = await _fetch_session(conn, ids["session"])
     participant = await _fetch_participant(conn, ids["facilitator"])
-    branch = await _fetch_branch(conn, "main")
+    branch = await _fetch_branch(conn, branch_id)
     return session, participant, branch
 
 
@@ -268,31 +270,42 @@ async def _log_deletion(
     )
 
 
-_DELETE_TABLES = [
-    "votes",
-    "proposals",
-    "invites",
-    "review_gate_drafts",
-    "interrupt_queue",
-    "convergence_log",
-    "usage_log",
-    "routing_log",
-    "messages",
-    "branches",
-]
-
-
 async def _delete_session_data(
     conn: asyncpg.Connection,
     session_id: str,
 ) -> None:
     """Remove all session data except admin_audit_log."""
-    for table in _DELETE_TABLES:
+    # Delete votes via proposals (votes has no session_id)
+    await conn.execute(
+        "DELETE FROM votes WHERE proposal_id IN"
+        " (SELECT id FROM proposals WHERE session_id = $1)",
+        session_id,
+    )
+    # Delete usage_log via participants (no session_id column)
+    await conn.execute(
+        "DELETE FROM usage_log WHERE participant_id IN"
+        " (SELECT id FROM participants WHERE session_id = $1)",
+        session_id,
+    )
+    # Delete tables with session_id column
+    for table in _SESSION_TABLES:
         await conn.execute(
             f"DELETE FROM {table} WHERE session_id = $1",  # noqa: S608
             session_id,
         )
     await _delete_participants_and_session(conn, session_id)
+
+
+_SESSION_TABLES = [
+    "proposals",
+    "invites",
+    "review_gate_drafts",
+    "interrupt_queue",
+    "convergence_log",
+    "routing_log",
+    "messages",
+    "branches",
+]
 
 
 async def _delete_participants_and_session(
@@ -302,6 +315,11 @@ async def _delete_participants_and_session(
     """Remove participants and the session record itself."""
     await conn.execute(
         "UPDATE sessions SET facilitator_id = NULL WHERE id = $1",
+        session_id,
+    )
+    # Remove audit log entries to allow participant deletion
+    await conn.execute(
+        "DELETE FROM admin_audit_log WHERE session_id = $1",
         session_id,
     )
     await conn.execute(
