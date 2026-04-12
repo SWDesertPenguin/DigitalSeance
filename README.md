@@ -26,6 +26,10 @@ The loop isn't just round-robin prompting. Three mechanisms keep conversations p
 - **Convergence detection** — embedding similarity over a sliding window detects when the conversation is going in circles, with graduated intervention
 - **Adaptive cadence** — turn pacing self-regulates based on content quality (productive = faster, repetitive = slower)
 
+## Further Details
+
+See the [Executive Summary](SACP-Exec-Summary.md) for a detailed overview.
+
 ## Status
 
 **Phase 1 core implemented.** Six features merged and running:
@@ -72,7 +76,4 @@ Built automatically on every push to main via GitHub Actions.
 
 ## License
 
-TBD
-
-## Further Details
-See the [Executive Summary](SACP-Exec-Summary.md) for a detailed overview.
+Apache License 2.0. See [LICENSE](LICENSE) for details.
