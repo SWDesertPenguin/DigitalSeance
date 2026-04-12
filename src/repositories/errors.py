@@ -25,3 +25,23 @@ class InviteExpiredError(ValueError):
 
 class InviteExhaustedError(ValueError):
     """Invite token max uses reached."""
+
+
+class TokenExpiredError(ValueError):
+    """Auth token past expiry timestamp."""
+
+
+class TokenInvalidError(ValueError):
+    """Auth token hash does not match any participant."""
+
+
+class AuthRequiredError(ValueError):
+    """No auth token provided."""
+
+
+class NotFacilitatorError(PermissionError):
+    """Caller lacks facilitator role for this operation."""
+
+
+class IPBindingMismatchError(ValueError):
+    """Token valid but client IP does not match bound IP."""
