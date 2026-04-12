@@ -22,6 +22,8 @@ from src.repositories.interrupt_repo import InterruptRepository
 from src.repositories.log_repo import LogRepository
 from src.repositories.message_repo import MessageRepository
 from src.repositories.review_gate_repo import ReviewGateRepository
+from src.security.exfiltration import filter_exfiltration
+from src.security.output_validator import validate as validate_output
 
 log = logging.getLogger(__name__)
 
@@ -138,12 +140,33 @@ async def _dispatch_and_persist(
     decision: object,
 ) -> TurnResult:
     """Assemble context, dispatch to provider, persist result."""
+    response = await _assemble_and_dispatch(
+        ctx,
+        assembler,
+        breaker,
+        speaker,
+    )
+    if response is None:
+        return _skip_result(ctx.session_id, speaker.id, "provider_error")
+
+    if decision.action == "review_gated":
+        return await _stage_for_review(ctx, speaker, decision, response)
+
+    return await _validate_and_persist(ctx, speaker, decision, response)
+
+
+async def _assemble_and_dispatch(
+    ctx: _TurnContext,
+    assembler: ContextAssembler,
+    breaker: CircuitBreaker,
+    speaker: object,
+) -> ProviderResponse | None:
+    """Build context, call provider, handle errors."""
     context = await assembler.assemble(
         session_id=ctx.session_id,
         participant=speaker,
     )
     messages = to_provider_messages(context)
-
     try:
         response = await _dispatch_to_provider(
             speaker,
@@ -151,14 +174,27 @@ async def _dispatch_and_persist(
             ctx.encryption_key,
         )
         await breaker.record_success(speaker.id)
+        return response
     except ProviderDispatchError:
         log.warning("Provider dispatch failed for %s", speaker.id)
         await breaker.record_failure(speaker.id)
-        return _skip_result(ctx.session_id, speaker.id, "provider_error")
+        return None
 
-    if decision.action == "review_gated":
+
+async def _validate_and_persist(
+    ctx: _TurnContext,
+    speaker: object,
+    decision: object,
+    response: ProviderResponse,
+) -> TurnResult:
+    """Run security pipeline then persist."""
+    validation = validate_output(response.content)
+    if validation.blocked:
+        log.warning("Blocked %s: %s", speaker.id, validation.findings)
         return await _stage_for_review(ctx, speaker, decision, response)
-    return await _persist_turn(ctx, speaker, decision, response)
+    cleaned, _ = filter_exfiltration(response.content)
+    safe = _with_cleaned_content(response, cleaned)
+    return await _persist_turn(ctx, speaker, decision, safe)
 
 
 async def _dispatch_to_provider(
@@ -304,4 +340,19 @@ def _skip_from_decision(
         cost_usd=0.0,
         skipped=True,
         skip_reason=decision.reason,
+    )
+
+
+def _with_cleaned_content(
+    response: ProviderResponse,
+    cleaned: str,
+) -> ProviderResponse:
+    """Return a new ProviderResponse with cleaned content."""
+    return ProviderResponse(
+        content=cleaned,
+        input_tokens=response.input_tokens,
+        output_tokens=response.output_tokens,
+        cost_usd=response.cost_usd,
+        model=response.model,
+        latency_ms=response.latency_ms,
     )
