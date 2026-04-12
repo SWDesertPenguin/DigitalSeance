@@ -59,3 +59,48 @@ def test_clean_text_unchanged() -> None:
     result, flags = filter_exfiltration(text)
     assert result == text
     assert len(flags) == 0
+
+
+def test_spotlight_markers_stripped() -> None:
+    """Spotlighting markers (^hexhex^) are removed from output."""
+    text = "^c8f6a3^Hello ^c8f6a3^world"
+    result, flags = filter_exfiltration(text)
+    assert "^c8f6a3^" not in result
+    assert result == "Hello world"
+    assert "spotlight_marker_stripped" in flags
+
+
+def test_sacp_tags_stripped() -> None:
+    """SACP context tags are removed from output."""
+    text = "<sacp:human>What do you think?</sacp:human>"
+    result, flags = filter_exfiltration(text)
+    assert "<sacp:" not in result
+    assert result == "What do you think?"
+    assert "sacp_tag_stripped" in flags
+
+
+def test_sacp_ai_tags_stripped() -> None:
+    """SACP AI tags are also removed."""
+    text = "<sacp:ai>I think we should consider...</sacp:ai>"
+    result, flags = filter_exfiltration(text)
+    assert "<sacp:" not in result
+    assert result == "I think we should consider..."
+
+
+def test_canary_token_stripped() -> None:
+    """Canary tokens are removed from output."""
+    text = "Here is my response [Internal: CANARY_a1b2c3d4e5f6] and more text"
+    result, flags = filter_exfiltration(text)
+    assert "CANARY" not in result
+    assert result == "Here is my response  and more text"
+    assert "canary_token_stripped" in flags
+
+
+def test_mixed_markers_all_stripped() -> None:
+    """All context markers are stripped in one pass."""
+    text = "^9f58a7^<sacp:human>Great point [Internal: CANARY_abcdef012345]</sacp:human>"
+    result, flags = filter_exfiltration(text)
+    assert "^9f58a7^" not in result
+    assert "<sacp:" not in result
+    assert "CANARY" not in result
+    assert result == "Great point "
