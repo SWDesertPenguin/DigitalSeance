@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import asyncpg
 import bcrypt
@@ -199,9 +199,9 @@ def _check_expiry(participant: Participant) -> None:
     expires = getattr(participant, "token_expires_at", None)
     if expires is None:
         return
-    now = datetime.now(tz=UTC)
-    if expires.tzinfo is None:
-        expires = expires.replace(tzinfo=UTC)
+    now = datetime.utcnow()  # noqa: DTZ003
+    if hasattr(expires, "tzinfo") and expires.tzinfo is not None:
+        expires = expires.replace(tzinfo=None)
     if now > expires:
         raise TokenExpiredError("Authentication token has expired")
 
@@ -237,8 +237,8 @@ async def _bind_ip(
 
 
 def _compute_expiry(days: int) -> datetime:
-    """Calculate expiry timestamp from now."""
-    return datetime.now(tz=UTC) + timedelta(days=days)
+    """Calculate expiry timestamp from now (naive UTC for PostgreSQL)."""
+    return datetime.utcnow() + timedelta(days=days)  # noqa: DTZ003
 
 
 async def _do_transfer(
