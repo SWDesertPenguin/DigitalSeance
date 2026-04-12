@@ -1,0 +1,47 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sacp_test
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: sacp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sacp_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      SACP_DATABASE_URL: postgresql://sacp_test:testpass@localhost:5432/sacp_test
+      SACP_TEST_DATABASE_URL: postgresql://sacp_test:testpass@localhost:5432/sacp_test
+      SACP_ENCRYPTION_KEY: test-key-not-real-gAAAAABkFakeKeyForCI
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install .[dev] || pip install .
+          pip install pytest pytest-asyncio
+
+      - name: Run tests
+        run: pytest -v --tb=short
