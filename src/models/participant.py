@@ -44,6 +44,8 @@ class Participant:
     last_seen: datetime | None
     invited_by: str | None
     approved_at: datetime | None
+    token_expires_at: datetime | None
+    bound_ip: str | None
 
     @classmethod
     def from_record(cls, record: Any) -> Participant:
