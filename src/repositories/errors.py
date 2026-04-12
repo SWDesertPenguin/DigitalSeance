@@ -45,3 +45,19 @@ class NotFacilitatorError(PermissionError):
 
 class IPBindingMismatchError(ValueError):
     """Token valid but client IP does not match bound IP."""
+
+
+class AllParticipantsExhaustedError(RuntimeError):
+    """Every participant is paused, over-budget, or circuit-broken."""
+
+
+class ProviderDispatchError(RuntimeError):
+    """LiteLLM provider call failed after retries."""
+
+
+class ResponseQualityError(ValueError):
+    """AI response failed quality checks (empty, duplicate, repetitive)."""
+
+
+class BudgetExceededError(ValueError):
+    """Turn would exceed participant's budget ceiling."""
