@@ -26,13 +26,54 @@ The loop isn't just round-robin prompting. Three mechanisms keep conversations p
 - **Convergence detection** — embedding similarity over a sliding window detects when the conversation is going in circles, with graduated intervention
 - **Adaptive cadence** — turn pacing self-regulates based on content quality (productive = faster, repetitive = slower)
 
+## Further Details
+
+See the [Executive Summary](SACP-Exec-Summary.md) for a detailed overview.
+
 ## Status
 
-Design phase. Core architecture and schema are specified. Implementation has not started.
+**Phase 1 core implemented.** Six features merged and running:
+
+| Feature | What |
+|---------|------|
+| Core Data Model | 13 database tables, Alembic migrations, asyncpg repositories |
+| Participant Auth | Bearer token validation, bcrypt hashing, IP binding, facilitator transfer |
+| Turn Loop Engine | 8 routing modes, context assembly, LiteLLM provider dispatch, circuit breaker |
+| Convergence Detection | Embedding similarity, adaptive cadence, adversarial rotation |
+| Summarization | Structured JSON checkpoints every N turns |
+| MCP Server | FastAPI on port 8750 with 18 tool endpoints |
+
+### Quick Start
+
+```bash
+# Generate encryption key
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# Create .env
+echo "POSTGRES_PASSWORD=your-password" > .env
+echo "SACP_ENCRYPTION_KEY=your-key" >> .env
+
+# Run
+docker compose up -d
+```
+
+The server starts on port 8750. Visit `http://localhost:8750/docs` for the Swagger UI.
+
+### Docker Image
+
+```
+ghcr.io/swdesertpenguin/digitalseance:latest
+```
+
+Built automatically on every push to main via GitHub Actions.
+
+### Phase 1 Remaining
+
+- AI security pipeline (spotlighting, sanitization, trust tiers)
+- System prompt management (4-tier delta architecture)
+- Log scrubbing (credential redaction)
+- Integration testing with real providers
 
 ## License
 
-TBD
-
-## Further Details
-See the [Executive Summary](SACP-Exec-Summary.md) for a detailed overview.
+Apache License 2.0. See [LICENSE](LICENSE) for details.
