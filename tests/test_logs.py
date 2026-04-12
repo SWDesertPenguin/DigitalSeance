@@ -69,7 +69,7 @@ async def test_log_usage_persists(
     )
     assert entry.input_tokens == 500
     assert entry.output_tokens == 200
-    assert entry.cost_usd == 0.003
+    assert entry.cost_usd == pytest.approx(0.003)
 
 
 async def test_get_participant_cost_aggregation(

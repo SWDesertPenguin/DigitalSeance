@@ -19,7 +19,7 @@ async def _create_session_with_messages(
 ) -> tuple[str, str]:
     """Helper: create session with 5 messages, return (sid, pid)."""
     session_repo = SessionRepository(pool)
-    session, facilitator, _ = await session_repo.create_session(
+    session, facilitator, branch = await session_repo.create_session(
         "Context Test",
         facilitator_display_name="Alice",
         facilitator_provider="anthropic",
@@ -32,7 +32,7 @@ async def _create_session_with_messages(
     for i in range(5):
         await msg_repo.append_message(
             session_id=session.id,
-            branch_id="main",
+            branch_id=branch.id,
             speaker_id=facilitator.id,
             speaker_type="human",
             content=f"Message {i} with some content",
