@@ -5,8 +5,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-sacp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: ${POSTGRES_DB:-sacp}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -14,6 +12,22 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  sacp:
+    build: .
+    ports:
+      - "${SACP_MCP_PORT:-8750}:8750"
+    environment:
+      SACP_DATABASE_URL: postgresql://${POSTGRES_USER:-sacp}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-sacp}
+      SACP_ENCRYPTION_KEY: ${SACP_ENCRYPTION_KEY}
+      POOL_MIN_SIZE: ${POOL_MIN_SIZE:-2}
+      POOL_MAX_SIZE: ${POOL_MAX_SIZE:-10}
+      STATEMENT_TIMEOUT_MS: ${STATEMENT_TIMEOUT_MS:-30000}
+      IDLE_TIMEOUT_MS: ${IDLE_TIMEOUT_MS:-60000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   pgdata:
