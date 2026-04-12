@@ -115,6 +115,73 @@ class ParticipantRepository(BaseRepository):
             participant_id,
         )
 
+    async def get_all_with_tokens(self) -> list[Participant]:
+        """Fetch all participants with token hashes across sessions."""
+        rows = await self._fetch_all(
+            "SELECT * FROM participants" " WHERE auth_token_hash IS NOT NULL",
+        )
+        return [Participant.from_record(r) for r in rows]
+
+    async def approve(self, participant_id: str) -> Participant:
+        """Promote a pending participant to full participant."""
+        await self._execute(
+            "UPDATE participants" " SET role = 'participant', approved_at = NOW()" " WHERE id = $1",
+            participant_id,
+        )
+        record = await self._fetch_one(
+            "SELECT * FROM participants WHERE id = $1",
+            participant_id,
+        )
+        return Participant.from_record(record)
+
+    async def delete_participant(self, participant_id: str) -> None:
+        """Remove a participant record entirely."""
+        await self._execute(
+            "DELETE FROM participants WHERE id = $1",
+            participant_id,
+        )
+
+    async def update_auth_token(
+        self,
+        participant_id: str,
+        *,
+        new_hash: str,
+        expires_at: object,
+    ) -> None:
+        """Replace token hash, set new expiry, clear IP binding."""
+        await self._execute(
+            "UPDATE participants"
+            " SET auth_token_hash = $1, token_expires_at = $2,"
+            " bound_ip = NULL WHERE id = $3",
+            new_hash,
+            expires_at,
+            participant_id,
+        )
+
+    async def update_bound_ip(
+        self,
+        participant_id: str,
+        ip: str,
+    ) -> None:
+        """Bind the participant's session to a client IP."""
+        await self._execute(
+            "UPDATE participants SET bound_ip = $1 WHERE id = $2",
+            ip,
+            participant_id,
+        )
+
+    async def update_role(
+        self,
+        participant_id: str,
+        new_role: str,
+    ) -> None:
+        """Change a participant's role."""
+        await self._execute(
+            "UPDATE participants SET role = $1 WHERE id = $2",
+            new_role,
+            participant_id,
+        )
+
 
 _INSERT_PARTICIPANT_SQL = """
     INSERT INTO participants
