@@ -48,15 +48,13 @@ async def create_session(
         facilitator_context_window=body.context_window,
         facilitator_api_endpoint=body.api_endpoint or None,
     )
-    token = None
     if body.api_key:
         p_repo = request.app.state.participant_repo
-        auth = request.app.state.auth_service
         await _set_facilitator_key(p_repo, facilitator.id, body.api_key)
-        token = await auth.rotate_token(facilitator.id)
+    auth = request.app.state.auth_service
+    token = await auth.rotate_token(facilitator.id)
     result = _format_created(session, facilitator, branch)
-    if token:
-        result["auth_token"] = token
+    result["auth_token"] = token
     return result
 
 
