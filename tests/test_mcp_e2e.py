@@ -131,7 +131,7 @@ async def test_full_flow_to_history(client, mock_litellm):
 
 
 async def test_unauthenticated_returns_error(client):
-    """Endpoints requiring auth return 403 without a token."""
+    """Endpoints requiring auth return 401 without a token."""
     c, _ = client
     resp = await c.get("/tools/participant/history")
-    assert resp.status_code == 403
+    assert resp.status_code == 401
