@@ -121,6 +121,11 @@ All code features complete:
 - [ ] Integration testing with real provider calls
 - [ ] Docker image rebuild with features 007-009
 
+## Backlog
+
+- [ ] **Always generate auth_token on session create** — token generation is currently gated on api_key being non-empty, which blocks keyless providers like Ollama. Decouple token generation from api_key presence.
+- [ ] **Pacing / turn throttle for human-observable sessions** — when humans are watching or participating, the AI-to-AI turn loop fires too fast for meaningful human engagement. Add a configurable turn delay (e.g., 5-30s between turns) that can be set per-session or toggled live. When the session is AI-only (no human observers), the loop runs at full speed. When a human is present or a "paced" flag is set, the loop inserts a deliberate pause between turns, giving humans time to read, react, and inject messages before the conversation moves on. Could also support adaptive pacing — slower when a human recently injected, faster when the conversation is AI-only for several turns.
+
 ## Open Branches
 
 Pending merge: 008-prompts-security-wiring, 009-rate-limiting
