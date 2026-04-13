@@ -76,9 +76,7 @@ class ConversationLoop:
         if skip:
             return skip
 
-        result = await self._execute_routed_turn(session_id, speaker)
-        await _deliver_interrupts(self._int_repo, session_id)
-        return result
+        return await self._execute_routed_turn(session_id, speaker)
 
     async def _execute_routed_turn(
         self,
@@ -95,7 +93,21 @@ class ConversationLoop:
             await _log_routing(self._log_repo, session_id, decision)
             return _skip_from_decision(session_id, decision)
 
-        ctx = _TurnContext(
+        ctx = self._build_turn_context(session_id)
+        result = await _dispatch_and_persist(
+            ctx,
+            self._assembler,
+            self._breaker,
+            speaker,
+            decision,
+            interjections=interjections,
+        )
+        await _mark_delivered(self._int_repo, interjections)
+        return result
+
+    def _build_turn_context(self, session_id: str) -> _TurnContext:
+        """Create a TurnContext with current dependencies."""
+        return _TurnContext(
             session_id=session_id,
             encryption_key=self._encryption_key,
             pool=self._pool,
@@ -103,22 +115,14 @@ class ConversationLoop:
             log_repo=self._log_repo,
             gate_repo=self._gate_repo,
         )
-        return await _dispatch_and_persist(
-            ctx,
-            self._assembler,
-            self._breaker,
-            speaker,
-            decision,
-        )
 
 
-async def _deliver_interrupts(
+async def _mark_delivered(
     int_repo: InterruptRepository,
-    session_id: str,
+    interjections: list,
 ) -> None:
-    """Deliver all pending interjections."""
-    pending = await int_repo.get_pending(session_id)
-    for intr in pending:
+    """Mark only the interjections that were used in context."""
+    for intr in interjections:
         await int_repo.mark_delivered(intr.id)
 
 
@@ -142,6 +146,8 @@ async def _dispatch_and_persist(
     breaker: CircuitBreaker,
     speaker: object,
     decision: object,
+    *,
+    interjections: list | None = None,
 ) -> TurnResult:
     """Assemble context, dispatch to provider, persist result."""
     response = await _assemble_and_dispatch(
@@ -149,6 +155,7 @@ async def _dispatch_and_persist(
         assembler,
         breaker,
         speaker,
+        interjections,
     )
     if response is None:
         return _skip_result(ctx.session_id, speaker.id, "provider_error")
@@ -164,11 +171,13 @@ async def _assemble_and_dispatch(
     assembler: ContextAssembler,
     breaker: CircuitBreaker,
     speaker: object,
+    interjections: list | None = None,
 ) -> ProviderResponse | None:
     """Build context, call provider, handle errors."""
     context = await assembler.assemble(
         session_id=ctx.session_id,
         participant=speaker,
+        interjections=interjections,
     )
     messages = to_provider_messages(context)
     try:
