@@ -66,4 +66,4 @@ def assemble_prompt(
 def _embed_canary(prompt: str) -> str:
     """Append a canary token to the prompt for leakage detection."""
     protector = PromptProtector(prompt)
-    return f"{prompt}\n\n[Internal: {protector.canary}]"
+    return f"{prompt}\n\n<!-- integrity:{protector.canary} -->"
