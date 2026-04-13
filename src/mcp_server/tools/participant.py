@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel
 
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
@@ -10,12 +11,17 @@ from src.models.participant import Participant
 router = APIRouter(prefix="/tools/participant", tags=["participant"])
 
 
+class _InjectMessageBody(BaseModel):
+    """Request body for injecting a message."""
+
+    content: str
+    priority: int = 1
+
+
 @router.post("/inject_message")
 async def inject_message(
     request: Request,
-    content: str,
-    *,
-    priority: int = 1,
+    body: _InjectMessageBody,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
     """Inject a human message into the interrupt queue."""
@@ -23,8 +29,8 @@ async def inject_message(
     entry = await int_repo.enqueue(
         session_id=participant.session_id,
         participant_id=participant.id,
-        content=content,
-        priority=priority,
+        content=body.content,
+        priority=body.priority,
     )
     return {"status": "enqueued", "id": entry.id}
 

@@ -63,7 +63,6 @@ class ConversationLoop:
 
     async def execute_turn(self, session_id: str) -> TurnResult:
         """Execute a single turn iteration."""
-        await _deliver_interrupts(self._int_repo, session_id)
         speaker = await self._router.next_speaker(session_id)
         if speaker is None:
             raise AllParticipantsExhaustedError("No active participants")
@@ -77,7 +76,9 @@ class ConversationLoop:
         if skip:
             return skip
 
-        return await self._execute_routed_turn(session_id, speaker)
+        result = await self._execute_routed_turn(session_id, speaker)
+        await _deliver_interrupts(self._int_repo, session_id)
+        return result
 
     async def _execute_routed_turn(
         self,
