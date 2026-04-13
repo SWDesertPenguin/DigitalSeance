@@ -14,8 +14,6 @@ from src.repositories.errors import ProviderDispatchError
 
 # Suppress LiteLLM's verbose logging
 litellm.suppress_debug_info = True
-# Force IPv4 to avoid async timeout with Docker DNS returning IPv6
-litellm.force_ipv4 = True
 # Disable aiohttp transport — its _make_common_async_call() silently
 # drops the timeout parameter, causing Ollama requests to hang forever.
 # httpx transport properly passes timeout to the HTTP client.
