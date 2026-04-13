@@ -179,8 +179,8 @@ async def _assemble_and_dispatch(
         )
         await breaker.record_success(speaker.id)
         return response
-    except ProviderDispatchError:
-        log.warning("Provider dispatch failed for %s", speaker.id)
+    except ProviderDispatchError as e:
+        log.warning("Provider dispatch failed for %s: %s", speaker.id, e)
         await breaker.record_failure(speaker.id)
         return None
 
