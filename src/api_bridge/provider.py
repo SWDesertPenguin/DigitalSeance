@@ -16,6 +16,10 @@ from src.repositories.errors import ProviderDispatchError
 litellm.suppress_debug_info = True
 # Force IPv4 to avoid async timeout with Docker DNS returning IPv6
 litellm.force_ipv4 = True
+# Disable aiohttp transport — its _make_common_async_call() silently
+# drops the timeout parameter, causing Ollama requests to hang forever.
+# httpx transport properly passes timeout to the HTTP client.
+litellm.disable_aiohttp_transport = True
 
 
 async def dispatch(
@@ -81,7 +85,7 @@ async def dispatch_with_retry(
             last_error = e
             break  # Don't retry unknown errors
     raise ProviderDispatchError(
-        f"Provider dispatch failed after {max_retries} attempts: {last_error}",
+        f"Provider dispatch failed after {attempt + 1} attempts: {last_error}",
     )
 
 
