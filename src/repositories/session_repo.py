@@ -25,6 +25,7 @@ class SessionRepository(BaseRepository):
         facilitator_model_tier: str,
         facilitator_model_family: str,
         facilitator_context_window: int,
+        facilitator_api_endpoint: str | None = None,
     ) -> tuple[Session, Participant, Branch]:
         """Atomically create session + facilitator + main branch."""
         ids = _generate_ids()
@@ -40,6 +41,7 @@ class SessionRepository(BaseRepository):
                 model_tier=facilitator_model_tier,
                 model_family=facilitator_model_family,
                 context_window=facilitator_context_window,
+                api_endpoint=facilitator_api_endpoint,
             )
             await _link_facilitator(conn, ids["session"], ids["facilitator"])
             branch_id = f"main-{ids['session'][:8]}"
@@ -152,13 +154,14 @@ async def _insert_facilitator(
     model_tier: str,
     model_family: str,
     context_window: int,
+    api_endpoint: str | None = None,
 ) -> None:
     """Insert the facilitator participant record."""
     await conn.execute(
         """INSERT INTO participants
            (id, session_id, display_name, role, provider, model,
-            model_tier, model_family, context_window)
-           VALUES ($1, $2, $3, 'facilitator', $4, $5, $6, $7, $8)""",
+            model_tier, model_family, context_window, api_endpoint)
+           VALUES ($1, $2, $3, 'facilitator', $4, $5, $6, $7, $8, $9)""",
         participant_id,
         session_id,
         display_name,
@@ -167,6 +170,7 @@ async def _insert_facilitator(
         model_tier,
         model_family,
         context_window,
+        api_endpoint,
     )
 
 

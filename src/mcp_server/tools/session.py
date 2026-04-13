@@ -28,6 +28,7 @@ class _CreateSessionBody(BaseModel):
     model_family: str
     context_window: int
     api_key: str = ""
+    api_endpoint: str = ""
 
 
 @router.post("/create")
@@ -45,6 +46,7 @@ async def create_session(
         facilitator_model_tier=body.model_tier,
         facilitator_model_family=body.model_family,
         facilitator_context_window=body.context_window,
+        facilitator_api_endpoint=body.api_endpoint or None,
     )
     token = None
     if body.api_key:
