@@ -5,9 +5,12 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import AsyncGenerator
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
 import pytest
+from cryptography.fernet import Fernet
 
 # Ensure test database URL is set
 TEST_DB_URL = os.environ.get(
@@ -391,3 +394,99 @@ async def conn(pool: asyncpg.Pool) -> AsyncGenerator[asyncpg.Connection, None]:
         await tr.start()
         yield connection
         await tr.rollback()
+
+
+# ---------------------------------------------------------------------------
+# Shared integration-test fixtures
+# ---------------------------------------------------------------------------
+
+TEST_ENCRYPTION_KEY = Fernet.generate_key().decode()
+
+
+@pytest.fixture(scope="session")
+def encryption_key() -> str:
+    """Provide a valid Fernet encryption key for tests."""
+    return TEST_ENCRYPTION_KEY
+
+
+def _build_fake_response(content: str = "Test AI response") -> object:
+    """Build a fake LiteLLM response matching acompletion shape."""
+    resp = SimpleNamespace()
+    choice = SimpleNamespace(message=SimpleNamespace(content=content))
+    resp.choices = [choice]
+    resp.usage = SimpleNamespace(prompt_tokens=100, completion_tokens=50)
+    return resp
+
+
+@pytest.fixture
+def mock_litellm() -> AsyncGenerator[SimpleNamespace, None]:
+    """Patch litellm.acompletion and completion_cost."""
+    import litellm
+
+    fake_resp = _build_fake_response()
+    acomp = AsyncMock(return_value=fake_resp)
+    cost = MagicMock(return_value=0.001)
+    with (
+        patch.object(litellm, "acompletion", acomp),
+        patch.object(litellm, "completion_cost", cost),
+    ):
+        yield SimpleNamespace(
+            acompletion=acomp,
+            completion_cost=cost,
+            fake_response=fake_resp,
+            build=_build_fake_response,
+        )
+
+
+async def _create_test_session(pool: asyncpg.Pool) -> tuple:
+    """Create a session with facilitator and main branch."""
+    from src.repositories.session_repo import SessionRepository
+
+    return await SessionRepository(pool).create_session(
+        "Integration Test Session",
+        facilitator_display_name="Facilitator",
+        facilitator_provider="openai",
+        facilitator_model="gpt-4o",
+        facilitator_model_tier="high",
+        facilitator_model_family="gpt",
+        facilitator_context_window=128000,
+    )
+
+
+async def _add_test_participant(
+    pool: asyncpg.Pool,
+    session_id: str,
+    encryption_key: str,
+) -> object:
+    """Add an AI participant with an encrypted API key."""
+    from src.repositories.participant_repo import ParticipantRepository
+
+    p_repo = ParticipantRepository(pool, encryption_key=encryption_key)
+    participant, _ = await p_repo.add_participant(
+        session_id=session_id,
+        display_name="AI Speaker",
+        provider="openai",
+        model="gpt-4o",
+        model_tier="high",
+        model_family="gpt",
+        context_window=128000,
+        api_key="test-api-key",
+        auth_token=uuid.uuid4().hex,
+        auto_approve=True,
+    )
+    return participant
+
+
+@pytest.fixture
+async def session_with_participant(
+    pool: asyncpg.Pool,
+    encryption_key: str,
+) -> tuple:
+    """Create a session with facilitator + AI participant."""
+    session, facilitator, branch = await _create_test_session(pool)
+    participant = await _add_test_participant(
+        pool,
+        session.id,
+        encryption_key,
+    )
+    return session, facilitator, participant, branch
