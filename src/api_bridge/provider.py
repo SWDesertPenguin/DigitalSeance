@@ -14,6 +14,8 @@ from src.repositories.errors import ProviderDispatchError
 
 # Suppress LiteLLM's verbose logging
 litellm.suppress_debug_info = True
+# Force IPv4 to avoid async timeout with Docker DNS returning IPv6
+litellm.force_ipv4 = True
 
 
 async def dispatch(
