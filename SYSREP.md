@@ -1,6 +1,6 @@
 # SACP System Report
 
-**Last Updated**: 2026-04-12
+**Last Updated**: 2026-04-13
 
 ## Project Overview
 
@@ -31,13 +31,13 @@
 
 | Metric | Count |
 |--------|-------|
-| Source files (src/) | ~55 |
-| Test files (tests/) | ~35 |
-| Lines of Python | ~11,000 |
+| Source files (src/) | 60 |
+| Test files (tests/) | 40 |
+| Lines of Python | ~9,700 |
 | Spec/plan/task docs | ~40 |
-| PRs merged | 14 |
+| PRs merged | 37 |
 | Database tables | 13 |
-| API endpoints | 18 |
+| API endpoints | 21 |
 | Routing modes | 8 |
 | Security modules | 7 |
 | Test results (non-DB) | 120+ passing |
@@ -79,6 +79,7 @@ src/
 - `POST /tools/participant/rotate_token` — rotate auth token
 
 ### Facilitator Tools
+- `POST /tools/facilitator/add_participant` — add AI participant
 - `POST /tools/facilitator/create_invite` — generate invite link
 - `POST /tools/facilitator/approve_participant` — approve pending
 - `POST /tools/facilitator/reject_participant` — reject pending
@@ -109,7 +110,7 @@ All code features complete:
 - [x] Turn loop engine (8 routing modes, context assembly, LiteLLM)
 - [x] Convergence detection (embeddings, cadence, adversarial rotation)
 - [x] Summarization checkpoints (structured JSON)
-- [x] MCP server (18 endpoints, SSE)
+- [x] MCP server (21 endpoints, SSE)
 - [x] AI security pipeline (sanitization, spotlighting, validation, exfiltration, jailbreak, prompt protection, log scrubbing)
 - [x] System prompt management (4-tier delta with canary tokens)
 - [x] Security pipeline integrated into turn loop + context assembly
@@ -119,16 +120,21 @@ All code features complete:
 
 - [ ] Database tests (18 test files need PostgreSQL)
 - [ ] Integration testing with real provider calls
-- [ ] Docker image rebuild with features 007-009
+- [x] Docker image rebuild with features 007-009
 
-## Backlog
+## Post-Deployment Fixes (PRs #28–#37)
 
-- [ ] **Always generate auth_token on session create** — token generation is currently gated on api_key being non-empty, which blocks keyless providers like Ollama. Decouple token generation from api_key presence.
-- [ ] **Pacing / turn throttle for human-observable sessions** — when humans are watching or participating, the AI-to-AI turn loop fires too fast for meaningful human engagement. Add a configurable turn delay (e.g., 5-30s between turns) that can be set per-session or toggled live. When the session is AI-only (no human observers), the loop runs at full speed. When a human is present or a "paced" flag is set, the loop inserts a deliberate pause between turns, giving humans time to read, react, and inject messages before the conversation moves on. Could also support adaptive pacing — slower when a human recently injected, faster when the conversation is AI-only for several turns.
-
-## Open Branches
-
-Pending merge: 008-prompts-security-wiring, 009-rate-limiting
+| PR | Fix |
+|----|-----|
+| #28 | API key moved from URL query params to request body |
+| #29 | Session create api_key to POST body (Pydantic model) |
+| #30–#31 | Dynamic branch ID lookup (replaced hardcoded "main") |
+| #32 | add_participant params moved to POST body |
+| #33 | Context marker stripping from AI responses |
+| #34 | api_endpoint wired through API + context marker stripping |
+| #35 | inject_message body fix, canary format, interrupt delivery order |
+| #36 | Dispatch error logging + skip API key for Ollama |
+| #37 | Force IPv4 in LiteLLM to prevent Docker DNS timeout |
 
 ## Constitution Compliance
 
