@@ -21,6 +21,7 @@ class _AddParticipantBody(BaseModel):
     model_family: str
     context_window: int
     api_key: str = ""
+    api_endpoint: str = ""
 
 
 @router.post("/add_participant")
@@ -40,6 +41,7 @@ async def add_participant(
         model_family=body.model_family,
         context_window=body.context_window,
         api_key=body.api_key or None,
+        api_endpoint=body.api_endpoint or None,
         auto_approve=True,
     )
     auth = request.app.state.auth_service

@@ -35,6 +35,7 @@ class ParticipantRepository(BaseRepository):
         model_family: str,
         context_window: int,
         api_key: str | None = None,
+        api_endpoint: str | None = None,
         auth_token: str | None = None,
         auto_approve: bool = False,
     ) -> tuple[Participant, str | None]:
@@ -43,9 +44,7 @@ class ParticipantRepository(BaseRepository):
         encrypted_key = _encrypt_api_key(api_key, self._encryption_key)
         token_hash = _hash_auth_token(auth_token)
         role = "participant" if auto_approve else "pending"
-
-        await self._execute(
-            _INSERT_PARTICIPANT_SQL,
+        args = (
             participant_id,
             session_id,
             display_name,
@@ -57,8 +56,9 @@ class ParticipantRepository(BaseRepository):
             context_window,
             encrypted_key,
             token_hash,
+            api_endpoint,
         )
-
+        await self._execute(_INSERT_PARTICIPANT_SQL, *args)
         record = await self._fetch_one(
             "SELECT * FROM participants WHERE id = $1",
             participant_id,
@@ -187,8 +187,8 @@ _INSERT_PARTICIPANT_SQL = """
     INSERT INTO participants
         (id, session_id, display_name, role, provider, model,
          model_tier, model_family, context_window,
-         api_key_encrypted, auth_token_hash)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         api_key_encrypted, auth_token_hash, api_endpoint)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 """
 
 
