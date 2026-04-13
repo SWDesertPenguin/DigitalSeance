@@ -35,12 +35,19 @@ class ContextAssembler:
         *,
         session_id: str,
         participant: Participant,
+        interjections: list | None = None,
     ) -> list[ContextMessage]:
         """Build context in 5-priority order within token budget."""
         budget = _available_budget(participant)
         context: list[ContextMessage] = []
         used = _add_system_prompt(context, participant)
-        used = await self._add_priorities(context, session_id, used, budget)
+        used = await self._add_priorities(
+            context,
+            session_id,
+            used,
+            budget,
+            interjections,
+        )
         return context
 
     async def _add_priorities(
@@ -49,23 +56,23 @@ class ContextAssembler:
         session_id: str,
         used: int,
         budget: int,
+        interjections: list | None = None,
     ) -> int:
         """Add P2-P6 content in priority order."""
         bid = await get_main_branch_id(self._pool, session_id)
-
-        interjections = await self._int_repo.get_pending(session_id)
+        if interjections is None:
+            interjections = await self._int_repo.get_pending(session_id)
         used = _add_interjections(context, interjections, used)
-
-        proposals = await self._prop_repo.get_open_proposals(session_id)
-        used = _add_proposals(context, proposals, used)
-
+        used = _add_proposals(
+            context,
+            await self._prop_repo.get_open_proposals(session_id),
+            used,
+        )
         recent = await self._msg_repo.get_recent(session_id, bid, MVC_FLOOR_TURNS)
         used = _add_messages(context, recent, used, budget)
-
         summaries = await self._msg_repo.get_summaries(session_id, bid)
         if summaries:
             used = _add_summary(context, summaries[-1], used, budget)
-
         if used < budget:
             await self._fill_history(context, session_id, used, budget, recent)
         return used
@@ -109,7 +116,6 @@ def _add_system_prompt(
     ctx = ContextMessage("system", prompt, None)
     context.append(ctx)
     return _estimate_tokens(ctx.content)
-    return 0
 
 
 def _add_interjections(
