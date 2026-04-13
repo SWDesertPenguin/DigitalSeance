@@ -20,7 +20,9 @@ _CREDENTIAL_PATTERNS = [_API_KEYS, _ANTHROPIC_KEYS, _JWT_TOKENS, _FERNET_TOKENS]
 # Context assembly markers that must not leak into stored messages
 _SPOTLIGHT_MARKER = re.compile(r"\^[0-9a-f]{6}\^")
 _SACP_TAGS = re.compile(r"</?sacp:(?:human|ai)>")
-_CANARY_TOKEN = re.compile(r"\[Internal:\s*CANARY_[0-9a-f]+\]")
+_CANARY_TOKEN = re.compile(
+    r"\[Internal:\s*CANARY_[0-9a-f]+\]" r"|<!-- integrity:CANARY_[0-9a-f]+ -->"
+)
 
 
 def filter_exfiltration(text: str) -> tuple[str, list[str]]:
