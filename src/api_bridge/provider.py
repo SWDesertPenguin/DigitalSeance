@@ -107,18 +107,31 @@ async def _call_litellm(
     max_tokens: int | None,
 ) -> Any:
     """Call litellm.acompletion with the given parameters."""
+    model = _normalize_ollama_model(model)
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": messages,
         "timeout": timeout,
     }
-    if api_key and not model.startswith("ollama/"):
+    if api_key and not model.startswith(("ollama/", "ollama_chat/")):
         kwargs["api_key"] = api_key
     if api_base:
         kwargs["api_base"] = api_base
     if max_tokens:
         kwargs["max_tokens"] = max_tokens
     return await litellm.acompletion(**kwargs)
+
+
+def _normalize_ollama_model(model: str) -> str:
+    """Rewrite ollama/ to ollama_chat/ for the chat endpoint.
+
+    LiteLLM's ollama/ prefix routes to /api/generate (text completion)
+    which streams by default and times out with httpx. ollama_chat/
+    routes to /api/chat which works correctly with chat messages.
+    """
+    if model.startswith("ollama/"):
+        return model.replace("ollama/", "ollama_chat/", 1)
+    return model
 
 
 def _extract_response(
