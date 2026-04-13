@@ -108,7 +108,7 @@ async def _call_litellm(
         "messages": messages,
         "timeout": timeout,
     }
-    if api_key:
+    if api_key and not model.startswith("ollama/"):
         kwargs["api_key"] = api_key
     if api_base:
         kwargs["api_base"] = api_base
