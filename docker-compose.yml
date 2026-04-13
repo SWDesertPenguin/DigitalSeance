@@ -24,6 +24,7 @@ services:
       POOL_MAX_SIZE: ${POOL_MAX_SIZE:-10}
       STATEMENT_TIMEOUT_MS: ${STATEMENT_TIMEOUT_MS:-30000}
       IDLE_TIMEOUT_MS: ${IDLE_TIMEOUT_MS:-60000}
+      DISABLE_AIOHTTP_TRANSPORT: "True"
     depends_on:
       postgres:
         condition: service_healthy
