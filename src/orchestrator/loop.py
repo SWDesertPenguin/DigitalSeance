@@ -11,8 +11,10 @@ from src.api_bridge.format import to_provider_messages
 from src.api_bridge.provider import dispatch_with_retry
 from src.orchestrator.branch import get_main_branch_id
 from src.orchestrator.budget import BudgetEnforcer
+from src.orchestrator.cadence import CadenceController
 from src.orchestrator.circuit_breaker import CircuitBreaker
 from src.orchestrator.context import ContextAssembler
+from src.orchestrator.convergence import ConvergenceDetector
 from src.orchestrator.router import TurnRouter
 from src.orchestrator.types import ProviderResponse, TurnResult
 from src.repositories.errors import (
@@ -60,6 +62,18 @@ class ConversationLoop:
         self._msg_repo = MessageRepository(pool)
         self._log_repo = LogRepository(pool)
         self._gate_repo = ReviewGateRepository(pool)
+        self._cadence = CadenceController()
+        self._convergence = ConvergenceDetector(self._log_repo)
+        self._convergence.load_model()
+        self._cadence_presets: dict[str, str] = {}
+
+    def set_cadence_preset(
+        self,
+        session_id: str,
+        preset: str,
+    ) -> None:
+        """Cache the cadence preset for a running session."""
+        self._cadence_presets[session_id] = preset
 
     async def execute_turn(self, session_id: str) -> TurnResult:
         """Execute a single turn iteration."""
@@ -85,16 +99,36 @@ class ConversationLoop:
     ) -> TurnResult:
         """Route, assemble, dispatch, and persist a turn."""
         interjections = await self._int_repo.get_pending(session_id)
+        log.debug("Fetched %d interjections for %s", len(interjections), session_id)
+        if interjections:
+            await self._persist_interjections(session_id, interjections)
+            self._cadence.reset_on_interjection(session_id)
         decision = await self._router.route(
             speaker,
-            has_interjection=len(interjections) > 0,
+            has_interjection=bool(interjections),
         )
         if decision.action in ("skipped", "burst_accumulating"):
             await _log_routing(self._log_repo, session_id, decision)
             return _skip_from_decision(session_id, decision)
-
         ctx = self._build_turn_context(session_id)
-        result = await _dispatch_and_persist(
+        result = await self._dispatch_with_delay(
+            ctx,
+            speaker,
+            decision,
+            interjections,
+        )
+        await _mark_delivered(self._int_repo, interjections)
+        return result
+
+    async def _dispatch_with_delay(
+        self,
+        ctx: _TurnContext,
+        speaker: object,
+        decision: object,
+        interjections: list,
+    ) -> TurnResult:
+        """Dispatch turn then compute cadence delay."""
+        result, content = await _dispatch_and_persist(
             ctx,
             self._assembler,
             self._breaker,
@@ -102,8 +136,52 @@ class ConversationLoop:
             decision,
             interjections=interjections,
         )
-        await _mark_delivered(self._int_repo, interjections)
-        return result
+        delay = await self._compute_turn_delay(
+            ctx.session_id,
+            result.turn_number,
+            content,
+        )
+        return _with_delay(result, delay)
+
+    async def _persist_interjections(
+        self,
+        session_id: str,
+        interjections: list,
+    ) -> None:
+        """Persist human interjections into the message transcript."""
+        bid = await get_main_branch_id(self._pool, session_id)
+        for intr in interjections:
+            log.info("Persisting interjection %d as message", intr.id)
+            await self._msg_repo.append_message(
+                session_id=session_id,
+                branch_id=bid,
+                speaker_id=intr.participant_id,
+                speaker_type="human",
+                content=intr.content,
+                token_count=max(len(intr.content) // 4, 1),
+                complexity_score="n/a",
+            )
+
+    async def _compute_turn_delay(
+        self,
+        session_id: str,
+        turn_number: int,
+        content: str,
+    ) -> float:
+        """Compute post-turn delay via convergence + cadence."""
+        if not content:
+            return 0.0
+        similarity = await self._convergence.process_turn(
+            turn_number=turn_number,
+            session_id=session_id,
+            content=content,
+        )
+        preset = self._cadence_presets.get(session_id, "cruise")
+        return self._cadence.compute_delay(
+            session_id,
+            similarity=similarity,
+            preset=preset,
+        )
 
     def _build_turn_context(self, session_id: str) -> _TurnContext:
         """Create a TurnContext with current dependencies."""
@@ -148,7 +226,7 @@ async def _dispatch_and_persist(
     decision: object,
     *,
     interjections: list | None = None,
-) -> TurnResult:
+) -> tuple[TurnResult, str]:
     """Assemble context, dispatch to provider, persist result."""
     response = await _assemble_and_dispatch(
         ctx,
@@ -158,12 +236,14 @@ async def _dispatch_and_persist(
         interjections,
     )
     if response is None:
-        return _skip_result(ctx.session_id, speaker.id, "provider_error")
+        return _skip_result(ctx.session_id, speaker.id, "provider_error"), ""
 
     if decision.action == "review_gated":
-        return await _stage_for_review(ctx, speaker, decision, response)
+        result = await _stage_for_review(ctx, speaker, decision, response)
+        return result, response.content
 
-    return await _validate_and_persist(ctx, speaker, decision, response)
+    result = await _validate_and_persist(ctx, speaker, decision, response)
+    return result, response.content
 
 
 async def _assemble_and_dispatch(
@@ -354,6 +434,21 @@ def _skip_from_decision(
         cost_usd=0.0,
         skipped=True,
         skip_reason=decision.reason,
+    )
+
+
+def _with_delay(result: TurnResult, delay: float) -> TurnResult:
+    """Return a TurnResult with delay_seconds set."""
+    return TurnResult(
+        session_id=result.session_id,
+        turn_number=result.turn_number,
+        speaker_id=result.speaker_id,
+        action=result.action,
+        tokens_used=result.tokens_used,
+        cost_usd=result.cost_usd,
+        skipped=result.skipped,
+        skip_reason=result.skip_reason,
+        delay_seconds=delay,
     )
 
 

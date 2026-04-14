@@ -128,7 +128,7 @@ def _add_interjections(
         content = f"<sacp:human>[Priority] {intr.content}"
         tokens = _estimate_tokens(content)
         if tokens > INTERJECTION_BUDGET:
-            break
+            continue
         context.append(ContextMessage("user", content, None))
         used += tokens
     return used
