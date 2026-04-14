@@ -43,6 +43,15 @@
 
 ---
 
+## Phase 6: Canary Hardening (fix/canary-hardening, 2026-04-14)
+
+- [X] T013 Update `src/security/prompt_protector.py` — 3 random 16-char base32 canaries via `secrets`; `canaries` property; `check_leakage` checks all three; accepts `canaries=` kwarg for detection wiring
+- [X] T014 Update `src/prompts/tiers.py` — remove `PromptProtector` dependency; `_generate_canaries()` + `_embed_canaries()` embed raw base32 at start/mid/end; no structural wrapper
+- [X] T015 Update `src/security/exfiltration.py` — remove HTML-comment canary regex; rename to `_CANARY_LEGACY` (bracket format only)
+- [X] T016 Update `tests/` — replace deterministic canary tests with random/3-canary assertions; remove HTML-comment exfiltration test
+
+---
+
 ## Dependencies
 
 - Setup → US1, US2, US3 (independent after setup)
