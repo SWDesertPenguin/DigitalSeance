@@ -5,6 +5,13 @@
 **Status**: Draft
 **Input**: User description: "MCP server with SSE transport, participant and facilitator tools, auth middleware, session lifecycle, and turn loop control"
 
+## Clarifications
+
+### Session 2026-04-14
+
+- Q: SSE streaming reality check? → A: Keep spec as SSE; current code uses polling — this is a gap. Open follow-up work to implement real SSE streaming.
+- Q: CORS policy? → A: Default to localhost + LAN (192.168.0.0/16, 10.0.0.0/8); operator sets SACP_CORS_ORIGINS env for production
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Authenticated SSE Connection (Priority: P1)
@@ -165,7 +172,8 @@ A participant can export the conversation transcript as markdown or JSON. The ex
 
 - Phase 1 uses simple SSE streaming, not the full MCP protocol SDK. MCP protocol compliance is a future enhancement.
 - The SSE endpoint serves as the connection mechanism. Tool calls are HTTP POST endpoints alongside the SSE stream.
+- **KNOWN GAP (as of 2026-04-14)**: The SSE stream endpoint is not yet implemented. Clients currently poll `/tools/participant/history` for turn updates. This will be corrected in a follow-up PR to match the spec. Polling is a temporary workaround, not the intended architecture.
 - One SSE connection per participant per session. Reconnection is supported with the same token.
 - The turn loop runs in-process as an asyncio task. Not a separate process.
 - Rate limiting per participant is deferred to a later hardening pass.
-- CORS and CSP headers are included but minimally configured for Phase 1.
+- CORS policy defaults to localhost + LAN ranges (127.0.0.1, 192.168.0.0/16, 10.0.0.0/8). Operators override via the `SACP_CORS_ORIGINS` environment variable for production deployments. CSP headers are included but minimally configured for Phase 1. Current code uses `allow_origins=["*"]` and must be tightened to match this spec in a follow-up PR.

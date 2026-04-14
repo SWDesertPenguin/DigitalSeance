@@ -14,7 +14,7 @@ Implement the foundational data persistence layer for SACP Phase 1: 13 database 
 **Storage**: PostgreSQL 16 via Docker Compose (constitution §6.2)
 **Testing**: pytest + pytest-asyncio (async database tests)
 **Target Platform**: Linux container (Alpine-based Docker image, constitution §6.8)
-**Project Type**: Web service (MCP server + FastAPI)
+**Project Type**: Single project
 **Performance Goals**: 2 concurrent participants per session; prepared statements on hot-path queries (message append, turn fetch, interrupt check, routing log)
 **Constraints**: 25-line function cap, 5-argument positional limit, type hints on all signatures (constitution §6.10); append-only logs; message immutability; application-layer API key encryption
 **Scale/Scope**: 2 participants Phase 1, schema supports 5 for Phase 3 without migration
