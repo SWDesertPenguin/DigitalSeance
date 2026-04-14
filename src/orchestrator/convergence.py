@@ -93,12 +93,17 @@ class ConvergenceDetector:
         session_id: str,
         embedding: bytes,
     ) -> float:
-        """Compute cosine similarity vs sliding window."""
+        """Compute cosine similarity vs sliding window.
+
+        Returns 0.0 until the window has at least 3 prior turns — with
+        fewer, "similarity" just reflects short-text topicality rather
+        than actual conversational convergence.
+        """
         window = await self._log_repo.get_convergence_window(
             session_id,
             self._window,
         )
-        if not window:
+        if len(window) < 3:
             return 0.0
         return _cosine_similarity_window(embedding, window)
 
