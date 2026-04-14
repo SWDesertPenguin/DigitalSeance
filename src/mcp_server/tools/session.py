@@ -126,7 +126,10 @@ async def start_loop(
     if sid in _loop_tasks and not _loop_tasks[sid].done():
         return {"status": "already_running"}
     loop = request.app.state.conversation_loop
-    _loop_tasks[sid] = asyncio.create_task(_run_loop(loop, sid))
+    session_repo = request.app.state.session_repo
+    _loop_tasks[sid] = asyncio.create_task(
+        _run_loop(loop, sid, session_repo),
+    )
     return {"status": "started"}
 
 
@@ -175,13 +178,22 @@ async def export_json(
     return {"format": "json", "content": json.dumps(data)}
 
 
-async def _run_loop(loop: object, session_id: str) -> None:
-    """Run the conversation loop until cancelled."""
+async def _run_loop(
+    loop: object,
+    session_id: str,
+    session_repo: object,
+) -> None:
+    """Run the conversation loop with cadence-based pacing."""
     from src.repositories.errors import AllParticipantsExhaustedError
 
+    session = await session_repo.get_session(session_id)
+    if session:
+        loop.set_cadence_preset(session_id, session.cadence_preset)
     while True:
         try:
-            await loop.execute_turn(session_id)
+            result = await loop.execute_turn(session_id)
+            if result.delay_seconds > 0:
+                await asyncio.sleep(result.delay_seconds)
         except AllParticipantsExhaustedError:
             break
         except asyncio.CancelledError:
