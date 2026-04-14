@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import Any
 
@@ -11,6 +12,8 @@ import litellm
 from src.database.encryption import decrypt_value
 from src.orchestrator.types import ProviderResponse
 from src.repositories.errors import ProviderDispatchError
+
+log = logging.getLogger(__name__)
 
 # Suppress LiteLLM's verbose logging
 litellm.suppress_debug_info = True
@@ -33,6 +36,8 @@ async def dispatch(
     """Send payload to provider via LiteLLM."""
     api_key = _decrypt_key(api_key_encrypted, encryption_key)
     start = time.monotonic()
+    log.info("Dispatching to %s (timeout=%ds)", model, timeout)
+    heartbeat = asyncio.create_task(_log_heartbeat(model, timeout))
     try:
         response = await _call_litellm(
             model=model,
@@ -42,9 +47,11 @@ async def dispatch(
             timeout=timeout,
             max_tokens=max_tokens,
         )
+        elapsed = int(time.monotonic() - start)
+        log.info("%s responded in %ds", model, elapsed)
         return _extract_response(response, model, start)
     finally:
-        # Discard key immediately
+        heartbeat.cancel()
         api_key = None  # noqa: F841
 
 
@@ -164,6 +171,21 @@ def _compute_cost(usage: Any, model: str) -> float:
         )
     except Exception:
         return 0.0  # Cost unknown for custom/local models
+
+
+async def _log_heartbeat(model: str, timeout: int) -> None:
+    """Log elapsed time every 15s while waiting for provider."""
+    start = time.monotonic()
+    while True:
+        await asyncio.sleep(15)
+        elapsed = int(time.monotonic() - start)
+        remaining = timeout - elapsed
+        log.info(
+            "Waiting for %s… %ds elapsed, %ds remaining",
+            model,
+            elapsed,
+            remaining,
+        )
 
 
 def _backoff_delay(attempt: int) -> float:
