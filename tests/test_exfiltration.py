@@ -106,6 +106,31 @@ def test_canary_token_stripped_html_comment() -> None:
     assert "canary_token_stripped" in flags
 
 
+def test_spotlight_underscore_variant_stripped() -> None:
+    """Spotlight markers with underscore suffix are stripped."""
+    text = "^35523e_^Hello ^35523e_^world"
+    result, flags = filter_exfiltration(text)
+    assert "^35523e_^" not in result
+    assert result == "Hello world"
+    assert "spotlight_marker_stripped" in flags
+
+
+def test_sacp_at_mention_stripped() -> None:
+    """@sacp:ai mention format is stripped from output."""
+    text = "As @sacp:ai mentioned, the approach works"
+    result, flags = filter_exfiltration(text)
+    assert "@sacp:ai" not in result
+    assert "sacp_tag_stripped" in flags
+
+
+def test_sacp_at_mention_human_stripped() -> None:
+    """@sacp:human mention format is stripped from output."""
+    text = "The @sacp:human asked about performance"
+    result, flags = filter_exfiltration(text)
+    assert "@sacp:human" not in result
+    assert "sacp_tag_stripped" in flags
+
+
 def test_mixed_markers_all_stripped() -> None:
     """All context markers are stripped in one pass."""
     text = "^9f58a7^<sacp:human>Great point <!-- integrity:CANARY_abcdef012345 --></sacp:human>"
