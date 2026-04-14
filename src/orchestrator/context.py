@@ -46,7 +46,8 @@ class ContextAssembler:
             session_id,
             used,
             budget,
-            interjections,
+            participant=participant,
+            interjections=interjections,
         )
         return context
 
@@ -56,6 +57,8 @@ class ContextAssembler:
         session_id: str,
         used: int,
         budget: int,
+        *,
+        participant: Participant,
         interjections: list | None = None,
     ) -> int:
         """Add P2-P6 content in priority order."""
@@ -69,12 +72,19 @@ class ContextAssembler:
             used,
         )
         recent = await self._msg_repo.get_recent(session_id, bid, MVC_FLOOR_TURNS)
-        used = _add_messages(context, recent, used, budget)
+        used = _add_messages(context, recent, used, budget, speaker_id=participant.id)
         summaries = await self._msg_repo.get_summaries(session_id, bid)
         if summaries:
             used = _add_summary(context, summaries[-1], used, budget)
         if used < budget:
-            await self._fill_history(context, session_id, used, budget, recent)
+            await self._fill_history(
+                context,
+                session_id,
+                used,
+                budget,
+                recent,
+                speaker_id=participant.id,
+            )
         return used
 
     async def _fill_history(
@@ -84,11 +94,13 @@ class ContextAssembler:
         used: int,
         budget: int,
         already: list[Message],
+        *,
+        speaker_id: str,
     ) -> None:
         """Fill remaining budget with additional history."""
         bid = await get_main_branch_id(self._pool, session_id)
         more = await self._msg_repo.get_recent(session_id, bid, 50)
-        _add_history(context, more, used, budget, already)
+        _add_history(context, more, used, budget, already, speaker_id=speaker_id)
 
 
 def _available_budget(participant: Participant) -> int:
@@ -155,10 +167,12 @@ def _add_messages(
     messages: list[Message],
     used: int,
     budget: int,
+    *,
+    speaker_id: str,
 ) -> int:
-    """Add messages with sanitization + spotlighting."""
+    """Add messages with sanitization + conditional spotlighting."""
     for msg in messages:
-        content = _secure_content(msg)
+        content = _secure_content(msg, speaker_id)
         tokens = _estimate_tokens(content)
         if used + tokens > budget:
             break
@@ -168,9 +182,17 @@ def _add_messages(
     return used
 
 
-def _secure_content(msg: Message) -> str:
-    """Sanitize and optionally spotlight a message."""
+def _secure_content(msg: Message, current_speaker_id: str) -> str:
+    """Sanitize, tag, and spotlight messages.
+
+    For same-speaker (self) messages we skip both the <sacp:TYPE> tag
+    and spotlighting — the role field (assistant/user) already carries
+    that signal, the XML-like wrapper just confuses smaller models and
+    the trust boundary doesn't exist when you're reading your own output.
+    """
     cleaned = sanitize(msg.content)
+    if msg.speaker_id == current_speaker_id:
+        return cleaned
     tagged = f"<sacp:{msg.speaker_type}>{cleaned}"
     if should_spotlight(msg.speaker_type):
         return spotlight(tagged, msg.speaker_id)
@@ -200,6 +222,8 @@ def _add_history(
     used: int,
     budget: int,
     already_added: list[Message],
+    *,
+    speaker_id: str,
 ) -> None:
     """Fill remaining budget with additional history."""
     added_turns = {m.turn_number for m in already_added}
@@ -210,8 +234,8 @@ def _add_history(
         if used + tokens > budget:
             break
         role = _message_role(msg.speaker_type)
-        marker = f"<sacp:{msg.speaker_type}>{msg.content}"
-        context.append(ContextMessage(role, marker, msg.turn_number))
+        content = _secure_content(msg, speaker_id)
+        context.append(ContextMessage(role, content, msg.turn_number))
         used += tokens
         added_turns.add(msg.turn_number)
 
