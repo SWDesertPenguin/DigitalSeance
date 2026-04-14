@@ -5,6 +5,13 @@
 **Status**: Draft
 **Input**: User description: "AI security pipeline — spotlighting, sanitization, output validation, jailbreak detection, prompt extraction defense, exfiltration filtering, log scrubbing"
 
+## Clarifications
+
+### Session 2026-04-14
+
+- Q: Same-speaker exception for datamarking? → A: Exempt same-speaker AI messages from datamarking (no trust boundary to enforce when reading own output); matches PR #47 shipped code
+- Q: Prompt extraction detection unit? → A: 25 words (whitespace split, no tokenizer dependency)
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Context Sanitization (Priority: P1)
@@ -137,7 +144,7 @@ All log output is scrubbed for credential patterns before emission. API keys, au
 
 - **FR-001**: System MUST strip ChatML tokens, role markers, HTML comments, override phrases, and invisible Unicode from all messages before context assembly.
 - **FR-002**: System MUST apply datamarking to AI responses before inclusion in another AI's context.
-- **FR-003**: System MUST NOT datamark human interjections or system messages.
+- **FR-003**: System MUST NOT datamark human interjections, system messages, or AI messages from the same speaker as the current participant (an AI reading its own prior output has no trust boundary to enforce).
 - **FR-004**: System MUST validate every AI response against injection pattern checks before persistence.
 - **FR-005**: System MUST hold responses with high risk scores for facilitator review instead of persisting them.
 - **FR-006**: System MUST strip markdown image syntax and HTML src attributes from AI responses.
@@ -145,7 +152,7 @@ All log output is scrubbed for credential patterns before emission. API keys, au
 - **FR-008**: System MUST detect and redact credential patterns (API keys, JWTs) in AI responses.
 - **FR-009**: System MUST monitor responses for behavioral drift indicators and flag anomalies.
 - **FR-010**: System MUST embed canary tokens in system prompts and scan responses for leakage.
-- **FR-011**: System MUST scan responses for substantial fragments (20+ tokens) of system prompts.
+- **FR-011**: System MUST scan responses for substantial fragments (25+ words, whitespace-split) of any participant's system prompt. No tokenizer dependency — simple word count by whitespace split.
 - **FR-012**: System MUST redact credential patterns in all log output before emission.
 - **FR-013**: System MUST never silently drop or block a response — blocked responses are always held for review with the original content preserved.
 

@@ -11,6 +11,7 @@ Per-participant rate limiting middleware for the MCP server: in-memory sliding w
 **Language/Version**: Python 3.11+ (existing)
 **Primary Dependencies**: N/A
 **Storage**: N/A
+**Project Type**: Single project
 No new dependencies. In-memory rate counters with FastAPI middleware.
 
 ## Constitution Check
