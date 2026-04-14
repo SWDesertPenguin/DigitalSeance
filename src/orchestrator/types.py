@@ -17,6 +17,7 @@ class TurnResult:
     cost_usd: float
     skipped: bool
     skip_reason: str | None
+    delay_seconds: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
