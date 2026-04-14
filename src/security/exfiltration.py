@@ -18,8 +18,8 @@ _FERNET_TOKENS = re.compile(r"gAAAAA[a-zA-Z0-9_-]{40,}")
 _CREDENTIAL_PATTERNS = [_API_KEYS, _ANTHROPIC_KEYS, _JWT_TOKENS, _FERNET_TOKENS]
 
 # Context assembly markers that must not leak into stored messages
-_SPOTLIGHT_MARKER = re.compile(r"\^[0-9a-f]{6}\^")
-_SACP_TAGS = re.compile(r"</?sacp:(?:human|ai)>")
+_SPOTLIGHT_MARKER = re.compile(r"\^[0-9a-f_]{5,8}\^")
+_SACP_TAGS = re.compile(r"</?sacp:(?:human|ai)>|@sacp:(?:human|ai)\b")
 _CANARY_TOKEN = re.compile(
     r"\[Internal:\s*CANARY_[0-9a-f]+\]" r"|<!-- integrity:CANARY_[0-9a-f]+ -->"
 )
