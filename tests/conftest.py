@@ -141,7 +141,7 @@ _PARTICIPANTS_TABLE_DDL = """
         burst_interval INTEGER DEFAULT 20,
         review_gate_timeout INTEGER DEFAULT 600,
         turns_since_last_burst INTEGER DEFAULT 0,
-        turn_timeout_seconds INTEGER DEFAULT 60,
+        turn_timeout_seconds INTEGER DEFAULT 180,
         consecutive_timeouts INTEGER DEFAULT 0,
         status TEXT DEFAULT 'active',
         budget_hourly REAL,
