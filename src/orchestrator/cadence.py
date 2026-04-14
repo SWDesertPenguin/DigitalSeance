@@ -8,7 +8,7 @@ from dataclasses import dataclass
 SPRINT_FLOOR = 2.0
 SPRINT_CEILING = 15.0
 CRUISE_FLOOR = 5.0
-CRUISE_CEILING = 300.0  # 5 minutes
+CRUISE_CEILING = 60.0  # 1 minute max — 300s was too aggressive in practice
 
 # Similarity thresholds for cadence adjustment
 LOW_SIMILARITY = 0.3

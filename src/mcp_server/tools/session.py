@@ -96,8 +96,11 @@ async def resume_session(
     request: Request,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Resume a paused session."""
+    """Resume a paused session. Idempotent if already active."""
     session_repo = request.app.state.session_repo
+    current = await session_repo.get_session(participant.session_id)
+    if current and current.status == "active":
+        return {"status": "active"}
     session = await session_repo.update_status(
         participant.session_id,
         "active",
