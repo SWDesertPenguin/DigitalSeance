@@ -55,6 +55,16 @@
 
 ---
 
+## Phase 8: SSE Streaming (fix/sse-streaming, 2026-04-14)
+
+- [X] T015 Create `src/mcp_server/sse.py` — `ConnectionManager` with per-session asyncio.Queue subscribe/unsubscribe/broadcast
+- [X] T016 Create `src/mcp_server/sse_router.py` — `GET /sse/{session_id}` endpoint: auth-gated, StreamingResponse text/event-stream, 30s keepalive, session_id mismatch → 403
+- [X] T017 Update `src/mcp_server/app.py` — instantiate `ConnectionManager` in lifespan, attach to `app.state`, register `sse_router`
+- [X] T018 Update `src/mcp_server/tools/session.py` — pass `connection_manager` to `_run_loop`, broadcast `{turn, speaker_id, action, skipped}` after each non-skipped turn
+- [X] T019 Update `src/mcp_server/app.py` `_add_middleware` — replace `allow_origins=["*"]` with LAN regex default + `SACP_CORS_ORIGINS` env override
+
+---
+
 ## Dependencies
 
 - Setup → US1 → US2+3 → US4 → US5+6 → US7 → Tests
@@ -62,7 +72,7 @@
 
 ## Notes
 
-- 14 tasks
+- 19 tasks (14 original + 4 SSE streaming + 1 CORS fix)
 - No new dependencies — FastAPI + uvicorn already installed
 - All tool endpoints are thin wrappers over existing services
 - Auth middleware is a FastAPI dependency injection pattern
