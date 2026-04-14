@@ -33,7 +33,11 @@ async def _create_test_db() -> AsyncGenerator[str, None]:
     db_name = f"sacp_test_{uuid.uuid4().hex[:8]}"
     admin_url = TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
 
-    conn = await asyncpg.connect(admin_url)
+    try:
+        conn = await asyncpg.connect(admin_url)
+    except (OSError, asyncpg.PostgresError):
+        pytest.skip("PostgreSQL not reachable — skipping DB tests")
+
     await conn.execute(f"DROP DATABASE IF EXISTS {db_name}")
     await conn.execute(f"CREATE DATABASE {db_name}")
     await conn.close()
