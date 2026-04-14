@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tools/session", tags=["session"])
 
@@ -192,11 +195,15 @@ async def _run_loop(
     while True:
         try:
             result = await loop.execute_turn(session_id)
+            log.info("Turn %d done, delay=%.1fs", result.turn_number, result.delay_seconds)
             if result.delay_seconds > 0:
                 await asyncio.sleep(result.delay_seconds)
         except AllParticipantsExhaustedError:
             break
         except asyncio.CancelledError:
+            break
+        except Exception:
+            log.exception("Loop crashed for session %s", session_id)
             break
 
 
