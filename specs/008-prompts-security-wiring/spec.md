@@ -5,6 +5,13 @@
 **Status**: Draft
 **Input**: "4-tier delta system prompts and security pipeline integration into turn loop and context assembly"
 
+## Clarifications
+
+### Session 2026-04-14
+
+- Q: Default prompt_tier? → A: `mid` (core rules + collaboration guidelines, ~770 tokens)
+- Q: Canary token format? → A: Multi-canary, random rare-string markers at 3 positions (start/mid/end), per-session unique, 16-char base32. No structural format (no HTML comment, no XML tag) so attackers have no pattern to evade.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - 4-Tier System Prompt Assembly (Priority: P1)
@@ -54,9 +61,9 @@ After each AI response is received from the provider, the turn loop runs the out
 
 ### Functional Requirements
 
-- **FR-001**: System MUST assemble system prompts from configurable tiers (low, mid, high, max) using delta content.
+- **FR-001**: System MUST assemble system prompts from configurable tiers (low, mid, high, max) using delta content. Default tier when participant has none set MUST be `mid`.
 - **FR-002**: System MUST append participant's custom system_prompt after tier content.
-- **FR-003**: System MUST embed canary tokens in assembled system prompts.
+- **FR-003**: System MUST embed **three** canary tokens in each assembled system prompt — one near the start, one in the middle of the tier content, one at the end. Each canary MUST be a 16-character base32 random string (no structural prefix, no HTML comment, no XML tag) so it presents no format pattern for attackers to evade. Canaries MUST be unique per session so detection identifies which session leaked. The prompt extraction detector MUST scan AI output for any of the three canaries.
 - **FR-004**: System MUST sanitize all messages during context assembly.
 - **FR-005**: System MUST spotlight (datamark) AI messages during context assembly.
 - **FR-006**: System MUST run output validation on AI responses before persistence.
@@ -73,4 +80,4 @@ After each AI response is received from the provider, the turn loop runs the out
 
 - Tier content is constant text in Phase 1. Dynamic tier content is a future enhancement.
 - The tier token budgets are approximate (~250, ~520, ~480, ~480) — exact wording will be refined.
-- Canary tokens are generated from the assembled prompt hash, not stored separately.
+- Canary tokens are high-entropy random strings generated per-session (not derived from the prompt hash), stored in session state so the detector can scan for them on every AI response. Three canaries are placed at start, middle, and end of the prompt to catch selective extraction attacks.

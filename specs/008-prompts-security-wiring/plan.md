@@ -11,6 +11,7 @@ Wire the 4-tier delta system prompt assembly and the AI security pipeline into t
 **Language/Version**: Python 3.11+ (existing)
 **Primary Dependencies**: N/A
 **Storage**: N/A
+**Project Type**: Single project
 No new dependencies. Wires existing security modules (feature 007) and prompt tiers into the orchestrator (features 003, 006).
 
 ## Constitution Check

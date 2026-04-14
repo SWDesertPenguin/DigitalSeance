@@ -11,6 +11,7 @@ FastAPI application serving SSE on port 8750 with bearer token auth middleware, 
 **Language/Version**: Python 3.11+ (existing)
 **Primary Dependencies**: FastAPI, uvicorn (existing)
 **Storage**: PostgreSQL 16 (existing)
+**Project Type**: Single project
 No new dependencies. FastAPI + uvicorn already in pyproject.toml.
 
 ## Constitution Check

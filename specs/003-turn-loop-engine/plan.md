@@ -13,7 +13,7 @@ Implement the serialized conversation loop that orchestrates SACP sessions: turn
 **Primary Dependencies**: asyncpg (existing), litellm>=1.83.0 (NEW)
 **Storage**: PostgreSQL 16 (existing)
 **Testing**: pytest + pytest-asyncio (existing harness)
-**Project Type**: Web service
+**Project Type**: Single project
 **Performance Goals**: Turn execution < 90s total (60s provider timeout + 15s grace + overhead)
 **Constraints**: 25/5, serialized turns, append-only logs, API keys never logged
 

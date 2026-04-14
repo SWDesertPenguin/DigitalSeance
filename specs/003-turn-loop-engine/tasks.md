@@ -15,10 +15,10 @@
 
 **Purpose**: Dependencies, module scaffolding, error types
 
-- [ ] T001 Add `litellm>=1.83.0` to pyproject.toml dependencies and run `uv sync`
-- [ ] T002 Create `src/orchestrator/` and `src/api_bridge/` directories with `__init__.py`
-- [ ] T003 [P] Add error types to `src/repositories/errors.py` — AllParticipantsExhaustedError, ProviderDispatchError, ResponseQualityError, BudgetExceededError
-- [ ] T004 [P] Create data types in `src/orchestrator/types.py` — TurnResult, RoutingDecision, ContextMessage frozen dataclasses
+- [X] T001 Add `litellm>=1.83.0` to pyproject.toml dependencies and run `uv sync`
+- [X] T002 Create `src/orchestrator/` and `src/api_bridge/` directories with `__init__.py`
+- [X] T003 [P] Add error types to `src/repositories/errors.py` — AllParticipantsExhaustedError, ProviderDispatchError, ResponseQualityError, BudgetExceededError
+- [X] T004 [P] Create data types in `src/orchestrator/types.py` — TurnResult, RoutingDecision, ContextMessage frozen dataclasses
 
 ---
 
@@ -26,10 +26,10 @@
 
 **Purpose**: Provider bridge and context assembler — everything depends on these
 
-- [ ] T005 Implement `src/api_bridge/format.py` — MessageFormatter: translate ContextMessage list to provider-specific messages array (system/user/assistant roles, boundary markers)
-- [ ] T006 Implement `src/api_bridge/provider.py` — ProviderBridge: dispatch (decrypt key, call litellm.acompletion, accumulate streaming, extract response, compute cost, discard key) and dispatch_with_retry (exponential backoff on rate limits)
-- [ ] T007 Implement `src/orchestrator/context.py` — ContextAssembler: assemble (5-priority builder with token budget), estimate_tokens (litellm.token_counter wrapper)
-- [ ] T008 Create `tests/conftest.py` additions — mock provider fixture (configurable responses: success, empty, timeout, rate limit), session+participants fixture for orchestrator tests
+- [X] T005 Implement `src/api_bridge/format.py` — MessageFormatter: translate ContextMessage list to provider-specific messages array (system/user/assistant roles, boundary markers)
+- [X] T006 Implement `src/api_bridge/provider.py` — ProviderBridge: dispatch (decrypt key, call litellm.acompletion, accumulate streaming, extract response, compute cost, discard key) and dispatch_with_retry (exponential backoff on rate limits)
+- [X] T007 Implement `src/orchestrator/context.py` — ContextAssembler: assemble (5-priority builder with token budget), estimate_tokens (litellm.token_counter wrapper)
+- [X] T008 Create `tests/conftest.py` additions — mock provider fixture (configurable responses: success, empty, timeout, rate limit), session+participants fixture for orchestrator tests
 
 **Checkpoint**: Can assemble context and dispatch to a mock provider
 
@@ -39,8 +39,8 @@
 
 **Goal**: Execute one complete turn end-to-end
 
-- [ ] T009 [US1] Implement `src/orchestrator/loop.py` — ConversationLoop with execute_turn method: select speaker → assemble context → dispatch → persist message → log routing + usage
-- [ ] T010 [US1] Write `tests/test_turn_loop.py` — test single turn persists message with correct speaker/tokens/cost; test routing log records decision; test usage log records cost; test timeout skips turn without halting
+- [X] T009 [US1] Implement `src/orchestrator/loop.py` — ConversationLoop with execute_turn method: select speaker → assemble context → dispatch → persist message → log routing + usage
+- [X] T010 [US1] Write `tests/test_turn_loop.py` — test single turn persists message with correct speaker/tokens/cost; test routing log records decision; test usage log records cost; test timeout skips turn without halting
 
 **Checkpoint**: One turn executes end-to-end
 
@@ -50,7 +50,7 @@
 
 **Goal**: 5-priority context with token budget
 
-- [ ] T011 [US2] Write `tests/test_context_assembly.py` — test priority order (interjections first, then proposals, then MVC, then summary, then history); test budget not exceeded; test truncation at turn boundaries; test MVC-too-large detection
+- [X] T011 [US2] Write `tests/test_context_assembly.py` — test priority order (interjections first, then proposals, then MVC, then summary, then history); test budget not exceeded; test truncation at turn boundaries; test MVC-too-large detection
 
 **Checkpoint**: Context assembly verified with all priority levels
 
@@ -60,7 +60,7 @@
 
 **Goal**: LiteLLM dispatch with streaming, retry, key handling
 
-- [ ] T012 [US3] Write `tests/test_provider.py` — test dispatch returns response with tokens/cost; test API key discarded after call; test streaming accumulation; test rate limit retry with backoff; test timeout handling
+- [X] T012 [US3] Write `tests/test_provider.py` — test dispatch returns response with tokens/cost; test API key discarded after call; test streaming accumulation; test rate limit retry with backoff; test timeout handling
 
 **Checkpoint**: Provider dispatch handles all response types
 
@@ -70,8 +70,8 @@
 
 **Goal**: All 8 routing modes
 
-- [ ] T013 [US4] Implement `src/orchestrator/router.py` — TurnRouter: next_speaker (round-robin, skip paused/over-budget), route (8-mode evaluation returning RoutingDecision)
-- [ ] T014 [US4] Write `tests/test_router.py` — one test per mode: always proceeds, review_gate stages, delegate_low reroutes on low complexity, domain_gated filters, burst accumulates then fires, observer checks on interval, addressed_only checks name mention, human_only checks interjection; test routing decision logged correctly
+- [X] T013 [US4] Implement `src/orchestrator/router.py` — TurnRouter: next_speaker (round-robin, skip paused/over-budget), route (8-mode evaluation returning RoutingDecision)
+- [X] T014 [US4] Write `tests/test_router.py` — one test per mode: always proceeds, review_gate stages, delegate_low reroutes on low complexity, domain_gated filters, burst accumulates then fires, observer checks on interval, addressed_only checks name mention, human_only checks interjection; test routing decision logged correctly
 
 **Checkpoint**: All 8 modes produce correct routing actions
 
@@ -81,9 +81,9 @@
 
 **Goal**: Human interjections take priority; budget ceilings enforced
 
-- [ ] T015 [US5] Extend `src/orchestrator/loop.py` — add interrupt processing at top of execute_turn: fetch pending → deliver → mark delivered → include in context
-- [ ] T016 [US6] Implement `src/orchestrator/budget.py` — BudgetEnforcer: check_budget (query usage_log, compare against ceiling, return bool), uses existing LogRepository.get_participant_cost
-- [ ] T017 [US6] Write `tests/test_budget.py` — test within-budget proceeds; test exceeded-budget skips; test skip logged with reason; test human can still inject when AI budget exceeded; test budgets never pooled across participants
+- [X] T015 [US5] Extend `src/orchestrator/loop.py` — add interrupt processing at top of execute_turn: fetch pending → deliver → mark delivered → include in context
+- [X] T016 [US6] Implement `src/orchestrator/budget.py` — BudgetEnforcer: check_budget (query usage_log, compare against ceiling, return bool), uses existing LogRepository.get_participant_cost
+- [X] T017 [US6] Write `tests/test_budget.py` — test within-budget proceeds; test exceeded-budget skips; test skip logged with reason; test human can still inject when AI budget exceeded; test budgets never pooled across participants
 
 **Checkpoint**: Interrupts delivered before AI turns; budget ceiling enforced
 
@@ -93,9 +93,9 @@
 
 **Goal**: Resilience layer
 
-- [ ] T018 [US7] Implement `src/orchestrator/circuit_breaker.py` — CircuitBreaker: record_failure, record_success, is_open; tracks consecutive_timeouts per participant, auto-pauses at threshold
-- [ ] T019 [US7] Write `tests/test_circuit_breaker.py` — test 3 failures → auto-pause; test success resets counter; test paused participant skipped by router; test remaining participants continue
-- [ ] T020 [US8] Extend `src/api_bridge/provider.py` — add response quality checks (empty, duplicate, repetitive) in dispatch; retry up to 3x on quality failure
+- [X] T018 [US7] Implement `src/orchestrator/circuit_breaker.py` — CircuitBreaker: record_failure, record_success, is_open; tracks consecutive_timeouts per participant, auto-pauses at threshold
+- [X] T019 [US7] Write `tests/test_circuit_breaker.py` — test 3 failures → auto-pause; test success resets counter; test paused participant skipped by router; test remaining participants continue
+- [X] T020 [US8] Extend `src/api_bridge/provider.py` — add response quality checks (empty, duplicate, repetitive) in dispatch; retry up to 3x on quality failure
 
 **Checkpoint**: Circuit breaker and error detection operational
 
@@ -105,9 +105,9 @@
 
 **Goal**: Complexity classification and review gate staging
 
-- [ ] T021 [US9] Implement `src/orchestrator/classifier.py` — ComplexityClassifier: classify (pattern-matching heuristic returning ComplexityScore, checks for keywords/patterns indicating low vs high)
-- [ ] T022 [US9] Write `tests/test_classifier.py` — test confirmations/agreements → low; test proposals/tradeoffs → high; test adversarial content → high; test classification included in routing log
-- [ ] T023 [US10] Extend `src/orchestrator/loop.py` — add review gate check: if routing decision is 'review_gated', create draft via ReviewGateRepository instead of appending message
+- [X] T021 [US9] Implement `src/orchestrator/classifier.py` — ComplexityClassifier: classify (pattern-matching heuristic returning ComplexityScore, checks for keywords/patterns indicating low vs high)
+- [X] T022 [US9] Write `tests/test_classifier.py` — test confirmations/agreements → low; test proposals/tradeoffs → high; test adversarial content → high; test classification included in routing log
+- [X] T023 [US10] Extend `src/orchestrator/loop.py` — add review gate check: if routing decision is 'review_gated', create draft via ReviewGateRepository instead of appending message
 
 **Checkpoint**: Classifier feeds routing; review gate stages responses
 
@@ -117,9 +117,9 @@
 
 **Purpose**: Module exports, integration, full suite
 
-- [ ] T024 [P] Update `src/orchestrator/__init__.py` — export ConversationLoop, ContextAssembler, TurnRouter, ComplexityClassifier, BudgetEnforcer, CircuitBreaker
-- [ ] T025 [P] Update `src/api_bridge/__init__.py` — export ProviderBridge, MessageFormatter
-- [ ] T026 Run full test suite (features 001 + 002 + 003) and verify no regressions
+- [X] T024 [P] Update `src/orchestrator/__init__.py` — export ConversationLoop, ContextAssembler, TurnRouter, ComplexityClassifier, BudgetEnforcer, CircuitBreaker
+- [X] T025 [P] Update `src/api_bridge/__init__.py` — export ProviderBridge, MessageFormatter
+- [X] T026 Run full test suite (features 001 + 002 + 003) and verify no regressions
 
 ---
 
