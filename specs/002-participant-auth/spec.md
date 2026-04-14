@@ -5,6 +5,13 @@
 **Status**: Draft
 **Input**: User description: "Auth and participant lifecycle — token validation, approval flow, rotation, revocation, facilitator transfer, session binding for SACP Phase 1"
 
+## Clarifications
+
+### Session 2026-04-14
+
+- Q: Pending participant access scope? → A: Facilitator decides per session (configurable: transcript-only, transcript+list, minimal, or full observer)
+- Q: Facilitator token expiry recovery path? → A: Dedicated CLI tool (sacp-admin regenerate-token <session-id>) with audit logging
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Token Authentication (Priority: P1)
@@ -176,6 +183,7 @@ When a participant authenticates, the system captures their client IP address an
 - **FR-017**: System MUST reject requests where the token is valid but the client IP does not match the bound IP, with a distinct error.
 - **FR-018**: System MUST reset the IP binding when a token is rotated, allowing the new token to bind to a new IP.
 - **FR-019**: System MUST prevent the facilitator from removing themselves (must transfer role first).
+- **FR-020**: Pending participant access scope MUST be configurable per session by the facilitator. The facilitator chooses what pending participants can observe (transcript only, transcript + participant list, full live observer, or minimal pre-join view).
 
 ### Key Entities
 
@@ -202,6 +210,6 @@ When a participant authenticates, the system captures their client IP address an
 - Token expiry defaults to 30 days. This is configurable per deployment, not per participant.
 - The data model (participants table, admin_audit_log, invites) already exists from feature 001. This feature adds auth logic, not schema — except for the `token_expires_at` timestamp field which requires a schema migration.
 - Active connection tracking and forced disconnection (for revocation/removal) depend on the MCP server layer. This feature defines the auth contract; the MCP server feature implements connection management.
-- The facilitator's token is generated at session creation time. If it expires, recovery requires out-of-band intervention (CLI tool or direct database operation).
+- The facilitator's token is generated at session creation time. If it expires, recovery is handled via a dedicated CLI tool (`sacp-admin regenerate-token <session-id>`) which generates a new token, updates the hash, and emits an admin audit log entry. Direct database operations are discouraged because they bypass the audit trail.
 - Token rotation generates a new random token using cryptographically secure random bytes, not a derivation of the old token.
 - Bcrypt cost factor 12 (default) is used for all token hashing. This is not configurable in Phase 1.

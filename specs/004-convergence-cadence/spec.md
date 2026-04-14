@@ -5,6 +5,13 @@
 **Status**: Draft
 **Input**: User description: "Convergence detection with embedding similarity, adaptive cadence pacing, and adversarial rotation for consensus drift prevention"
 
+## Clarifications
+
+### Session 2026-04-14
+
+- Q: Cruise cadence ceiling? → A: 60s (reduced from 300s via PR #47; 5-minute freezes unusable in active conversation)
+- Q: Minimum window for meaningful convergence? → A: ≥3 prior turns required before computing non-zero similarity (prevents false convergence on turn 2)
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Embedding-Based Convergence Detection (Priority: P1)
@@ -52,7 +59,7 @@ The turn loop adjusts its pacing based on how productive the conversation is. Wh
 **Acceptance Scenarios**:
 
 1. **Given** a productive conversation (low similarity), **When** cadence is computed, **Then** the delay decreases toward the floor (minimum: 5 seconds for cruise, 2 seconds for sprint).
-2. **Given** a repetitive conversation (high similarity), **When** cadence is computed, **Then** the delay increases toward the ceiling (maximum: 5 minutes for cruise, 15 seconds for sprint).
+2. **Given** a repetitive conversation (high similarity), **When** cadence is computed, **Then** the delay increases toward the ceiling (maximum: 60 seconds for cruise, 15 seconds for sprint).
 3. **Given** a human interjection, **When** cadence is computed, **Then** the delay temporarily drops to the floor for responsive follow-up.
 4. **Given** the 'idle' cadence preset, **When** cadence is computed, **Then** no automatic pacing occurs — turns fire only on triggers.
 
@@ -105,13 +112,13 @@ Beyond embedding similarity, the convergence detector checks for nonsense output
 
 - **FR-001**: System MUST compute text embeddings for each AI response asynchronously after the response is persisted.
 - **FR-002**: System MUST store embeddings in the convergence log with the similarity score and turn reference.
-- **FR-003**: System MUST compute cosine similarity between the current embedding and a configurable sliding window of recent embeddings (default 5 turns).
+- **FR-003**: System MUST compute cosine similarity between the current embedding and a configurable sliding window of recent embeddings (default 5 turns). Similarity MUST be reported as 0.0 until the window contains at least 3 prior turns — with fewer turns the signal reflects topicality, not convergence.
 - **FR-004**: System MUST detect convergence when similarity exceeds a configurable threshold (default 0.85) across the entire sliding window.
 - **FR-005**: System MUST inject a divergence prompt into the next turn's context when sustained convergence is detected.
 - **FR-006**: System MUST escalate to human review when convergence persists after a divergence prompt.
 - **FR-007**: System MUST record convergence events in the convergence log including divergence_prompted and escalated_to_human flags.
 - **FR-008**: System MUST adjust turn pacing based on conversation similarity — faster for productive (low similarity), slower for repetitive (high similarity).
-- **FR-009**: System MUST respect cadence presets: sprint (2s-15s), cruise (5s-5m), idle (trigger-only).
+- **FR-009**: System MUST respect cadence presets: sprint (2s-15s), cruise (5s-60s), idle (trigger-only).
 - **FR-010**: System MUST reset cadence delay to floor on human interjection.
 - **FR-011**: System MUST inject an adversarial prompt every N turns (configurable, default 12), rotating across active participants.
 - **FR-012**: System MUST log adversarial rotation events in the routing log.
