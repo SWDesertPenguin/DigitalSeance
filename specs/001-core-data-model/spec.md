@@ -5,6 +5,13 @@
 **Status**: Draft
 **Input**: User description: "Core data model and database schema — tables for sessions, participants, messages, append-only logs, and migrations foundation for SACP Phase 1"
 
+## Clarifications
+
+### Session 2026-04-14
+
+- Q: Audit log retention after session delete? → A: Default indefinite, configurable per deployment
+- Q: acceptance_mode="facilitator" semantics? → A: Facilitator decides alone (their vote resolves; others are advisory)
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Facilitator Creates a Session (Priority: P1)
@@ -185,12 +192,13 @@ Participants can create proposals for group decisions and cast votes. Each propo
 - **FR-010**: System MUST support session lifecycle transitions: active → paused → active, active/paused → archived, any → deleted.
 - **FR-011**: System MUST perform atomic session deletion — removing all associated data within a single transactional boundary — no orphaned records remain.
 - **FR-012**: System MUST support invite tokens stored as hashes with configurable use limits and expiry.
-- **FR-013**: System MUST support proposals with per-session acceptance modes (unanimous, majority, facilitator) and one-vote-per-participant enforcement.
+- **FR-013**: System MUST support proposals with per-session acceptance modes and one-vote-per-participant enforcement. Modes: `unanimous` (all active participants must accept), `majority` (>50% of active participants accept), `facilitator` (the facilitator's vote alone resolves; other votes are advisory only).
 - **FR-014**: System MUST support interrupt queue entries with priority levels and delivery tracking.
 - **FR-015**: System MUST support review gate draft staging with resolution status tracking (pending, approved, edited, rejected, timed out).
 - **FR-016**: System MUST overwrite (not null) API key material when a participant departs, and invalidate their auth token.
 - **FR-017**: System MUST support schema evolution through versioned, forward-only migrations.
 - **FR-018**: System MUST include tree-structure support (parent_turn, branch_id) in the message data model from the initial release, even though branching UI is deferred to Phase 3.
+- **FR-019**: Admin audit log entries MUST be retained indefinitely by default. Retention policy MAY be overridden per deployment (e.g., via operator-set TTL for regulatory compliance).
 
 ### Key Entities
 

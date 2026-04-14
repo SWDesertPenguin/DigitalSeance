@@ -19,12 +19,12 @@
 
 **Purpose**: Project initialization, dependency management, and directory scaffolding
 
-- [ ] T001 Create project directory structure per plan.md: `src/`, `src/database/`, `src/models/`, `src/repositories/`, `alembic/`, `tests/`
-- [ ] T002 Configure pyproject.toml with dependencies: fastapi, asyncpg, alembic, cryptography, bcrypt, pytest, pytest-asyncio, httpx, ruff
-- [ ] T003 [P] Create `src/config.py` — settings dataclass loading from environment variables (SACP_ENCRYPTION_KEY, POSTGRES_*, POOL_MIN_SIZE, POOL_MAX_SIZE)
-- [ ] T004 [P] Create `src/models/types.py` — enums for RoutingPreference (8 modes), SpeakerType, SessionStatus, ParticipantStatus, BranchStatus, RoutingAction, ComplexityScore, ModelTier, PromptTier, ModelFamily, CadencePreset, AcceptanceMode, ReviewGateStatus, InterruptStatus, ProposalStatus, VoteChoice
-- [ ] T005 [P] Create `docker-compose.yml` with PostgreSQL 16 service (port 5432, volume mount, health check)
-- [ ] T006 [P] Create `.env.example` updates for database connection and encryption key variables
+- [X] T001 Create project directory structure per plan.md: `src/`, `src/database/`, `src/models/`, `src/repositories/`, `alembic/`, `tests/`
+- [X] T002 Configure pyproject.toml with dependencies: fastapi, asyncpg, alembic, cryptography, bcrypt, pytest, pytest-asyncio, httpx, ruff
+- [X] T003 [P] Create `src/config.py` — settings dataclass loading from environment variables (SACP_ENCRYPTION_KEY, POSTGRES_*, POOL_MIN_SIZE, POOL_MAX_SIZE)
+- [X] T004 [P] Create `src/models/types.py` — enums for RoutingPreference (8 modes), SpeakerType, SessionStatus, ParticipantStatus, BranchStatus, RoutingAction, ComplexityScore, ModelTier, PromptTier, ModelFamily, CadencePreset, AcceptanceMode, ReviewGateStatus, InterruptStatus, ProposalStatus, VoteChoice
+- [X] T005 [P] Create `docker-compose.yml` with PostgreSQL 16 service (port 5432, volume mount, health check)
+- [X] T006 [P] Create `.env.example` updates for database connection and encryption key variables
 
 ---
 
@@ -34,13 +34,13 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T007 Implement `src/database/connection.py` — asyncpg pool lifecycle (create_pool, close_pool) with configurable min/max size and statement/idle timeouts per constitution §6.2
-- [ ] T008 Implement `src/database/encryption.py` — Fernet encrypt/decrypt helpers wrapping cryptography.fernet; fail-closed if SACP_ENCRYPTION_KEY not set (raise EncryptionKeyMissing)
-- [ ] T009 [P] Create `src/repositories/base.py` — BaseRepository class holding pool reference and helper methods for prepared statement execution
-- [ ] T010 Initialize Alembic: create `alembic/alembic.ini` and `alembic/env.py` configured for asyncpg (programmatic runner)
-- [ ] T011 Create initial migration `alembic/versions/001_initial_schema.py` — all 13 tables with constraints, composite PKs, foreign keys, and indexes per data-model.md
-- [ ] T012 Create `src/database/roles.sql` — SQL script defining sacp_app role (INSERT+SELECT on log/message tables, full CRUD on mutable tables) and sacp_cleanup role (DELETE for session deletion)
-- [ ] T013 Create `tests/conftest.py` — pytest fixtures for test database creation, asyncpg pool, migration runner, and per-test transaction rollback isolation
+- [X] T007 Implement `src/database/connection.py` — asyncpg pool lifecycle (create_pool, close_pool) with configurable min/max size and statement/idle timeouts per constitution §6.2
+- [X] T008 Implement `src/database/encryption.py` — Fernet encrypt/decrypt helpers wrapping cryptography.fernet; fail-closed if SACP_ENCRYPTION_KEY not set (raise EncryptionKeyMissing)
+- [X] T009 [P] Create `src/repositories/base.py` — BaseRepository class holding pool reference and helper methods for prepared statement execution
+- [X] T010 Initialize Alembic: create `alembic/alembic.ini` and `alembic/env.py` configured for asyncpg (programmatic runner)
+- [X] T011 Create initial migration `alembic/versions/001_initial_schema.py` — all 13 tables with constraints, composite PKs, foreign keys, and indexes per data-model.md
+- [X] T012 Create `src/database/roles.sql` — SQL script defining sacp_app role (INSERT+SELECT on log/message tables, full CRUD on mutable tables) and sacp_cleanup role (DELETE for session deletion)
+- [X] T013 Create `tests/conftest.py` — pytest fixtures for test database creation, asyncpg pool, migration runner, and per-test transaction rollback isolation
 
 **Checkpoint**: Database connected, schema deployed, encryption working, test harness ready
 
@@ -52,10 +52,10 @@
 
 **Independent Test**: Create a session → verify session record, facilitator participant, and 'main' branch all exist with correct defaults
 
-- [ ] T014 [P] [US1] Create `src/models/session.py` — Session and Branch frozen dataclasses with `from_record()` factory classmethods
-- [ ] T015 [P] [US1] Create `src/models/participant.py` — Participant frozen dataclass with `from_record()` factory classmethod (api_key_encrypted remains encrypted in model)
-- [ ] T016 [US1] Implement `src/repositories/session_repo.py` — create_session (atomic: session + main branch + facilitator participant), get_session, list_sessions; uses prepared statements for get_session
-- [ ] T017 [US1] Write `tests/test_session_crud.py` — test session creation persists with correct defaults, facilitator linked, main branch created; test get_session retrieval; test referential integrity
+- [X] T014 [P] [US1] Create `src/models/session.py` — Session and Branch frozen dataclasses with `from_record()` factory classmethods
+- [X] T015 [P] [US1] Create `src/models/participant.py` — Participant frozen dataclass with `from_record()` factory classmethod (api_key_encrypted remains encrypted in model)
+- [X] T016 [US1] Implement `src/repositories/session_repo.py` — create_session (atomic: session + main branch + facilitator participant), get_session, list_sessions; uses prepared statements for get_session
+- [X] T017 [US1] Write `tests/test_session_crud.py` — test session creation persists with correct defaults, facilitator linked, main branch created; test get_session retrieval; test referential integrity
 
 **Checkpoint**: Sessions can be created and queried with full atomicity
 
@@ -67,9 +67,9 @@
 
 **Independent Test**: Add a participant → verify all fields persist, API key is encrypted at rest, budget values exact
 
-- [ ] T018 [US2] Implement `src/repositories/participant_repo.py` — add_participant (encrypts API key, hashes auth token), get_participant, update_participant (partial update, re-encrypts key if changed), list_participants
-- [ ] T019 [US2] Write `tests/test_participant.py` — test participant creation with all config fields; test API key is Fernet-encrypted at rest (not plaintext); test budget values stored exactly; test auth token stored as bcrypt hash only
-- [ ] T020 [US2] Write `tests/test_encryption.py` — Fernet roundtrip test; fail-closed test when SACP_ENCRYPTION_KEY missing; test key material never appears in repr/str/logs
+- [X] T018 [US2] Implement `src/repositories/participant_repo.py` — add_participant (encrypts API key, hashes auth token), get_participant, update_participant (partial update, re-encrypts key if changed), list_participants
+- [X] T019 [US2] Write `tests/test_participant.py` — test participant creation with all config fields; test API key is Fernet-encrypted at rest (not plaintext); test budget values stored exactly; test auth token stored as bcrypt hash only
+- [X] T020 [US2] Write `tests/test_encryption.py` — Fernet roundtrip test; fail-closed test when SACP_ENCRYPTION_KEY missing; test key material never appears in repr/str/logs
 
 **Checkpoint**: Participants can join with encrypted credentials and exact config persistence
 
@@ -81,9 +81,9 @@
 
 **Independent Test**: Append messages → verify sequential turn numbers, correct speaker attribution, no update/delete possible, parent_turn navigation works
 
-- [ ] T021 [P] [US3] Create `src/models/message.py` — Message frozen dataclass with composite identity (turn_number, session_id, branch_id) and `from_record()` factory
-- [ ] T022 [US3] Implement `src/repositories/message_repo.py` — append_message (auto-assigns turn_number, prepared statement), get_recent (prepared statement), get_range, get_by_speaker, get_summaries; NO update/delete methods
-- [ ] T023 [US3] Write `tests/test_messages.py` — test append persists with correct turn number and branch; test immutability (UPDATE/DELETE rejected via DB role); test multiple speaker types; test parent_turn tree traversal; test composite PK prevents duplicates
+- [X] T021 [P] [US3] Create `src/models/message.py` — Message frozen dataclass with composite identity (turn_number, session_id, branch_id) and `from_record()` factory
+- [X] T022 [US3] Implement `src/repositories/message_repo.py` — append_message (auto-assigns turn_number, prepared statement), get_recent (prepared statement), get_range, get_by_speaker, get_summaries; NO update/delete methods
+- [X] T023 [US3] Write `tests/test_messages.py` — test append persists with correct turn number and branch; test immutability (UPDATE/DELETE rejected via DB role); test multiple speaker types; test parent_turn tree traversal; test composite PK prevents duplicates
 
 **Checkpoint**: Messages append immutably with tree structure support
 
@@ -95,9 +95,9 @@
 
 **Independent Test**: Insert log entries → verify persistence; attempt update/delete → verify rejection
 
-- [ ] T024 [P] [US4] Create `src/models/logs.py` — RoutingLog, UsageLog, ConvergenceLog, AdminAuditLog frozen dataclasses with `from_record()` factories
-- [ ] T025 [US4] Implement `src/repositories/log_repo.py` — log_routing (prepared statement), log_usage, log_convergence, log_admin_action; get_routing_history, get_participant_usage, get_participant_cost (budget aggregation), get_convergence_window, get_audit_log; NO update/delete methods
-- [ ] T026 [US4] Write `tests/test_logs.py` — test each log type inserts correctly; test append-only enforcement (UPDATE/DELETE rejected via DB role); test get_participant_cost aggregation for budget enforcement; test convergence window query
+- [X] T024 [P] [US4] Create `src/models/logs.py` — RoutingLog, UsageLog, ConvergenceLog, AdminAuditLog frozen dataclasses with `from_record()` factories
+- [X] T025 [US4] Implement `src/repositories/log_repo.py` — log_routing (prepared statement), log_usage, log_convergence, log_admin_action; get_routing_history, get_participant_usage, get_participant_cost (budget aggregation), get_convergence_window, get_audit_log; NO update/delete methods
+- [X] T026 [US4] Write `tests/test_logs.py` — test each log type inserts correctly; test append-only enforcement (UPDATE/DELETE rejected via DB role); test get_participant_cost aggregation for budget enforcement; test convergence window query
 
 **Checkpoint**: All 4 log types append-only and queryable
 
@@ -109,8 +109,8 @@
 
 **Independent Test**: Transition session through all states → verify access restrictions and atomic cleanup
 
-- [ ] T027 [US5] Extend `src/repositories/session_repo.py` — update_status (validates transition: active↔paused, active/paused→archived, any→deleted; raises InvalidTransition on illegal), delete_session (uses sacp_cleanup role, atomically removes all data except admin_audit_log deletion record)
-- [ ] T028 [US5] Write `tests/test_lifecycle.py` — test valid transitions (active→paused→active, active→archived); test invalid transitions rejected; test atomic deletion removes messages/participants/logs/invites/proposals but preserves admin_audit_log entry; test archived session is read-only (message append rejected)
+- [X] T027 [US5] Extend `src/repositories/session_repo.py` — update_status (validates transition: active↔paused, active/paused→archived, any→deleted; raises InvalidTransition on illegal), delete_session (uses sacp_cleanup role, atomically removes all data except admin_audit_log deletion record)
+- [X] T028 [US5] Write `tests/test_lifecycle.py` — test valid transitions (active→paused→active, active→archived); test invalid transitions rejected; test atomic deletion removes messages/participants/logs/invites/proposals but preserves admin_audit_log entry; test archived session is read-only (message append rejected)
 
 **Checkpoint**: Full session lifecycle with atomic deletion
 
@@ -122,8 +122,8 @@
 
 **Independent Test**: Enqueue interjections with different priorities → verify delivery order (priority DESC, then FIFO)
 
-- [ ] T029 [US6] Implement `src/repositories/interrupt_repo.py` — enqueue, get_pending (prepared statement, ordered by priority DESC + created_at ASC), mark_delivered
-- [ ] T030 [US6] Write `tests/test_interrupt_queue.py` — test enqueue persists with correct priority and pending status; test priority ordering (high before normal); test FIFO within same priority; test mark_delivered updates status and timestamp
+- [X] T029 [US6] Implement `src/repositories/interrupt_repo.py` — enqueue, get_pending (prepared statement, ordered by priority DESC + created_at ASC), mark_delivered
+- [X] T030 [US6] Write `tests/test_interrupt_queue.py` — test enqueue persists with correct priority and pending status; test priority ordering (high before normal); test FIFO within same priority; test mark_delivered updates status and timestamp
 
 **Checkpoint**: Interrupt queue correctly prioritizes and tracks delivery
 
@@ -135,8 +135,8 @@
 
 **Independent Test**: Create draft → test each resolution path (approve, edit, reject, timeout)
 
-- [ ] T031 [US7] Implement `src/repositories/review_gate_repo.py` — create_draft, get_pending, resolve (validates resolution status, stores edited_content if 'edited', sets resolved_at)
-- [ ] T032 [US7] Write `tests/test_review_gate.py` — test draft creation with pending status; test approve path; test edit path (edited_content stored); test reject path; test timeout path; test resolved_at timestamp set
+- [X] T031 [US7] Implement `src/repositories/review_gate_repo.py` — create_draft, get_pending, resolve (validates resolution status, stores edited_content if 'edited', sets resolved_at)
+- [X] T032 [US7] Write `tests/test_review_gate.py` — test draft creation with pending status; test approve path; test edit path (edited_content stored); test reject path; test timeout path; test resolved_at timestamp set
 
 **Checkpoint**: Review gate drafts fully lifecycle-managed
 
@@ -148,8 +148,8 @@
 
 **Independent Test**: Create invite → redeem → verify hash storage, use count, expiry enforcement
 
-- [ ] T033 [US8] Implement `src/repositories/invite_repo.py` — create_invite (returns Invite + plaintext_token), redeem_invite (hashes token, validates use count and expiry, increments uses, raises InviteExpired/InviteExhausted), list_invites
-- [ ] T034 [US8] Write `tests/test_invites.py` — test token stored as hash only (plaintext not in DB); test use count increments; test single-use invite rejected on second use; test expired invite rejected; test multi-use invite works up to max_uses
+- [X] T033 [US8] Implement `src/repositories/invite_repo.py` — create_invite (returns Invite + plaintext_token), redeem_invite (hashes token, validates use count and expiry, increments uses, raises InviteExpired/InviteExhausted), list_invites
+- [X] T034 [US8] Write `tests/test_invites.py` — test token stored as hash only (plaintext not in DB); test use count increments; test single-use invite rejected on second use; test expired invite rejected; test multi-use invite works up to max_uses
 
 **Checkpoint**: Invitations work with hash-only storage and limit enforcement
 
@@ -161,8 +161,8 @@
 
 **Independent Test**: Create proposal → cast votes → verify acceptance logic and duplicate prevention
 
-- [ ] T035 [US9] Implement `src/repositories/proposal_repo.py` — create_proposal, cast_vote (raises DuplicateVote if already voted), get_votes, resolve_proposal, get_open_proposals
-- [ ] T036 [US9] Write `tests/test_proposals.py` — test proposal creation with acceptance_mode; test vote recording; test duplicate vote rejected; test unanimous acceptance (all vote accept → status accepted); test proposal expiry
+- [X] T035 [US9] Implement `src/repositories/proposal_repo.py` — create_proposal, cast_vote (raises DuplicateVote if already voted), get_votes, resolve_proposal, get_open_proposals
+- [X] T036 [US9] Write `tests/test_proposals.py` — test proposal creation with acceptance_mode; test vote recording; test duplicate vote rejected; test unanimous acceptance (all vote accept → status accepted); test proposal expiry
 
 **Checkpoint**: Proposal/voting system enforces acceptance modes and uniqueness
 
@@ -172,12 +172,12 @@
 
 **Purpose**: Participant departure, error handling, and validation across all stories
 
-- [ ] T037 Implement participant departure in `src/repositories/participant_repo.py` — depart_participant (overwrite api_key_encrypted with random bytes, invalidate auth_token_hash, set status='offline', retain messages)
-- [ ] T038 [P] Create `src/repositories/__init__.py` — export all repository classes; create `src/models/__init__.py` — export all model classes and types
-- [ ] T039 [P] Create error types module `src/repositories/errors.py` — InvalidTransition, DuplicateVote, InviteExpired, InviteExhausted, EncryptionKeyMissing, SessionNotActive
-- [ ] T040 Write `tests/test_departure.py` — test API key overwritten (not nulled) on departure; test auth token invalidated; test status set to offline; test messages retained in transcript
-- [ ] T041 Validate quickstart.md end-to-end — run all steps from `specs/001-core-data-model/quickstart.md` in a clean environment
-- [ ] T042 Run full test suite and verify all user story checkpoints pass independently
+- [X] T037 Implement participant departure in `src/repositories/participant_repo.py` — depart_participant (overwrite api_key_encrypted with random bytes, invalidate auth_token_hash, set status='offline', retain messages)
+- [X] T038 [P] Create `src/repositories/__init__.py` — export all repository classes; create `src/models/__init__.py` — export all model classes and types
+- [X] T039 [P] Create error types module `src/repositories/errors.py` — InvalidTransition, DuplicateVote, InviteExpired, InviteExhausted, EncryptionKeyMissing, SessionNotActive
+- [X] T040 Write `tests/test_departure.py` — test API key overwritten (not nulled) on departure; test auth token invalidated; test status set to offline; test messages retained in transcript
+- [X] T041 Validate quickstart.md end-to-end — run all steps from `specs/001-core-data-model/quickstart.md` in a clean environment
+- [X] T042 Run full test suite and verify all user story checkpoints pass independently
 
 ---
 
