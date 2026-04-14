@@ -11,6 +11,7 @@ Add periodic summarization checkpoints to the turn loop: trigger every N turns, 
 **Language/Version**: Python 3.11+ (existing)
 **Primary Dependencies**: N/A
 **Storage**: PostgreSQL 16 (existing)
+**Project Type**: Single project
 No new dependencies. Uses existing LiteLLM bridge (feature 003) and message storage (feature 001).
 
 ## Constitution Check

@@ -1,20 +1,35 @@
 <!--
 Sync Impact Report
-  Version change: 0.5 → 0.5.1
-  Change type: PATCH — governance metadata normalization
-  Modified principles: none
-  Added sections: none
+  Version change: 0.5.1 → 0.6.0
+  Change type: MINOR — post-deployment hardening + new authoritative references
+  Modified principles:
+    - §1 Identity: integrated 7 canonical use cases as design test cases
+    - §3 Sovereignty: added Topology choice — 7 communication topologies, Phase 1 ships 1–6, MCP-to-MCP is Phase 2+
+    - §8 AI-Specific Security: canary token requirement strengthened (multi-canary, no structural format)
+    - §8 AI-Specific Security: spotlighting clarified (same-speaker exemption)
+    - §12 Validation Rules: added V12 topology compatibility, V13 use case coverage
+  Added sections:
+    - §14 Change Management (bug-fix and hotfix workflow)
   Removed sections: none
-  Templates requiring updates:
-    - .specify/templates/plan-template.md ✅ no update needed
-    - .specify/templates/spec-template.md ✅ no update needed
-    - .specify/templates/tasks-template.md ✅ no update needed
-  Follow-up TODOs: none
+  New authoritative references in §13:
+    - sacp-communication-topologies.md (7 participant topologies)
+    - sacp-use-cases.md (7 concrete scenarios)
+    - sacp-use-cases-and-topologies.md (combined analysis)
+    - sacp-system-prompts.md (4-tier delta prompt drafts)
+    - testing-runbook.md (operational testing procedures)
+  Post-deployment decisions captured (from 2026-04-14 /speckit-clarify session):
+    - Default turn timeout raised 60s → 180s (migration 003)
+    - Cadence cruise ceiling reduced 300s → 60s (PR #47)
+    - Convergence requires ≥3 prior turns for non-zero similarity (PR #47)
+  Follow-up TODOs:
+    - Implement SSE streaming (spec 006 gap)
+    - Restrict CORS from wildcard to LAN+env (spec 006)
+    - Harden canary tokens to multi-canary random strings (spec 008)
 -->
 
 # SACP Constitution
 
-**Version**: 0.5.1 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-04-11
+**Version**: 0.6.0 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-04-14
 
 ---
 
@@ -23,6 +38,8 @@ Sync Impact Report
 SACP is a collaboration protocol, not an agent framework. It is closer to IRC or Matrix than to CrewAI or AutoGen. The orchestrator manages conversation logistics — turn order, context assembly, cost tracking, participant lifecycle — but never owns the AI. Each participant brings their own model, their own API key, their own budget, and their own system prompt extensions. The orchestrator is infrastructure. The participants are sovereign.
 
 The distinction matters for every design decision. Agent frameworks assume a single operator who controls all models, selects tools, defines goals, and pays the bill. SACP assumes multiple independent humans, each with their own AI, collaborating in a shared conversation where no single party has unilateral control over the AI behavior of others.
+
+The concrete scenarios SACP exists to support — distributed software teams reviewing a design across companies, research co-authorship between independent labs, consulting engagements where the consultant brings an AI but the client's data stays in-house, open-source coordination, technical audits, asymmetric expertise pairings, and zero-trust cross-organizational collaboration — are documented in `docs/sacp-use-cases.md`. Every constitutional principle should be testable against those scenarios: a design decision that breaks one of the seven canonical use cases requires explicit justification.
 
 ---
 
@@ -49,6 +66,18 @@ Sovereignty is the core architectural principle. Every design decision must pres
 **Prompt privacy.** A participant's custom system prompt content is private to them. Other participants see collaboration metadata (model family, routing mode, domain tags) but not prompt contents. Private annotations are stored client-side, never transmitted to the orchestrator.
 
 **Exit freedom.** Any participant can leave at any time. Their contributions remain in the transcript, but their AI stops receiving turns and their API key is purged.
+
+**Topology choice.** The five sovereignty guarantees above are realized through different communication topologies depending on participant needs. SACP supports seven topologies (catalogued in `docs/sacp-communication-topologies.md`):
+
+1. **Solo + multi-AI** — one human, multiple AIs they own; orchestrator drives the loop
+2. **Canonical** — 2+ humans each bring their own AI; orchestrator drives the loop (the default Phase 1 topology)
+3. **Asymmetric participation** — some humans observe, others actively contribute their AI
+4. **Fully autonomous** — humans drop out; AIs continue conversing on their behalf
+5. **Observer + active mix** — pending participants watch live; promoted ones engage
+6. **Heterogeneous routing** — different participants on different routing modes (always, observer, addressed_only, etc.)
+7. **MCP-to-MCP** — AIs run client-side in participants' desktop clients (Claude Desktop, ChatGPT app); the orchestrator becomes a shared state manager and never makes provider calls. This is the **strongest** sovereignty mode — API keys never leave participants' machines. Tradeoff: when all participants disconnect, the conversation pauses.
+
+Different topologies activate different orchestrator components. Constitutional principles (sovereignty, transparency, human authority) MUST hold across all seven. Phase 1 ships with topologies 1–6 (orchestrator-driven); MCP-to-MCP is Phase 2+.
 
 ---
 
@@ -159,7 +188,7 @@ SACP's defining security challenge: one AI's output is another AI's input. The c
 
 - **Structural boundary markers.** The context assembly pipeline uses XML-style delimiters (`<sacp:system>`, `<sacp:human>`, `<sacp:ai>`, `<sacp:tool>`, `<sacp:context>`) between trust levels. These are payload-only markers, not displayed to users.
 
-- **Inter-agent spotlighting.** All AI responses are spotlighted (datamarked) before inclusion in another AI's context to disrupt instruction injection propagation.
+- **Inter-agent spotlighting.** AI responses from OTHER participants are spotlighted (datamarked) before inclusion in the current AI's context to disrupt instruction injection propagation. Same-speaker content (an AI reading its own prior output) is exempt — there is no trust boundary to enforce when reading your own output, and spotlighting own-history bloats context without security benefit.
 
 - **Context sanitization.** All messages are preprocessed to strip known injection patterns (ChatML tokens, role markers, override phrases, invisible Unicode) before entering conversation history.
 
@@ -169,7 +198,7 @@ SACP's defining security challenge: one AI's output is another AI's input. The c
 
 - **Jailbreak propagation detection.** Behavioral drift heuristics flag responses that deviate from established patterns. Flagged responses are held, not committed.
 
-- **System prompt extraction defense.** Prompts are designed assuming they will be extracted — they never contain secrets. Canary tokens and fragment scanning detect leakage attempts.
+- **System prompt extraction defense.** Prompts are designed assuming they will be extracted — they never contain secrets. Multiple high-entropy canary tokens (minimum three per prompt, placed at distinct positions — start, middle, end) detect selective extraction attempts. Canary tokens MUST NOT use structural formats (no HTML comments, no XML tags) that attackers can prime models to avoid reproducing. Fragment scanning (25+ word overlap with any participant's system prompt) catches paraphrased extraction.
 
 - **Role-based tool call scoping.** Tool availability is restricted by participant role, not just model capability. Facilitator-only tools are never exposed to non-facilitators. All tool parameters are validated against an SSRF blocklist. External tool calls are size-capped and restricted to a registered allowlist with hashed definitions.
 
@@ -244,20 +273,111 @@ Every feature spec must pass these checks. Failure requires revision before impl
 
 **V11 — Supply chain controls enforced.** New dependencies pinned with hash verification and reviewed against OSINT sources. ML models loaded in SafeTensors only.
 
+**V12 — Topology compatibility verified.** Every feature spec MUST identify which of the seven topologies (`docs/sacp-communication-topologies.md`) it applies to. Features that work in topology 1–6 (orchestrator-driven) but break topology 7 (MCP-to-MCP) MUST flag the limitation explicitly in their spec. A feature that silently assumes orchestrator-driven AI dispatch is incomplete.
+
+**V13 — Use case coverage acknowledged.** Every feature spec MUST reference at least one of the seven use cases (`docs/sacp-use-cases.md`) it primarily serves, OR explicitly justify why the feature is foundational/cross-cutting. This prevents accidental drift toward features that look reasonable in isolation but don't serve any of the canonical scenarios.
+
 ---
 
 ## 13. Authoritative References
 
+### Design & Architecture
+
 | Document | Role | Scope |
 |---|---|---|
-| `sacp-design.md` | Design specification | Architecture, schema, components, security implementation (§7.1–7.6), governance, lifecycle, data flows, deployment |
-| `sacp-data-security-policy.md` | Data security policy | Data classification, isolation matrix, retention, key management, export access, log integrity, shared data model |
-| `AI_attack_surface_analysis_for_SACP_orchestrator.md` | AI security analysis | 13 attack vectors, severity ratings, mitigations, code patterns, standards mappings, six-layer defense framework |
-| `Building_a_Multi-LLM_Orchestrator.md` | Research report | Cross-provider engineering challenges, informs patterns, does not override design doc |
-| `coding-standards.md` | Code rules | 25/5 limits, type hints, banned functions, baseline mode |
-| `dod-secure-dev.md` | Dev pipeline | Pre-commit, CI, periodic review layers |
-| `pre-commit-config.yaml` | Hook chain | gitleaks → ruff → lint_code_standards.py |
-| `csf-2.0-framework.md` | NIST CSF 2.0 | Governance framework for security decisions |
-| `800-53B-baselines.md` | NIST SP 800-53B | Control baselines (moderate target) |
-| `ai-100-2-aml-taxonomy.md` | NIST AI 100-2 | Adversarial ML threat taxonomy |
-| `osint-sources.md` | Threat intel | Dependency and infrastructure vulnerability monitoring |
+| `docs/sacp-design.md` | Design specification | Architecture, schema, components, security implementation (§7.1–7.6), governance, lifecycle, data flows, deployment |
+| `docs/sacp-data-security-policy.md` | Data security policy | Data classification, isolation matrix, retention, key management, export access, log integrity, shared data model |
+| `docs/sacp-system-prompts.md` | System prompt drafts | 4-tier delta-only prompt content (low/mid/high/max), canary token placement, custom prompt composition |
+| `docs/sacp-communication-topologies.md` | Topology analysis | Seven participant topologies (solo+multi-AI, canonical, asymmetric, autonomous, MCP-to-MCP, etc.), active orchestrator components per topology |
+| `docs/sacp-use-cases.md` | Use case scenarios | Seven concrete scenarios demonstrating where SACP fills gaps existing tools cannot cover |
+| `docs/sacp-use-cases-and-topologies.md` | Combined analysis | Maps each use case to its communication topology with sequence diagrams and active component tables |
+
+### Security Analysis
+
+| Document | Role | Scope |
+|---|---|---|
+| `docs/AI_attack_surface_analysis_for_SACP_orchestrator.md` | AI security analysis | 13 attack vectors, severity ratings, mitigations, code patterns, standards mappings, six-layer defense framework |
+| `docs/Building_a_Multi-LLM_Orchestrator__Eight_Hard_Problems_and_How_to_Solve_Them.md` | Research report | Cross-provider engineering challenges, informs patterns, does not override design doc |
+
+### Development & Operations
+
+| Document | Role | Scope |
+|---|---|---|
+| `references/coding-standards.md` | Code rules | 25/5 limits, type hints, banned functions, baseline mode |
+| `references/dod-secure-dev.md` | Dev pipeline | Pre-commit, CI, periodic review layers |
+| `.pre-commit-config.yaml` | Hook chain | gitleaks → ruff → lint_code_standards.py |
+| `docs/testing-runbook.md` | Testing procedures | Operational testing workflows, integration test procedures |
+
+### Regulatory & Frameworks
+
+| Document | Role | Scope |
+|---|---|---|
+| `references/csf-2.0-framework.md` | NIST CSF 2.0 | Governance framework for security decisions |
+| `references/800-53B-baselines.md` | NIST SP 800-53B | Control baselines (moderate target) |
+| `references/ai-100-2-aml-taxonomy.md` | NIST AI 100-2 | Adversarial ML threat taxonomy |
+| `references/sp-800-181-nice.md` | NIST NICE Framework | Workforce competency model |
+| `references/osint-sources.md` | Threat intel | Dependency and infrastructure vulnerability monitoring |
+
+---
+
+## 14. Change Management
+
+Not every code change deserves a full Speckit feature workflow. Forcing spec ceremony on a one-line regex fix is waste; shipping a new feature without one is sloppy. This section defines which category a change belongs to and what paperwork it requires.
+
+### 14.1 — Feature work (full Speckit workflow)
+
+Any change that adds new user-visible capability, a new entity, a new endpoint, or alters a core algorithm. Goes through:
+
+1. `/speckit-git-feature` — creates numbered branch (e.g., `010-web-ui`) and spec directory
+2. `/speckit-specify` — writes `spec.md` with user stories, FRs, acceptance scenarios, success criteria
+3. `/speckit-clarify` — resolves ambiguities before implementation begins
+4. `/speckit-plan` — writes `plan.md` with Technical Context fields (Language/Version, Primary Dependencies, Storage, Project Type)
+5. `/speckit-tasks` — breaks plan into trackable tasks.md items
+6. Implementation + tests
+7. Mark tasks `[X]` as completed in `tasks.md`
+8. Run `update-context` so CLAUDE.md reflects the new tech
+9. PR review and merge
+
+The numbered branch is required. The branch naming convention `NNN-feature-name` is enforced by `speckit.git.validate`.
+
+### 14.2 — Bug fixes (lightweight workflow)
+
+Changes that restore correctness of existing behavior without adding capability. Examples: regex widening, timeout tuning, race condition fix, test infrastructure repair. Workflow:
+
+1. Branch naming: `fix/<short-slug>` (not numbered — bug fixes don't claim a feature slot)
+2. No new spec — the feature spec already exists
+3. **Required**: if the fix changes observable behavior (default values, thresholds, error semantics), update the affected feature's `spec.md` AND add a `## Clarifications` entry noting the change and the PR number
+4. **Required**: update `tasks.md` to reflect any new behavior (new tasks, all marked `[X]` since they ship in the same PR)
+5. PR review and merge
+
+Example from this project: PRs #45-47 changed default turn timeout (60→180s), cadence ceiling (300→60s), and convergence min-window (1→3). All three touched code AND updated the affected feature specs retroactively via `/speckit-clarify` on 2026-04-14.
+
+### 14.3 — Hotfixes (security / production incident)
+
+A bug fix that must ship before a full PR review cycle. Same as §14.2 workflow, but with these additions:
+
+1. Branch naming: `hotfix/<short-slug>`
+2. Direct merge allowed after minimum-viable review (security: at least one additional reviewer; production incident: facilitator or on-call owner)
+3. Spec update and audit log entry are still required — may be done in a follow-up PR within 48 hours of the hotfix landing
+
+### 14.4 — Documentation-only changes
+
+Spec clarifications, README updates, adding reference docs to this constitution, correcting typos in `docs/`. Workflow:
+
+1. Branch naming: `docs/<short-slug>`
+2. No code changes allowed on this branch (enforced by reviewer)
+3. PR review for content accuracy, not behavioral correctness
+
+### 14.5 — Constitutional amendments
+
+Changes to this document. Require explicit version bump:
+
+- **PATCH** (0.5.1 → 0.5.2): metadata only, typos, reference additions without semantic change
+- **MINOR** (0.5.x → 0.6.0): new principle, new validation rule, new section, clarification of existing principle that tightens or relaxes it
+- **MAJOR** (0.x → 1.0): removal of a principle, scope-expanding change, Phase boundary movement
+
+Every amendment updates the Sync Impact Report block at the top of this file. Every amendment is reviewed by the facilitator before merge.
+
+### 14.6 — The "no ceremony without value" principle
+
+When in doubt, pick the lightest workflow that captures the decision in a way future-you can audit. A two-line regex fix needing a full spec is bureaucracy; a new multi-agent routing mode shipping without a spec is debt. The test is: **will a future developer trying to understand this change find enough to reconstruct the reasoning?** If yes, the workflow is right-sized. If no, escalate.
