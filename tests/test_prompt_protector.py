@@ -12,10 +12,37 @@ _TEST_PROMPT = (
 )
 
 
-def test_canary_token_detected() -> None:
-    """Response containing canary token is flagged."""
+def test_three_canaries_generated() -> None:
+    """PromptProtector generates exactly three canary tokens."""
     protector = PromptProtector(_TEST_PROMPT)
-    response = f"Here is the info: {protector.canary} and more"
+    assert len(protector.canaries) == 3
+    assert all(len(c) == 16 for c in protector.canaries)
+    # base32 alphabet: A-Z and 2-7
+    import re
+
+    b32_pattern = re.compile(r"^[A-Z2-7]{16}$")
+    assert all(b32_pattern.match(c) for c in protector.canaries)
+
+
+def test_canaries_are_random() -> None:
+    """Two PromptProtector instances always produce different canaries."""
+    p1 = PromptProtector(_TEST_PROMPT)
+    p2 = PromptProtector(_TEST_PROMPT)
+    assert set(p1.canaries) != set(p2.canaries)
+
+
+def test_any_canary_triggers_leakage() -> None:
+    """Response containing any one of the three canaries is flagged."""
+    protector = PromptProtector(_TEST_PROMPT)
+    for canary in protector.canaries:
+        response = f"Here is the info: {canary} and more text"
+        assert protector.check_leakage(response) is True
+
+
+def test_canary_token_detected() -> None:
+    """Response containing a canary token is flagged."""
+    protector = PromptProtector(_TEST_PROMPT)
+    response = f"Here is the info: {protector.canaries[0]} and more"
     assert protector.check_leakage(response) is True
 
 
@@ -39,15 +66,10 @@ def test_clean_response_passes() -> None:
     assert protector.check_leakage(response) is False
 
 
-def test_canary_is_deterministic() -> None:
-    """Same prompt produces same canary token."""
-    p1 = PromptProtector(_TEST_PROMPT)
-    p2 = PromptProtector(_TEST_PROMPT)
-    assert p1.canary == p2.canary
-
-
-def test_different_prompts_different_canaries() -> None:
-    """Different prompts produce different canary tokens."""
-    p1 = PromptProtector("Prompt one with enough words here")
-    p2 = PromptProtector("Prompt two completely different text")
-    assert p1.canary != p2.canary
+def test_known_canaries_accepted() -> None:
+    """PromptProtector accepts pre-generated canaries for detection wiring."""
+    known = ["AAAAAAAAAAAAAAAA", "BBBBBBBBBBBBBBBB", "CCCCCCCCCCCCCCCC"]
+    protector = PromptProtector(_TEST_PROMPT, canaries=known)
+    assert protector.canaries == known
+    assert protector.check_leakage("found AAAAAAAAAAAAAAAA here") is True
+    assert protector.check_leakage("nothing suspicious") is False
