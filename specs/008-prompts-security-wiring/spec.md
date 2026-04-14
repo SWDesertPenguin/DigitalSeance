@@ -11,6 +11,7 @@
 
 - Q: Default prompt_tier? → A: `mid` (core rules + collaboration guidelines, ~770 tokens)
 - Q: Canary token format? → A: Multi-canary, random rare-string markers at 3 positions (start/mid/end), per-session unique, 16-char base32. No structural format (no HTML comment, no XML tag) so attackers have no pattern to evade.
+- Canary hardening implemented in fix/canary-hardening (2026-04-14): `_generate_canaries()` uses `secrets.token_bytes(10)` + base32 encode. `_embed_canaries()` injects at start/mid/end of tier parts. `PromptProtector.check_leakage` checks all 3 via `canaries=` kwarg. Per-session storage of canaries for detection wiring is a future Phase 2 enhancement.
 
 ## User Scenarios & Testing *(mandatory)*
 

@@ -133,8 +133,9 @@ async def start_loop(
         return {"status": "already_running"}
     loop = request.app.state.conversation_loop
     session_repo = request.app.state.session_repo
+    cm = request.app.state.connection_manager
     _loop_tasks[sid] = asyncio.create_task(
-        _run_loop(loop, sid, session_repo),
+        _run_loop(loop, sid, session_repo, cm),
     )
     return {"status": "started"}
 
@@ -184,10 +185,24 @@ async def export_json(
     return {"format": "json", "content": json.dumps(data)}
 
 
+async def _broadcast_turn(cm: object, session_id: str, result: object) -> None:
+    """Broadcast a completed turn event to all SSE subscribers."""
+    await cm.broadcast(
+        session_id,
+        {
+            "turn": result.turn_number,
+            "speaker_id": result.speaker_id,
+            "action": result.action,
+            "skipped": False,
+        },
+    )
+
+
 async def _run_loop(
     loop: object,
     session_id: str,
     session_repo: object,
+    connection_manager: object | None = None,
 ) -> None:
     """Run the conversation loop with cadence-based pacing."""
     from src.repositories.errors import AllParticipantsExhaustedError
@@ -199,6 +214,8 @@ async def _run_loop(
         try:
             result = await loop.execute_turn(session_id)
             log.info("Turn %d done, delay=%.1fs", result.turn_number, result.delay_seconds)
+            if connection_manager and not result.skipped:
+                await _broadcast_turn(connection_manager, session_id, result)
             if result.delay_seconds > 0:
                 await asyncio.sleep(result.delay_seconds)
         except AllParticipantsExhaustedError:
