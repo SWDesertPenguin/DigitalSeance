@@ -1,21 +1,35 @@
-﻿# great-austin Development Guidelines
+﻿# SACP Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-04-11
+Auto-generated from all feature plans. Last updated: 2026-04-14
 
 ## Active Technologies
-- Python 3.11+ (constitution §6.1) + asyncpg, bcrypt, cryptography (Fernet) — all already installed (002-participant-auth)
-- PostgreSQL 16 via Docker Compose (existing) (002-participant-auth)
-- Python 3.11+ + asyncpg (existing), litellm>=1.83.0 (NEW) (003-turn-loop-engine)
-- PostgreSQL 16 (existing) (003-turn-loop-engine)
-
 - Python 3.11+ (constitution §6.1) + FastAPI, asyncpg, Alembic, cryptography (Fernet), bcrypt (001-core-data-model)
+- PostgreSQL 16 via Docker Compose (001-core-data-model)
+- bcrypt, IP binding, token expiry (002-participant-auth)
+- litellm>=1.83.0, 8-mode routing, circuit breaker (003-turn-loop-engine)
+- sentence-transformers, numpy — SafeTensors only (004-convergence-cadence)
+- Structured JSON summarization via cheapest model (005-summarization-checkpoints)
+- FastAPI SSE server, 21 endpoints, port 8750 (006-mcp-server)
+- 7-layer security pipeline — sanitization, spotlighting, validation, exfiltration, jailbreak, prompt defense, log scrubbing (007-ai-security-pipeline)
+- 4-tier delta system prompts with canary tokens (008-prompts-security-wiring)
+- Per-participant rate limiting, 60 req/min default (009-rate-limiting)
 
 ## Project Structure
 
 ```text
-backend/
-frontend/
+src/
+  api_bridge/       # LiteLLM provider dispatch
+  auth/             # AuthService, guards
+  database/         # asyncpg pooling, Fernet encryption
+  models/           # Frozen dataclasses
+  repositories/     # 8 data access objects (append-only)
+  orchestrator/     # Turn loop, routing, context, convergence, cadence
+  security/         # 7 security modules
+  prompts/          # 4-tier delta system prompt assembly
+  mcp_server/       # FastAPI + 21 endpoints + rate limiter
 tests/
+alembic/
+specs/
 ```
 
 ## Commands
@@ -27,10 +41,10 @@ cd src; pytest; ruff check .
 Python 3.11+ (constitution §6.1): Follow standard conventions
 
 ## Recent Changes
-- 003-turn-loop-engine: Added Python 3.11+ + asyncpg (existing), litellm>=1.83.0 (NEW)
-- 002-participant-auth: Added Python 3.11+ (constitution §6.1) + asyncpg, bcrypt, cryptography (Fernet) — all already installed
+- 009-rate-limiting: Per-participant rate limiting middleware
+- 008-prompts-security-wiring: 4-tier delta prompts + security pipeline wiring
+- 007-ai-security-pipeline: Defense-in-depth security layer (7 modules)
 
-- 001-core-data-model: Added Python 3.11+ (constitution §6.1) + FastAPI, asyncpg, Alembic, cryptography (Fernet), bcrypt
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
