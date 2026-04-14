@@ -111,11 +111,14 @@ class ConversationLoop:
             await _log_routing(self._log_repo, session_id, decision)
             return _skip_from_decision(session_id, decision)
         ctx = self._build_turn_context(session_id)
+        # Interjections are now persisted as messages above, so they appear
+        # in history naturally. Pass empty list to avoid duplicating them
+        # as priority context (which caused back-to-back user messages).
         result = await self._dispatch_with_delay(
             ctx,
             speaker,
             decision,
-            interjections,
+            [],
         )
         await _mark_delivered(self._int_repo, interjections)
         return result
