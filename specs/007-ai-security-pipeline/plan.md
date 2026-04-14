@@ -8,7 +8,10 @@ Defense-in-depth security layer for AI-to-AI conversation: context sanitization 
 
 ## Technical Context
 
-**No new dependencies.** Pure Python regex, hashlib, and string processing.
+**Language/Version**: Python 3.11+ (existing)
+**Primary Dependencies**: N/A
+**Storage**: N/A
+No new dependencies. Pure Python regex, hashlib, and string processing.
 
 ## Constitution Check
 
