@@ -49,10 +49,29 @@ def test_custom_prompt_appended() -> None:
     assert custom_pos > tier_pos
 
 
-def test_canary_token_embedded() -> None:
-    """Assembled prompt includes a canary token."""
+def test_three_canaries_embedded() -> None:
+    """Assembled prompt includes three random base32 canary tokens."""
+    import re
+
     result = assemble_prompt(prompt_tier="low")
-    assert "CANARY_" in result
+    # Each canary is a 16-char base32 string (A-Z, 2-7) on its own paragraph
+    canaries = re.findall(r"(?<!\w)[A-Z2-7]{16}(?!\w)", result)
+    assert len(canaries) >= 3
+
+
+def test_canaries_at_start_middle_end() -> None:
+    """Canaries appear before, within, and after tier content."""
+    import re
+
+    result = assemble_prompt(prompt_tier="mid")
+    canaries = re.findall(r"(?<!\w)[A-Z2-7]{16}(?!\w)", result)
+    assert len(canaries) >= 3
+    tier_start = result.index("multi-model")
+    mid_content = result.index("Collaboration guidelines")
+    # At least one canary before the first tier text
+    assert any(result.index(c) < tier_start for c in canaries)
+    # At least one canary after the mid-tier content
+    assert any(result.index(c) > mid_content for c in canaries)
 
 
 def test_unknown_tier_defaults_to_mid() -> None:
