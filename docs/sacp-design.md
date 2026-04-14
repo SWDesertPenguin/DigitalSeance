@@ -2,6 +2,17 @@
 
 ## Design Specification
 
+### Related Documents
+
+| Document | Scope |
+|---|---|
+| `sacp-communication-topologies.md` | Enumerates seven participant topologies (solo+multi-AI, canonical, asymmetric, autonomous, MCP-to-MCP, etc.), traces communication flows across MCP and API bridge planes, maps which orchestrator components are active per topology |
+| `sacp-use-cases.md` | Seven concrete scenarios demonstrating where SACP fills gaps existing tools cannot |
+| `sacp-use-cases-and-topologies.md` | Combined analysis mapping each use case to its communication topology with sequence diagrams, active component tables, and design observations |
+| `sacp-data-security-policy.md` | Data classification, participant isolation boundaries, credential lifecycle, retention and disposal, export filtering, Fernet key management |
+| `sacp-constitution.md` | Project identity, sovereignty principles, negative space, validation rules, phase constraints |
+| `sacp-system-prompts.md` | 4-tier delta-only system prompt drafts |
+
 ---
 
 ## 1. The Gap in the Current Landscape
@@ -26,6 +37,8 @@ The protocols emerging to connect agents across organizational boundaries — Go
 | Autonomy | Agents autonomous within task | AI responds to humans | Agents autonomous within task | AIs autonomous indefinitely |
 | State management | Framework-managed | Platform-managed | Stateless (per-request) | Orchestrator-managed, persistent |
 
+For concrete scenarios illustrating how this gap manifests — distributed software teams, research co-authorship, consulting engagements, open-source coordination, technical audits, asymmetric expertise, and zero-trust cross-organizational collaboration — see `sacp-use-cases.md`.
+
 ## 2. Core Design Principles
 
 ### 2.1 Participant Sovereignty
@@ -41,6 +54,8 @@ The conversation between AI agents is ongoing and independent of any human's act
 This is fundamentally different from task-scoped orchestration. In CrewAI or AutoGen, you define a task ("analyze this data," "build this component"), agents collaborate to complete it, and the system terminates. In SACP, the conversation is the collaboration space itself. Tasks emerge from the conversation, get worked on, and resolve, but the conversation continues. It is closer to a persistent chat room or a shared working document than a job queue.
 
 The autonomous operation requires an API-driven backend for the AI participants. Consumer-facing products like Claude Desktop and ChatGPT are reactive — they respond when a human types something, then wait. The orchestrator runs the conversation loop by making API calls on each participant's behalf, using their credentials, on a configurable cadence. This loop can run continuously (one exchange every few seconds), in batches (a burst of exchanges followed by a pause), or on-demand (triggered when new information arrives or a human injects input).
+
+An alternative mode — MCP-to-MCP — trades autonomous operation for maximum sovereignty. Participants connect with AI-native desktop clients (Claude Desktop, ChatGPT equivalent) that interact with the orchestrator's MCP tools directly. Their AIs run client-side, API keys never leave their machines, and the orchestrator serves as a shared state manager and governance layer without making any provider calls. The tradeoff: when both participants close their laptops, the conversation stops. See `sacp-communication-topologies.md` Topology 7 for the full analysis.
 
 ### 2.3 Human Drop-In/Drop-Out
 
@@ -95,6 +110,8 @@ SACP consists of three layers: the orchestrator core (persistent service managin
     │ • Web UI           │     │ • Local/Ollama       │
     └────────────────────┘     └─────────────────────┘
 ```
+
+The architecture supports seven distinct participant topologies depending on how many humans and AIs are active and whether AIs run server-side (orchestrator-driven via the API bridge) or client-side (MCP-to-MCP, where AI desktop clients interact with the orchestrator as a shared state manager). In the canonical topology, 2+ humans each bring their own AI and the orchestrator drives the conversation loop. In the MCP-to-MCP topology, AIs run entirely within participant desktop clients and the orchestrator provides state management, governance, and proposals without making any AI provider calls. See `sacp-communication-topologies.md` for the full topology analysis and `sacp-use-cases-and-topologies.md` for how each topology maps to concrete collaboration scenarios.
 
 ## 4. Component Breakdown
 
@@ -973,6 +990,8 @@ API keys for AI providers are handled separately from authentication — encrypt
 
 ## 10. Data Flows
 
+The data flows below describe the canonical topology (orchestrator-driven AI loop via the API bridge). For alternative topologies — including MCP-to-MCP where the orchestrator acts as a shared state manager without making AI provider calls — see `sacp-communication-topologies.md` §2 and `sacp-use-cases-and-topologies.md` for traced communication flows per use case.
+
 ### Complete Turn Cycle
 
 ```
@@ -1119,3 +1138,5 @@ Features: real-time conversation transcript with color-coded speakers, message i
 **Phase 3 — Scale and Integration.** Support for 3–5 participants. Relevance-based turn routing with domain tags. Conversation branching and rollback (`request_branch`, `approve_branch`, tree-structured message store). Sub-session architecture (`create_sub_session`, `conclude_sub_session`) with session tree and conclusion merging. Vaire shared memory integration (auto-`remember` on accepted proposals). Git-backed decision tracking. Broadcast mode for multi-perspective polling. Ollama and vLLM local model support with chat template auto-detection. OAuth 2.1 with PKCE for web UI authentication, replacing static tokens. Shared artifact store (blob KV for shared files).
 
 **Phase 4 — Protocol and Federation.** A2A Agent Card for orchestrator discovery. Multi-orchestrator federation (linking two SACP instances for cross-team collaboration). Hierarchical sub-session topology for groups beyond five participants. Step-up authorization for destructive facilitator actions. Data retention policies with auto-archive and auto-delete scheduling. Formal protocol specification for interoperability with other implementations.
+
+For how each phase maps to supported participant topologies — including solo+multi-AI, canonical multi-human, asymmetric participation, fully autonomous, and MCP-to-MCP client-side modes — see `sacp-communication-topologies.md` §5.
