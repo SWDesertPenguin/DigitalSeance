@@ -5,6 +5,13 @@
 **Status**: Draft
 **Input**: User description: "Summarization checkpoints — structured JSON summaries every N turns capturing decisions, open questions, key positions, and narrative for context assembly"
 
+## Clarifications
+
+### Session 2026-04-14
+
+- Q: Non-blocking semantics? → A: Async task (asyncio.create_task fire-and-forget; loop proceeds immediately; summary lands whenever it finishes)
+- Q: Cheapest-model selection when Ollama is present? → A: Prefer lowest cost among paid participants; fall back to free models only if no paid models exist (avoids always picking slow local)
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Checkpoint Trigger (Priority: P1)
@@ -105,10 +112,10 @@ Summaries are regular messages (speaker_type='summary') and follow the same immu
 - **FR-004**: System MUST retry up to 3 times on invalid JSON responses before falling back to narrative-only storage.
 - **FR-005**: System MUST store summaries as messages with speaker_type='summary' and speaker_id='system'.
 - **FR-006**: System MUST update session.last_summary_turn after each successful checkpoint.
-- **FR-007**: System MUST select the cheapest model by comparing cost_per_input_token across active participants.
+- **FR-007**: System MUST select the cheapest model by comparing cost_per_input_token across active participants. Selection order: (1) lowest cost_per_input_token where cost > 0; (2) only if no paid models exist, fall back to free/null-cost participants (e.g., Ollama). This prevents summarization from always routing to slow local models.
 - **FR-008**: System MUST fall back to the next cheapest model if the primary fails after retries.
 - **FR-009**: System MUST log a warning when falling back to narrative-only storage.
-- **FR-010**: System MUST not block the turn loop during summarization — summarization runs as a post-turn operation.
+- **FR-010**: System MUST not block the turn loop during summarization. Summarization MUST run as an `asyncio.create_task` fire-and-forget coroutine — the loop advances to the next turn immediately without waiting for the summary to complete.
 
 ### Key Entities
 
@@ -128,7 +135,7 @@ Summaries are regular messages (speaker_type='summary') and follow the same immu
 ## Assumptions
 
 - The summarization prompt is a constant string in Phase 1. Prompt optimization is a future iteration.
-- "Cheapest model" is determined by cost_per_input_token from the participants table. If costs are not set (null), the model is treated as free (cost = 0).
+- "Cheapest model" is determined by cost_per_input_token from the participants table. Paid participants (cost > 0) are preferred over free/null-cost participants; only if no paid models are available does selection fall back to free models (avoiding slow local models for a hot-path operation like summarization).
 - Summarization runs using the existing ProviderBridge from feature 003. No new provider integration needed.
 - The summary JSON schema is: `{"decisions": [...], "open_questions": [...], "key_positions": [...], "narrative": "..."}`. Schema validation is lenient — missing fields default to empty arrays/strings.
 - Summary epoch tracking (message.summary_epoch field) groups messages under their checkpoint. The epoch increments with each checkpoint.
