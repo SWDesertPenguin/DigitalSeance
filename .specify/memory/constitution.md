@@ -3,8 +3,11 @@ Sync Impact Report
   Version change: 0.5.1 → 0.6.0
   Change type: MINOR — post-deployment hardening + new authoritative references
   Modified principles:
+    - §1 Identity: integrated 7 canonical use cases as design test cases
+    - §3 Sovereignty: added Topology choice — 7 communication topologies, Phase 1 ships 1–6, MCP-to-MCP is Phase 2+
     - §8 AI-Specific Security: canary token requirement strengthened (multi-canary, no structural format)
     - §8 AI-Specific Security: spotlighting clarified (same-speaker exemption)
+    - §12 Validation Rules: added V12 topology compatibility, V13 use case coverage
   Added sections:
     - §14 Change Management (bug-fix and hotfix workflow)
   Removed sections: none
@@ -36,6 +39,8 @@ SACP is a collaboration protocol, not an agent framework. It is closer to IRC or
 
 The distinction matters for every design decision. Agent frameworks assume a single operator who controls all models, selects tools, defines goals, and pays the bill. SACP assumes multiple independent humans, each with their own AI, collaborating in a shared conversation where no single party has unilateral control over the AI behavior of others.
 
+The concrete scenarios SACP exists to support — distributed software teams reviewing a design across companies, research co-authorship between independent labs, consulting engagements where the consultant brings an AI but the client's data stays in-house, open-source coordination, technical audits, asymmetric expertise pairings, and zero-trust cross-organizational collaboration — are documented in `docs/sacp-use-cases.md`. Every constitutional principle should be testable against those scenarios: a design decision that breaks one of the seven canonical use cases requires explicit justification.
+
 ---
 
 ## 2. What SACP Is Not
@@ -61,6 +66,18 @@ Sovereignty is the core architectural principle. Every design decision must pres
 **Prompt privacy.** A participant's custom system prompt content is private to them. Other participants see collaboration metadata (model family, routing mode, domain tags) but not prompt contents. Private annotations are stored client-side, never transmitted to the orchestrator.
 
 **Exit freedom.** Any participant can leave at any time. Their contributions remain in the transcript, but their AI stops receiving turns and their API key is purged.
+
+**Topology choice.** The five sovereignty guarantees above are realized through different communication topologies depending on participant needs. SACP supports seven topologies (catalogued in `docs/sacp-communication-topologies.md`):
+
+1. **Solo + multi-AI** — one human, multiple AIs they own; orchestrator drives the loop
+2. **Canonical** — 2+ humans each bring their own AI; orchestrator drives the loop (the default Phase 1 topology)
+3. **Asymmetric participation** — some humans observe, others actively contribute their AI
+4. **Fully autonomous** — humans drop out; AIs continue conversing on their behalf
+5. **Observer + active mix** — pending participants watch live; promoted ones engage
+6. **Heterogeneous routing** — different participants on different routing modes (always, observer, addressed_only, etc.)
+7. **MCP-to-MCP** — AIs run client-side in participants' desktop clients (Claude Desktop, ChatGPT app); the orchestrator becomes a shared state manager and never makes provider calls. This is the **strongest** sovereignty mode — API keys never leave participants' machines. Tradeoff: when all participants disconnect, the conversation pauses.
+
+Different topologies activate different orchestrator components. Constitutional principles (sovereignty, transparency, human authority) MUST hold across all seven. Phase 1 ships with topologies 1–6 (orchestrator-driven); MCP-to-MCP is Phase 2+.
 
 ---
 
@@ -255,6 +272,10 @@ Every feature spec must pass these checks. Failure requires revision before impl
 **V10 — AI security pipeline enforced.** Content entering another AI's context applies trust tiers, boundary markers, spotlighting, sanitization, and output validation. Tool calls are role-scoped. (Reference: section 8, design doc §7.6, attack surface analysis §1–13)
 
 **V11 — Supply chain controls enforced.** New dependencies pinned with hash verification and reviewed against OSINT sources. ML models loaded in SafeTensors only.
+
+**V12 — Topology compatibility verified.** Every feature spec MUST identify which of the seven topologies (`docs/sacp-communication-topologies.md`) it applies to. Features that work in topology 1–6 (orchestrator-driven) but break topology 7 (MCP-to-MCP) MUST flag the limitation explicitly in their spec. A feature that silently assumes orchestrator-driven AI dispatch is incomplete.
+
+**V13 — Use case coverage acknowledged.** Every feature spec MUST reference at least one of the seven use cases (`docs/sacp-use-cases.md`) it primarily serves, OR explicitly justify why the feature is foundational/cross-cutting. This prevents accidental drift toward features that look reasonable in isolation but don't serve any of the canonical scenarios.
 
 ---
 
