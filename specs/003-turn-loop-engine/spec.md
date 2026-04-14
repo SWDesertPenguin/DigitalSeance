@@ -5,6 +5,13 @@
 **Status**: Draft
 **Input**: User description: "Turn loop engine — serialized conversation execution with context assembly, 8-mode routing, LiteLLM provider dispatch, budget enforcement, circuit breaker, and interrupt processing"
 
+## Clarifications
+
+### Session 2026-04-14
+
+- Q: Default turn timeout? → A: 180 seconds (matches migration 003; originally 60s proved insufficient for local models like llama3.2:3b on CPU)
+- Q: Late response grace window? → A: None — drop late responses; removed [LATE] aspirational tagging from spec
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Single Turn Execution (Priority: P1)
@@ -182,7 +189,7 @@ When a participant uses review_gate mode, their AI's response is staged as a dra
 ### Edge Cases
 
 - What happens when all participants are skipped (budget, paused, circuit-broken)? The loop pauses the session and notifies connected humans.
-- What happens when a provider returns a response after the timeout but within a grace window? The late response is tagged as [LATE] and accepted.
+- What happens when a provider returns a response after the timeout? The response is dropped — once a turn times out, the request is cancelled and any late reply is discarded. No grace window, no [LATE] tagging.
 - What happens when the API key decryption fails at dispatch time? The turn is skipped with an error log; the participant is not auto-paused (encryption failure is an infrastructure problem, not a provider problem).
 - What happens when a burst participant's interval is reached but no turns have occurred? The burst fires with whatever history is available.
 - What happens when an observer chooses not to respond? The observation is logged as 'observer_read' (not 'observer_inject') and consumes zero output tokens.
@@ -210,7 +217,7 @@ When a participant uses review_gate mode, their AI's response is staged as a dra
 - **FR-016**: System MUST detect empty, duplicate, and excessively repetitive responses and retry up to 3 times before skipping the turn.
 - **FR-017**: System MUST classify turn complexity as 'low' or 'high' using pattern-matching heuristics before routing decisions.
 - **FR-018**: System MUST stage review-gated participant responses as drafts rather than transcript messages.
-- **FR-019**: System MUST respect per-turn timeouts (configurable per participant, default 60 seconds) and skip the turn on timeout.
+- **FR-019**: System MUST respect per-turn timeouts (configurable per participant, default 180 seconds as of migration 003) and skip the turn on timeout.
 - **FR-020**: System MUST retry provider calls on rate-limit responses with exponential backoff respecting Retry-After headers.
 - **FR-021**: System MUST never halt the session due to a single participant's provider failure — the loop skips and continues.
 
@@ -245,4 +252,4 @@ When a participant uses review_gate mode, their AI's response is staged as a dra
 - Token counting uses LiteLLM's built-in token estimation. Exact tiktoken counting is a future optimization.
 - The MCP server (feature 006) will expose the loop's start/stop controls. This feature provides the engine; the interface comes later.
 - The system prompt tier content is a separate deliverable. This feature assembles whatever prompt text is configured on the participant record.
-- Late arrival handling (responses arriving within a grace window after timeout) is included as a best-effort optimization, not a hard requirement.
+- Late responses are dropped — once the turn timeout expires, the request is cancelled and no response is accepted from that dispatch.

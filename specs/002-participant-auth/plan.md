@@ -14,7 +14,7 @@ Add auth logic on top of the existing data model: bearer token validation with b
 **Storage**: PostgreSQL 16 via Docker Compose (existing)
 **Testing**: pytest + pytest-asyncio (existing test harness)
 **Target Platform**: Linux container (existing)
-**Project Type**: Web service
+**Project Type**: Single project
 **Performance Goals**: Token validation < 1 second (bcrypt cost factor 12 ≈ 200ms)
 **Constraints**: 25/5 rule, append-only audit logs, fail-closed on missing encryption key
 **Scale/Scope**: 2 participants per session Phase 1
