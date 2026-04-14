@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from src.security.prompt_protector import PromptProtector
+import base64
+import secrets
 
 TIER_LOW = (
     "You are a participant in a multi-model collaboration session. "
@@ -54,16 +55,28 @@ def assemble_prompt(
     prompt_tier: str,
     custom_prompt: str = "",
 ) -> str:
-    """Assemble the full system prompt from tiers + custom content."""
+    """Assemble the full system prompt from tiers + custom content.
+
+    Three random 16-char base32 canary tokens are embedded at the
+    start, middle, and end of the assembled content. They have no
+    structural format so no regex can predict them. Detection is via
+    PromptProtector.check_leakage (pass canaries= kwarg with the values
+    returned by this function when wiring detection into the pipeline).
+    """
     tiers = _TIERS.get(prompt_tier, _TIERS["mid"])
     parts = list(tiers)
     if custom_prompt:
         parts.append(custom_prompt)
-    full_prompt = "\n\n".join(parts)
-    return _embed_canary(full_prompt)
+    return _embed_canaries(parts, _generate_canaries())
 
 
-def _embed_canary(prompt: str) -> str:
-    """Append a canary token to the prompt for leakage detection."""
-    protector = PromptProtector(prompt)
-    return f"{prompt}\n\n<!-- integrity:{protector.canary} -->"
+def _generate_canaries() -> list[str]:
+    """Generate three random 16-char base32 canary tokens."""
+    return [base64.b32encode(secrets.token_bytes(10)).decode() for _ in range(3)]
+
+
+def _embed_canaries(parts: list[str], canaries: list[str]) -> str:
+    """Embed three canaries at start, middle, and end of the prompt parts."""
+    mid = max(1, len(parts) // 2)
+    result = [canaries[0]] + parts[:mid] + [canaries[1]] + parts[mid:] + [canaries[2]]
+    return "\n\n".join(result)

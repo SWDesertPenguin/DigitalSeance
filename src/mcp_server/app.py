@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -11,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import load_settings
 from src.database.connection import close_pool, create_pool
+from src.mcp_server.sse import ConnectionManager
+from src.mcp_server.sse_router import router as sse_router
 from src.mcp_server.tools.facilitator import router as facilitator_router
 from src.mcp_server.tools.participant import router as participant_router
 from src.mcp_server.tools.session import router as session_router
@@ -23,6 +26,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage app lifecycle — pool, services, shutdown."""
     settings = load_settings()
     pool = await create_pool(settings.database)
+    app.state.connection_manager = ConnectionManager()
     _attach_services(app, pool, settings.encryption.key)
     yield
     await close_pool(pool)
@@ -41,10 +45,35 @@ def create_app() -> FastAPI:
 
 
 def _add_middleware(app: FastAPI) -> None:
-    """Add CORS middleware."""
+    """Add CORS middleware (LAN default, SACP_CORS_ORIGINS override)."""
+    cors_env = os.environ.get("SACP_CORS_ORIGINS", "")
+    if cors_env:
+        origins = [o.strip() for o in cors_env.split(",") if o.strip()]
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    else:
+        _add_lan_cors(app)
+
+
+def _add_lan_cors(app: FastAPI) -> None:
+    """Add CORS with RFC-1918 LAN regex defaults."""
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Restrictive in production
+        allow_origins=[
+            "http://localhost",
+            "http://localhost:8750",
+            "http://127.0.0.1",
+            "http://127.0.0.1:8750",
+        ],
+        allow_origin_regex=(
+            r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
+            r"|http://192\.168\.\d+\.\d+(:\d+)?"
+            r"|http://10\.\d+\.\d+\.\d+(:\d+)?"
+        ),
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -52,6 +81,7 @@ def _add_middleware(app: FastAPI) -> None:
 
 def _include_routers(app: FastAPI) -> None:
     """Register all tool routers."""
+    app.include_router(sse_router)
     app.include_router(participant_router)
     app.include_router(facilitator_router)
     app.include_router(session_router)
