@@ -9,7 +9,7 @@ Add convergence detection (sentence-transformers embeddings, cosine similarity, 
 ## Technical Context
 
 **Language/Version**: Python 3.11+
-**New Dependencies**: sentence-transformers, numpy (for cosine similarity)
+**Primary Dependencies**: sentence-transformers, numpy (for cosine similarity)
 **Storage**: PostgreSQL 16 (existing convergence_log table)
 **Constraints**: SafeTensors only (no pickle), async embedding (non-blocking), 25/5
 
