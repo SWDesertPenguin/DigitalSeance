@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -13,6 +14,8 @@ from src.database.connection import close_pool, create_pool
 from src.mcp_server.tools.facilitator import router as facilitator_router
 from src.mcp_server.tools.participant import router as participant_router
 from src.mcp_server.tools.session import router as session_router
+
+logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
 
 
 @asynccontextmanager
