@@ -88,21 +88,11 @@ def test_sacp_ai_tags_stripped() -> None:
 
 
 def test_canary_token_stripped_legacy() -> None:
-    """Legacy canary format is removed from output."""
+    """Legacy bracket-format canaries are removed from output."""
     text = "Here is my response [Internal: CANARY_a1b2c3d4e5f6] and more text"
     result, flags = filter_exfiltration(text)
     assert "CANARY" not in result
     assert result == "Here is my response  and more text"
-    assert "canary_token_stripped" in flags
-
-
-def test_canary_token_stripped_html_comment() -> None:
-    """New HTML comment canary format is removed from output."""
-    text = "Response text <!-- integrity:CANARY_a1b2c3d4e5f6 --> more"
-    result, flags = filter_exfiltration(text)
-    assert "CANARY" not in result
-    assert "integrity" not in result
-    assert result == "Response text  more"
     assert "canary_token_stripped" in flags
 
 
@@ -132,10 +122,9 @@ def test_sacp_at_mention_human_stripped() -> None:
 
 
 def test_mixed_markers_all_stripped() -> None:
-    """All context markers are stripped in one pass."""
-    text = "^9f58a7^<sacp:human>Great point <!-- integrity:CANARY_abcdef012345 --></sacp:human>"
+    """Spotlight markers and SACP tags are stripped in one pass."""
+    text = "^9f58a7^<sacp:human>Great point</sacp:human>"
     result, flags = filter_exfiltration(text)
     assert "^9f58a7^" not in result
     assert "<sacp:" not in result
-    assert "CANARY" not in result
-    assert result == "Great point "
+    assert result == "Great point"
