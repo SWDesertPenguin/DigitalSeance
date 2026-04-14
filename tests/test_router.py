@@ -33,7 +33,7 @@ _PARTICIPANT_DEFAULTS: dict[str, object] = {
     "burst_interval": 20,
     "review_gate_timeout": 600,
     "turns_since_last_burst": 0,
-    "turn_timeout_seconds": 60,
+    "turn_timeout_seconds": 180,
     "consecutive_timeouts": 0,
     "status": "active",
     "budget_hourly": None,
