@@ -30,13 +30,15 @@ class MessageRepository(BaseRepository):
         delegated_from: str | None = None,
         summary_epoch: int | None = None,
     ) -> Message:
-        """Append a message, auto-assigning the next turn number."""
-        async with self._pool.acquire() as conn:
-            await _verify_session_active(conn, session_id)
-            turn = await _next_turn_number(conn, session_id, branch_id)
-            await _insert_message(
+        """Append a message, auto-assigning the next turn number.
+
+        Uses a transaction-scoped advisory lock keyed on branch_id to
+        serialize concurrent appends (AI turn + human interjection race)
+        so turn_number reflects true arrival order without PK collisions.
+        """
+        async with self._pool.acquire() as conn, conn.transaction():
+            record = await _append_locked(
                 conn,
-                turn_number=turn,
                 session_id=session_id,
                 branch_id=branch_id,
                 speaker_id=speaker_id,
@@ -48,12 +50,6 @@ class MessageRepository(BaseRepository):
                 parent_turn=parent_turn,
                 delegated_from=delegated_from,
                 summary_epoch=summary_epoch,
-            )
-            record = await conn.fetchrow(
-                _SELECT_MESSAGE_SQL,
-                turn,
-                session_id,
-                branch_id,
             )
         return Message.from_record(record)
 
@@ -128,6 +124,54 @@ async def _verify_session_active(
     )
     if status != "active":
         raise SessionNotActiveError(f"Session {session_id} is {status}")
+
+
+async def _append_locked(
+    conn: asyncpg.Connection,
+    *,
+    session_id: str,
+    branch_id: str,
+    speaker_id: str,
+    speaker_type: str,
+    content: str,
+    token_count: int,
+    complexity_score: str,
+    cost_usd: float | None,
+    parent_turn: int | None,
+    delegated_from: str | None,
+    summary_epoch: int | None,
+) -> asyncpg.Record:
+    """Verify session, lock branch, insert row, return fresh record."""
+    await _verify_session_active(conn, session_id)
+    await _lock_branch(conn, branch_id)
+    turn = await _next_turn_number(conn, session_id, branch_id)
+    await _insert_message(
+        conn,
+        turn_number=turn,
+        session_id=session_id,
+        branch_id=branch_id,
+        speaker_id=speaker_id,
+        speaker_type=speaker_type,
+        content=content,
+        token_count=token_count,
+        complexity_score=complexity_score,
+        cost_usd=cost_usd,
+        parent_turn=parent_turn,
+        delegated_from=delegated_from,
+        summary_epoch=summary_epoch,
+    )
+    return await conn.fetchrow(_SELECT_MESSAGE_SQL, turn, session_id, branch_id)
+
+
+async def _lock_branch(
+    conn: asyncpg.Connection,
+    branch_id: str,
+) -> None:
+    """Acquire a transaction-scoped advisory lock on the branch."""
+    await conn.execute(
+        "SELECT pg_advisory_xact_lock(hashtext($1))",
+        branch_id,
+    )
 
 
 async def _next_turn_number(
