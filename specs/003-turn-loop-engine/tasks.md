@@ -82,6 +82,7 @@
 **Goal**: Human interjections take priority; budget ceilings enforced
 
 - [X] T015 [US5] Extend `src/orchestrator/loop.py` — add interrupt processing at top of execute_turn: fetch pending → deliver → mark delivered → include in context
+- [X] T015a [US5] (2026-04-15) Move transcript persistence of human interjections from `loop.py:_persist_interjections` to `mcp_server/tools/participant.py:inject_message` so `turn_number` reflects arrival time; add advisory lock in `MessageRepository.append_message` to serialize concurrent inject + AI-turn writes; loop now only uses the interrupt queue for routing/cadence signals
 - [X] T016 [US6] Implement `src/orchestrator/budget.py` — BudgetEnforcer: check_budget (query usage_log, compare against ceiling, return bool), uses existing LogRepository.get_participant_cost
 - [X] T017 [US6] Write `tests/test_budget.py` — test within-budget proceeds; test exceeded-budget skips; test skip logged with reason; test human can still inject when AI budget exceeded; test budgets never pooled across participants
 

@@ -130,6 +130,53 @@ async def test_full_flow_to_history(client, mock_litellm):
     assert any("Test AI response" in m["content"] for m in messages)
 
 
+async def test_inject_persists_to_transcript_immediately(client):
+    """inject_message writes to the transcript at enqueue time, not deferred.
+
+    Regression: interjections used to be persisted by the loop's
+    _persist_interjections on the next turn, which meant they got a
+    turn_number AFTER any AI turn that was in-flight when they arrived.
+    """
+    c, _ = client
+    session = await _create_session(c)
+    participant = await _add_participant(c, session["auth_token"])
+    await c.post(
+        "/tools/participant/inject_message",
+        json={"content": "First question", "priority": 1},
+        headers={"Authorization": f"Bearer {participant['auth_token']}"},
+    )
+    resp = await c.get(
+        "/tools/participant/history",
+        headers={"Authorization": f"Bearer {participant['auth_token']}"},
+    )
+    messages = resp.json()["messages"]
+    humans = [m for m in messages if m["type"] == "human"]
+    assert len(humans) == 1
+    assert humans[0]["content"] == "First question"
+
+
+async def test_inject_ordering_relative_to_ai_turn(client, mock_litellm):
+    """Interjection injected after an AI turn gets a later turn_number."""
+    c, app = client
+    session = await _create_session(c)
+    participant = await _add_participant(c, session["auth_token"])
+    loop = app.state.conversation_loop
+    await loop.execute_turn(session["session_id"])
+    await c.post(
+        "/tools/participant/inject_message",
+        json={"content": "Follow-up", "priority": 1},
+        headers={"Authorization": f"Bearer {participant['auth_token']}"},
+    )
+    resp = await c.get(
+        "/tools/participant/history",
+        headers={"Authorization": f"Bearer {participant['auth_token']}"},
+    )
+    messages = resp.json()["messages"]
+    ai_turn = next(m["turn"] for m in messages if m["type"] == "ai")
+    human_turn = next(m["turn"] for m in messages if m["content"] == "Follow-up")
+    assert human_turn > ai_turn
+
+
 async def test_unauthenticated_returns_error(client):
     """Endpoints requiring auth return 401 without a token."""
     c, _ = client
