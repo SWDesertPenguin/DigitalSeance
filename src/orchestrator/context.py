@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import asyncpg
 
 from src.models.message import Message
@@ -19,6 +21,24 @@ INTERJECTION_BUDGET = 500
 PROPOSAL_BUDGET = 500
 MVC_FLOOR_TURNS = 3
 RESPONSE_RESERVE = 2000
+_DEFAULT_HISTORY_TURNS = 20
+
+
+def _history_turns() -> int:
+    """Read SACP_CONTEXT_MAX_TURNS; default 20.
+
+    Why: On small/CPU-hosted models the prompt-eval cost scales with
+    transcript length even when the token budget technically fits. A
+    turn cap bounds latency independent of context_window.
+    """
+    raw = os.environ.get("SACP_CONTEXT_MAX_TURNS")
+    if not raw:
+        return _DEFAULT_HISTORY_TURNS
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_HISTORY_TURNS
+    return max(value, MVC_FLOOR_TURNS)
 
 
 class ContextAssembler:
@@ -99,7 +119,7 @@ class ContextAssembler:
     ) -> None:
         """Fill remaining budget with additional history."""
         bid = await get_main_branch_id(self._pool, session_id)
-        more = await self._msg_repo.get_recent(session_id, bid, 50)
+        more = await self._msg_repo.get_recent(session_id, bid, _history_turns())
         _add_history(context, more, used, budget, already, speaker_id=speaker_id)
 
 
