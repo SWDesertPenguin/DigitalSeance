@@ -100,8 +100,10 @@ class ConversationLoop:
         """Route, assemble, dispatch, and persist a turn."""
         interjections = await self._int_repo.get_pending(session_id)
         log.debug("Fetched %d interjections for %s", len(interjections), session_id)
+        # Interjections are persisted to the transcript at enqueue time
+        # (see inject_message). Here we only use them for routing and
+        # cadence signals, then mark delivered.
         if interjections:
-            await self._persist_interjections(session_id, interjections)
             self._cadence.reset_on_interjection(session_id)
         decision = await self._router.route(
             speaker,
@@ -145,25 +147,6 @@ class ConversationLoop:
             content,
         )
         return _with_delay(result, delay)
-
-    async def _persist_interjections(
-        self,
-        session_id: str,
-        interjections: list,
-    ) -> None:
-        """Persist human interjections into the message transcript."""
-        bid = await get_main_branch_id(self._pool, session_id)
-        for intr in interjections:
-            log.info("Persisting interjection %d as message", intr.id)
-            await self._msg_repo.append_message(
-                session_id=session_id,
-                branch_id=bid,
-                speaker_id=intr.participant_id,
-                speaker_type="human",
-                content=intr.content,
-                token_count=max(len(intr.content) // 4, 1),
-                complexity_score="n/a",
-            )
 
     async def _compute_turn_delay(
         self,

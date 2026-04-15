@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
+from src.orchestrator.branch import get_main_branch_id
 
 router = APIRouter(prefix="/tools/participant", tags=["participant"])
 
@@ -24,8 +25,25 @@ async def inject_message(
     body: _InjectMessageBody,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Inject a human message into the interrupt queue."""
+    """Inject a human message: persist to transcript + enqueue for routing.
+
+    The transcript write captures arrival-time ordering (so interjections
+    sort correctly relative to concurrent AI turns). The interrupt queue
+    entry still drives routing/cadence signals in the turn loop.
+    """
+    msg_repo = request.app.state.message_repo
     int_repo = request.app.state.interrupt_repo
+    pool = request.app.state.pool
+    branch_id = await get_main_branch_id(pool, participant.session_id)
+    await msg_repo.append_message(
+        session_id=participant.session_id,
+        branch_id=branch_id,
+        speaker_id=participant.id,
+        speaker_type="human",
+        content=body.content,
+        token_count=max(len(body.content) // 4, 1),
+        complexity_score="n/a",
+    )
     entry = await int_repo.enqueue(
         session_id=participant.session_id,
         participant_id=participant.id,
