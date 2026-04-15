@@ -16,6 +16,7 @@
 
 - Q: When an interjection arrives while an AI turn is already in flight, how should its position in the transcript be ordered relative to that AI turn? → A: By **arrival time**, not processing time. Interjections are persisted to the transcript at the moment `inject_message` is received, so their `turn_number` reflects when the human asked the question (before the in-flight AI reply), not when the loop later drained the interrupt queue. The interrupt queue is still used as a routing/cadence signal; it no longer owns transcript persistence.
 - Q: How do we avoid `turn_number` collisions between the concurrent inject write and the AI-turn persist? → A: A transaction-scoped PostgreSQL advisory lock on `hashtext(branch_id)` serializes `SELECT MAX(turn_number) + 1` + `INSERT` within `MessageRepository.append_message`.
+- Q: On small/CPU-hosted models, prompt-eval latency grew every turn because history kept accumulating. What's the bound? → A: `_fill_history` now reads `SACP_CONTEXT_MAX_TURNS` (default 20, clamped to at least `MVC_FLOOR_TURNS=3`) and passes it as the limit to `MessageRepository.get_recent`. Token budget still applies; this is a secondary cap that protects latency when the token window is too generous for the actual model hardware.
 
 ## User Scenarios & Testing *(mandatory)*
 

@@ -12,6 +12,10 @@
 - Q: Pending participant access scope? → A: Facilitator decides per session (configurable: transcript-only, transcript+list, minimal, or full observer)
 - Q: Facilitator token expiry recovery path? → A: Dedicated CLI tool (sacp-admin regenerate-token <session-id>) with audit logging
 
+### Session 2026-04-15
+
+- Q: How do we prevent the Swagger default `"string"` literal from being persisted as a real model/provider name? → A: `_AddParticipantBody` rejects blank, whitespace-only, or case-insensitively equal to `"string"` values on `display_name`, `provider`, `model`, `model_tier`, `model_family` at validation time (HTTP 422). The provider dispatcher never sees invalid values, and `Turn -1` failure cycles caused by placeholder-model participants are eliminated.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Token Authentication (Priority: P1)
