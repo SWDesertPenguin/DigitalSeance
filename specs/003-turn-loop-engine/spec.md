@@ -12,6 +12,11 @@
 - Q: Default turn timeout? → A: 180 seconds (matches migration 003; originally 60s proved insufficient for local models like llama3.2:3b on CPU)
 - Q: Late response grace window? → A: None — drop late responses; removed [LATE] aspirational tagging from spec
 
+### Session 2026-04-15
+
+- Q: When an interjection arrives while an AI turn is already in flight, how should its position in the transcript be ordered relative to that AI turn? → A: By **arrival time**, not processing time. Interjections are persisted to the transcript at the moment `inject_message` is received, so their `turn_number` reflects when the human asked the question (before the in-flight AI reply), not when the loop later drained the interrupt queue. The interrupt queue is still used as a routing/cadence signal; it no longer owns transcript persistence.
+- Q: How do we avoid `turn_number` collisions between the concurrent inject write and the AI-turn persist? → A: A transaction-scoped PostgreSQL advisory lock on `hashtext(branch_id)` serializes `SELECT MAX(turn_number) + 1` + `INSERT` within `MessageRepository.append_message`.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Single Turn Execution (Priority: P1)
