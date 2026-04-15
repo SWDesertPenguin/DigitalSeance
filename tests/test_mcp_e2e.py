@@ -177,6 +177,53 @@ async def test_inject_ordering_relative_to_ai_turn(client, mock_litellm):
     assert human_turn > ai_turn
 
 
+async def test_debug_export_as_facilitator(client):
+    """Facilitator can dump everything about a session."""
+    c, _ = client
+    session = await _create_session(c)
+    participant = await _add_participant(c, session["auth_token"])
+    await c.post(
+        "/tools/participant/inject_message",
+        json={"content": "hello", "priority": 1},
+        headers={"Authorization": f"Bearer {participant['auth_token']}"},
+    )
+    resp = await c.get(
+        f"/tools/debug/export?session_id={session['session_id']}",
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert resp.status_code == 200
+    dump = resp.json()
+    assert dump["session"]["id"] == session["session_id"]
+    assert len(dump["participants"]) >= 2
+    assert all("auth_token_hash" not in p for p in dump["participants"])
+    assert "config_snapshot" in dump
+    assert len(dump["interrupts"]) == 1
+
+
+async def test_debug_export_rejects_non_facilitator(client):
+    """Participants (non-facilitator) cannot call /tools/debug/export."""
+    c, _ = client
+    session = await _create_session(c)
+    participant = await _add_participant(c, session["auth_token"])
+    resp = await c.get(
+        f"/tools/debug/export?session_id={session['session_id']}",
+        headers={"Authorization": f"Bearer {participant['auth_token']}"},
+    )
+    assert resp.status_code == 403
+
+
+async def test_add_participant_rejects_placeholder(client):
+    """Swagger default 'string' is rejected at the edge, not forwarded."""
+    c, _ = client
+    session = await _create_session(c)
+    resp = await c.post(
+        "/tools/facilitator/add_participant",
+        json={**_PARTICIPANT_BODY, "model": "string"},
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert resp.status_code == 422
+
+
 async def test_unauthenticated_returns_error(client):
     """Endpoints requiring auth return 401 without a token."""
     c, _ = client

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
 
 router = APIRouter(prefix="/tools/facilitator", tags=["facilitator"])
+
+_SWAGGER_PLACEHOLDER = "string"
 
 
 class _AddParticipantBody(BaseModel):
@@ -22,6 +24,21 @@ class _AddParticipantBody(BaseModel):
     context_window: int
     api_key: str = ""
     api_endpoint: str = ""
+
+    @field_validator("display_name", "provider", "model", "model_tier", "model_family")
+    @classmethod
+    def _reject_placeholder(cls, v: str, info) -> str:
+        """Reject Swagger default ('string') and blank fields.
+
+        Why: Submitting the Swagger example unchanged created participants
+        with `model='string'`, which the provider dispatcher forwarded to
+        LiteLLM and failed every turn. Catch it at the edge instead.
+        """
+        cleaned = (v or "").strip()
+        if not cleaned or cleaned.lower() == _SWAGGER_PLACEHOLDER:
+            msg = f"{info.field_name} must not be blank or the placeholder 'string'"
+            raise ValueError(msg)
+        return cleaned
 
 
 @router.post("/add_participant")
