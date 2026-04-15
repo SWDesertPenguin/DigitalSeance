@@ -14,6 +14,7 @@ from src.config import load_settings
 from src.database.connection import close_pool, create_pool
 from src.mcp_server.sse import ConnectionManager
 from src.mcp_server.sse_router import router as sse_router
+from src.mcp_server.tools.debug import router as debug_router
 from src.mcp_server.tools.facilitator import router as facilitator_router
 from src.mcp_server.tools.participant import router as participant_router
 from src.mcp_server.tools.session import router as session_router
@@ -85,6 +86,7 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(participant_router)
     app.include_router(facilitator_router)
     app.include_router(session_router)
+    app.include_router(debug_router)
 
 
 def _attach_services(
