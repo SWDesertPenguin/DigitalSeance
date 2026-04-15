@@ -94,7 +94,8 @@ async def _fetch_logs(
             session_id,
         )
         convergence = await conn.fetch(
-            "SELECT turn_number, session_id, similarity_score, timestamp "
+            "SELECT turn_number, session_id, similarity_score, "
+            "divergence_prompted, escalated_to_human "
             "FROM convergence_log WHERE session_id = $1 ORDER BY turn_number",
             session_id,
         )
