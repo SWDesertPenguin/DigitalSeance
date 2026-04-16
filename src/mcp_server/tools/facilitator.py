@@ -177,6 +177,34 @@ async def transfer_facilitator(
     return {"status": "transferred", "new_facilitator": target_id}
 
 
+class _SetRoutingBody(BaseModel):
+    """Request body for setting a participant's routing preference."""
+
+    participant_id: str
+    preference: str
+
+
+@router.post("/set_routing_preference")
+async def set_routing_preference(
+    request: Request,
+    body: _SetRoutingBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Set routing preference on a participant (facilitator only)."""
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE participants SET routing_preference = $1" " WHERE id = $2",
+            body.preference,
+            body.participant_id,
+        )
+    return {
+        "status": "updated",
+        "participant_id": body.participant_id,
+        "preference": body.preference,
+    }
+
+
 class _SetBudgetBody(BaseModel):
     """Request body for setting participant budget limits."""
 
