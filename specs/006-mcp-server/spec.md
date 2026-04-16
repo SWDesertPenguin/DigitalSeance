@@ -182,3 +182,9 @@ A participant can export the conversation transcript as markdown or JSON. The ex
 - The turn loop runs in-process as an asyncio task. Not a separate process.
 - Rate limiting per participant is deferred to a later hardening pass.
 - CORS defaults to localhost + LAN ranges (127.0.0.1, 192.168.0.0/16, 10.0.0.0/8) via `allow_origin_regex`. Operators override via `SACP_CORS_ORIGINS` (comma-separated exact origins). CSP headers are minimally configured for Phase 1.
+
+## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
+
+**Topologies** (per constitution §3): Topologies 1–6 (orchestrator-driven, participants connect via SSE). Topology 7 (MCP-to-MCP peer-to-peer) uses a different transport — peers running in desktop clients (Claude Desktop, ChatGPT app) via client-local MCP, not network SSE. Phase 1 ships 1–6; topology 7 integration is Phase 2+.
+
+**Use cases** (per constitution §1): Serves all scenarios by providing the human-AI interface (message injection, routing preference, token rotation, loop control). Especially critical for zero-trust cross-org and consulting, where humans must actively steer the conversation in real-time.

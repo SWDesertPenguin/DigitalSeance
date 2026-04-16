@@ -82,3 +82,9 @@ After each AI response is received from the provider, the turn loop runs the out
 - Tier content is constant text in Phase 1. Dynamic tier content is a future enhancement.
 - The tier token budgets are approximate (~250, ~520, ~480, ~480) — exact wording will be refined.
 - Canary tokens are high-entropy random strings generated per-session (not derived from the prompt hash), stored in session state so the detector can scan for them on every AI response. Three canaries are placed at start, middle, and end of the prompt to catch selective extraction attacks.
+
+## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
+
+**Topologies** (per constitution §3): All seven (1–7). System prompts (tiered, canary-protected) and security pipeline integration apply to all topologies — orchestrator-driven or peer-driven. Canary tokens, sanitization, and spotlighting are topology-neutral defenses.
+
+**Use cases** (per constitution §1): Foundational for scenarios handling sensitive intellectual property (research co-authorship, consulting, technical audits, zero-trust cross-org). Prompt extraction defense prevents accidental leakage of system instructions.
