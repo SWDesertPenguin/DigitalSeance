@@ -37,15 +37,15 @@ class ParticipantRepository(BaseRepository):
         api_key: str | None = None,
         api_endpoint: str | None = None,
         auth_token: str | None = None,
+        budget_hourly: float | None = None,
+        budget_daily: float | None = None,
         auto_approve: bool = False,
     ) -> tuple[Participant, str | None]:
         """Add a participant, encrypting API key and hashing token."""
-        participant_id = uuid.uuid4().hex[:12]
-        encrypted_key = _encrypt_api_key(api_key, self._encryption_key)
-        token_hash = _hash_auth_token(auth_token)
+        pid = uuid.uuid4().hex[:12]
         role = "participant" if auto_approve else "pending"
         args = (
-            participant_id,
+            pid,
             session_id,
             display_name,
             role,
@@ -54,16 +54,15 @@ class ParticipantRepository(BaseRepository):
             model_tier,
             model_family,
             context_window,
-            encrypted_key,
-            token_hash,
+            _encrypt_api_key(api_key, self._encryption_key),
+            _hash_auth_token(auth_token),
             api_endpoint,
+            budget_hourly,
+            budget_daily,
         )
         await self._execute(_INSERT_PARTICIPANT_SQL, *args)
-        record = await self._fetch_one(
-            "SELECT * FROM participants WHERE id = $1",
-            participant_id,
-        )
-        return Participant.from_record(record), auth_token
+        rec = await self._fetch_one("SELECT * FROM participants WHERE id = $1", pid)
+        return Participant.from_record(rec), auth_token
 
     async def get_participant(
         self,
@@ -182,13 +181,29 @@ class ParticipantRepository(BaseRepository):
             participant_id,
         )
 
+    async def update_budget(
+        self,
+        participant_id: str,
+        *,
+        budget_hourly: float | None = None,
+        budget_daily: float | None = None,
+    ) -> None:
+        """Update a participant's budget limits."""
+        await self._execute(
+            "UPDATE participants" " SET budget_hourly = $1, budget_daily = $2" " WHERE id = $3",
+            budget_hourly,
+            budget_daily,
+            participant_id,
+        )
+
 
 _INSERT_PARTICIPANT_SQL = """
     INSERT INTO participants
         (id, session_id, display_name, role, provider, model,
          model_tier, model_family, context_window,
-         api_key_encrypted, auth_token_hash, api_endpoint)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         api_key_encrypted, auth_token_hash, api_endpoint,
+         budget_hourly, budget_daily)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 """
 
 

@@ -24,6 +24,8 @@ class _AddParticipantBody(BaseModel):
     context_window: int
     api_key: str = ""
     api_endpoint: str = ""
+    budget_hourly: float | None = None
+    budget_daily: float | None = None
 
     @field_validator("display_name", "provider", "model", "model_tier", "model_family")
     @classmethod
@@ -59,6 +61,8 @@ async def add_participant(
         context_window=body.context_window,
         api_key=body.api_key or None,
         api_endpoint=body.api_endpoint or None,
+        budget_hourly=body.budget_hourly,
+        budget_daily=body.budget_daily,
         auto_approve=True,
     )
     auth = request.app.state.auth_service
@@ -171,3 +175,32 @@ async def transfer_facilitator(
         target_id=target_id,
     )
     return {"status": "transferred", "new_facilitator": target_id}
+
+
+class _SetBudgetBody(BaseModel):
+    """Request body for setting participant budget limits."""
+
+    participant_id: str
+    budget_hourly: float | None = None
+    budget_daily: float | None = None
+
+
+@router.post("/set_budget")
+async def set_budget(
+    request: Request,
+    body: _SetBudgetBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Set budget limits on a participant (facilitator only)."""
+    p_repo = request.app.state.participant_repo
+    await p_repo.update_budget(
+        body.participant_id,
+        budget_hourly=body.budget_hourly,
+        budget_daily=body.budget_daily,
+    )
+    return {
+        "status": "updated",
+        "participant_id": body.participant_id,
+        "budget_hourly": body.budget_hourly,
+        "budget_daily": body.budget_daily,
+    }
