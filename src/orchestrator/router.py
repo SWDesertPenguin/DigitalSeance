@@ -150,10 +150,10 @@ def _route_observer(
     return RoutingDecision(
         intended=p.id,
         actual=p.id,
-        action="observer_read",
+        action="skipped",
         complexity=complexity,
-        domain_match=True,
-        reason="observer interval check",
+        domain_match=False,
+        reason="observer mode — silent until switched",
     )
 
 
