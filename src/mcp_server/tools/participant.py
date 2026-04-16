@@ -110,26 +110,6 @@ async def _get_branch_id(request: Request, session_id: str) -> str:
     return result or "main"
 
 
-@router.post("/set_routing_preference")
-async def set_routing_preference(
-    request: Request,
-    preference: str,
-    participant: Participant = Depends(get_current_participant),
-) -> dict:
-    """Update routing preference."""
-    p_repo = request.app.state.participant_repo
-    await p_repo.update_role(participant.id, participant.role)
-    # Update routing preference via direct SQL
-    pool = request.app.state.pool
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE participants SET routing_preference = $1" " WHERE id = $2",
-            preference,
-            participant.id,
-        )
-    return {"status": "updated", "preference": preference}
-
-
 @router.post("/rotate_token")
 async def rotate_token(
     request: Request,
