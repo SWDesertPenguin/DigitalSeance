@@ -7,7 +7,7 @@ import json
 import logging
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
@@ -18,6 +18,9 @@ router = APIRouter(prefix="/tools/session", tags=["session"])
 
 # In-memory loop tasks per session
 _loop_tasks: dict[str, asyncio.Task] = {}
+
+
+_SWAGGER_PLACEHOLDER = "string"
 
 
 class _CreateSessionBody(BaseModel):
@@ -32,6 +35,22 @@ class _CreateSessionBody(BaseModel):
     context_window: int
     api_key: str = ""
     api_endpoint: str = ""
+
+    @field_validator(
+        "name",
+        "display_name",
+        "provider",
+        "model",
+        "model_tier",
+        "model_family",
+    )
+    @classmethod
+    def _reject_placeholder(cls, v: str, info) -> str:
+        cleaned = (v or "").strip()
+        if not cleaned or cleaned.lower() == _SWAGGER_PLACEHOLDER:
+            msg = f"{info.field_name} must not be blank or the placeholder 'string'"
+            raise ValueError(msg)
+        return cleaned
 
 
 @router.post("/create")
