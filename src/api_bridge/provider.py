@@ -155,21 +155,18 @@ def _extract_response(
         content=content,
         input_tokens=usage.prompt_tokens,
         output_tokens=usage.completion_tokens,
-        cost_usd=_compute_cost(usage, model),
+        cost_usd=_compute_cost(response, model),
         model=model,
         latency_ms=latency,
     )
 
 
-def _compute_cost(usage: Any, model: str) -> float:
-    """Compute cost from token usage."""
+def _compute_cost(response: Any, model: str) -> float:
+    """Compute cost from the full LiteLLM response."""
     try:
-        return litellm.completion_cost(
-            model=model,
-            prompt_tokens=usage.prompt_tokens,
-            completion_tokens=usage.completion_tokens,
-        )
+        return litellm.completion_cost(completion_response=response)
     except Exception:
+        log.debug("Cost lookup failed for %s, using 0", model)
         return 0.0  # Cost unknown for custom/local models
 
 
