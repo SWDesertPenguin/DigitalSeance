@@ -27,11 +27,12 @@ class TurnRouter:
         self,
         session_id: str,
     ) -> Participant | None:
-        """Round-robin through active participants."""
-        participants = await self._repo.list_participants(
+        """Round-robin through active non-facilitator participants."""
+        all_participants = await self._repo.list_participants(
             session_id,
             status_filter="active",
         )
+        participants = [p for p in all_participants if p.role != "facilitator"]
         if not participants:
             return None
         idx = self._turn_index.get(session_id, 0)
