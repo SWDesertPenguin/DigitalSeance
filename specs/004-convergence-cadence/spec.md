@@ -154,3 +154,9 @@ Beyond embedding similarity, the convergence detector checks for nonsense output
 - The convergence log table already exists from feature 001. This feature adds the detection logic.
 - The divergence prompt text is a constant — not configurable in Phase 1.
 - Escalation to human means flagging the session status, not sending external notifications.
+
+## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
+
+**Topologies** (per constitution §3): Topologies 1–6 only (orchestrator-driven). Embedding-based convergence detection, adaptive cadence, and adversarial rotation are orchestrator functions executed after each turn. Topology 7 (client-side peer AI) has no orchestrator to compute embeddings or inject divergence prompts; convergence must be detected peer-side in Phase 2+.
+
+**Use cases** (per constitution §1): Primarily serves research co-authorship and open-source coordination (where groupthink is a known risk), and distributed teams (long-running deep dives prone to circular reasoning). Adversarial rotation prevents unanimous consensus in multi-viewpoint scenarios.

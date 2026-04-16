@@ -175,3 +175,9 @@ All log output is scrubbed for credential patterns before emission. API keys, au
 - Log scrubbing applies to Python logging output. Traceback scrubbing (excepthook override) is included.
 - The security pipeline runs synchronously in the turn loop — it must complete before persistence. Performance target: <50ms for the full pipeline excluding LLM-as-judge.
 - Jailbreak detection uses simple heuristics (length deviation, phrase matching). ML-based detection is a future enhancement.
+
+## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
+
+**Topologies** (per constitution §3): All seven (1–7). Sanitization, spotlighting, output validation, jailbreak detection, and exfiltration filtering apply uniformly whether the orchestrator or peers dispatch turns. Cross-agent injection attacks exist in any topology where one AI's output becomes another's input — the defenses are topology-agnostic.
+
+**Use cases** (per constitution §1): Foundational for high-stakes scenarios — technical audits, zero-trust cross-org, and asymmetric expertise pairings — where intentional or accidental prompt injection could undermine collaboration integrity.
