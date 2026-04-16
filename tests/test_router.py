@@ -115,11 +115,11 @@ def test_burst_fires_at_interval() -> None:
     assert d.action == "burst_fired"
 
 
-def test_observer_reads() -> None:
-    """Observer mode returns observer_read."""
+def test_observer_skips() -> None:
+    """Observer mode skips turns."""
     p = _make_participant()
     d = _route_observer(p, "low", False)
-    assert d.action == "observer_read"
+    assert d.action == "skipped"
 
 
 def test_addressed_only_skips() -> None:
