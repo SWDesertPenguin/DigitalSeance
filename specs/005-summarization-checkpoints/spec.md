@@ -140,3 +140,9 @@ Summaries are regular messages (speaker_type='summary') and follow the same immu
 - The summary JSON schema is: `{"decisions": [...], "open_questions": [...], "key_positions": [...], "narrative": "..."}`. Schema validation is lenient — missing fields default to empty arrays/strings.
 - Summary epoch tracking (message.summary_epoch field) groups messages under their checkpoint. The epoch increments with each checkpoint.
 - Context assembly (feature 003) already reads summaries via MessageRepository.get_summaries. This feature ensures summaries are written in the format context assembly expects.
+
+## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
+
+**Topologies** (per constitution §3): Topologies 1–6 only (orchestrator-driven). Summarization is triggered and executed by the orchestrator after turn N. Topology 7 (client-side AI) has no central summarizer; peer summary coordination is deferred to Phase 2+.
+
+**Use cases** (per constitution §1): Serves all use cases that involve long sessions or knowledge-intensive collaboration — research co-authorship, consulting, and technical audits — where token budgets necessitate periodic compression without losing continuity.
