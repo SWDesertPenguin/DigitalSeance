@@ -259,3 +259,9 @@ When a participant uses review_gate mode, their AI's response is staged as a dra
 - The MCP server (feature 006) will expose the loop's start/stop controls. This feature provides the engine; the interface comes later.
 - The system prompt tier content is a separate deliverable. This feature assembles whatever prompt text is configured on the participant record.
 - Late responses are dropped — once the turn timeout expires, the request is cancelled and no response is accepted from that dispatch.
+
+## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
+
+**Topologies** (per constitution §3): Topologies 1–6 only (orchestrator-driven). The turn loop engine assumes the orchestrator drives turn selection, context assembly, and provider dispatch. Topology 7 (MCP-to-MCP, client-side AI execution) requires peer routing — no orchestrator turn loop. Phase 2+ will implement peer-to-peer coordination for topology 7.
+
+**Use cases** (per constitution §1): Serves all seven equally within orchestrator-driven topologies (1–6). Routing modes (always, review_gate, delegate_low, etc.) and budget enforcement enable the flexible participation patterns needed for consulting, asymmetric expertise, and zero-trust scenarios.

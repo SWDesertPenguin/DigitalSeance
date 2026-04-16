@@ -37,3 +37,19 @@ When something goes wrong in a live session — ordering, empty responses, cost 
 - **FR-5** Empty collections returned as `[]`, not omitted.
 - **FR-6** No mutation — endpoint is read-only; running the dump never writes to the DB.
 - **FR-7** Config snapshot covers only a fixed `SACP_*` allowlist; never includes secrets.
+
+## Success Criteria
+
+- **SC-001**: The endpoint returns HTTP 200 with all nine required keys (`session`, `branch_id`, `participants`, `messages`, `interrupts`, `logs`, `config_snapshot`, `exported_at`, `exported_by`) for any session the facilitator is authorized to access.
+- **SC-002**: Non-facilitator participants calling the endpoint receive HTTP 403 with a clear `facilitator_only` error code.
+- **SC-003**: Sensitive fields (`api_key_encrypted`, `auth_token_hash`, `bound_ip`) are absent from all participant objects in the response. The scrubber removes these keys at serialization time before JSON encoding.
+- **SC-004**: Empty collections are returned as `[]` (not `null`) for `messages`, `interrupts`, and each `logs` sub-array when no entries exist. Downstream tools can safely iterate without null-checks.
+- **SC-005**: Response latency is <500ms for typical sessions (≤50 participants, ≤500 messages, ≤100 log entries per sub-array) on the single-threaded async event loop. All DB reads are independent SELECT queries with indexed `session_id`; no blocking operations.
+- **SC-006**: The config snapshot is never empty and never includes secrets — database URL, encryption key, provider API keys, or any `*_KEY`/`*_SECRET`/`*_TOKEN` values. The allowlist covers only non-sensitive `SACP_*` env vars (e.g., `SACP_CADENCE_PRESET`, `SACP_CONTEXT_MAX_TURNS`, `SACP_CONVERGENCE_THRESHOLD`, `SACP_DEBUG`).
+- **SC-007**: The endpoint never mutates session data — no INSERTs, UPDATEs, or DELETEs occur as a side-effect. The export is purely read-only.
+
+## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
+
+**Topologies** (per constitution §3): Topologies 1–6 only (orchestrator-driven). The debug export is an orchestrator inspection tool — facilitators query the orchestrator's in-memory state and database via `/tools/debug/export`. Topology 7 (client-side peers) has distributed state; centralized dump semantics do not apply. Phase 2+ will define peer state export conventions.
+
+**Use cases** (per constitution §1): Serves operational troubleshooting for all use cases. Facilitators in technical audits, consulting, and zero-trust scenarios need visibility into routing decisions, convergence state, and cost accounting when diagnosing unexpected behavior without requiring direct database access.
