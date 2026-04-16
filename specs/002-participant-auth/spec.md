@@ -217,3 +217,9 @@ When a participant authenticates, the system captures their client IP address an
 - The facilitator's token is generated at session creation time. If it expires, recovery is handled via a dedicated CLI tool (`sacp-admin regenerate-token <session-id>`) which generates a new token, updates the hash, and emits an admin audit log entry. Direct database operations are discouraged because they bypass the audit trail.
 - Token rotation generates a new random token using cryptographically secure random bytes, not a derivation of the old token.
 - Bcrypt cost factor 12 (default) is used for all token hashing. This is not configurable in Phase 1.
+
+## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
+
+**Topologies** (per constitution §3): All seven (1–7). Token validation, role enforcement, and IP binding apply uniformly whether the orchestrator dispatches turns (1–6) or peers run client-side (7). Auth boundaries are topology-independent.
+
+**Use cases** (per constitution §1): Foundational — all seven use cases depend on this. Participant sovereignty (token isolation, role separation, facilitator transfer) is a prerequisite for every scenario, especially zero-trust cross-org.
