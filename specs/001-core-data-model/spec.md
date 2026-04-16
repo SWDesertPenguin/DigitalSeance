@@ -240,3 +240,9 @@ Participants can create proposals for group decisions and cast votes. Each propo
 - Schema evolution is forward-only — no rollback migrations in production.
 - Summarization checkpoint content is stored as structured text within the message content field (speaker_type = 'summary'), not in a separate table.
 - Domain tags are stored as serialized arrays in a text field, not as a separate junction table.
+
+## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
+
+**Topologies** (per constitution §3): All seven (1–7). The core data model is topology-agnostic — it persists sessions, participants, and messages equally whether the orchestrator drives turns (1–6) or participants run AI client-side (7 MCP-to-MCP). Schema support for branches and tree structure (parent_turn) is intentionally topology-neutral.
+
+**Use cases** (per constitution §1): Foundational — all seven use cases depend on this (distributed teams, research co-authorship, consulting, open-source, technical audits, asymmetric expertise, zero-trust cross-org). The data model is the substrate for every scenario.
