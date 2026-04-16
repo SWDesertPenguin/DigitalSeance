@@ -221,7 +221,10 @@ async def _run_loop(
     connection_manager: object | None = None,
 ) -> None:
     """Run the conversation loop with cadence-based pacing."""
-    from src.repositories.errors import AllParticipantsExhaustedError
+    from src.repositories.errors import (
+        AllParticipantsExhaustedError,
+        SessionNotActiveError,
+    )
 
     session = await session_repo.get_session(session_id)
     if session:
@@ -235,6 +238,9 @@ async def _run_loop(
             if result.delay_seconds > 0:
                 await asyncio.sleep(result.delay_seconds)
         except AllParticipantsExhaustedError:
+            break
+        except SessionNotActiveError:
+            log.info("Session %s paused/archived, loop stopping", session_id)
             break
         except asyncio.CancelledError:
             break
