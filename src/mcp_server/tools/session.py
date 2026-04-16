@@ -24,26 +24,23 @@ _SWAGGER_PLACEHOLDER = "string"
 
 
 class _CreateSessionBody(BaseModel):
-    """Request body for session creation."""
+    """Request body for session creation.
+
+    For a human facilitator, only ``name`` and ``display_name`` are
+    required — all AI-specific fields default to ``"human"`` / ``0``.
+    """
 
     name: str
     display_name: str
-    provider: str
-    model: str
-    model_tier: str
-    model_family: str
-    context_window: int
+    provider: str = "human"
+    model: str = "human"
+    model_tier: str = "n/a"
+    model_family: str = "human"
+    context_window: int = 0
     api_key: str = ""
     api_endpoint: str = ""
 
-    @field_validator(
-        "name",
-        "display_name",
-        "provider",
-        "model",
-        "model_tier",
-        "model_family",
-    )
+    @field_validator("name", "display_name")
     @classmethod
     def _reject_placeholder(cls, v: str, info) -> str:
         cleaned = (v or "").strip()
