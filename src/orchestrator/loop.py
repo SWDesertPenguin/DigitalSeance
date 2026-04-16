@@ -272,6 +272,9 @@ async def _validate_and_persist(
         log.warning("Blocked %s: %s", speaker.id, validation.findings)
         return await _stage_for_review(ctx, speaker, decision, response)
     cleaned, _ = filter_exfiltration(response.content)
+    if not cleaned.strip():
+        log.warning("Skipped empty response from %s", speaker.id)
+        return _skip_result(ctx.session_id, speaker.id, "empty_response")
     safe = _with_cleaned_content(response, cleaned)
     return await _persist_turn(ctx, speaker, decision, safe)
 
@@ -311,7 +314,7 @@ async def _persist_turn(
         complexity_score=decision.complexity,
         cost_usd=response.cost_usd,
     )
-    await _log_routing(ctx.log_repo, ctx.session_id, decision)
+    await _log_routing(ctx.log_repo, ctx.session_id, decision, turn_number=msg.turn_number)
     await _log_usage(ctx.log_repo, speaker, msg.turn_number, response)
     return _turn_result(ctx.session_id, msg.turn_number, speaker, decision, response)
 
@@ -338,11 +341,13 @@ async def _log_routing(
     log_repo: LogRepository,
     session_id: str,
     decision: object,
+    *,
+    turn_number: int = -1,
 ) -> None:
     """Log the routing decision."""
     await log_repo.log_routing(
         session_id=session_id,
-        turn_number=0,
+        turn_number=turn_number,
         intended=decision.intended,
         actual=decision.actual,
         action=decision.action,
