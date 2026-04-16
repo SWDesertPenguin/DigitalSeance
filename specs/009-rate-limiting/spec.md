@@ -40,3 +40,9 @@ Each participant shares a process-level rate limit on tool calls (60 requests pe
 
 - **SC-001**: Requests within limit succeed; requests over limit return 429.
 - **SC-002**: Rate limit resets after the configured window.
+
+## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
+
+**Topologies** (per constitution §3): Topologies 1–6 only (orchestrator-driven). Rate limits apply to MCP tool calls routed through the orchestrator's `/tools/*` endpoints. Topology 7 (client-side peer AI with local MCP) has no orchestrator to enforce uniform limits; peer-side rate limiting is deferred to Phase 2+.
+
+**Use cases** (per constitution §1): Serves all scenarios equally within orchestrator-driven topologies. Per-participant rate limiting prevents accidental DoS from misconfigured routing modes or runaway tool calls, reducing operational risk in consulting and open-source contexts.
