@@ -179,12 +179,13 @@ def _create_usage_log() -> None:
 def _create_convergence_log() -> None:
     op.execute("""
         CREATE TABLE convergence_log (
-            turn_number INTEGER PRIMARY KEY,
+            turn_number INTEGER NOT NULL,
             session_id TEXT NOT NULL REFERENCES sessions(id),
             embedding BYTEA NOT NULL,
             similarity_score REAL NOT NULL,
             divergence_prompted BOOLEAN DEFAULT FALSE,
-            escalated_to_human BOOLEAN DEFAULT FALSE
+            escalated_to_human BOOLEAN DEFAULT FALSE,
+            PRIMARY KEY (turn_number, session_id)
         )
     """)
 
