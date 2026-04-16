@@ -42,6 +42,9 @@ docker-compose.override.yml
 *.log
 logs/
 
+# === Local test plans (not for GitHub) ===
+test-plan-*.md
+
 # === OS ===
 .DS_Store
 Thumbs.db
