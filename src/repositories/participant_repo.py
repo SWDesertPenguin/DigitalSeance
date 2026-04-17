@@ -187,9 +187,9 @@ class ParticipantRepository(BaseRepository):
         *,
         budget_hourly: float | None = None,
         budget_daily: float | None = None,
-    ) -> None:
+    ) -> str:
         """Update a participant's budget limits."""
-        await self._execute(
+        return await self._execute(
             "UPDATE participants" " SET budget_hourly = $1, budget_daily = $2" " WHERE id = $3",
             budget_hourly,
             budget_daily,
