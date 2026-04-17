@@ -76,11 +76,17 @@ class ConversationLoop:
         """Cache the cadence preset for a running session."""
         self._cadence_presets[session_id] = preset
 
-    async def _log_skip_once(self, session_id: str, decision: object) -> None:
-        """Log a skip decision only if it differs from the previous one."""
-        skip_key = f"{decision.intended}:{decision.reason}"
+    async def _log_skip_once(self, session_id: str, skip: object) -> None:
+        """Log a skip only if it differs from the previous one.
+
+        Accepts both RoutingDecision (from router) and TurnResult
+        (from budget/circuit checks).
+        """
+        pid = getattr(skip, "intended", None) or skip.speaker_id
+        reason = getattr(skip, "reason", None) or skip.skip_reason
+        skip_key = f"{pid}:{reason}"
         if self._last_skip.get(session_id) != skip_key:
-            await _log_routing(self._log_repo, session_id, decision)
+            await _log_skip_entry(self._log_repo, session_id, pid, reason)
             self._last_skip[session_id] = skip_key
 
     async def execute_turn(self, session_id: str) -> TurnResult:
@@ -96,6 +102,7 @@ class ConversationLoop:
             session_id,
         )
         if skip:
+            await self._log_skip_once(session_id, skip)
             return skip
 
         return await self._execute_routed_turn(session_id, speaker)
@@ -361,6 +368,25 @@ async def _log_routing(
         complexity=decision.complexity,
         domain_match=decision.domain_match,
         reason=decision.reason,
+    )
+
+
+async def _log_skip_entry(
+    log_repo: LogRepository,
+    session_id: str,
+    participant_id: str,
+    reason: str,
+) -> None:
+    """Write a skip to routing_log (budget, circuit, observer, etc.)."""
+    await log_repo.log_routing(
+        session_id=session_id,
+        turn_number=-1,
+        intended=participant_id,
+        actual=participant_id,
+        action="skipped",
+        complexity="n/a",
+        domain_match=False,
+        reason=reason,
     )
 
 
