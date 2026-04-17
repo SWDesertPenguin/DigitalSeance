@@ -7,8 +7,9 @@ import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from src.config import load_settings
 from src.database.connection import close_pool, create_pool
@@ -18,6 +19,7 @@ from src.mcp_server.tools.debug import router as debug_router
 from src.mcp_server.tools.facilitator import router as facilitator_router
 from src.mcp_server.tools.participant import router as participant_router
 from src.mcp_server.tools.session import router as session_router
+from src.repositories.errors import NotFacilitatorError
 
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
 
@@ -42,7 +44,21 @@ def create_app() -> FastAPI:
     )
     _add_middleware(app)
     _include_routers(app)
+    _add_exception_handlers(app)
     return app
+
+
+def _add_exception_handlers(app: FastAPI) -> None:
+    """Convert auth/guard errors into clean 4xx responses."""
+
+    async def value_error(_: Request, exc: ValueError) -> JSONResponse:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    async def not_facilitator(_: Request, exc: NotFacilitatorError) -> JSONResponse:
+        return JSONResponse(status_code=403, content={"detail": str(exc)})
+
+    app.add_exception_handler(ValueError, value_error)
+    app.add_exception_handler(NotFacilitatorError, not_facilitator)
 
 
 def _add_middleware(app: FastAPI) -> None:
