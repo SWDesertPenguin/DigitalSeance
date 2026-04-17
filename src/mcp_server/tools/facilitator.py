@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, field_validator
 
 from src.mcp_server.middleware import get_current_participant
@@ -193,11 +193,14 @@ async def set_routing_preference(
     """Set routing preference on a participant (facilitator only)."""
     pool = request.app.state.pool
     async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE participants SET routing_preference = $1" " WHERE id = $2",
+        result = await conn.execute(
+            "UPDATE participants SET routing_preference = $1" " WHERE id = $2 AND session_id = $3",
             body.preference,
             body.participant_id,
+            participant.session_id,
         )
+    if result == "UPDATE 0":
+        raise HTTPException(404, "participant not found in session")
     return {
         "status": "updated",
         "participant_id": body.participant_id,
@@ -221,11 +224,13 @@ async def set_budget(
 ) -> dict:
     """Set budget limits on a participant (facilitator only)."""
     p_repo = request.app.state.participant_repo
-    await p_repo.update_budget(
+    result = await p_repo.update_budget(
         body.participant_id,
         budget_hourly=body.budget_hourly,
         budget_daily=body.budget_daily,
     )
+    if result == "UPDATE 0":
+        raise HTTPException(404, "participant not found")
     return {
         "status": "updated",
         "participant_id": body.participant_id,

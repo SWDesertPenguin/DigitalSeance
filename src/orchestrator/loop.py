@@ -322,6 +322,7 @@ async def _persist_turn(
     )
     await _log_routing(ctx.log_repo, ctx.session_id, decision, turn_number=msg.turn_number)
     await _log_usage(ctx.log_repo, speaker, msg.turn_number, response)
+    await _sync_current_turn(ctx.pool, ctx.session_id, msg.turn_number)
     return _turn_result(ctx.session_id, msg.turn_number, speaker, decision, response)
 
 
@@ -361,6 +362,20 @@ async def _log_routing(
         domain_match=decision.domain_match,
         reason=decision.reason,
     )
+
+
+async def _sync_current_turn(
+    pool: asyncpg.Pool,
+    session_id: str,
+    turn_number: int,
+) -> None:
+    """Update session.current_turn to match the latest persisted turn."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE sessions SET current_turn = $1 WHERE id = $2",
+            turn_number,
+            session_id,
+        )
 
 
 async def _log_usage(
