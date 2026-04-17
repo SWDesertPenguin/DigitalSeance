@@ -151,8 +151,11 @@ async def start_loop(
     sid = participant.session_id
     if sid in _loop_tasks and not _loop_tasks[sid].done():
         return {"status": "already_running"}
-    loop = request.app.state.conversation_loop
     session_repo = request.app.state.session_repo
+    session = await session_repo.get_session(sid)
+    if session and session.status != "active":
+        return {"status": "error", "detail": f"session is {session.status}"}
+    loop = request.app.state.conversation_loop
     cm = request.app.state.connection_manager
     _loop_tasks[sid] = asyncio.create_task(
         _run_loop(loop, sid, session_repo, cm),
@@ -231,7 +234,10 @@ async def _run_loop(
     while True:
         try:
             result = await loop.execute_turn(session_id)
-            log.info("Turn %d done, delay=%.1fs", result.turn_number, result.delay_seconds)
+            if result.skipped:
+                log.info("Skipped %s: %s", result.speaker_id, result.skip_reason)
+            else:
+                log.info("Turn %d done, delay=%.1fs", result.turn_number, result.delay_seconds)
             if connection_manager and not result.skipped:
                 await _broadcast_turn(connection_manager, session_id, result)
             delay = result.delay_seconds or (5.0 if result.skipped else 0)

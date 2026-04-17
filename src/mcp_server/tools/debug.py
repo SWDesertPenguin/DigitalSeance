@@ -59,6 +59,7 @@ async def _build_dump(
     messages = await state.message_repo.get_recent(session_id, branch_id, 10_000)
     interrupts = await _fetch_all_interrupts(state.pool, session_id)
     logs = await _fetch_logs(state.pool, session_id, participants)
+    spend = await _fetch_spend(state.pool, participants)
     return {
         "exported_at": datetime.utcnow().isoformat() + "Z",
         "exported_by": requester_id,
@@ -68,6 +69,7 @@ async def _build_dump(
         "messages": [_serialize(m) for m in messages],
         "interrupts": [_serialize(i) for i in interrupts],
         "logs": logs,
+        "spend": spend,
         "config_snapshot": _config_snapshot(),
     }
 
@@ -121,6 +123,29 @@ async def _fetch_usage_for_participants(conn: Any, participants: list) -> list:
             p.id,
         )
         out.extend(dict(r) for r in rows)
+    return out
+
+
+async def _fetch_spend(pool: Any, participants: list) -> list:
+    """Per-participant spend totals vs budget limits."""
+    async with pool.acquire() as conn:
+        out: list[dict] = []
+        for p in participants:
+            row = await conn.fetchrow(
+                "SELECT COALESCE(SUM(cost_usd), 0) AS total"
+                " FROM usage_log WHERE participant_id = $1",
+                p.id,
+            )
+            total = float(row["total"]) if row else 0.0
+            out.append(
+                {
+                    "participant_id": p.id,
+                    "display_name": p.display_name,
+                    "total_cost_usd": total,
+                    "budget_hourly": p.budget_hourly,
+                    "budget_daily": p.budget_daily,
+                }
+            )
     return out
 
 
