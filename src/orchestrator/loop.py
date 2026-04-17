@@ -66,6 +66,7 @@ class ConversationLoop:
         self._convergence = ConvergenceDetector(self._log_repo)
         self._convergence.load_model()
         self._cadence_presets: dict[str, str] = {}
+        self._last_skip: dict[str, str] = {}  # session → last skip reason
 
     def set_cadence_preset(
         self,
@@ -74,6 +75,13 @@ class ConversationLoop:
     ) -> None:
         """Cache the cadence preset for a running session."""
         self._cadence_presets[session_id] = preset
+
+    async def _log_skip_once(self, session_id: str, decision: object) -> None:
+        """Log a skip decision only if it differs from the previous one."""
+        skip_key = f"{decision.intended}:{decision.reason}"
+        if self._last_skip.get(session_id) != skip_key:
+            await _log_routing(self._log_repo, session_id, decision)
+            self._last_skip[session_id] = skip_key
 
     async def execute_turn(self, session_id: str) -> TurnResult:
         """Execute a single turn iteration."""
@@ -100,9 +108,6 @@ class ConversationLoop:
         """Route, assemble, dispatch, and persist a turn."""
         interjections = await self._int_repo.get_pending(session_id)
         log.debug("Fetched %d interjections for %s", len(interjections), session_id)
-        # Interjections are persisted to the transcript at enqueue time
-        # (see inject_message). Here we only use them for routing and
-        # cadence signals, then mark delivered.
         if interjections:
             self._cadence.reset_on_interjection(session_id)
         decision = await self._router.route(
@@ -110,8 +115,9 @@ class ConversationLoop:
             has_interjection=bool(interjections),
         )
         if decision.action in ("skipped", "burst_accumulating"):
-            await _log_routing(self._log_repo, session_id, decision)
+            await self._log_skip_once(session_id, decision)
             return _skip_from_decision(session_id, decision)
+        self._last_skip.pop(session_id, None)
         ctx = self._build_turn_context(session_id)
         # Interjections are now persisted as messages above, so they appear
         # in history naturally. Pass empty list to avoid duplicating them

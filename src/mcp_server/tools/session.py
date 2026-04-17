@@ -11,6 +11,10 @@ from pydantic import BaseModel, field_validator
 
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
+from src.repositories.errors import (
+    AllParticipantsExhaustedError,
+    SessionNotActiveError,
+)
 
 log = logging.getLogger(__name__)
 
@@ -221,11 +225,6 @@ async def _run_loop(
     connection_manager: object | None = None,
 ) -> None:
     """Run the conversation loop with cadence-based pacing."""
-    from src.repositories.errors import (
-        AllParticipantsExhaustedError,
-        SessionNotActiveError,
-    )
-
     session = await session_repo.get_session(session_id)
     if session:
         loop.set_cadence_preset(session_id, session.cadence_preset)
@@ -235,8 +234,9 @@ async def _run_loop(
             log.info("Turn %d done, delay=%.1fs", result.turn_number, result.delay_seconds)
             if connection_manager and not result.skipped:
                 await _broadcast_turn(connection_manager, session_id, result)
-            if result.delay_seconds > 0:
-                await asyncio.sleep(result.delay_seconds)
+            delay = result.delay_seconds or (5.0 if result.skipped else 0)
+            if delay > 0:
+                await asyncio.sleep(delay)
         except AllParticipantsExhaustedError:
             break
         except SessionNotActiveError:
