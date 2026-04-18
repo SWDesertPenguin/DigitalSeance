@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from dataclasses import dataclass
 
 import asyncpg
@@ -241,7 +242,7 @@ async def _dispatch_and_persist(
         result = await _stage_for_review(ctx, speaker, decision, response)
         return result, response.content
 
-    result = await _validate_and_persist(ctx, speaker, decision, response)
+    result = await _validate_and_persist(ctx, speaker, decision, response, breaker)
     return result, response.content
 
 
@@ -260,13 +261,11 @@ async def _assemble_and_dispatch(
     )
     messages = to_provider_messages(context)
     try:
-        response = await _dispatch_to_provider(
+        return await _dispatch_to_provider(
             speaker,
             messages,
             ctx.encryption_key,
         )
-        await breaker.record_success(speaker.id)
-        return response
     except ProviderDispatchError as e:
         log.warning("Provider dispatch failed for %s: %s", speaker.id, e)
         await breaker.record_failure(speaker.id)
@@ -278,8 +277,9 @@ async def _validate_and_persist(
     speaker: object,
     decision: object,
     response: ProviderResponse,
+    breaker: CircuitBreaker,
 ) -> TurnResult:
-    """Run security pipeline then persist."""
+    """Run security pipeline then persist. Empty/degenerate count as failures."""
     validation = validate_output(response.content)
     if validation.blocked:
         log.warning("Blocked %s: %s", speaker.id, validation.findings)
@@ -287,9 +287,28 @@ async def _validate_and_persist(
     cleaned, _ = filter_exfiltration(response.content)
     if not cleaned.strip():
         log.warning("Skipped empty response from %s", speaker.id)
+        await breaker.record_failure(speaker.id)
         return _skip_result(ctx.session_id, speaker.id, "empty_response")
+    if _is_degenerate(cleaned):
+        log.warning("Skipped degenerate response from %s", speaker.id)
+        await breaker.record_failure(speaker.id)
+        return _skip_result(ctx.session_id, speaker.id, "degenerate_output")
+    await breaker.record_success(speaker.id)
     safe = _with_cleaned_content(response, cleaned)
     return await _persist_turn(ctx, speaker, decision, safe)
+
+
+def _is_degenerate(text: str) -> bool:
+    """Detect repetitive degenerate output (e.g. 'on on on on...').
+
+    Legitimate prose has top-3 tokens around 10-15% of total. A threshold of
+    >50% catches pathological repetition while leaving normal text alone.
+    """
+    words = text.split()
+    if len(words) < 100:
+        return False
+    top3 = sum(c for _, c in Counter(words).most_common(3))
+    return top3 / len(words) > 0.5
 
 
 async def _dispatch_to_provider(
