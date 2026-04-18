@@ -15,7 +15,7 @@ from src.orchestrator.budget import BudgetEnforcer
 from src.orchestrator.cadence import CadenceController
 from src.orchestrator.circuit_breaker import CircuitBreaker
 from src.orchestrator.context import ContextAssembler
-from src.orchestrator.convergence import ConvergenceDetector
+from src.orchestrator.convergence import DIVERGENCE_PROMPT, ConvergenceDetector
 from src.orchestrator.router import TurnRouter
 from src.orchestrator.types import ProviderResponse, TurnResult
 from src.repositories.errors import (
@@ -168,19 +168,52 @@ class ConversationLoop:
         turn_number: int,
         content: str,
     ) -> float:
-        """Compute post-turn delay via convergence + cadence."""
+        """Compute post-turn delay via convergence + cadence.
+
+        Also enqueues a divergence prompt as a facilitator-attributed
+        interrupt when convergence crosses threshold, so the next AI
+        is nudged away from the mirror-response pattern.
+        """
         if not content or turn_number <= 0:
             return 0.0
-        similarity = await self._convergence.process_turn(
+        similarity, diverge = await self._convergence.process_turn(
             turn_number=turn_number,
             session_id=session_id,
             content=content,
         )
+        if diverge:
+            await self._enqueue_divergence(session_id)
         preset = self._cadence_presets.get(session_id, "cruise")
         return self._cadence.compute_delay(
             session_id,
             similarity=similarity,
             preset=preset,
+        )
+
+    async def _enqueue_divergence(self, session_id: str) -> None:
+        """Inject DIVERGENCE_PROMPT as a facilitator-attributed interjection."""
+        async with self._pool.acquire() as conn:
+            fid = await conn.fetchval(
+                "SELECT facilitator_id FROM sessions WHERE id = $1",
+                session_id,
+            )
+        if not fid:
+            return
+        branch_id = await get_main_branch_id(self._pool, session_id)
+        await self._msg_repo.append_message(
+            session_id=session_id,
+            branch_id=branch_id,
+            speaker_id=fid,
+            speaker_type="human",
+            content=DIVERGENCE_PROMPT,
+            token_count=max(len(DIVERGENCE_PROMPT) // 4, 1),
+            complexity_score="n/a",
+        )
+        await self._int_repo.enqueue(
+            session_id=session_id,
+            participant_id=fid,
+            content=DIVERGENCE_PROMPT,
+            priority=2,
         )
 
     def _build_turn_context(self, session_id: str) -> _TurnContext:
