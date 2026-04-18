@@ -13,7 +13,7 @@ from src.repositories.log_repo import LogRepository
 log = logging.getLogger(__name__)
 
 DEFAULT_WINDOW = 5
-DEFAULT_THRESHOLD = 0.85
+DEFAULT_THRESHOLD = 0.75
 DIVERGENCE_PROMPT = (
     "Identify the weakest assumption in the current direction "
     "and argue against it. If you genuinely cannot find a flaw, "
@@ -55,24 +55,25 @@ class ConvergenceDetector:
         turn_number: int,
         session_id: str,
         content: str,
-    ) -> float:
-        """Compute embedding and check convergence. Non-blocking.
+    ) -> tuple[float, bool]:
+        """Compute embedding, log, and return (similarity, should_inject_divergence).
 
-        Skipped turns use turn_number <= 0 as a placeholder; we still compute
-        similarity for cadence decisions but skip logging to avoid PK collisions.
+        Skipped turns use turn_number <= 0 as a placeholder; similarity is
+        still computed for cadence, but no logging and no divergence signal.
+        The divergence flag is marked consumed here so callers cannot
+        double-fire; they are responsible for actually enqueuing the prompt.
         """
         if self._model is None:
-            return 0.0
+            return 0.0, False
         embedding = await _compute_embedding_async(self._model, content)
         similarity = await self._compute_similarity(session_id, embedding)
-        if turn_number > 0:
-            await self._log_result(
-                turn_number,
-                session_id,
-                embedding,
-                similarity,
-            )
-        return similarity
+        if turn_number <= 0:
+            return similarity, False
+        diverge = self.should_diverge(similarity)
+        await self._log_result(turn_number, session_id, embedding, similarity, diverge)
+        if diverge:
+            self.mark_divergence_prompted()
+        return similarity, diverge
 
     def is_converging(self, similarity: float) -> bool:
         """Check if similarity exceeds convergence threshold."""
@@ -118,6 +119,7 @@ class ConvergenceDetector:
         session_id: str,
         embedding: bytes,
         similarity: float,
+        divergence_prompted: bool = False,
     ) -> None:
         """Log convergence measurement."""
         await self._log_repo.log_convergence(
@@ -125,6 +127,7 @@ class ConvergenceDetector:
             session_id=session_id,
             embedding=embedding,
             similarity_score=similarity,
+            divergence_prompted=divergence_prompted,
         )
 
 
