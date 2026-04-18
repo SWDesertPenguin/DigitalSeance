@@ -107,6 +107,7 @@ class LogRepository(BaseRepository):
         session_id: str,
         embedding: bytes,
         similarity_score: float,
+        divergence_prompted: bool = False,
     ) -> ConvergenceLog:
         """Append a convergence measurement."""
         record = await self._fetch_one(
@@ -115,6 +116,7 @@ class LogRepository(BaseRepository):
             session_id,
             embedding,
             similarity_score,
+            divergence_prompted,
         )
         return ConvergenceLog.from_record(record)
 
@@ -214,8 +216,8 @@ _COST_HOURLY_SQL = """
 
 _INSERT_CONVERGENCE_SQL = """
     INSERT INTO convergence_log
-        (turn_number, session_id, embedding, similarity_score)
-    VALUES ($1, $2, $3, $4)
+        (turn_number, session_id, embedding, similarity_score, divergence_prompted)
+    VALUES ($1, $2, $3, $4, $5)
     RETURNING *
 """
 
