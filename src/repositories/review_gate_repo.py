@@ -64,6 +64,14 @@ class ReviewGateRepository(BaseRepository):
         rows = await self._fetch_all(_PENDING_SQL, session_id)
         return [ReviewGateDraft.from_record(r) for r in rows]
 
+    async def get_by_id(
+        self,
+        draft_id: str,
+    ) -> ReviewGateDraft | None:
+        """Fetch a single draft by id. Returns None if not found."""
+        row = await self._fetch_one(_BY_ID_SQL, draft_id)
+        return ReviewGateDraft.from_record(row) if row else None
+
     async def resolve(
         self,
         draft_id: str,
@@ -101,6 +109,8 @@ _PENDING_SQL = """
     WHERE session_id = $1 AND status = 'pending'
     ORDER BY created_at
 """
+
+_BY_ID_SQL = "SELECT * FROM review_gate_drafts WHERE id = $1"
 
 _RESOLVE_SQL = """
     UPDATE review_gate_drafts
