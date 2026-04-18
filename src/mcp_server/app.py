@@ -125,8 +125,10 @@ def _attach_auth_and_repos(
     from src.mcp_server.rate_limiter import RateLimiter
     from src.repositories.interrupt_repo import InterruptRepository
     from src.repositories.invite_repo import InviteRepository
+    from src.repositories.log_repo import LogRepository
     from src.repositories.message_repo import MessageRepository
     from src.repositories.participant_repo import ParticipantRepository
+    from src.repositories.review_gate_repo import ReviewGateRepository
     from src.repositories.session_repo import SessionRepository
 
     app.state.pool = pool
@@ -136,6 +138,8 @@ def _attach_auth_and_repos(
     app.state.message_repo = MessageRepository(pool)
     app.state.interrupt_repo = InterruptRepository(pool)
     app.state.invite_repo = InviteRepository(pool)
+    app.state.review_gate_repo = ReviewGateRepository(pool)
+    app.state.log_repo = LogRepository(pool)
     app.state.rate_limiter = RateLimiter()
 
 
