@@ -7,6 +7,7 @@ from pydantic import BaseModel, field_validator
 
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
+from src.orchestrator.branch import get_main_branch_id
 
 router = APIRouter(prefix="/tools/facilitator", tags=["facilitator"])
 
@@ -236,4 +237,153 @@ async def set_budget(
         "participant_id": body.participant_id,
         "budget_hourly": body.budget_hourly,
         "budget_daily": body.budget_daily,
+    }
+
+
+@router.get("/list_drafts")
+async def list_drafts(
+    request: Request,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """List pending review-gate drafts for the facilitator's session."""
+    gate_repo = request.app.state.review_gate_repo
+    drafts = await gate_repo.get_pending(participant.session_id)
+    return {"drafts": [_serialize_draft(d) for d in drafts]}
+
+
+class _DraftIdBody(BaseModel):
+    """Request body referencing a staged draft."""
+
+    draft_id: str
+
+
+class _RejectDraftBody(BaseModel):
+    """Request body for rejecting a draft."""
+
+    draft_id: str
+    reason: str = ""
+
+
+class _EditDraftBody(BaseModel):
+    """Request body for editing a draft before approval."""
+
+    draft_id: str
+    edited_content: str
+
+
+@router.post("/approve_draft")
+async def approve_draft(
+    request: Request,
+    body: _DraftIdBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Approve a staged draft: write to transcript, resolve as approved."""
+    draft = await _require_pending_draft(request, body.draft_id, participant.session_id)
+    gate_repo = request.app.state.review_gate_repo
+    await gate_repo.resolve(draft.id, resolution="approved")
+    msg = await _append_draft_to_transcript(request, draft, draft.draft_content)
+    await _log_gate_action(request, participant, "review_gate_approve", draft.id)
+    return {"status": "approved", "draft_id": draft.id, "turn_number": msg.turn_number}
+
+
+@router.post("/reject_draft")
+async def reject_draft(
+    request: Request,
+    body: _RejectDraftBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Reject a staged draft: resolve as rejected, log reason, no transcript write."""
+    draft = await _require_pending_draft(request, body.draft_id, participant.session_id)
+    gate_repo = request.app.state.review_gate_repo
+    await gate_repo.resolve(draft.id, resolution="rejected")
+    await _log_gate_action(
+        request, participant, "review_gate_reject", draft.id, {"new": body.reason}
+    )
+    return {"status": "rejected", "draft_id": draft.id}
+
+
+@router.post("/edit_draft")
+async def edit_draft(
+    request: Request,
+    body: _EditDraftBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Edit and approve a staged draft: write edited content to transcript."""
+    draft = await _require_pending_draft(request, body.draft_id, participant.session_id)
+    gate_repo = request.app.state.review_gate_repo
+    await gate_repo.resolve(draft.id, resolution="edited", edited_content=body.edited_content)
+    msg = await _append_draft_to_transcript(request, draft, body.edited_content)
+    await _log_gate_action(
+        request,
+        participant,
+        "review_gate_edit",
+        draft.id,
+        {"previous": draft.draft_content, "new": body.edited_content},
+    )
+    return {"status": "edited", "draft_id": draft.id, "turn_number": msg.turn_number}
+
+
+async def _require_pending_draft(
+    request: Request,
+    draft_id: str,
+    session_id: str,
+) -> object:
+    """Fetch a draft and verify it's pending in the caller's session."""
+    gate_repo = request.app.state.review_gate_repo
+    draft = await gate_repo.get_by_id(draft_id)
+    if draft is None or draft.session_id != session_id:
+        raise HTTPException(404, "draft not found in session")
+    if draft.status != "pending":
+        raise HTTPException(400, f"draft already {draft.status}")
+    return draft
+
+
+async def _append_draft_to_transcript(
+    request: Request,
+    draft: object,
+    content: str,
+) -> object:
+    """Insert an approved/edited draft into the session transcript."""
+    pool = request.app.state.pool
+    msg_repo = request.app.state.message_repo
+    branch_id = await get_main_branch_id(pool, draft.session_id)
+    return await msg_repo.append_message(
+        session_id=draft.session_id,
+        branch_id=branch_id,
+        speaker_id=draft.participant_id,
+        speaker_type="ai",
+        content=content,
+        token_count=max(len(content) // 4, 1),
+        complexity_score="n/a",
+    )
+
+
+async def _log_gate_action(
+    request: Request,
+    participant: Participant,
+    action: str,
+    draft_id: str,
+    values: dict | None = None,
+) -> None:
+    """Write a review-gate action to the admin audit log."""
+    log_repo = request.app.state.log_repo
+    vals = values or {}
+    await log_repo.log_admin_action(
+        session_id=participant.session_id,
+        facilitator_id=participant.id,
+        action=action,
+        target_id=draft_id,
+        previous_value=vals.get("previous"),
+        new_value=vals.get("new"),
+    )
+
+
+def _serialize_draft(draft: object) -> dict:
+    """Format a ReviewGateDraft for JSON response."""
+    return {
+        "id": draft.id,
+        "participant_id": draft.participant_id,
+        "draft_content": draft.draft_content,
+        "context_summary": draft.context_summary,
+        "created_at": draft.created_at.isoformat() if draft.created_at else None,
     }
