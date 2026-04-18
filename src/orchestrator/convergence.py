@@ -56,17 +56,22 @@ class ConvergenceDetector:
         session_id: str,
         content: str,
     ) -> float:
-        """Compute embedding and check convergence. Non-blocking."""
+        """Compute embedding and check convergence. Non-blocking.
+
+        Skipped turns use turn_number <= 0 as a placeholder; we still compute
+        similarity for cadence decisions but skip logging to avoid PK collisions.
+        """
         if self._model is None:
             return 0.0
         embedding = await _compute_embedding_async(self._model, content)
         similarity = await self._compute_similarity(session_id, embedding)
-        await self._log_result(
-            turn_number,
-            session_id,
-            embedding,
-            similarity,
-        )
+        if turn_number > 0:
+            await self._log_result(
+                turn_number,
+                session_id,
+                embedding,
+                similarity,
+            )
         return similarity
 
     def is_converging(self, similarity: float) -> bool:

@@ -169,7 +169,7 @@ class ConversationLoop:
         content: str,
     ) -> float:
         """Compute post-turn delay via convergence + cadence."""
-        if not content:
+        if not content or turn_number <= 0:
             return 0.0
         similarity = await self._convergence.process_turn(
             turn_number=turn_number,
