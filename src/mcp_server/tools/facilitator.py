@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, field_validator
 
@@ -207,6 +209,40 @@ async def set_routing_preference(
         "participant_id": body.participant_id,
         "preference": body.preference,
     }
+
+
+class _SetReviewGatePauseScopeBody(BaseModel):
+    """Request body for setting the session's review-gate pause scope."""
+
+    scope: Literal["session", "participant"]
+
+
+@router.post("/set_review_gate_pause_scope")
+async def set_review_gate_pause_scope(
+    request: Request,
+    body: _SetReviewGatePauseScopeBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Set review-gate pause scope on the session (facilitator only)."""
+    session_repo = request.app.state.session_repo
+    current = await session_repo.get_session(participant.session_id)
+    previous = current.review_gate_pause_scope if current else None
+    await session_repo.update_review_gate_pause_scope(
+        participant.session_id,
+        body.scope,
+    )
+    loop = request.app.state.conversation_loop
+    loop.set_review_gate_pause_scope(participant.session_id, body.scope)
+    log_repo = request.app.state.log_repo
+    await log_repo.log_admin_action(
+        session_id=participant.session_id,
+        facilitator_id=participant.id,
+        action="set_review_gate_pause_scope",
+        target_id=participant.session_id,
+        previous_value=previous,
+        new_value=body.scope,
+    )
+    return {"status": "updated", "scope": body.scope}
 
 
 class _SetBudgetBody(BaseModel):
