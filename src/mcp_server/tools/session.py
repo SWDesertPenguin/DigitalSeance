@@ -12,6 +12,7 @@ from pydantic import BaseModel, field_validator
 
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
+from src.orchestrator.branch import get_main_branch_id
 from src.repositories.errors import (
     AllParticipantsExhaustedError,
     SessionNotActiveError,
@@ -186,11 +187,11 @@ async def export_markdown(
 ) -> dict:
     """Export transcript as markdown."""
     msg_repo = request.app.state.message_repo
-    messages = await msg_repo.get_recent(
+    branch_id = await get_main_branch_id(
+        request.app.state.pool,
         participant.session_id,
-        "main",
-        10000,
     )
+    messages = await msg_repo.get_recent(participant.session_id, branch_id, 10000)
     lines = [_format_md_message(m) for m in messages]
     return {"format": "markdown", "content": "\n\n".join(lines)}
 
@@ -202,11 +203,11 @@ async def export_json(
 ) -> dict:
     """Export transcript as JSON."""
     msg_repo = request.app.state.message_repo
-    messages = await msg_repo.get_recent(
+    branch_id = await get_main_branch_id(
+        request.app.state.pool,
         participant.session_id,
-        "main",
-        10000,
     )
+    messages = await msg_repo.get_recent(participant.session_id, branch_id, 10000)
     data = [_format_json_message(m) for m in messages]
     return {"format": "json", "content": json.dumps(data)}
 
