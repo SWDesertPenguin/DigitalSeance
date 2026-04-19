@@ -1,0 +1,51 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python build/cache
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache
+.ruff_cache
+.mypy_cache
+*.egg-info
+dist/
+build/
+
+# Virtualenvs
+.venv
+venv
+env
+
+# Tests + specs + docs (not needed in runtime image)
+tests/
+specs/
+docs/
+test-plan-*.md
+SYSREP.md
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs + local data
+logs/
+*.log
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# CI / tooling configs not needed at runtime
+.github/
+.pre-commit-config.yaml
+.claude/
+
+# Sample exports / test artifacts
+Test*.json
+*-response_*.json
