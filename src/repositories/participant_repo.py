@@ -117,14 +117,14 @@ class ParticipantRepository(BaseRepository):
     async def get_all_with_tokens(self) -> list[Participant]:
         """Fetch all participants with token hashes across sessions."""
         rows = await self._fetch_all(
-            "SELECT * FROM participants" " WHERE auth_token_hash IS NOT NULL",
+            "SELECT * FROM participants WHERE auth_token_hash IS NOT NULL",
         )
         return [Participant.from_record(r) for r in rows]
 
     async def approve(self, participant_id: str) -> Participant:
         """Promote a pending participant to full participant."""
         await self._execute(
-            "UPDATE participants" " SET role = 'participant', approved_at = NOW()" " WHERE id = $1",
+            "UPDATE participants SET role = 'participant', approved_at = NOW() WHERE id = $1",
             participant_id,
         )
         record = await self._fetch_one(
@@ -190,7 +190,7 @@ class ParticipantRepository(BaseRepository):
     ) -> str:
         """Update a participant's budget limits."""
         return await self._execute(
-            "UPDATE participants" " SET budget_hourly = $1, budget_daily = $2" " WHERE id = $3",
+            "UPDATE participants SET budget_hourly = $1, budget_daily = $2 WHERE id = $3",
             budget_hourly,
             budget_daily,
             participant_id,
