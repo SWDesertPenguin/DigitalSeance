@@ -112,7 +112,9 @@ def _sessions_ddl() -> str:
             cadence_preset TEXT DEFAULT 'cruise',
             complexity_classifier_mode TEXT DEFAULT 'pattern',
             min_model_tier TEXT DEFAULT 'low',
-            acceptance_mode TEXT DEFAULT 'unanimous'
+            acceptance_mode TEXT DEFAULT 'unanimous',
+            review_gate_pause_scope TEXT NOT NULL DEFAULT 'session'
+                CHECK (review_gate_pause_scope IN ('session', 'participant'))
         )
     """
 
