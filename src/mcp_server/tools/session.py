@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, field_validator
@@ -43,6 +44,7 @@ class _CreateSessionBody(BaseModel):
     context_window: int = 0
     api_key: str = ""
     api_endpoint: str = ""
+    review_gate_pause_scope: Literal["session", "participant"] = "session"
 
     @field_validator("name", "display_name")
     @classmethod
@@ -70,6 +72,7 @@ async def create_session(
         facilitator_model_family=body.model_family,
         facilitator_context_window=body.context_window,
         facilitator_api_endpoint=body.api_endpoint or None,
+        review_gate_pause_scope=body.review_gate_pause_scope,
     )
     if body.api_key:
         p_repo = request.app.state.participant_repo
@@ -221,6 +224,19 @@ async def _broadcast_turn(cm: object, session_id: str, result: object) -> None:
     )
 
 
+async def _init_loop_from_session(
+    loop: object,
+    session_id: str,
+    session_repo: object,
+) -> None:
+    """Load per-session config into the in-memory conversation loop."""
+    session = await session_repo.get_session(session_id)
+    if not session:
+        return
+    loop.set_cadence_preset(session_id, session.cadence_preset)
+    loop.set_review_gate_pause_scope(session_id, session.review_gate_pause_scope)
+
+
 async def _run_loop(
     loop: object,
     session_id: str,
@@ -228,9 +244,7 @@ async def _run_loop(
     connection_manager: object | None = None,
 ) -> None:
     """Run the conversation loop with cadence-based pacing."""
-    session = await session_repo.get_session(session_id)
-    if session:
-        loop.set_cadence_preset(session_id, session.cadence_preset)
+    await _init_loop_from_session(loop, session_id, session_repo)
     while True:
         try:
             result = await loop.execute_turn(session_id)

@@ -26,11 +26,12 @@ class SessionRepository(BaseRepository):
         facilitator_model_family: str,
         facilitator_context_window: int,
         facilitator_api_endpoint: str | None = None,
+        review_gate_pause_scope: str = "session",
     ) -> tuple[Session, Participant, Branch]:
         """Atomically create session + facilitator + main branch."""
         ids = _generate_ids()
         async with self._pool.acquire() as conn, conn.transaction():
-            await _insert_session(conn, ids["session"], name)
+            await _insert_session(conn, ids["session"], name, review_gate_pause_scope)
             await _insert_facilitator(
                 conn,
                 participant_id=ids["facilitator"],
@@ -103,6 +104,25 @@ class SessionRepository(BaseRepository):
         )
         return await self.get_session(session_id)  # type: ignore[return-value]
 
+    async def update_review_gate_pause_scope(
+        self,
+        session_id: str,
+        new_scope: str,
+    ) -> Session:
+        """Update review_gate_pause_scope. Returns the updated session."""
+        if new_scope not in ("session", "participant"):
+            msg = f"Invalid pause scope: {new_scope}"
+            raise ValueError(msg)
+        result = await self._execute(
+            "UPDATE sessions SET review_gate_pause_scope = $1 WHERE id = $2",
+            new_scope,
+            session_id,
+        )
+        if result == "UPDATE 0":
+            msg = f"Session {session_id} not found"
+            raise ValueError(msg)
+        return await self.get_session(session_id)  # type: ignore[return-value]
+
     async def delete_session(self, session_id: str) -> None:
         """Atomically remove all session data except audit log."""
         async with self._pool.acquire() as conn, conn.transaction():
@@ -134,12 +154,14 @@ async def _insert_session(
     conn: asyncpg.Connection,
     session_id: str,
     name: str,
+    review_gate_pause_scope: str = "session",
 ) -> None:
     """Insert a new session record with defaults."""
     await conn.execute(
-        "INSERT INTO sessions (id, name) VALUES ($1, $2)",
+        "INSERT INTO sessions (id, name, review_gate_pause_scope)" " VALUES ($1, $2, $3)",
         session_id,
         name,
+        review_gate_pause_scope,
     )
 
 
