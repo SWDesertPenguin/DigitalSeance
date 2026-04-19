@@ -42,7 +42,9 @@ class TurnRouter:
             session_id,
             status_filter="active",
         )
-        participants = [p for p in all_participants if p.role != "facilitator"]
+        participants = [
+            p for p in all_participants if p.role != "facilitator" and p.provider != "human"
+        ]
         if not participants:
             return None
         idx = self._pick_index(session_id, participants)
