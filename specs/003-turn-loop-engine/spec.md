@@ -178,7 +178,7 @@ Before routing each turn, the orchestrator classifies the conversation's current
 
 ### User Story 10 - Review Gate Integration (Priority: P3)
 
-When a participant uses review_gate mode, their AI's response is staged as a draft rather than entering the transcript. The orchestrator creates the draft, and the loop continues without waiting for review. When the human later approves, edits, or rejects the draft (via MCP tool in a future feature), the resolved content enters (or doesn't enter) the transcript.
+When a participant uses review_gate mode, their AI's response is staged as a draft rather than entering the transcript. The loop pauses new dispatches while drafts are pending; the pause scope is facilitator-configurable — `"session"` (all participants pause, default) or `"participant"` (only the gated participant pauses). When the facilitator approves, edits, or rejects the draft via the MCP endpoints, the resolved content enters (or doesn't enter) the transcript and dispatching resumes.
 
 **Why this priority**: Review gate is one of the 8 routing modes and provides human oversight of AI responses. It works through the existing review gate draft staging from feature 001.
 
@@ -187,8 +187,9 @@ When a participant uses review_gate mode, their AI's response is staged as a dra
 **Acceptance Scenarios**:
 
 1. **Given** a review-gated participant's turn, **When** their AI generates a response, **Then** the response is stored as a review gate draft with 'pending' status, not as a transcript message.
-2. **Given** a staged draft, **When** the loop advances, **Then** the next turn proceeds without waiting for draft review.
-3. **Given** a staged draft, **When** the routing decision is logged, **Then** the action is recorded as 'review_gated'.
+2. **Given** a pending draft and session-scope pause (default), **When** the loop advances, **Then** no participant is dispatched until the draft is resolved.
+3. **Given** a pending draft and participant-scope pause, **When** the loop advances, **Then** only the gated participant is skipped; other participants continue normally.
+4. **Given** a staged draft, **When** the routing decision is logged, **Then** the action is recorded as 'review_gated' and subsequent skips are logged as 'review_gate_pending'.
 
 ---
 
