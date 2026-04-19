@@ -95,7 +95,7 @@ async def _set_facilitator_key(
 
     encrypted = encrypt_value(api_key, key=p_repo._encryption_key)
     await p_repo._execute(
-        "UPDATE participants SET api_key_encrypted = $1" " WHERE id = $2",
+        "UPDATE participants SET api_key_encrypted = $1 WHERE id = $2",
         encrypted,
         facilitator_id,
     )
