@@ -180,11 +180,23 @@ async def transfer_facilitator(
     return {"status": "transferred", "new_facilitator": target_id}
 
 
+_RoutingPreference = Literal[
+    "always",
+    "review_gate",
+    "delegate_low",
+    "domain_gated",
+    "burst",
+    "observer",
+    "addressed_only",
+    "human_only",
+]
+
+
 class _SetRoutingBody(BaseModel):
     """Request body for setting a participant's routing preference."""
 
     participant_id: str
-    preference: str
+    preference: _RoutingPreference
 
 
 @router.post("/set_routing_preference")
