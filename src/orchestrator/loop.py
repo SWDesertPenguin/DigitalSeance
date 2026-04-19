@@ -87,6 +87,14 @@ class ConversationLoop:
         """Cache the review-gate pause scope for a running session."""
         self._pause_scopes[session_id] = scope
 
+    def mark_draft_resolved(
+        self,
+        session_id: str,
+        participant_id: str,
+    ) -> None:
+        """Tell the router to skip this participant on the next rotation slot."""
+        self._router.mark_resolved(session_id, participant_id)
+
     async def _log_skip_once(self, session_id: str, skip: object) -> None:
         """Log a skip only if it differs from the previous one.
 
@@ -442,13 +450,14 @@ async def _stage_for_review(
     response: ProviderResponse,
 ) -> TurnResult:
     """Stage response as review gate draft. Returns skip to pause the loop."""
-    await ctx.gate_repo.create_draft(
+    draft = await ctx.gate_repo.create_draft(
         session_id=ctx.session_id,
         participant_id=speaker.id,
         turn_number=0,
         draft_content=response.content,
         context_summary="Auto-generated turn response",
     )
+    log.info("Staged draft %s for review (participant=%s)", draft.id, speaker.id)
     await _log_routing(ctx.log_repo, ctx.session_id, decision)
     skip = _skip_result(ctx.session_id, speaker.id, "review_gate_staged")
     return _with_delay(skip, 5.0)
