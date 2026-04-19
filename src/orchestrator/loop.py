@@ -21,6 +21,7 @@ from src.orchestrator.types import ProviderResponse, TurnResult
 from src.repositories.errors import (
     AllParticipantsExhaustedError,
     ProviderDispatchError,
+    SessionNotActiveError,
 )
 from src.repositories.interrupt_repo import InterruptRepository
 from src.repositories.log_repo import LogRepository
@@ -101,6 +102,9 @@ class ConversationLoop:
 
     async def execute_turn(self, session_id: str) -> TurnResult:
         """Execute a single turn iteration."""
+        if not await _session_is_active(self._pool, session_id):
+            msg = f"Session {session_id} is not active"
+            raise SessionNotActiveError(msg)
         speaker = await self._router.next_speaker(session_id)
         if speaker is None:
             raise AllParticipantsExhaustedError("No active participants")
@@ -152,10 +156,9 @@ class ConversationLoop:
         if decision.action in ("skipped", "burst_accumulating"):
             await self._log_skip_once(session_id, decision)
             return decision, _skip_from_decision(session_id, decision)
-        if decision.action == "review_gated":
-            blocked = await self._block_for_pending_draft(session_id, speaker)
-            if blocked:
-                return decision, blocked
+        blocked = await self._block_for_pending_draft(session_id, speaker)
+        if blocked:
+            return decision, blocked
         return decision, None
 
     async def _dispatch_with_delay(
@@ -272,6 +275,16 @@ async def _mark_delivered(
     """Mark only the interjections that were used in context."""
     for intr in interjections:
         await int_repo.mark_delivered(intr.id)
+
+
+async def _session_is_active(pool: asyncpg.Pool, session_id: str) -> bool:
+    """Return True only when the session row's status is 'active'."""
+    async with pool.acquire() as conn:
+        status = await conn.fetchval(
+            "SELECT status FROM sessions WHERE id = $1",
+            session_id,
+        )
+    return status == "active"
 
 
 async def _check_skip_conditions(
