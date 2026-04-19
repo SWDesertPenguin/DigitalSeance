@@ -22,6 +22,16 @@ class TurnRouter:
         self._pool = pool
         self._repo = ParticipantRepository(pool, encryption_key=encryption_key)
         self._turn_index: dict[str, int] = {}
+        self._just_resolved: dict[str, str] = {}
+
+    def mark_resolved(self, session_id: str, participant_id: str) -> None:
+        """Note that a draft from this participant was just resolved.
+
+        The next call to next_speaker skips this participant once if any
+        other participants are eligible — prevents the gated AI from
+        immediately re-staging after a reject (or edit/approve).
+        """
+        self._just_resolved[session_id] = participant_id
 
     async def next_speaker(
         self,
@@ -35,10 +45,21 @@ class TurnRouter:
         participants = [p for p in all_participants if p.role != "facilitator"]
         if not participants:
             return None
-        idx = self._turn_index.get(session_id, 0)
-        idx = idx % len(participants)
+        idx = self._pick_index(session_id, participants)
         self._turn_index[session_id] = idx + 1
         return participants[idx]
+
+    def _pick_index(
+        self,
+        session_id: str,
+        participants: list,
+    ) -> int:
+        """Return the rotation index, skipping a just-resolved participant once."""
+        idx = self._turn_index.get(session_id, 0) % len(participants)
+        last = self._just_resolved.pop(session_id, None)
+        if last and len(participants) > 1 and participants[idx].id == last:
+            idx = (idx + 1) % len(participants)
+        return idx
 
     async def route(
         self,

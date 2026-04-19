@@ -331,6 +331,7 @@ async def approve_draft(
     await gate_repo.resolve(draft.id, resolution="approved")
     msg = await _append_draft_to_transcript(request, draft, draft.draft_content)
     await _log_gate_action(request, participant, "review_gate_approve", draft.id)
+    _skip_in_rotation(request, draft)
     return {"status": "approved", "draft_id": draft.id, "turn_number": msg.turn_number}
 
 
@@ -347,6 +348,7 @@ async def reject_draft(
     await _log_gate_action(
         request, participant, "review_gate_reject", draft.id, {"new": body.reason}
     )
+    _skip_in_rotation(request, draft)
     return {"status": "rejected", "draft_id": draft.id}
 
 
@@ -368,7 +370,19 @@ async def edit_draft(
         draft.id,
         {"previous": draft.draft_content, "new": body.edited_content},
     )
+    _skip_in_rotation(request, draft)
     return {"status": "edited", "draft_id": draft.id, "turn_number": msg.turn_number}
+
+
+def _skip_in_rotation(request: Request, draft: object) -> None:
+    """Tell the loop to skip this draft's participant on the next rotation slot.
+
+    Why: without this, the loop's round-robin can immediately re-pick the
+    just-resolved (gated) participant, who then re-stages another draft —
+    a stage→reject→stage cycle that traps the conversation.
+    """
+    loop = request.app.state.conversation_loop
+    loop.mark_draft_resolved(draft.session_id, draft.participant_id)
 
 
 async def _require_pending_draft(
