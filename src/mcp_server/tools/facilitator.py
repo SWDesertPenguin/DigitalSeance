@@ -17,14 +17,19 @@ _SWAGGER_PLACEHOLDER = "string"
 
 
 class _AddParticipantBody(BaseModel):
-    """Request body for adding a participant. API key sent in body, never in URL."""
+    """Request body for adding a participant. API key sent in body, never in URL.
+
+    Defaults to a human-tier participant so a body like ``{"display_name": "..."}``
+    is valid. For an AI, override provider/model/model_tier/model_family/
+    context_window with real values (mirrors create_session's facilitator body).
+    """
 
     display_name: str
-    provider: str
-    model: str
-    model_tier: str
-    model_family: str
-    context_window: int
+    provider: str = "human"
+    model: str = "human"
+    model_tier: str = "n/a"
+    model_family: str = "human"
+    context_window: int = 0
     api_key: str = ""
     api_endpoint: str = ""
     budget_hourly: float | None = None
