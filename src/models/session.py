@@ -26,6 +26,7 @@ class Session:
     complexity_classifier_mode: str
     min_model_tier: str
     acceptance_mode: str
+    review_gate_pause_scope: str
 
     @classmethod
     def from_record(cls, record: Any) -> Session:
@@ -46,6 +47,7 @@ class Session:
             complexity_classifier_mode=record["complexity_classifier_mode"],
             min_model_tier=record["min_model_tier"],
             acceptance_mode=record["acceptance_mode"],
+            review_gate_pause_scope=record["review_gate_pause_scope"],
         )
 
 
