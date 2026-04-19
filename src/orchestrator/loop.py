@@ -67,6 +67,7 @@ class ConversationLoop:
         self._convergence = ConvergenceDetector(self._log_repo)
         self._convergence.load_model()
         self._cadence_presets: dict[str, str] = {}
+        self._pause_scopes: dict[str, str] = {}
         self._last_skip: dict[str, str] = {}  # session → last skip reason
 
     def set_cadence_preset(
@@ -76,6 +77,14 @@ class ConversationLoop:
     ) -> None:
         """Cache the cadence preset for a running session."""
         self._cadence_presets[session_id] = preset
+
+    def set_review_gate_pause_scope(
+        self,
+        session_id: str,
+        scope: str,
+    ) -> None:
+        """Cache the review-gate pause scope for a running session."""
+        self._pause_scopes[session_id] = scope
 
     async def _log_skip_once(self, session_id: str, skip: object) -> None:
         """Log a skip only if it differs from the previous one.
@@ -118,26 +127,36 @@ class ConversationLoop:
         log.debug("Fetched %d interjections for %s", len(interjections), session_id)
         if interjections:
             self._cadence.reset_on_interjection(session_id)
+        decision, early = await self._check_route(session_id, speaker, bool(interjections))
+        if early:
+            return early
+        self._last_skip.pop(session_id, None)
+        ctx = self._build_turn_context(session_id)
+        # Interjections are persisted as messages above, so pass [] here
+        # to avoid duplicating them as priority context.
+        result = await self._dispatch_with_delay(ctx, speaker, decision, [])
+        await _mark_delivered(self._int_repo, interjections)
+        return result
+
+    async def _check_route(
+        self,
+        session_id: str,
+        speaker: object,
+        has_interjection: bool,
+    ) -> tuple[object, TurnResult | None]:
+        """Route speaker; return early-exit result if skipped or blocked."""
         decision = await self._router.route(
             speaker,
-            has_interjection=bool(interjections),
+            has_interjection=has_interjection,
         )
         if decision.action in ("skipped", "burst_accumulating"):
             await self._log_skip_once(session_id, decision)
-            return _skip_from_decision(session_id, decision)
-        self._last_skip.pop(session_id, None)
-        ctx = self._build_turn_context(session_id)
-        # Interjections are now persisted as messages above, so they appear
-        # in history naturally. Pass empty list to avoid duplicating them
-        # as priority context (which caused back-to-back user messages).
-        result = await self._dispatch_with_delay(
-            ctx,
-            speaker,
-            decision,
-            [],
-        )
-        await _mark_delivered(self._int_repo, interjections)
-        return result
+            return decision, _skip_from_decision(session_id, decision)
+        if decision.action == "review_gated":
+            blocked = await self._block_for_pending_draft(session_id, speaker)
+            if blocked:
+                return decision, blocked
+        return decision, None
 
     async def _dispatch_with_delay(
         self,
@@ -155,12 +174,30 @@ class ConversationLoop:
             decision,
             interjections=interjections,
         )
+        if result.skipped:
+            return result
         delay = await self._compute_turn_delay(
             ctx.session_id,
             result.turn_number,
             content,
         )
         return _with_delay(result, delay)
+
+    async def _block_for_pending_draft(
+        self,
+        session_id: str,
+        speaker: object,
+    ) -> TurnResult | None:
+        """Skip dispatch when review-gate drafts are pending (scope-aware)."""
+        pending = await self._gate_repo.get_pending(session_id)
+        if not pending:
+            return None
+        scope = self._pause_scopes.get(session_id, "session")
+        if scope == "participant" and not any(d.participant_id == speaker.id for d in pending):
+            return None
+        skip = _skip_result(session_id, speaker.id, "review_gate_pending")
+        await self._log_skip_once(session_id, skip)
+        return _with_delay(skip, 5.0)
 
     async def _compute_turn_delay(
         self,
@@ -391,7 +428,7 @@ async def _stage_for_review(
     decision: object,
     response: ProviderResponse,
 ) -> TurnResult:
-    """Stage response as review gate draft."""
+    """Stage response as review gate draft. Returns skip to pause the loop."""
     await ctx.gate_repo.create_draft(
         session_id=ctx.session_id,
         participant_id=speaker.id,
@@ -400,7 +437,8 @@ async def _stage_for_review(
         context_summary="Auto-generated turn response",
     )
     await _log_routing(ctx.log_repo, ctx.session_id, decision)
-    return _turn_result(ctx.session_id, -1, speaker, decision, response)
+    skip = _skip_result(ctx.session_id, speaker.id, "review_gate_staged")
+    return _with_delay(skip, 5.0)
 
 
 async def _log_routing(
