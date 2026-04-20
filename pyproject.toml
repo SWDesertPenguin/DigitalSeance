@@ -27,6 +27,9 @@ dev = [
     "bandit>=1.8.3",
     "pre-commit>=4.0.0",
 ]
+e2e = [
+    "pytest-playwright>=0.5.0",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
