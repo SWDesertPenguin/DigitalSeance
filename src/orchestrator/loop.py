@@ -17,6 +17,7 @@ from src.orchestrator.circuit_breaker import CircuitBreaker
 from src.orchestrator.context import ContextAssembler
 from src.orchestrator.convergence import DIVERGENCE_PROMPT, ConvergenceDetector
 from src.orchestrator.router import TurnRouter
+from src.orchestrator.summarizer import SummarizationManager
 from src.orchestrator.types import ProviderResponse, TurnResult
 from src.repositories.errors import (
     AllParticipantsExhaustedError,
@@ -67,6 +68,7 @@ class ConversationLoop:
         self._cadence = CadenceController()
         self._convergence = ConvergenceDetector(self._log_repo)
         self._convergence.load_model()
+        self._summarizer = SummarizationManager(pool, encryption_key=encryption_key)
         self._cadence_presets: dict[str, str] = {}
         self._pause_scopes: dict[str, str] = {}
         self._last_skip: dict[str, str] = {}  # session → last skip reason
@@ -192,7 +194,22 @@ class ConversationLoop:
             result.turn_number,
             content,
         )
+        await self._maybe_summarize(ctx.session_id, result.turn_number)
         return _with_delay(result, delay)
+
+    async def _maybe_summarize(self, session_id: str, turn_number: int) -> None:
+        """Run a summarization checkpoint if the threshold has been reached."""
+        async with self._pool.acquire() as conn:
+            last = await conn.fetchval(
+                "SELECT last_summary_turn FROM sessions WHERE id = $1",
+                session_id,
+            )
+        if last is None or not self._summarizer.should_summarize(turn_number, last):
+            return
+        try:
+            await self._summarizer.run_checkpoint(session_id)
+        except Exception:
+            log.exception("Summarization failed for session %s", session_id)
 
     async def _block_for_pending_draft(
         self,
