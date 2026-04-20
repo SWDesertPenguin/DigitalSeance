@@ -81,3 +81,43 @@ def test_t252_audit_entry_event_shape() -> None:
     assert evt["v"] == 1
     assert evt["type"] == "audit_entry"
     assert evt["entry"]["action"] == "approve_participant"
+
+
+def test_t150_proposal_routes_registered() -> None:
+    """Phase 2c proposal endpoints are live (T150)."""
+    app = create_app()
+    paths = {r.path for r in app.routes}
+    for path in (
+        "/tools/proposal/create",
+        "/tools/proposal/vote",
+        "/tools/proposal/resolve",
+        "/tools/proposal/list",
+    ):
+        assert path in paths, f"Missing route: {path}"
+
+
+def test_proposal_event_envelopes() -> None:
+    """proposal_{created,voted,resolved} events use the v1 envelope."""
+    from src.web_ui.events import (
+        proposal_created_event,
+        proposal_resolved_event,
+        proposal_voted_event,
+    )
+
+    created = proposal_created_event({"id": "p1", "topic": "Ship?"})
+    assert created["v"] == 1
+    assert created["type"] == "proposal_created"
+    assert created["proposal"]["topic"] == "Ship?"
+
+    voted = proposal_voted_event(
+        proposal_id="p1",
+        voter_id="u1",
+        vote="accept",
+        tally={"accept": 1, "reject": 0, "abstain": 0},
+    )
+    assert voted["type"] == "proposal_voted"
+    assert voted["tally"]["accept"] == 1
+
+    resolved = proposal_resolved_event(proposal_id="p1", status="accepted")
+    assert resolved["type"] == "proposal_resolved"
+    assert resolved["status"] == "accepted"
