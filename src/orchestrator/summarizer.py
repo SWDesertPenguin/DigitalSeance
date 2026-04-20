@@ -187,12 +187,27 @@ async def _generate_summary(
 
 
 def _validate_summary_json(content: str) -> dict | None:
-    """Parse and validate summary JSON. Returns None on failure."""
+    """Parse and validate summary JSON. Returns None on failure.
+
+    Claude tends to wrap JSON in ```json ... ``` fences despite
+    instructions; strip them before parsing so we don't fall back to
+    narrative-only when the model actually produced valid structure.
+    """
     try:
-        data = json.loads(content)
+        data = json.loads(_strip_code_fence(content))
     except (json.JSONDecodeError, TypeError):
         return None
     return _normalize_summary(data)
+
+
+def _strip_code_fence(content: str) -> str:
+    """Remove leading/trailing markdown code fences if present."""
+    text = (content or "").strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+    if text.endswith("```"):
+        text = text[:-3].rstrip()
+    return text.strip()
 
 
 def _normalize_summary(data: dict) -> dict:
