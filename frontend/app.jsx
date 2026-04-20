@@ -190,6 +190,8 @@ function initialState() {
     openProposals: [],
     latestSummary: null,
     convergenceScores: [],
+    auditEntries: [],      // Phase 2b: fed by T252 audit_entry WS events
+    skipReasons: {},       // { participant_id: [{reason, timestamp}, ...] } (last 3 per pid)
     wsState: "connecting",
     authError: null,
     errors: [],
@@ -247,6 +249,26 @@ function reducer(state, action) {
       };
     case "summary_created":
       return { ...state, latestSummary: action.event.summary };
+    case "audit_entry":
+      // T252: keep a ring buffer of the last 100 facilitator actions.
+      return {
+        ...state,
+        auditEntries: [action.event.entry, ...state.auditEntries].slice(0, 100),
+      };
+    case "turn_skipped": {
+      // US10 T141: feed the health-badge tooltip.
+      const { participant_id: pid, reason, turn_number } = action.event;
+      const prior = state.skipReasons[pid] || [];
+      return {
+        ...state,
+        skipReasons: {
+          ...state.skipReasons,
+          [pid]: [{ reason, turn_number }, ...prior].slice(0, 3),
+        },
+      };
+    }
+    case "seed_audit_entries":
+      return { ...state, auditEntries: action.entries.slice(0, 100) };
     case "error":
       return {
         ...state,
@@ -428,8 +450,8 @@ function Header({ session, me, wsState }) {
   );
 }
 
-function ParticipantList({ participants, me }) {
-  // US2 T073: pending participants render with a badge but no action surfaces.
+function ParticipantList({ participants, me, skipReasons }) {
+  // US2 T073 + US10 T140–T142.
   const visible = useMemo(
     () => [...participants].sort((a, b) => a.display_name.localeCompare(b.display_name)),
     [participants],
@@ -452,8 +474,7 @@ function ParticipantList({ participants, me }) {
             {p.model_family && <><span>·</span><span>{p.model_family}</span></>}
           </div>
           <div className="p-meta">
-            <span>{p.status}</span>
-            {p.consecutive_timeouts > 0 && <span className="warn">⚠ {p.consecutive_timeouts}</span>}
+            <HealthBadge participant={p} skipReasons={skipReasons?.[p.id]} />
             <span className="routing">{p.routing_preference}</span>
           </div>
         </div>
@@ -538,6 +559,410 @@ function Transcript({ messages, participants }) {
           </article>
         );
       })}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2b dashboards: helpers + new panels
+// ---------------------------------------------------------------------------
+
+function deriveHealth(p) {
+  // US10 T140: derive a single health state from the participant row.
+  if (!p) return { label: "unknown", tone: "dim" };
+  const t = p.consecutive_timeouts || 0;
+  if (p.status === "paused" && t >= 3) return { label: "breaker-tripped", tone: "danger", count: t };
+  if (p.status === "paused") return { label: "paused", tone: "warn" };
+  if (p.status === "offline") return { label: "offline", tone: "dim" };
+  if (p.status === "pending") return { label: "pending", tone: "dim" };
+  if (t > 0) return { label: `warning (${t})`, tone: "warn" };
+  return { label: "healthy", tone: "ok" };
+}
+
+function HealthBadge({ participant, skipReasons }) {
+  const health = deriveHealth(participant);
+  const title = skipReasons && skipReasons.length > 0
+    ? skipReasons.map((s) => `#${s.turn_number}: ${s.reason}`).join("\n")
+    : health.label;
+  return (
+    <span className={`health-badge health-${health.tone}`} title={title}>
+      {health.label}
+    </span>
+  );
+}
+
+function pctColor(pct) {
+  if (pct >= 0.95) return "var(--danger)";
+  if (pct >= 0.80) return "var(--warning)";
+  if (pct >= 0.50) return "var(--warning)";
+  return "var(--ok)";
+}
+
+function BudgetPanel({ participants, me, isFacilitator }) {
+  // US4 T100–T102. Renders one card per participant. Self + facilitator see
+  // dollar amounts; others only see utilization %.
+  const list = useMemo(
+    () => participants
+      .filter((p) => p.provider !== "human")
+      .sort((a, b) => a.display_name.localeCompare(b.display_name)),
+    [participants],
+  );
+  if (list.length === 0) {
+    return (
+      <section className="panel budget-panel">
+        <h2>Budget</h2>
+        <p className="dim">No AI participants yet.</p>
+      </section>
+    );
+  }
+  return (
+    <section className="panel budget-panel">
+      <h2>Budget</h2>
+      {list.map((p) => {
+        const isSelf = p.id === me?.participant_id;
+        const showDollars = isFacilitator || isSelf;
+        const daily = p.budget_daily;
+        const utilization = daily && p.spend_daily ? Math.min(1, p.spend_daily / daily) : null;
+        return (
+          <div key={p.id} className="budget-card">
+            <div className="p-row">
+              <strong>{p.display_name}</strong>
+              {showDollars && daily && (
+                <span className="dim">${(p.spend_daily ?? 0).toFixed(3)} / ${daily}</span>
+              )}
+            </div>
+            {utilization !== null ? (
+              <div className="util-bar">
+                <div
+                  className="util-fill"
+                  style={{ width: `${Math.round(utilization * 100)}%`, background: pctColor(utilization) }}
+                />
+                {!showDollars && <span className="util-pct">{Math.round(utilization * 100)}%</span>}
+              </div>
+            ) : (
+              <p className="dim">no daily cap</p>
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function ConvergencePanel({ scores, threshold = 0.85 }) {
+  // US4 T101. Inline SVG sparkline of last 50 scores + threshold line.
+  const points = scores.slice(-50);
+  if (points.length < 2) {
+    return (
+      <section className="panel">
+        <h2>Convergence</h2>
+        <p className="dim">Waiting for data (≥2 turns needed).</p>
+      </section>
+    );
+  }
+  const w = 240;
+  const h = 60;
+  const xs = points.map((_, i) => (i / (points.length - 1)) * w);
+  const ys = points.map((pt) => h - Math.max(0, Math.min(1, pt.similarity_score || 0)) * h);
+  const pathD = xs.map((x, i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(" ");
+  const lastScore = points[points.length - 1].similarity_score;
+  const thresholdY = h - threshold * h;
+  return (
+    <section className="panel convergence-panel">
+      <h2>Convergence</h2>
+      <svg viewBox={`0 0 ${w} ${h}`} className="sparkline" role="img" aria-label="convergence sparkline">
+        <line
+          x1="0" y1={thresholdY} x2={w} y2={thresholdY}
+          stroke="var(--warning)" strokeDasharray="3,3" strokeWidth="1"
+        />
+        <path d={pathD} fill="none" stroke="var(--accent)" strokeWidth="1.5" />
+        {points.map((pt, i) => pt.divergence_prompted && (
+          <circle key={i} cx={xs[i]} cy={ys[i]} r="2.5" fill="var(--danger)" />
+        ))}
+      </svg>
+      <div className="kv">
+        <span className="dim">last</span>
+        <span>{typeof lastScore === "number" ? lastScore.toFixed(3) : "—"}</span>
+      </div>
+      <div className="kv">
+        <span className="dim">threshold</span>
+        <span>{threshold.toFixed(2)}</span>
+      </div>
+    </section>
+  );
+}
+
+function SummaryPanel({ summary }) {
+  // US9 T130–T133.
+  const [open, setOpen] = useState(true);
+  if (!summary) {
+    return (
+      <section className="panel">
+        <h2>Summary</h2>
+        <p className="dim">No checkpoint yet — summaries run every 10 turns.</p>
+      </section>
+    );
+  }
+  const { decisions = [], open_questions = [], key_positions = [], narrative } = summary;
+  return (
+    <section className="panel summary-panel">
+      <div className="panel-header" onClick={() => setOpen(!open)}>
+        <h2>Summary (turn {summary.turn_number})</h2>
+        <span className="toggle">{open ? "▾" : "▸"}</span>
+      </div>
+      {open && (
+        <>
+          {narrative && <p className="narrative">{narrative}</p>}
+          {decisions.length > 0 && (
+            <div>
+              <h3>Decisions</h3>
+              <ul>{decisions.map((d, i) => (
+                <li key={i}><span className={`pill pill-${d.status}`}>{d.status}</span> {d.summary}</li>
+              ))}</ul>
+            </div>
+          )}
+          {open_questions.length > 0 && (
+            <div>
+              <h3>Open questions</h3>
+              <ul>{open_questions.map((q, i) => <li key={i}>{q.summary}</li>)}</ul>
+            </div>
+          )}
+          {key_positions.length > 0 && (
+            <div>
+              <h3>Positions</h3>
+              <ul>{key_positions.map((k, i) => (
+                <li key={i}><strong>{k.participant}:</strong> {k.position}</li>
+              ))}</ul>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function ReviewGateQueue({ drafts, participants, pauseScope, isFacilitator, onApprove, onReject, onEdit, onToggleScope }) {
+  // US5 T110–T114.
+  const byId = useMemo(
+    () => Object.fromEntries(participants.map((p) => [p.id, p])),
+    [participants],
+  );
+  return (
+    <section className="panel review-gate-panel">
+      <div className="panel-header">
+        <h2>Review gate</h2>
+        {isFacilitator && (
+          <select
+            value={pauseScope || "session"}
+            onChange={(ev) => onToggleScope(ev.target.value)}
+            title="Pause scope"
+          >
+            <option value="session">session-wide pause</option>
+            <option value="participant">participant-only pause</option>
+          </select>
+        )}
+      </div>
+      {drafts.length === 0 && <p className="dim">No pending drafts.</p>}
+      {drafts.map((d) => {
+        const speaker = byId[d.participant_id];
+        const preview = (d.draft_content || "").slice(0, 240);
+        return (
+          <div key={d.id} className="draft-card">
+            <header>
+              <strong>{speaker?.display_name || d.participant_id}</strong>
+              <span className="dim">{d.created_at ? new Date(d.created_at).toLocaleTimeString() : ""}</span>
+            </header>
+            <div className="draft-body">
+              <pre>{preview}{d.draft_content.length > 240 ? "…" : ""}</pre>
+            </div>
+            {isFacilitator && (
+              <div className="draft-actions">
+                <button onClick={() => onApprove(d.id)}>Approve</button>
+                <button onClick={() => onEdit(d)}>Edit</button>
+                <button onClick={() => onReject(d.id)} className="danger">Reject</button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function ReviewGateEditor({ draft, onSave, onClose }) {
+  const [text, setText] = useState(draft.draft_content);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const submit = async () => {
+    if (!text.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave(draft.id, text);
+      onClose();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-wide" onClick={(ev) => ev.stopPropagation()}>
+        <h2>Edit draft</h2>
+        <textarea
+          rows={14}
+          value={text}
+          onChange={(ev) => setText(ev.target.value)}
+          disabled={busy}
+        />
+        {error && <div className="error">{error}</div>}
+        <div className="modal-actions">
+          <button type="button" onClick={onClose}>Cancel</button>
+          <button onClick={submit} disabled={busy || !text.trim()}>
+            {busy ? "Saving…" : "Save + approve"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminPanel({ participants, session, auditEntries, onApprove, onReject, onInvite, onTransfer, onConfig }) {
+  // US6 T120–T125.
+  const [open, setOpen] = useState(false);
+  const [invite, setInvite] = useState(null);
+  const [maxUses, setMaxUses] = useState(1);
+
+  const pending = useMemo(
+    () => participants.filter((p) => p.status === "pending"),
+    [participants],
+  );
+  const activeOthers = useMemo(
+    () => participants.filter((p) => p.status === "active" && p.role !== "facilitator"),
+    [participants],
+  );
+
+  const createInvite = async () => {
+    try {
+      const result = await onInvite(maxUses);
+      setInvite(result);
+    } catch (e) {
+      alert(`Invite failed: ${e.message}`);
+    }
+  };
+
+  const copy = (text) => navigator.clipboard?.writeText(text);
+
+  return (
+    <section className="panel admin-panel">
+      <div className="panel-header" onClick={() => setOpen(!open)}>
+        <h2>Admin</h2>
+        <span className="toggle">{open ? "▾" : "▸"}</span>
+      </div>
+      {open && (
+        <>
+          <details open={pending.length > 0}>
+            <summary>Pending approvals ({pending.length})</summary>
+            {pending.length === 0 && <p className="dim">None.</p>}
+            {pending.map((p) => (
+              <div key={p.id} className="pending-row">
+                <span>{p.display_name}</span>
+                <div className="button-row">
+                  <button onClick={() => onApprove(p.id)}>Approve</button>
+                  <button onClick={() => onReject(p.id)} className="danger">Reject</button>
+                </div>
+              </div>
+            ))}
+          </details>
+          <details>
+            <summary>Invite</summary>
+            <div className="kv">
+              <span className="dim">max uses</span>
+              <input
+                type="number"
+                min="1"
+                max="20"
+                value={maxUses}
+                onChange={(ev) => setMaxUses(parseInt(ev.target.value, 10) || 1)}
+              />
+            </div>
+            <button onClick={createInvite}>Generate invite</button>
+            {invite && (
+              <div className="invite-display">
+                <code>{invite.invite_token}</code>
+                <button onClick={() => copy(invite.invite_token)}>Copy</button>
+                <p className="dim">Paste this token into another participant's sign-in. Accept flow is Phase 2c.</p>
+              </div>
+            )}
+          </details>
+          <details>
+            <summary>Session config</summary>
+            <div className="kv">
+              <span className="dim">cadence</span>
+              <select
+                value={session?.cadence_preset || "cruise"}
+                onChange={(ev) => onConfig("cadence_preset", { preset: ev.target.value })}
+              >
+                <option>sprint</option><option>cruise</option><option>idle</option>
+              </select>
+            </div>
+            <div className="kv">
+              <span className="dim">acceptance</span>
+              <select
+                value={session?.acceptance_mode || "unanimous"}
+                onChange={(ev) => onConfig("acceptance_mode", { mode: ev.target.value })}
+              >
+                <option>unanimous</option><option>majority</option>
+              </select>
+            </div>
+            <div className="kv">
+              <span className="dim">min tier</span>
+              <select
+                value={session?.min_model_tier || "low"}
+                onChange={(ev) => onConfig("min_model_tier", { tier: ev.target.value })}
+              >
+                <option>low</option><option>mid</option><option>high</option><option>max</option>
+              </select>
+            </div>
+            <div className="kv">
+              <span className="dim">classifier</span>
+              <select
+                value={session?.complexity_classifier_mode || "pattern"}
+                onChange={(ev) => onConfig("complexity_classifier_mode", { mode: ev.target.value })}
+              >
+                <option>pattern</option><option>llm</option>
+              </select>
+            </div>
+          </details>
+          <details>
+            <summary>Transfer facilitator</summary>
+            {activeOthers.length === 0 && <p className="dim">No eligible targets.</p>}
+            {activeOthers.map((p) => (
+              <div key={p.id} className="pending-row">
+                <span>{p.display_name}</span>
+                <button onClick={() => {
+                  if (confirm(`Transfer facilitator to ${p.display_name}?`)) onTransfer(p.id);
+                }}>Transfer</button>
+              </div>
+            ))}
+          </details>
+          <details>
+            <summary>Audit log (last {auditEntries.length})</summary>
+            {auditEntries.length === 0 && <p className="dim">No entries yet.</p>}
+            {auditEntries.slice(0, 20).map((e) => (
+              <div key={e.id} className="audit-row">
+                <span className="dim">{e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : ""}</span>
+                <span className="audit-action">{e.action}</span>
+                <span className="dim">→</span>
+                <code>{e.target_id}</code>
+              </div>
+            ))}
+          </details>
+        </>
+      )}
     </section>
   );
 }
@@ -699,6 +1124,7 @@ function AddParticipantDialog({ onClose, onAdd }) {
 function SessionView({ auth, onLogout, onAuthExpired }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [editDraft, setEditDraft] = useState(null);
 
   const onEvent = useCallback((event) => {
     if (event?.type) {
@@ -744,14 +1170,73 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
 
   const onRoutingChange = async (participantId, preference) => {
     try {
-      await mcpCall("/tools/facilitator/set_routing_preference", auth.token, {
-        method: "POST",
-        body: { participant_id: participantId, preference },
-      });
+      // Prefer the self-serve endpoint (T250) when we're editing our own row.
+      const isSelf = participantId === auth.participant_id;
+      const path = isSelf
+        ? "/tools/participant/set_routing_preference"
+        : "/tools/facilitator/set_routing_preference";
+      const body = isSelf ? { preference } : { participant_id: participantId, preference };
+      await mcpCall(path, auth.token, { method: "POST", body });
     } catch (e) {
       alert(`Routing change failed: ${e.message}`);
     }
   };
+
+  // US5 review-gate actions.
+  const approveDraft = async (draftId) => {
+    await mcpCall("/tools/facilitator/approve_draft", auth.token, {
+      method: "POST", body: { draft_id: draftId },
+    });
+  };
+  const rejectDraft = async (draftId) => {
+    await mcpCall("/tools/facilitator/reject_draft", auth.token, {
+      method: "POST", body: { draft_id: draftId, reason: "" },
+    });
+  };
+  const editDraftSave = async (draftId, editedContent) => {
+    await mcpCall("/tools/facilitator/edit_draft", auth.token, {
+      method: "POST", body: { draft_id: draftId, edited_content: editedContent },
+    });
+  };
+  const togglePauseScope = async (scope) => {
+    await mcpCall("/tools/facilitator/set_review_gate_pause_scope", auth.token, {
+      method: "POST", body: { scope },
+    });
+  };
+
+  // US6 admin actions.
+  const approveParticipant = async (pid) => {
+    await mcpCall(`/tools/facilitator/approve_participant?participant_id=${encodeURIComponent(pid)}`, auth.token, { method: "POST" });
+  };
+  const rejectParticipant = async (pid) => {
+    await mcpCall(`/tools/facilitator/reject_participant?participant_id=${encodeURIComponent(pid)}`, auth.token, { method: "POST" });
+  };
+  const createInvite = async (maxUses) => {
+    return await mcpCall(`/tools/facilitator/create_invite?max_uses=${maxUses}`, auth.token, { method: "POST" });
+  };
+  const transferFacilitator = async (targetId) => {
+    await mcpCall(`/tools/facilitator/transfer_facilitator?target_id=${encodeURIComponent(targetId)}`, auth.token, { method: "POST" });
+  };
+  const setSessionConfig = async (action, body) => {
+    try {
+      await mcpCall(`/tools/facilitator/set_${action}`, auth.token, { method: "POST", body });
+    } catch (e) {
+      alert(`Config change failed: ${e.message}`);
+    }
+  };
+
+  // Audit log seed — fetched once when the facilitator opens the panel.
+  useEffect(() => {
+    if (!isFacilitator || state.auditEntries.length > 0) return;
+    mcpCall(`/tools/debug/export?session_id=${auth.session_id}`, auth.token)
+      .then((data) => {
+        const entries = (data?.logs?.audit || [])
+          .map((e) => ({ ...e, timestamp: e.timestamp || null }))
+          .reverse();
+        if (entries.length > 0) dispatch({ type: "seed_audit_entries", entries });
+      })
+      .catch(() => { /* non-facilitator will 403; ignore */ });
+  }, [isFacilitator, auth.session_id, auth.token, state.auditEntries.length]);
 
   return (
     <div className="app-shell">
@@ -769,16 +1254,32 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
             isFacilitator={isFacilitator}
             onRoutingChange={onRoutingChange}
           />
-          <ParticipantList participants={state.participants} me={auth} />
+          <ParticipantList
+            participants={state.participants}
+            me={auth}
+            skipReasons={state.skipReasons}
+          />
           <SessionControls
             session={state.session}
             isFacilitator={isFacilitator}
             onAction={onSessionAction}
           />
           {isFacilitator && (
-            <button className="full-width" onClick={() => setShowAddDialog(true)}>
-              + Add participant
-            </button>
+            <>
+              <button className="full-width" onClick={() => setShowAddDialog(true)}>
+                + Add participant
+              </button>
+              <AdminPanel
+                participants={state.participants}
+                session={state.session}
+                auditEntries={state.auditEntries}
+                onApprove={approveParticipant}
+                onReject={rejectParticipant}
+                onInvite={createInvite}
+                onTransfer={transferFacilitator}
+                onConfig={setSessionConfig}
+              />
+            </>
           )}
           <button className="full-width logout" onClick={onLogout}>Sign out</button>
         </aside>
@@ -787,31 +1288,36 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
           <MessageInput onSend={sendMessage} disabled={wsState !== "open"} />
         </main>
         <aside className="sidebar-right">
-          <div className="panel">
-            <h2>Review gate</h2>
-            {state.pendingDrafts.length === 0 ? (
-              <p className="dim">No pending drafts.</p>
-            ) : (
-              state.pendingDrafts.map((d) => (
-                <div key={d.id} className="draft-stub">
-                  <strong>{d.participant_id}</strong>
-                  <p className="dim">Approval UI ships in Phase 2c.</p>
-                </div>
-              ))
-            )}
-          </div>
-          <div className="panel">
-            <h2>Convergence</h2>
-            <p className="dim">
-              last score: {state.convergenceScores.at(-1)?.similarity_score?.toFixed(3) ?? "—"}
-            </p>
-          </div>
+          <ReviewGateQueue
+            drafts={state.pendingDrafts}
+            participants={state.participants}
+            pauseScope={state.session?.review_gate_pause_scope}
+            isFacilitator={isFacilitator}
+            onApprove={approveDraft}
+            onReject={rejectDraft}
+            onEdit={(d) => setEditDraft(d)}
+            onToggleScope={togglePauseScope}
+          />
+          <BudgetPanel
+            participants={state.participants}
+            me={auth}
+            isFacilitator={isFacilitator}
+          />
+          <ConvergencePanel scores={state.convergenceScores} />
+          <SummaryPanel summary={state.latestSummary} />
         </aside>
       </div>
       {showAddDialog && (
         <AddParticipantDialog
           onClose={() => setShowAddDialog(false)}
           onAdd={addParticipant}
+        />
+      )}
+      {editDraft && (
+        <ReviewGateEditor
+          draft={editDraft}
+          onSave={editDraftSave}
+          onClose={() => setEditDraft(null)}
         />
       )}
     </div>
