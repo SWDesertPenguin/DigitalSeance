@@ -45,16 +45,32 @@ async def build_state_snapshot(
 
 
 async def _session_row(app_state: Any, session_id: str) -> dict[str, Any]:
-    """Read the session row directly so we expose exactly what's on disk."""
-    async with app_state.pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT * FROM sessions WHERE id = $1", session_id)
-    return dict(row) if row else {}
+    """Return a curated session dict — explicit allow-list, no SELECT *."""
+    session = await app_state.session_repo.get_session(session_id)
+    if session is None:
+        return {}
+    return {
+        "id": session.id,
+        "name": session.name,
+        "status": session.status,
+        "current_turn": session.current_turn,
+        "last_summary_turn": session.last_summary_turn,
+        "cadence_preset": session.cadence_preset,
+        "complexity_classifier_mode": session.complexity_classifier_mode,
+        "min_model_tier": session.min_model_tier,
+        "acceptance_mode": session.acceptance_mode,
+        "review_gate_pause_scope": session.review_gate_pause_scope,
+    }
 
 
 async def _participants(app_state: Any, session_id: str) -> list[dict[str, Any]]:
-    """All participants, including paused/offline/pending — UI filters as needed."""
+    """All participants (UI filters by status). Includes daily spend (C3)."""
     rows = await app_state.participant_repo.list_participants(session_id)
-    return [_participant_dict(p) for p in rows]
+    out: list[dict[str, Any]] = []
+    for p in rows:
+        spend = await app_state.log_repo.get_participant_cost(p.id, period="daily")
+        out.append({**_participant_dict(p), "spend_daily": spend})
+    return out
 
 
 def _participant_dict(p: Any) -> dict[str, Any]:
@@ -129,7 +145,8 @@ async def _open_proposals(app_state: Any, session_id: str) -> list[dict[str, Any
             "topic": r.topic,
             "position": r.position,
             "status": r.status,
-            "proposer_id": r.proposer_id,
+            "proposed_by": r.proposed_by,  # fix: actual dataclass field name
+            "acceptance_mode": r.acceptance_mode,
             "created_at": iso(r.created_at),
         }
         for r in rows

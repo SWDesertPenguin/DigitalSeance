@@ -238,7 +238,12 @@ async def export_json(
 
 
 async def _broadcast_turn(cm: object, session_id: str, result: object) -> None:
-    """Broadcast a completed turn event to SSE and Web UI subscribers."""
+    """Broadcast a completed turn event to SSE subscribers (legacy shape).
+
+    The v1 `message` event for Web UI subscribers is emitted by
+    `_persist_turn` itself now (loop.py::_emit_message_to_web_ui) so it
+    has access to the full persisted Message including content.
+    """
     await cm.broadcast(
         session_id,
         {
@@ -248,21 +253,6 @@ async def _broadcast_turn(cm: object, session_id: str, result: object) -> None:
             "skipped": False,
         },
     )
-    await _broadcast_turn_to_web_ui(session_id, result)
-
-
-async def _broadcast_turn_to_web_ui(session_id: str, result: object) -> None:
-    """Push a v1 `message` event to Web UI WebSocket subscribers."""
-    from src.web_ui.events import message_event
-    from src.web_ui.websocket import broadcast_to_session
-
-    payload = {
-        "turn_number": result.turn_number,
-        "speaker_id": result.speaker_id,
-        "action": result.action,
-        "cost_usd": getattr(result, "cost_usd", None),
-    }
-    await broadcast_to_session(session_id, message_event(payload))
 
 
 async def _init_loop_from_session(
