@@ -1,6 +1,6 @@
 # SACP System Report
 
-**Last Updated**: 2026-04-17
+**Last Updated**: 2026-04-20
 
 ## Project Overview
 
@@ -136,7 +136,7 @@ Phase 1 COMPLETE. All features implemented; all scenario tests pass.
 
 Scenario 1 (1 AI): 9/9 PASS. Scenario 2 (2 AIs): 6/6 PASS. Scenario 3 (multi-AI + closeout):
 T3.1 partial (invite accept deferred to Phase 2), T3.2 / T3.3 / T3.4 / T3.5 / T3.6 PASS.
-See `test-plan-phase1.md` for full test plan and status.
+(Test-plan working doc is maintained locally; not committed.)
 
 ## Post-Deployment Fixes (PRs #28-84)
 
