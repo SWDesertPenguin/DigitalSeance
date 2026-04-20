@@ -186,7 +186,7 @@ async def _find_by_token(
     """Find the participant matching this token via bcrypt scan."""
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT * FROM participants" " WHERE auth_token_hash IS NOT NULL",
+            "SELECT * FROM participants WHERE auth_token_hash IS NOT NULL",
         )
     for row in rows:
         if bcrypt.checkpw(token.encode(), row["auth_token_hash"].encode()):
