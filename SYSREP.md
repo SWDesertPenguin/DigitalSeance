@@ -71,6 +71,7 @@ src/
 - `POST /tools/session/archive` — archive session (read-only)
 - `POST /tools/session/start_loop` — start conversation loop
 - `POST /tools/session/stop_loop` — stop conversation loop
+- `GET /tools/session/summary` — latest structured summarization checkpoint (any participant)
 - `GET /tools/session/export_markdown` — export transcript
 - `GET /tools/session/export_json` — export as JSON
 
@@ -96,6 +97,7 @@ src/
 - `POST /tools/facilitator/approve_draft` — approve a staged draft (writes to transcript)
 - `POST /tools/facilitator/reject_draft` — reject a staged draft (discard)
 - `POST /tools/facilitator/edit_draft` — edit and approve a staged draft
+- `POST /tools/facilitator/debug_set_timeouts` — prime a participant's consecutive_timeouts counter for circuit-breaker testing
 
 ### Debug Tools
 - `GET /tools/debug/export` — full session export (facilitator only)
@@ -110,21 +112,21 @@ src/
 | Embeddings | sentence-transformers (MiniLM-L6-v2) |
 | Encryption | Fernet (AES-128-CBC + HMAC-SHA256) |
 | Token Hashing | bcrypt (cost factor 12) |
-| Migrations | Alembic (5 migrations) |
+| Migrations | Alembic (5 migrations through 005_session_review_gate_pause_scope) |
 | CI/CD | GitHub Actions -> GHCR |
 | Deployment | Docker Compose via Dockge |
 | Pre-commit | 13 hooks (gitleaks, ruff, bandit, 25/5 lint) |
 
 ## Phase 1 Status
 
-All code features complete. Live testing in progress.
+Phase 1 COMPLETE. All features implemented; all scenario tests pass.
 
 - [x] Core data model (13 tables, 8 repositories)
 - [x] Participant auth (tokens, approval, rotation, IP binding)
 - [x] Turn loop engine (8 routing modes, context assembly, LiteLLM)
 - [x] Convergence detection (embeddings, cadence, adversarial rotation)
 - [x] Summarization checkpoints (structured JSON)
-- [x] MCP server (23 endpoints, SSE)
+- [x] MCP server (25 endpoints, SSE)
 - [x] AI security pipeline (sanitization, spotlighting, validation, exfiltration, jailbreak, prompt protection, log scrubbing)
 - [x] System prompt management (4-tier delta with canary tokens)
 - [x] Security pipeline integrated into turn loop + context assembly
@@ -132,10 +134,11 @@ All code features complete. Live testing in progress.
 
 ## Live Testing Progress
 
-Scenario 1 (1 AI): 7/9 pass, 3 retest after latest deploy. Scenario 2 (2 AIs): not started.
+Scenario 1 (1 AI): 9/9 PASS. Scenario 2 (2 AIs): 6/6 PASS. Scenario 3 (multi-AI + closeout):
+T3.1 partial (invite accept deferred to Phase 2), T3.2 / T3.3 / T3.4 / T3.5 / T3.6 PASS.
 See `test-plan-phase1.md` for full test plan and status.
 
-## Post-Deployment Fixes (PRs #28-64)
+## Post-Deployment Fixes (PRs #28-84)
 
 | PR Range | Fixes |
 |----------|-------|
@@ -144,10 +147,21 @@ See `test-plan-phase1.md` for full test plan and status.
 | #45-58 | Spec plans, task docs, context updates |
 | #59 | routing_log turn numbers, empty response guard, budget fields, human facilitator |
 | #60 | cost_usd tracking, graceful pause, observer skip action |
-| #61 | set_routing_preference moved to facilitator endpoint |
-| #62 | routing preference facilitator endpoint fix |
+| #61-62 | set_routing_preference moved to facilitator endpoint + fix |
 | #63 | Skip spin delay (5s min sleep for skipped turns, dedup skip logs) |
 | #64 | inject-on-pause fix, current_turn sync, set_routing/set_budget 404 guard |
+| #65-66 | Swagger add_participant placeholder rejection, alembic migration 004 |
+| #67-69 | Degenerate output detection, convergence skip-turn guard, divergence prompt injection |
+| #70-72 | Review gate approve/reject/edit endpoints, dispatch-pause + configurable scope, conftest alembic mirror |
+| #73-74 | Session-scope pause blocks all speakers, pause actually stops loop, set_routing Literal, skip just-resolved participant |
+| #75 | export_markdown/export_json fixed to use get_main_branch_id |
+| #76 | Multi-stage Dockerfile + .dockerignore + add_participant human defaults |
+| #77 | Exclude provider='human' from round-robin dispatch |
+| #78-79 | Claude empty-response fix (role mapping + no_new_input guard) + first-turn allow |
+| #80-81 | Context chronological ordering (fill_history was appending older turns) + attribute fix |
+| #82 | Wire SummarizationManager into loop, threshold 50→10, GET /tools/session/summary, debug_set_timeouts |
+| #83 | Summarizer excludes human participants when picking cheapest model |
+| #84 | Strip markdown code fences before parsing summarizer JSON |
 
 ## Phase 2 — Web UI (Planned)
 
