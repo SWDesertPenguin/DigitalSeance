@@ -356,6 +356,82 @@ main.scaffold {
   border: 1px solid var(--border);
 }
 
+/* ========== Self-controls ========== */
+
+.self-controls .kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.2em 0;
+  font-size: 0.9em;
+}
+
+.self-controls .kv .dim {
+  min-width: 70px;
+}
+
+.self-controls select {
+  padding: 0.2em 0.3em;
+  font-size: 0.9em;
+}
+
+/* ========== Banner ========== */
+
+.banner {
+  padding: 0.5em 1em;
+  text-align: center;
+  font-size: 0.9em;
+  border-bottom: 1px solid var(--border);
+}
+
+.banner-warn {
+  background: rgba(255, 209, 102, 0.15);
+  color: var(--warning);
+}
+
+/* ========== Participant badges ========== */
+
+.badge-pending {
+  background: var(--warning);
+  color: #432;
+}
+
+/* ========== Hardened markdown artifacts (US8) ========== */
+
+.msg-body .neutralized-image {
+  background: var(--panel-alt);
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  padding: 0.1em 0.4em;
+  font-family: monospace;
+  font-size: 0.9em;
+  color: var(--muted);
+}
+
+.msg-body .blocked-link {
+  background: rgba(255, 110, 110, 0.15);
+  color: var(--danger);
+  padding: 0.05em 0.3em;
+  border-radius: 3px;
+}
+
+.msg-body .invisible-marker {
+  background: rgba(255, 209, 102, 0.25);
+  color: var(--warning);
+  font-family: monospace;
+  font-size: 0.75em;
+  padding: 0 0.2em;
+  border-radius: 2px;
+  margin: 0 0.05em;
+}
+
+.invisible-count {
+  color: var(--warning);
+  font-size: 0.8em;
+  font-weight: 500;
+}
+
 /* ========== Draft stub ========== */
 
 .draft-stub {
