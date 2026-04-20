@@ -86,16 +86,16 @@ def test_csrf_rejects_post_without_header() -> None:
 
 
 def test_csrf_accepts_post_with_header() -> None:
-    """POST /login with header and wrong token passes CSRF, fails auth."""
+    """POST with the custom header passes the CSRF middleware.
+
+    Uses /logout instead of /login because /login touches the DB on
+    some CI matrices — this test is only about the middleware pass-
+    through semantics, not auth behavior.
+    """
     with TestClient(_fresh_app()) as client:
-        response = client.post(
-            "/login",
-            json={"token": "not-a-real-token"},
-            headers={"X-SACP-Request": "1"},
-        )
-    # Auth service unavailable (no pool attached) → 503.
-    # Either 401 (if auth is wired) or 503 (if it isn't). CSRF must have passed.
-    assert response.status_code in (401, 503)
+        response = client.post("/logout", headers={"X-SACP-Request": "1"})
+    assert response.status_code == 200
+    assert response.json() == {"status": "logged_out"}
 
 
 def test_logout_clears_cookie() -> None:
