@@ -145,7 +145,7 @@ class LogRepository(BaseRepository):
         previous_value: str | None = None,
         new_value: str | None = None,
     ) -> AdminAuditLog:
-        """Append a facilitator action record."""
+        """Append a facilitator action record and fan out a WS audit_entry."""
         record = await self._fetch_one(
             _INSERT_AUDIT_SQL,
             session_id,
@@ -155,7 +155,9 @@ class LogRepository(BaseRepository):
             previous_value,
             new_value,
         )
-        return AdminAuditLog.from_record(record)
+        entry = AdminAuditLog.from_record(record)
+        await _broadcast_audit_entry(entry)
+        return entry
 
     async def get_audit_log(
         self,
@@ -167,6 +169,27 @@ class LogRepository(BaseRepository):
             session_id,
         )
         return [AdminAuditLog.from_record(r) for r in rows]
+
+
+async def _broadcast_audit_entry(entry: AdminAuditLog) -> None:
+    """Push an audit_entry WS event (Phase 2 Web UI T252).
+
+    Late-imported so repositories stay decoupled from the web_ui layer
+    at import time — call is a no-op when nothing is subscribed.
+    """
+    from src.web_ui.events import audit_entry_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    payload = {
+        "id": entry.id,
+        "facilitator_id": entry.facilitator_id,
+        "action": entry.action,
+        "target_id": entry.target_id,
+        "previous_value": entry.previous_value,
+        "new_value": entry.new_value,
+        "timestamp": entry.timestamp.isoformat() if entry.timestamp else None,
+    }
+    await broadcast_to_session(entry.session_id, audit_entry_event(payload))
 
 
 # --- SQL Constants ---
