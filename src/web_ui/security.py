@@ -26,9 +26,11 @@ _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 #
 # script-src: self + the two pinned CDN origins. ``'unsafe-eval'`` is
 # mandatory because Babel Standalone compiles JSX at runtime via
-# ``new Function(...)``. Trade-off documented in spec SR-001; SRI
-# integrity attributes (task T204) are the primary CDN-compromise
-# defense once populated.
+# ``new Function(...)``. ``'unsafe-inline'`` is also required because
+# Babel injects the transpiled module back into the DOM as an inline
+# ``<script>`` element, which ``script-src-elem`` would otherwise
+# block. Trade-off documented in spec SR-001; SRI integrity attributes
+# (task T204) are the primary CDN-compromise defense once populated.
 #
 # connect-src: self + explicit MCP origin (env) + ws/wss scheme for the
 # Web UI's own WebSocket. Env default covers the standard localhost
@@ -44,7 +46,8 @@ def _build_csp() -> str:
     connect = f"'self' ws: wss: {_MCP_ORIGIN}".strip()
     return (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-eval' https://unpkg.com https://cdn.jsdelivr.net; "
+        "script-src 'self' 'unsafe-eval' 'unsafe-inline' "
+        "https://unpkg.com https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self'; "
         f"connect-src {connect}; "
