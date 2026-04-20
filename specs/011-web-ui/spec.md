@@ -159,18 +159,18 @@ AI-generated message content is rendered as markdown with mandatory security con
 
 - **FR-001**: Web UI served by FastAPI on port 8751, separate from the MCP API on 8750.
 - **FR-002**: Single-file React JSX (CDN-loaded, no build toolchain). Split to modules if exceeding ~2000 lines.
-- **FR-003**: Bearer token authentication via login screen. Token held in HttpOnly cookie or React ref — never in localStorage/sessionStorage.
+- **FR-003**: Bearer token authentication via login screen. Token held in HttpOnly cookie or React ref — never in localStorage/sessionStorage. After `POST /tools/participant/rotate_token`, the UI MUST treat the existing cookie + ref as invalid (redirect to AuthGate; WebSocket will close 4401 on next upgrade).
 - **FR-004**: WebSocket connection at `ws://<host>:8751/ws/{session_id}` for real-time push events.
 - **FR-005**: Server sends `state_snapshot` on WebSocket connect with full session state.
-- **FR-006**: Transcript renders markdown with security overrides: HTML stripping, image neutralization, link sanitization, invisible character revealing.
+- **FR-006**: Transcript renders markdown with security overrides. Raw HTML stripped. Images neutralized to `[Image: alt]` text. Links with `javascript:` / `data:` / `vbscript:` / `file:` schemes rendered as warning spans. Invisible / bidirectional Unicode code points (U+200B..U+200F, U+202A..U+202E, U+2066..U+2069, U+FEFF) replaced with visible `[LABEL]` markers and each message shows a "⚠ N hidden" count badge.
 - **FR-007**: Three-column layout: left sidebar (participants + controls), center (transcript + input), right sidebar (budget + convergence + proposals + review gate).
 - **FR-008**: Responsive: sidebars collapse to drawers below 1024px.
 - **FR-009**: Facilitator controls gated by role — hidden for non-facilitator participants.
-- **FR-010**: Budget dashboard shows per-participant spend vs. limits with data visibility enforcement per privacy policy.
+- **FR-010**: Budget dashboard shows per-participant spend vs. limits with data visibility enforcement per privacy policy. Backend derives `spend_daily` from `log_repo.get_participant_cost(pid, period="daily")` and ships it on every `state_snapshot.participants[*]` and on `participant_update` events fired after each persisted AI turn.
 - **FR-011**: Convergence sparkline graph of similarity over last 50 turns with threshold line.
 - **FR-012**: Review gate queue with Approve/Edit/Reject and timeout countdown. Backed by Phase 1 endpoints: `GET /tools/facilitator/list_drafts`, `POST /tools/facilitator/approve_draft`, `POST /tools/facilitator/reject_draft`, `POST /tools/facilitator/edit_draft`.
 - **FR-013**: Proposal tracker with voting and real-time tally updates.
-- **FR-014**: Auto-reconnecting WebSocket with exponential backoff. Respects close codes (4401 = stop, 4403 = stop, 1006 = retry).
+- **FR-014**: Auto-reconnecting WebSocket with exponential backoff. Initial delay 1s, doubles per failure, capped at 30s. Respects close codes (4401 = stop, 4403 = stop, 4429 = backoff with jitter, 1006 = retry).
 - **FR-015**: Message injection via text input with Ctrl+Enter send. Backed by `POST /tools/participant/inject_message`.
 - **FR-016**: Facilitator admin panel: pending approvals, session config, invite generation, audit log. Backed by `POST /tools/facilitator/{approve_participant,reject_participant,remove_participant,create_invite,transfer_facilitator,set_budget,set_routing_preference}` and the audit rows from `GET /tools/debug/export`.
 - **FR-017**: Session export (markdown/JSON) via download button. Backed by `GET /tools/session/{export_markdown,export_json}`.
@@ -180,10 +180,10 @@ AI-generated message content is rendered as markdown with mandatory security con
 
 ### Security Requirements
 
-- **SR-001**: CSP header: `default-src 'self'; script-src 'self'; img-src 'self'; frame-ancestors 'none'`. No `data:` URIs for images.
+- **SR-001**: CSP header. `script-src 'self' 'unsafe-eval' https://unpkg.com https://cdn.jsdelivr.net` — the two pinned CDN origins are required by FR-002 (CDN-loaded, no build toolchain) and `'unsafe-eval'` is required by Babel Standalone's runtime JSX compilation. SRI integrity attributes on every CDN `<script>` (task T204) are the primary CDN-compromise defense. `connect-src 'self' ws: wss: <SACP_WEB_UI_MCP_ORIGIN>` — operator sets the env to their deployment's MCP origin. `default-src 'self'`, `img-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`, `base-uri 'self'`, `form-action 'self'`. No `data:` URIs for images.
 - **SR-002**: HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy headers on all responses.
 - **SR-003**: CORS restricted to own origin only. No wildcard.
-- **SR-004**: WebSocket upgrade validates Origin header. Mismatched origins rejected.
+- **SR-004**: WebSocket upgrade validates Origin header. Missing or mismatched origins closed with 4403. Allowed origins come from `SACP_WEB_UI_ALLOWED_ORIGINS` (CSV), defaulting to same-origin (Origin matches the request's own `Host`). Required by constitution §9.
 - **SR-005**: No `dangerouslySetInnerHTML` on unsanitized content. Only on markdown-rendered output with security overrides active.
 - **SR-006**: CSRF protection via `X-SACP-Request: 1` custom header on all mutations.
 - **SR-007**: API keys and system prompts never displayed in the UI.
