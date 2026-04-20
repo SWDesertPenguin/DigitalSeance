@@ -269,6 +269,25 @@ function reducer(state, action) {
     }
     case "seed_audit_entries":
       return { ...state, auditEntries: action.entries.slice(0, 100) };
+    case "seed_proposals":
+      return { ...state, openProposals: action.proposals };
+    case "proposal_created":
+      return {
+        ...state,
+        openProposals: [...state.openProposals, { ...action.event.proposal, tally: { accept: 0, reject: 0, abstain: 0 } }],
+      };
+    case "proposal_voted":
+      return {
+        ...state,
+        openProposals: state.openProposals.map((p) =>
+          p.id === action.event.proposal_id ? { ...p, tally: action.event.tally } : p,
+        ),
+      };
+    case "proposal_resolved":
+      return {
+        ...state,
+        openProposals: state.openProposals.filter((p) => p.id !== action.event.proposal_id),
+      };
     case "error":
       return {
         ...state,
@@ -422,7 +441,7 @@ function AuthGate({ banner, onLogin }) {
   );
 }
 
-function Header({ session, me, wsState }) {
+function Header({ session, me, wsState, onExport, theme, onToggleTheme }) {
   const dotColor =
     wsState === "open" ? "var(--ok)" :
     wsState === "reconnecting" ? "var(--warning)" :
@@ -443,6 +462,15 @@ function Header({ session, me, wsState }) {
         <span>Turn {session?.current_turn ?? 0}</span>
       </div>
       <div className="header-right">
+        <button className="icon-btn" onClick={() => onExport("markdown")} title="Export markdown">
+          ⬇ .md
+        </button>
+        <button className="icon-btn" onClick={() => onExport("json")} title="Export JSON">
+          ⬇ .json
+        </button>
+        <button className="icon-btn" onClick={onToggleTheme} title="Toggle theme">
+          {theme === "light" ? "🌙" : "☀"}
+        </button>
         <span className="ws-indicator" style={{ backgroundColor: dotColor }} title={dotTitle} />
         <span className="me">{me?.participant_id}</span>
       </div>
@@ -967,6 +995,125 @@ function AdminPanel({ participants, session, auditEntries, onApprove, onReject, 
   );
 }
 
+function ProposalTracker({ proposals, me, isFacilitator, onCreate, onVote, onResolve }) {
+  // US7 T151–T153.
+  const [showCreator, setShowCreator] = useState(false);
+  const myVotes = useRef({}); // local optimistic marker so a second vote is disabled client-side
+
+  return (
+    <section className="panel proposal-panel">
+      <div className="panel-header">
+        <h2>Proposals</h2>
+        <button onClick={() => setShowCreator(true)}>+ New</button>
+      </div>
+      {proposals.length === 0 && <p className="dim">No open proposals.</p>}
+      {proposals.map((p) => {
+        const tally = p.tally || { accept: 0, reject: 0, abstain: 0 };
+        const alreadyVoted = myVotes.current[p.id] === true;
+        return (
+          <div key={p.id} className="proposal-card">
+            <header>
+              <strong>{p.topic}</strong>
+              <span className="dim">{p.acceptance_mode}</span>
+            </header>
+            <p className="proposal-position">{p.position}</p>
+            <div className="tally">
+              <span className="pill pill-accepted">✓ {tally.accept}</span>
+              <span className="pill pill-rejected">✗ {tally.reject}</span>
+              <span className="pill pill-pending">· {tally.abstain}</span>
+            </div>
+            <div className="button-row">
+              <button
+                disabled={alreadyVoted}
+                onClick={async () => {
+                  try { await onVote(p.id, "accept"); myVotes.current[p.id] = true; }
+                  catch (e) { alert(e.message); }
+                }}
+              >Accept</button>
+              <button
+                disabled={alreadyVoted}
+                onClick={async () => {
+                  try { await onVote(p.id, "reject"); myVotes.current[p.id] = true; }
+                  catch (e) { alert(e.message); }
+                }}
+              >Reject</button>
+              <button
+                disabled={alreadyVoted}
+                onClick={async () => {
+                  try { await onVote(p.id, "abstain"); myVotes.current[p.id] = true; }
+                  catch (e) { alert(e.message); }
+                }}
+              >Abstain</button>
+            </div>
+            {isFacilitator && (
+              <div className="button-row">
+                <button onClick={() => onResolve(p.id, "accepted")} className="resolve-accept">
+                  Resolve: accept
+                </button>
+                <button onClick={() => onResolve(p.id, "rejected")} className="danger">
+                  Resolve: reject
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {showCreator && (
+        <ProposalCreator
+          onClose={() => setShowCreator(false)}
+          onCreate={async (topic, position) => {
+            await onCreate(topic, position);
+            setShowCreator(false);
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function ProposalCreator({ onClose, onCreate }) {
+  const [topic, setTopic] = useState("");
+  const [position, setPosition] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const submit = async (ev) => {
+    ev.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await onCreate(topic.trim(), position.trim());
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(ev) => ev.stopPropagation()}>
+        <h2>New proposal</h2>
+        <form onSubmit={submit}>
+          <label>Topic
+            <input value={topic} onChange={(ev) => setTopic(ev.target.value)} required />
+          </label>
+          <label>Position
+            <textarea rows={4} value={position} onChange={(ev) => setPosition(ev.target.value)} required />
+          </label>
+          {error && <div className="error">{error}</div>}
+          <div className="modal-actions">
+            <button type="button" onClick={onClose}>Cancel</button>
+            <button type="submit" disabled={busy || !topic.trim() || !position.trim()}>
+              {busy ? "Creating…" : "Create"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function MessageInput({ onSend, disabled }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1125,6 +1272,34 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editDraft, setEditDraft] = useState(null);
+  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || "dark");
+
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    document.documentElement.dataset.theme = next;
+  };
+
+  const exportTranscript = async (format) => {
+    try {
+      const path = format === "json" ? "/tools/session/export_json" : "/tools/session/export_markdown";
+      const result = await mcpCall(path, auth.token);
+      const blob = new Blob(
+        [typeof result.content === "string" ? result.content : JSON.stringify(result, null, 2)],
+        { type: format === "json" ? "application/json" : "text/markdown" },
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `sacp-${auth.session_id}-${Date.now()}.${format === "json" ? "json" : "md"}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(`Export failed: ${e.message}`);
+    }
+  };
 
   const onEvent = useCallback((event) => {
     if (event?.type) {
@@ -1225,6 +1400,36 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     }
   };
 
+  // US7 proposal actions.
+  const createProposal = async (topic, position) => {
+    await mcpCall("/tools/proposal/create", auth.token, {
+      method: "POST",
+      body: { topic, position },
+    });
+  };
+  const voteOnProposal = async (proposalId, vote) => {
+    await mcpCall("/tools/proposal/vote", auth.token, {
+      method: "POST",
+      body: { proposal_id: proposalId, vote },
+    });
+  };
+  const resolveProposal = async (proposalId, status) => {
+    await mcpCall("/tools/proposal/resolve", auth.token, {
+      method: "POST",
+      body: { proposal_id: proposalId, status },
+    });
+  };
+
+  // Seed open proposals on first WS attach so tallies are current.
+  useEffect(() => {
+    if (!auth.session_id) return;
+    mcpCall("/tools/proposal/list", auth.token)
+      .then((data) => {
+        if (data?.proposals) dispatch({ type: "seed_proposals", proposals: data.proposals });
+      })
+      .catch(() => { /* ignore; snapshot will still deliver open_proposals */ });
+  }, [auth.session_id, auth.token]);
+
   // Audit log seed — fetched once when the facilitator opens the panel.
   useEffect(() => {
     if (!isFacilitator || state.auditEntries.length > 0) return;
@@ -1240,7 +1445,14 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
 
   return (
     <div className="app-shell">
-      <Header session={state.session} me={auth} wsState={wsState} />
+      <Header
+        session={state.session}
+        me={auth}
+        wsState={wsState}
+        onExport={exportTranscript}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      />
       {wsState === "reconnecting" && (
         <div className="banner banner-warn">
           Reconnecting to the server…
@@ -1305,6 +1517,14 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
           />
           <ConvergencePanel scores={state.convergenceScores} />
           <SummaryPanel summary={state.latestSummary} />
+          <ProposalTracker
+            proposals={state.openProposals}
+            me={auth}
+            isFacilitator={isFacilitator}
+            onCreate={createProposal}
+            onVote={voteOnProposal}
+            onResolve={resolveProposal}
+          />
         </aside>
       </div>
       {showAddDialog && (

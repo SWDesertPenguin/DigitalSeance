@@ -93,6 +93,33 @@ def audit_entry_event(entry: dict[str, Any]) -> dict[str, Any]:
     return _envelope("audit_entry", entry=entry)
 
 
+def proposal_created_event(proposal: dict[str, Any]) -> dict[str, Any]:
+    """A new proposal was opened (US7 T153)."""
+    return _envelope("proposal_created", proposal=proposal)
+
+
+def proposal_voted_event(
+    *,
+    proposal_id: str,
+    voter_id: str,
+    vote: str,
+    tally: dict[str, int],
+) -> dict[str, Any]:
+    """A vote was cast; includes the updated tally."""
+    return _envelope(
+        "proposal_voted",
+        proposal_id=proposal_id,
+        voter_id=voter_id,
+        vote=vote,
+        tally=tally,
+    )
+
+
+def proposal_resolved_event(*, proposal_id: str, status: str) -> dict[str, Any]:
+    """A proposal was resolved by the facilitator."""
+    return _envelope("proposal_resolved", proposal_id=proposal_id, status=status)
+
+
 def state_snapshot_event(
     *,
     session: dict[str, Any],

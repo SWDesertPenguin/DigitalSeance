@@ -42,7 +42,7 @@ cd src; pytest; ruff check .
 Python 3.11+ (constitution §6.1): Follow standard conventions
 
 ## Recent Changes
-- 011-web-ui: Phase 2 Web UI plan — FastAPI app on 8751, WebSocket, React SPA (no build toolchain)
+- 011-web-ui: Phase 2 COMPLETE (2026-04-20) — 10 user stories shipped on port 8751, React SPA with CDN+SRI, strict CSP, HttpOnly cookie auth, WebSocket v1 event envelope, dashboards + review gate + admin + proposals
 - Phase 1 COMPLETE (2026-04-20) — all scenario tests pass after PR #84
 - 010 review-gate pause scope — facilitator-configurable session/participant pause, dispatch-pause while drafts pending
 - 009-rate-limiting: Per-participant rate limiting middleware
