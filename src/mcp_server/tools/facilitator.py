@@ -309,8 +309,7 @@ async def _update_timeouts(
     pool = request.app.state.pool
     async with pool.acquire() as conn:
         result = await conn.execute(
-            "UPDATE participants SET consecutive_timeouts = $1"
-            " WHERE id = $2 AND session_id = $3",
+            "UPDATE participants SET consecutive_timeouts = $1 WHERE id = $2 AND session_id = $3",
             body.consecutive_timeouts,
             body.participant_id,
             session_id,
