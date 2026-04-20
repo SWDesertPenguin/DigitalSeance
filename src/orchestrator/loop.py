@@ -369,12 +369,16 @@ async def _assemble_and_dispatch(
 
 
 def _has_new_input(context: list) -> bool:
-    """True when last non-system context message has role 'user'."""
+    """True unless the last non-system message is 'assistant' (same speaker's own turn).
+
+    An empty/system-only context counts as new input — first turn of a
+    session shouldn't be blocked just because no one has spoken yet.
+    """
     for msg in reversed(context):
         if msg.role == "system":
             continue
-        return msg.role == "user"
-    return False
+        return msg.role != "assistant"
+    return True
 
 
 async def _validate_and_persist(
