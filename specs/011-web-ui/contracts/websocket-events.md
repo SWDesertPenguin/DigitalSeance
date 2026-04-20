@@ -1,0 +1,150 @@
+# WebSocket Event Contract (v1)
+
+**Branch**: `011-web-ui`
+**Endpoint**: `ws://<host>:8751/ws/{session_id}`
+**Upgrade auth**: HttpOnly cookie set during `/login`. WS rejected with 4401 if cookie missing/invalid, 4403 if participant is not in the session.
+
+All events are JSON with `{"v": 1, "type": "<event_type>", ...fields}`. Unknown `v` → client ignores + logs warning; unknown `type` → client ignores.
+
+---
+
+## Server → Client
+
+### `state_snapshot`
+
+Sent once immediately after a successful upgrade, and again after any reconnect.
+
+```text
+{
+  v: 1,
+  type: "state_snapshot",
+  session: { id, name, status, current_turn, last_summary_turn,
+             cadence_preset, review_gate_pause_scope },
+  me:      { participant_id, role },
+  participants: [ParticipantCard, ...],
+  messages:     [Message, ...],           // last 50, ascending by turn_number
+  pending_drafts: [ReviewDraft, ...],
+  open_proposals: [Proposal, ...],
+  latest_summary: SummaryView | null,
+  convergence_scores: [ConvergenceDataPoint, ...]   // last 50
+}
+```
+
+### `message`
+
+Sent after each non-skipped turn is persisted.
+
+```text
+{ v:1, type:"message", message: Message, turn_number: int }
+```
+
+### `turn_skipped`
+
+Sent when the loop skips a turn (budget/circuit/review-gate/no_new_input).
+
+```text
+{ v:1, type:"turn_skipped", participant_id: str, reason: str, turn_number: int }
+```
+
+### `participant_update`
+
+Sent on any field change for a participant in the session (role, status,
+consecutive_timeouts, routing_preference, budget values, etc.). Clients merge
+over the existing `ParticipantCard` in state.
+
+```text
+{ v:1, type:"participant_update", participant: ParticipantCard }
+```
+
+### `convergence_update`
+
+Sent once per turn for which convergence was computed.
+
+```text
+{ v:1, type:"convergence_update", point: ConvergenceDataPoint }
+```
+
+### `review_gate_staged`
+
+Sent when a new draft is created.
+
+```text
+{ v:1, type:"review_gate_staged", draft: ReviewDraft }
+```
+
+### `review_gate_resolved`
+
+Sent when a draft is approved/rejected/edited/timed-out.
+
+```text
+{ v:1, type:"review_gate_resolved",
+  draft_id: str, resolution: "approved"|"rejected"|"edited"|"timeout",
+  turn_number: int | null }
+```
+
+### `summary_created`
+
+Sent when a new summarization checkpoint lands.
+
+```text
+{ v:1, type:"summary_created", summary: SummaryView }
+```
+
+### `session_status_changed`
+
+Sent on pause / resume / archive.
+
+```text
+{ v:1, type:"session_status_changed", status: "active"|"paused"|"archived" }
+```
+
+### `error`
+
+Sent for non-fatal server-side warnings (rate-limit hit, summarization failure, etc.)
+that the UI should surface to the user but not close the connection over.
+
+```text
+{ v:1, type:"error", code: str, message: str }
+```
+
+### `pong`
+
+Reply to a client `ping`. No payload fields.
+
+---
+
+## Client → Server
+
+### `ping`
+
+Sent every 30s to keep the connection alive and prove liveness. Server replies with `pong`.
+
+```text
+{ v:1, type:"ping" }
+```
+
+### `subscribe`
+
+Optional narrowing. Sends a list of event types the client wants; empty list = default firehose.
+
+```text
+{ v:1, type:"subscribe", topics: ["message","participant_update",...] }
+```
+
+---
+
+## Close Codes
+
+| Code | Meaning | Client behavior |
+|---|---|---|
+| 1000 | Normal | Do not reconnect |
+| 1006 | Abnormal (network drop) | Exponential backoff reconnect |
+| 4401 | Unauthenticated | Do not reconnect; show login prompt |
+| 4403 | Not a participant in this session | Do not reconnect; navigate to session picker |
+| 4429 | Too many connections from IP | Backoff with jitter, max 3 retries |
+
+## Broadcast Scoping
+
+All events scoped to a single `session_id`. Cross-session leakage is a bug.
+The UI server MUST verify the cookie participant is still a session member
+before each broadcast (per WebUIConnection.role refresh on connect).

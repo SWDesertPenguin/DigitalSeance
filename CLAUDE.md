@@ -13,6 +13,7 @@ Auto-generated from all feature plans. Last updated: 2026-04-20
 - 7-layer security pipeline — sanitization, spotlighting, validation, exfiltration, jailbreak, prompt defense, log scrubbing (007-ai-security-pipeline)
 - 4-tier delta system prompts with canary tokens (008-prompts-security-wiring)
 - Per-participant rate limiting, 60 req/min default (009-rate-limiting)
+- Web UI: FastAPI app on port 8751, WebSocket /ws/{session_id}, single-file React SPA via CDN + SRI pins (011-web-ui)
 
 ## Project Structure
 
@@ -41,6 +42,7 @@ cd src; pytest; ruff check .
 Python 3.11+ (constitution §6.1): Follow standard conventions
 
 ## Recent Changes
+- 011-web-ui: Phase 2 Web UI plan — FastAPI app on 8751, WebSocket, React SPA (no build toolchain)
 - Phase 1 COMPLETE (2026-04-20) — all scenario tests pass after PR #84
 - 010 review-gate pause scope — facilitator-configurable session/participant pause, dispatch-pause while drafts pending
 - 009-rate-limiting: Per-participant rate limiting middleware
