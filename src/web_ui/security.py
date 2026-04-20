@@ -24,14 +24,19 @@ _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 # Content-Security-Policy tuned for the CDN-loaded SPA. We allow unpkg +
 # jsdelivr for scripts because index.html loads React / Babel / marked /
-# DOMPurify from those origins with SRI integrity (T204). Everything else
-# is own-origin only.
+# DOMPurify from those origins with SRI integrity (T204).
+#
+# connect-src intentionally allows ``http:`` / ``https:`` / ``ws:`` /
+# ``wss:`` as schemes because the SPA fetches to the MCP server on a
+# sibling port (8750) — a strictly-enumerated host+port list would
+# couple CSP to deployment topology. Phase 6 (US8) can tighten this
+# when we formalize the allowed MCP origin (FR-006).
 _CSP = (
     "default-src 'self'; "
     "script-src 'self' https://unpkg.com https://cdn.jsdelivr.net; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self'; "
-    "connect-src 'self' ws: wss:; "
+    "connect-src 'self' http: https: ws: wss:; "
     "font-src 'self'; "
     "object-src 'none'; "
     "frame-ancestors 'none'; "
