@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from src.mcp_server.middleware import get_current_participant
@@ -123,6 +125,60 @@ async def _get_branch_id(request: Request, session_id: str) -> str:
             session_id,
         )
     return result or "main"
+
+
+_SelfRoutingPreference = Literal[
+    "always",
+    "review_gate",
+    "delegate_low",
+    "domain_gated",
+    "burst",
+    "observer",
+    "addressed_only",
+    "human_only",
+]
+
+
+class _SelfRoutingBody(BaseModel):
+    """Request body for a participant setting their own routing preference."""
+
+    preference: _SelfRoutingPreference
+
+
+@router.post("/set_routing_preference")
+async def set_own_routing_preference(
+    request: Request,
+    body: _SelfRoutingBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Set the caller's own routing preference (T250 self-serve variant).
+
+    The facilitator-only variant at /tools/facilitator/set_routing_preference
+    remains for cross-participant edits; this endpoint only ever mutates
+    the caller's own row, identified by the auth token.
+    """
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE participants SET routing_preference = $1 WHERE id = $2",
+            body.preference,
+            participant.id,
+        )
+    if result == "UPDATE 0":
+        raise HTTPException(404, "participant row not found")
+    participant_repo = request.app.state.participant_repo
+    from src.web_ui.events import broadcast_participant_update
+
+    await broadcast_participant_update(
+        participant.session_id,
+        participant.id,
+        participant_repo,
+    )
+    return {
+        "status": "updated",
+        "participant_id": participant.id,
+        "preference": body.preference,
+    }
 
 
 @router.post("/rotate_token")

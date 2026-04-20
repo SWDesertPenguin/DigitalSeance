@@ -262,6 +262,162 @@ async def set_review_gate_pause_scope(
     return {"status": "updated", "scope": body.scope}
 
 
+# --- T251: session config mutation endpoints (Phase 2b admin panel) ---
+
+_CadencePreset = Literal["sprint", "cruise", "idle"]
+_AcceptanceMode = Literal["unanimous", "majority"]
+_ModelTier = Literal["low", "mid", "high", "max"]
+_ClassifierMode = Literal["pattern", "llm"]
+
+
+class _SetCadenceBody(BaseModel):
+    """Request body for setting the cadence preset."""
+
+    preset: _CadencePreset
+
+
+class _SetAcceptanceBody(BaseModel):
+    """Request body for setting the acceptance mode."""
+
+    mode: _AcceptanceMode
+
+
+class _SetMinTierBody(BaseModel):
+    """Request body for setting the minimum model tier."""
+
+    tier: _ModelTier
+
+
+class _SetClassifierBody(BaseModel):
+    """Request body for setting the complexity classifier mode."""
+
+    mode: _ClassifierMode
+
+
+@router.post("/set_cadence_preset")
+async def set_cadence_preset(
+    request: Request,
+    body: _SetCadenceBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Set cadence preset on the session (facilitator only)."""
+    previous = await _update_session_field(
+        request,
+        participant.session_id,
+        "cadence_preset",
+        body.preset,
+    )
+    loop = request.app.state.conversation_loop
+    loop.set_cadence_preset(participant.session_id, body.preset)
+    await _audit_session_config(request, participant, "set_cadence_preset", previous, body.preset)
+    return {"status": "updated", "cadence_preset": body.preset}
+
+
+@router.post("/set_acceptance_mode")
+async def set_acceptance_mode(
+    request: Request,
+    body: _SetAcceptanceBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Set acceptance mode on the session (facilitator only)."""
+    previous = await _update_session_field(
+        request,
+        participant.session_id,
+        "acceptance_mode",
+        body.mode,
+    )
+    await _audit_session_config(request, participant, "set_acceptance_mode", previous, body.mode)
+    return {"status": "updated", "acceptance_mode": body.mode}
+
+
+@router.post("/set_min_model_tier")
+async def set_min_model_tier(
+    request: Request,
+    body: _SetMinTierBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Set minimum model tier for session participation (facilitator only)."""
+    previous = await _update_session_field(
+        request,
+        participant.session_id,
+        "min_model_tier",
+        body.tier,
+    )
+    await _audit_session_config(request, participant, "set_min_model_tier", previous, body.tier)
+    return {"status": "updated", "min_model_tier": body.tier}
+
+
+@router.post("/set_complexity_classifier_mode")
+async def set_complexity_classifier_mode(
+    request: Request,
+    body: _SetClassifierBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Set the complexity classifier mode on the session (facilitator only)."""
+    previous = await _update_session_field(
+        request,
+        participant.session_id,
+        "complexity_classifier_mode",
+        body.mode,
+    )
+    await _audit_session_config(
+        request, participant, "set_complexity_classifier_mode", previous, body.mode
+    )
+    return {"status": "updated", "complexity_classifier_mode": body.mode}
+
+
+_ALLOWED_SESSION_FIELDS = {
+    "cadence_preset",
+    "acceptance_mode",
+    "min_model_tier",
+    "complexity_classifier_mode",
+}
+
+
+async def _update_session_field(
+    request: Request,
+    session_id: str,
+    field: str,
+    value: str,
+) -> str | None:
+    """UPDATE a whitelisted column on sessions, returning the previous value."""
+    if field not in _ALLOWED_SESSION_FIELDS:
+        raise HTTPException(400, f"unknown session field: {field}")
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        previous = await conn.fetchval(
+            f"SELECT {field} FROM sessions WHERE id = $1",  # noqa: S608 — whitelisted
+            session_id,
+        )
+        result = await conn.execute(
+            f"UPDATE sessions SET {field} = $1 WHERE id = $2",  # noqa: S608 — whitelisted
+            value,
+            session_id,
+        )
+    if result == "UPDATE 0":
+        raise HTTPException(404, "session not found")
+    return previous
+
+
+async def _audit_session_config(
+    request: Request,
+    participant: Participant,
+    action: str,
+    previous_value: str | None,
+    new_value: str,
+) -> None:
+    """Write an audit row for a session-config mutation."""
+    log_repo = request.app.state.log_repo
+    await log_repo.log_admin_action(
+        session_id=participant.session_id,
+        facilitator_id=participant.id,
+        action=action,
+        target_id=participant.session_id,
+        previous_value=previous_value,
+        new_value=new_value,
+    )
+
+
 class _DebugSetTimeoutsBody(BaseModel):
     """Request body for priming a participant's consecutive_timeouts counter."""
 
