@@ -442,6 +442,239 @@ main.scaffold {
   margin-bottom: 0.4em;
 }
 
+/* ========== Health badge (US10) ========== */
+
+.health-badge {
+  font-size: 0.75em;
+  padding: 0.1em 0.5em;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.health-ok { background: rgba(110, 231, 160, 0.15); color: var(--ok); }
+.health-warn { background: rgba(255, 209, 102, 0.15); color: var(--warning); }
+.health-danger { background: rgba(255, 110, 110, 0.15); color: var(--danger); }
+.health-dim { background: var(--panel-alt); color: var(--muted); }
+
+/* ========== Budget panel (US4) ========== */
+
+.budget-card {
+  padding: 0.5em 0.6em;
+  margin-bottom: 0.5em;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.util-bar {
+  position: relative;
+  height: 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 0.3em;
+}
+
+.util-fill {
+  height: 100%;
+  transition: width 0.3s;
+}
+
+.util-pct {
+  position: absolute;
+  right: 0.4em;
+  top: -1.5em;
+  font-size: 0.75em;
+  color: var(--muted);
+}
+
+/* ========== Convergence panel (US4) ========== */
+
+.convergence-panel .sparkline {
+  width: 100%;
+  height: auto;
+  background: var(--bg);
+  border-radius: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+}
+
+/* ========== Summary panel (US9) ========== */
+
+.summary-panel h3 {
+  font-size: 0.85em;
+  color: var(--accent);
+  margin: 0.6em 0 0.3em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.summary-panel .narrative {
+  margin: 0.3em 0;
+  font-size: 0.9em;
+  line-height: 1.4;
+}
+
+.summary-panel ul {
+  margin: 0.2em 0;
+  padding-left: 1.3em;
+  font-size: 0.85em;
+  line-height: 1.4;
+}
+
+.pill {
+  display: inline-block;
+  font-size: 0.7em;
+  padding: 0.05em 0.4em;
+  border-radius: 8px;
+  margin-right: 0.3em;
+  text-transform: uppercase;
+}
+
+.pill-accepted { background: rgba(110, 231, 160, 0.2); color: var(--ok); }
+.pill-pending { background: rgba(255, 209, 102, 0.2); color: var(--warning); }
+.pill-rejected { background: rgba(255, 110, 110, 0.2); color: var(--danger); }
+
+/* ========== Review gate queue (US5) ========== */
+
+.review-gate-panel .panel-header,
+.summary-panel .panel-header,
+.admin-panel .panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+
+.review-gate-panel .panel-header select {
+  font-size: 0.8em;
+  padding: 0.2em;
+}
+
+.draft-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: 4px;
+  padding: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.draft-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85em;
+  margin-bottom: 0.3em;
+}
+
+.draft-body pre {
+  margin: 0.3em 0;
+  padding: 0.4em;
+  background: var(--bg);
+  border-radius: 3px;
+  font-size: 0.8em;
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.draft-actions {
+  display: flex;
+  gap: 0.3em;
+  margin-top: 0.3em;
+}
+
+.draft-actions button {
+  flex: 1;
+  font-size: 0.85em;
+  padding: 0.3em;
+}
+
+.modal.modal-wide {
+  width: 600px;
+}
+
+.modal textarea {
+  width: 100%;
+  font-family: monospace;
+  resize: vertical;
+}
+
+/* ========== Admin panel (US6) ========== */
+
+.admin-panel .toggle {
+  color: var(--muted);
+  font-size: 1em;
+}
+
+.admin-panel details {
+  margin-top: 0.5em;
+  border-top: 1px solid var(--border);
+  padding-top: 0.5em;
+}
+
+.admin-panel summary {
+  cursor: pointer;
+  font-size: 0.85em;
+  color: var(--muted);
+  user-select: none;
+}
+
+.admin-panel summary:hover {
+  color: var(--fg);
+}
+
+.pending-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3em 0;
+  gap: 0.4em;
+  font-size: 0.9em;
+}
+
+.pending-row .button-row {
+  gap: 0.3em;
+}
+
+.pending-row button {
+  font-size: 0.75em;
+  padding: 0.2em 0.5em;
+}
+
+.invite-display {
+  margin-top: 0.5em;
+  padding: 0.5em;
+  background: var(--bg);
+  border-radius: 4px;
+}
+
+.invite-display code {
+  display: block;
+  word-break: break-all;
+  font-size: 0.75em;
+  margin-bottom: 0.3em;
+}
+
+.audit-row {
+  display: flex;
+  gap: 0.5em;
+  padding: 0.2em 0;
+  font-size: 0.8em;
+  align-items: center;
+}
+
+.audit-row .audit-action {
+  color: var(--accent);
+  font-family: monospace;
+}
+
+.audit-row code {
+  font-size: 0.9em;
+  color: var(--muted);
+}
+
 /* ========== Responsive ========== */
 
 @media (max-width: 1024px) {
