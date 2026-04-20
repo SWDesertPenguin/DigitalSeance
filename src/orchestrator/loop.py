@@ -98,16 +98,19 @@ class ConversationLoop:
         self._router.mark_resolved(session_id, participant_id)
 
     async def _log_skip_once(self, session_id: str, skip: object) -> None:
-        """Log a skip only if it differs from the previous one.
+        """Log a skip once per (pid, reason) change and emit turn_skipped.
 
-        Accepts both RoutingDecision (from router) and TurnResult
-        (from budget/circuit checks).
+        The v1 `turn_skipped` WebSocket event powers FR-020's per-participant
+        skip-reason tooltip. Deduplicated alongside the log write so the
+        UI sees the same noise-reduction the audit log does.
         """
         pid = getattr(skip, "intended", None) or skip.speaker_id
         reason = getattr(skip, "reason", None) or skip.skip_reason
+        turn = getattr(skip, "turn_number", -1)
         skip_key = f"{pid}:{reason}"
         if self._last_skip.get(session_id) != skip_key:
             await _log_skip_entry(self._log_repo, session_id, pid, reason)
+            await _emit_turn_skipped(session_id, pid, reason, turn)
             self._last_skip[session_id] = skip_key
 
     async def execute_turn(self, session_id: str) -> TurnResult:
@@ -476,7 +479,50 @@ async def _persist_turn(
     await _log_routing(ctx.log_repo, ctx.session_id, decision, turn_number=msg.turn_number)
     await _log_usage(ctx.log_repo, speaker, msg.turn_number, response)
     await _sync_current_turn(ctx.pool, ctx.session_id, msg.turn_number)
+    await _emit_message_to_web_ui(ctx.session_id, msg, response.cost_usd)
+    await _emit_spend_update(ctx, speaker.id)
     return _turn_result(ctx.session_id, msg.turn_number, speaker, decision, response)
+
+
+async def _emit_message_to_web_ui(
+    session_id: str,
+    msg: object,
+    cost_usd: float | None,
+) -> None:
+    """Push a v1 message event with the full persisted Message shape.
+
+    Fix for C8: the earlier TurnResult-only broadcast omitted content /
+    speaker_type / created_at, so every live turn rendered as an empty
+    card in the transcript.
+    """
+    from src.web_ui.events import message_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    payload = {
+        "turn_number": msg.turn_number,
+        "speaker_id": msg.speaker_id,
+        "speaker_type": msg.speaker_type,
+        "content": msg.content,
+        "token_count": msg.token_count,
+        "cost_usd": cost_usd,
+        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+        "summary_epoch": msg.summary_epoch,
+    }
+    await broadcast_to_session(session_id, message_event(payload))
+
+
+async def _emit_spend_update(ctx: _TurnContext, participant_id: str) -> None:
+    """Broadcast participant_update with a fresh daily-spend aggregate (C3)."""
+    from src.repositories.participant_repo import ParticipantRepository
+    from src.web_ui.events import broadcast_participant_update
+
+    repo = ParticipantRepository(ctx.pool, encryption_key=ctx.encryption_key)
+    await broadcast_participant_update(
+        ctx.session_id,
+        participant_id,
+        repo,
+        ctx.log_repo,
+    )
 
 
 async def _stage_for_review(
@@ -498,6 +544,22 @@ async def _stage_for_review(
     await _emit_draft_staged(ctx.session_id, draft)
     skip = _skip_result(ctx.session_id, speaker.id, "review_gate_staged")
     return _with_delay(skip, 5.0)
+
+
+async def _emit_turn_skipped(
+    session_id: str,
+    participant_id: str,
+    reason: str,
+    turn_number: int,
+) -> None:
+    """Push a v1 turn_skipped event for the health-badge tooltip (C7)."""
+    from src.web_ui.events import turn_skipped_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    await broadcast_to_session(
+        session_id,
+        turn_skipped_event(participant_id, reason, turn_number),
+    )
 
 
 async def _emit_convergence(
