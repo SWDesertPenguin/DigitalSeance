@@ -73,7 +73,7 @@ async def test_expired_token_rejected(
     past = datetime.utcnow() - timedelta(hours=1)  # noqa: DTZ003
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE participants" " SET token_expires_at = $1 WHERE id = $2",
+            "UPDATE participants SET token_expires_at = $1 WHERE id = $2",
             past,
             pid,
         )

@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 
 from src.config import load_settings
 from src.database.connection import close_pool, create_pool
-from src.mcp_server.sse import ConnectionManager
+from src.mcp_server.sse import get_connection_manager
 from src.mcp_server.sse_router import router as sse_router
 from src.mcp_server.tools.debug import router as debug_router
 from src.mcp_server.tools.facilitator import router as facilitator_router
@@ -29,7 +29,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage app lifecycle — pool, services, shutdown."""
     settings = load_settings()
     pool = await create_pool(settings.database)
-    app.state.connection_manager = ConnectionManager()
+    app.state.connection_manager = get_connection_manager()
     _attach_services(app, pool, settings.encryption.key)
     yield
     await close_pool(pool)
@@ -132,6 +132,7 @@ def _attach_auth_and_repos(
     from src.repositories.session_repo import SessionRepository
 
     app.state.pool = pool
+    app.state.encryption_key = encryption_key
     app.state.auth_service = AuthService(pool, encryption_key=encryption_key)
     app.state.session_repo = SessionRepository(pool)
     app.state.participant_repo = ParticipantRepository(pool, encryption_key=encryption_key)

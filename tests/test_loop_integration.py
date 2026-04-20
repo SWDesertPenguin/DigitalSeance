@@ -152,7 +152,7 @@ async def _set_budget_and_spend_all(
     """Set tiny budget on all participants and seed usage over it."""
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE participants SET budget_daily = 0.001" " WHERE session_id = $1",
+            "UPDATE participants SET budget_daily = 0.001 WHERE session_id = $1",
             session_id,
         )
         ids = await conn.fetch(
@@ -181,6 +181,6 @@ async def _trip_breaker_all(
     """Set consecutive_timeouts above threshold for all participants."""
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE participants SET consecutive_timeouts = 5" " WHERE session_id = $1",
+            "UPDATE participants SET consecutive_timeouts = 5 WHERE session_id = $1",
             session_id,
         )
