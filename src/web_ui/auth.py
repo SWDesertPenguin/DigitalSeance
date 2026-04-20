@@ -95,6 +95,10 @@ async def login(
         "participant_id": participant.id,
         "session_id": participant.session_id,
         "role": participant.role,
+        # Echo the plaintext token back so the SPA can hold it in a React
+        # ref (FR-003) and authorize cross-origin calls to the MCP app
+        # on port 8750. Never persisted to localStorage / IndexedDB.
+        "token": body.token,
         "expires_in": COOKIE_MAX_AGE_SECONDS,
     }
 
