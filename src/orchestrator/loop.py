@@ -371,8 +371,8 @@ async def _assemble_and_dispatch(
 def _has_new_input(context: list) -> bool:
     """True unless the last non-system message is 'assistant' (same speaker's own turn).
 
-    An empty/system-only context counts as new input — first turn of a
-    session shouldn't be blocked just because no one has spoken yet.
+    Relies on ContextAssembler sorting non-system messages chronologically;
+    an empty/system-only context counts as new input.
     """
     for msg in reversed(context):
         if msg.role == "system":
