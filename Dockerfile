@@ -23,9 +23,10 @@ WORKDIR /app
 COPY --from=builder /install /usr/local
 
 COPY src/ src/
+COPY frontend/ frontend/
 COPY alembic/ alembic/
 COPY alembic/alembic.ini alembic.ini
 
-EXPOSE 8750
+EXPOSE 8750 8751
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn src.mcp_server.app:create_app --host 0.0.0.0 --port 8750 --factory"]
+CMD ["sh", "-c", "alembic upgrade head && python -m src.run_apps"]

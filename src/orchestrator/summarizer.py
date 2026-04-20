@@ -104,6 +104,7 @@ class SummarizationManager:
             speaker_id=session.facilitator_id,
         )
         await _update_session_turn(self._pool, session_id, session.current_turn)
+        await _emit_summary_created(session_id, summary_json, session.current_turn)
 
 
 async def _find_cheapest_model(
@@ -257,6 +258,23 @@ async def _store_summary(
         complexity_score="low",
         summary_epoch=current_turn,
     )
+
+
+async def _emit_summary_created(
+    session_id: str,
+    summary_json: str,
+    current_turn: int,
+) -> None:
+    """Push a summary_created WS event for the Web UI."""
+    from src.web_ui.events import summary_created_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    try:
+        parsed = json.loads(summary_json)
+    except (json.JSONDecodeError, TypeError):
+        parsed = {"narrative": summary_json}
+    payload = {"turn_number": current_turn, "summary_epoch": current_turn, **parsed}
+    await broadcast_to_session(session_id, summary_created_event(payload))
 
 
 async def _update_session_turn(
