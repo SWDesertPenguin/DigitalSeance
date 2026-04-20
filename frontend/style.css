@@ -1,4 +1,4 @@
-:root {
+:root, :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #0f1115;
   --fg: #e3e6eb;
@@ -10,6 +10,20 @@
   --danger: #ff6e6e;
   --warning: #ffd166;
   --ok: #6ee7a0;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7f8fb;
+  --fg: #1c1f26;
+  --muted: #6b7280;
+  --accent: #0a84c4;
+  --panel: #ffffff;
+  --panel-alt: #f0f2f6;
+  --border: #d9dde5;
+  --danger: #c4302b;
+  --warning: #b3810c;
+  --ok: #2f7d4f;
 }
 
 * {
@@ -440,6 +454,77 @@ main.scaffold {
   border-radius: 4px;
   border-left: 3px solid var(--warning);
   margin-bottom: 0.4em;
+}
+
+/* ========== Icon buttons + proposal panel (US7) ========== */
+
+.icon-btn {
+  background: var(--panel-alt);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  font-size: 0.75em;
+  padding: 0.2em 0.5em;
+}
+
+.icon-btn:hover {
+  background: var(--accent);
+  color: #001826;
+  border-color: var(--accent);
+}
+
+.proposal-panel .panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.proposal-panel .panel-header button {
+  font-size: 0.75em;
+  padding: 0.2em 0.6em;
+}
+
+.proposal-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.proposal-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.3em;
+  font-size: 0.9em;
+}
+
+.proposal-card header .dim {
+  font-size: 0.75em;
+}
+
+.proposal-position {
+  font-size: 0.85em;
+  color: var(--muted);
+  margin: 0.3em 0;
+  line-height: 1.4;
+}
+
+.tally {
+  display: flex;
+  gap: 0.3em;
+  margin: 0.3em 0;
+}
+
+.proposal-card .button-row button {
+  font-size: 0.75em;
+  padding: 0.2em 0.4em;
+}
+
+.proposal-card .resolve-accept {
+  background: var(--ok);
+  color: #022014;
 }
 
 /* ========== Health badge (US10) ========== */

@@ -1,6 +1,6 @@
 # SACP System Report
 
-**Last Updated**: 2026-04-20
+**Last Updated**: 2026-04-20 (Phase 2 Web UI shipped)
 
 ## Project Overview
 
@@ -98,6 +98,24 @@ src/
 - `POST /tools/facilitator/reject_draft` — reject a staged draft (discard)
 - `POST /tools/facilitator/edit_draft` — edit and approve a staged draft
 - `POST /tools/facilitator/debug_set_timeouts` — prime a participant's consecutive_timeouts counter for circuit-breaker testing
+- `POST /tools/facilitator/set_cadence_preset` — sprint/cruise/idle (T251)
+- `POST /tools/facilitator/set_acceptance_mode` — unanimous/majority (T251)
+- `POST /tools/facilitator/set_min_model_tier` — low/mid/high/max (T251)
+- `POST /tools/facilitator/set_complexity_classifier_mode` — pattern/llm (T251)
+
+### Participant Tools (additional)
+- `POST /tools/participant/set_routing_preference` — caller mutates own row (T250)
+
+### Proposal Tools (Phase 2c)
+- `POST /tools/proposal/create` — create a new proposal
+- `POST /tools/proposal/vote` — cast accept/reject/abstain
+- `POST /tools/proposal/resolve` — facilitator-only resolution
+- `GET /tools/proposal/list` — open proposals + tallies
+
+### Web UI (port 8751)
+- `POST /login` — bearer token → HttpOnly cookie + returned plaintext for MCP bearer auth
+- `POST /logout` — clear cookie
+- `GET /ws/{session_id}` — push-only WebSocket with v1 event envelope
 
 ### Debug Tools
 - `GET /tools/debug/export` — full session export (facilitator only)
@@ -126,7 +144,8 @@ Phase 1 COMPLETE. All features implemented; all scenario tests pass.
 - [x] Turn loop engine (8 routing modes, context assembly, LiteLLM)
 - [x] Convergence detection (embeddings, cadence, adversarial rotation)
 - [x] Summarization checkpoints (structured JSON)
-- [x] MCP server (25 endpoints, SSE)
+- [x] MCP server (30 endpoints, SSE)
+- [x] Web UI (port 8751, WebSocket, React SPA, 10 user stories shipped)
 - [x] AI security pipeline (sanitization, spotlighting, validation, exfiltration, jailbreak, prompt protection, log scrubbing)
 - [x] System prompt management (4-tier delta with canary tokens)
 - [x] Security pipeline integrated into turn loop + context assembly
@@ -137,6 +156,14 @@ Phase 1 COMPLETE. All features implemented; all scenario tests pass.
 Scenario 1 (1 AI): 9/9 PASS. Scenario 2 (2 AIs): 6/6 PASS. Scenario 3 (multi-AI + closeout):
 T3.1 partial (invite accept deferred to Phase 2), T3.2 / T3.3 / T3.4 / T3.5 / T3.6 PASS.
 (Test-plan working doc is maintained locally; not committed.)
+
+## Phase 2 Web UI (011-web-ui)
+
+Two FastAPI apps in one process via `src/run_apps.py`:
+- **MCP server** on 8750 — unchanged Phase 1 contract + 5 T250/T251 endpoints + 4 T150 proposal endpoints.
+- **Web UI** on 8751 — React SPA from `frontend/` (CDN-loaded React 18 / Babel Standalone / marked / DOMPurify, SRI pins via `scripts/generate_sri_hashes.sh`), strict CSP, HttpOnly cookie auth, `POST /login`+`POST /logout`, `GET /ws/{session_id}` WebSocket with v1 event envelope.
+
+Ten user stories shipped (US1 facilitator flow, US2 participant view, US3 WS resilience, US4 budget/convergence, US5 review gate, US6 admin panel, US7 proposals, US8 XSS hardening, US9 summary viewer, US10 health indicators). Playwright e2e (T058/T074/T085/T094/T103/T115/T126/T134/T143) deferred.
 
 ## Post-Deployment Fixes (PRs #28-84)
 
