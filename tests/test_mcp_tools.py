@@ -54,3 +54,30 @@ def test_app_routes_registered() -> None:
     ]
     for path in expected:
         assert path in paths, f"Missing route: {path}"
+
+
+def test_t250_t251_routes_registered() -> None:
+    """Backend gap endpoints exposed for Phase 2b Web UI (T250, T251)."""
+    app = create_app()
+    paths = {r.path for r in app.routes}
+    new_routes = [
+        # T250 — self-serve routing preference
+        "/tools/participant/set_routing_preference",
+        # T251 — session config mutations
+        "/tools/facilitator/set_cadence_preset",
+        "/tools/facilitator/set_acceptance_mode",
+        "/tools/facilitator/set_min_model_tier",
+        "/tools/facilitator/set_complexity_classifier_mode",
+    ]
+    for path in new_routes:
+        assert path in paths, f"Missing route: {path}"
+
+
+def test_t252_audit_entry_event_shape() -> None:
+    """audit_entry event uses the v1 envelope."""
+    from src.web_ui.events import audit_entry_event
+
+    evt = audit_entry_event({"id": 1, "action": "approve_participant"})
+    assert evt["v"] == 1
+    assert evt["type"] == "audit_entry"
+    assert evt["entry"]["action"] == "approve_participant"
