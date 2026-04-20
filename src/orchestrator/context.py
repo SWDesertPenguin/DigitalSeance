@@ -196,7 +196,7 @@ def _add_messages(
         tokens = _estimate_tokens(content)
         if used + tokens > budget:
             break
-        role = _message_role(msg.speaker_type)
+        role = _message_role(msg.speaker_type, msg.speaker_id, speaker_id)
         context.append(ContextMessage(role, content, msg.turn_number))
         used += tokens
     return used
@@ -253,17 +253,29 @@ def _add_history(
         tokens = _estimate_tokens(msg.content)
         if used + tokens > budget:
             break
-        role = _message_role(msg.speaker_type)
+        role = _message_role(msg.speaker_type, msg.speaker_id, speaker_id)
         content = _secure_content(msg, speaker_id)
         context.append(ContextMessage(role, content, msg.turn_number))
         used += tokens
         added_turns.add(msg.turn_number)
 
 
-def _message_role(speaker_type: str) -> str:
-    """Map speaker type to provider role."""
-    if speaker_type == "human":
-        return "user"
-    if speaker_type in ("ai", "summary"):
+def _message_role(
+    speaker_type: str,
+    msg_speaker_id: str,
+    current_speaker_id: str,
+) -> str:
+    """Map speaker type + identity to provider role.
+
+    Why: Anthropic's API requires strict user/assistant alternation and
+    the last message must not be 'assistant'. Mapping every AI message to
+    'assistant' (regardless of whose) produced consecutive-assistant
+    sequences when a different AI had spoken since the current speaker,
+    and Claude silently returned empty. Treating any other speaker as
+    'user' from the current speaker's POV keeps alternation valid.
+    """
+    if speaker_type == "summary":
+        return "system"
+    if speaker_type == "ai" and msg_speaker_id == current_speaker_id:
         return "assistant"
-    return "system"
+    return "user"

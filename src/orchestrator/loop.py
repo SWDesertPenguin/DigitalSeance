@@ -319,7 +319,7 @@ async def _dispatch_and_persist(
     interjections: list | None = None,
 ) -> tuple[TurnResult, str]:
     """Assemble context, dispatch to provider, persist result."""
-    response = await _assemble_and_dispatch(
+    response, skip_reason = await _assemble_and_dispatch(
         ctx,
         assembler,
         breaker,
@@ -327,7 +327,7 @@ async def _dispatch_and_persist(
         interjections,
     )
     if response is None:
-        return _skip_result(ctx.session_id, speaker.id, "provider_error"), ""
+        return _skip_result(ctx.session_id, speaker.id, skip_reason or "provider_error"), ""
 
     if decision.action == "review_gated":
         result = await _stage_for_review(ctx, speaker, decision, response)
@@ -343,24 +343,38 @@ async def _assemble_and_dispatch(
     breaker: CircuitBreaker,
     speaker: object,
     interjections: list | None = None,
-) -> ProviderResponse | None:
-    """Build context, call provider, handle errors."""
+) -> tuple[ProviderResponse | None, str | None]:
+    """Build context, call provider, handle errors.
+
+    Returns (response, skip_reason). Short-circuits with 'no_new_input'
+    when context ends with the current speaker's own turn — asking
+    Anthropic to "continue" its own message returns empty and would
+    otherwise trip the circuit breaker on a healthy participant.
+    """
     context = await assembler.assemble(
         session_id=ctx.session_id,
         participant=speaker,
         interjections=interjections,
     )
+    if not _has_new_input(context):
+        log.info("Skipping %s: last message was same speaker", speaker.id)
+        return None, "no_new_input"
     messages = to_provider_messages(context)
     try:
-        return await _dispatch_to_provider(
-            speaker,
-            messages,
-            ctx.encryption_key,
-        )
+        return await _dispatch_to_provider(speaker, messages, ctx.encryption_key), None
     except ProviderDispatchError as e:
         log.warning("Provider dispatch failed for %s: %s", speaker.id, e)
         await breaker.record_failure(speaker.id)
-        return None
+        return None, "provider_error"
+
+
+def _has_new_input(context: list) -> bool:
+    """True when last non-system context message has role 'user'."""
+    for msg in reversed(context):
+        if msg.role == "system":
+            continue
+        return msg.role == "user"
+    return False
 
 
 async def _validate_and_persist(

@@ -12,7 +12,7 @@ async def get_main_branch_id(
     """Look up the main branch ID for a session."""
     async with pool.acquire() as conn:
         result = await conn.fetchval(
-            "SELECT id FROM branches" " WHERE session_id = $1 LIMIT 1",
+            "SELECT id FROM branches WHERE session_id = $1 LIMIT 1",
             session_id,
         )
     return result or "main"
