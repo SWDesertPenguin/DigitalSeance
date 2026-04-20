@@ -34,6 +34,7 @@ from src.web_ui.shared import (
     build_standalone_services,
     close_standalone_services,
 )
+from src.web_ui.websocket import router as ws_router
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +70,7 @@ def create_web_app() -> FastAPI:
     add_strict_cors(app)
     _add_healthcheck(app)
     app.include_router(auth_router)
+    app.include_router(ws_router)
     _mount_static(app)
     return app
 
