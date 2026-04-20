@@ -35,7 +35,21 @@ Sent once immediately after a successful upgrade, and again after any reconnect.
 Sent after each non-skipped turn is persisted.
 
 ```text
-{ v:1, type:"message", message: Message, turn_number: int }
+{
+  v: 1,
+  type: "message",
+  message: {
+    turn_number: int,
+    speaker_id: str,
+    speaker_type: "human" | "ai" | "summary",
+    content: str,
+    token_count: int,
+    cost_usd: float | null,
+    created_at: str,   // ISO-8601
+    summary_epoch: int | null,
+  },
+  turn_number: int,    // duplicated top-level for convenience
+}
 ```
 
 ### `turn_skipped`
@@ -110,6 +124,69 @@ that the UI should surface to the user but not close the connection over.
 ### `pong`
 
 Reply to a client `ping`. No payload fields.
+
+### `audit_entry`
+
+Sent after every `log_admin_action` write (T252). Facilitator-only
+clients surface it in the admin-panel audit view.
+
+```text
+{
+  v: 1,
+  type: "audit_entry",
+  entry: {
+    id: int,
+    facilitator_id: str,
+    action: str,
+    target_id: str,
+    previous_value: str | null,
+    new_value: str | null,
+    timestamp: str,
+  },
+}
+```
+
+### `proposal_created`
+
+Sent when a new proposal is opened.
+
+```text
+{
+  v: 1,
+  type: "proposal_created",
+  proposal: { id, session_id, topic, position, status, acceptance_mode, ... },
+  tally: { accept: int, reject: int, abstain: int },   // seeded at zeros
+}
+```
+
+### `proposal_voted`
+
+Sent after each vote.
+
+```text
+{
+  v: 1,
+  type: "proposal_voted",
+  proposal_id: str,
+  voter_id: str,
+  vote: "accept" | "reject" | "abstain",
+  tally: { accept: int, reject: int, abstain: int },
+}
+```
+
+### `proposal_resolved`
+
+Sent when a facilitator resolves a proposal.
+
+```text
+{
+  v: 1,
+  type: "proposal_resolved",
+  proposal_id: str,
+  status: "accepted" | "rejected" | "expired",
+  tally: { accept: int, reject: int, abstain: int } | null,
+}
+```
 
 ---
 

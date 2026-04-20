@@ -107,13 +107,15 @@ async def resolve_proposal(
     await require_facilitator(request.app.state.pool, participant.session_id, participant.id)
     repo = ProposalRepository(request.app.state.pool)
     proposal = await repo.resolve_proposal(body.proposal_id, body.status)
+    tally = await _tally(repo, proposal.id)
     await _broadcast(
         "proposal_resolved",
         participant.session_id,
         proposal_id=proposal.id,
         status=proposal.status,
+        tally=tally,
     )
-    return {"status": "resolved", "proposal": _serialize(proposal)}
+    return {"status": "resolved", "proposal": _serialize(proposal), "tally": tally}
 
 
 @router.get("/list")
@@ -175,6 +177,7 @@ async def _broadcast(event_type: str, session_id: str, **fields) -> None:  # typ
         "proposal_resolved": lambda: proposal_resolved_event(
             proposal_id=fields["proposal_id"],
             status=fields["status"],
+            tally=fields.get("tally"),
         ),
     }
     build = builders.get(event_type)

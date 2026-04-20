@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime
+import os
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
@@ -112,7 +112,16 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
 
 
 async def _authenticate_ws(websocket: WebSocket, session_id: str) -> dict[str, Any] | None:
-    """Resolve the cookie to a participant; close on failure."""
+    """Resolve the cookie + Origin; close on failure.
+
+    Constitution §9 + SR-004 require Origin validation on every WebSocket
+    upgrade to prevent cross-site WebSocket hijacking. We reject upgrades
+    whose Origin does not match the UI's own origin or an explicit
+    env-configured allowlist.
+    """
+    if not _origin_allowed(websocket):
+        await websocket.close(code=CLOSE_FORBIDDEN, reason="origin not allowed")
+        return None
     cookie = websocket.cookies.get("sacp_ui_token")
     if not cookie:
         await websocket.close(code=CLOSE_UNAUTHENTICATED, reason="no cookie")
@@ -126,6 +135,22 @@ async def _authenticate_ws(websocket: WebSocket, session_id: str) -> dict[str, A
         await websocket.close(code=CLOSE_FORBIDDEN, reason="wrong session")
         return None
     return payload
+
+
+def _origin_allowed(websocket: WebSocket) -> bool:
+    """Check Origin against SACP_WEB_UI_ALLOWED_ORIGINS or same-origin default.
+
+    A request with no Origin header is rejected.
+    """
+    origin = websocket.headers.get("origin")
+    if not origin:
+        return False
+    env_raw = os.environ.get("SACP_WEB_UI_ALLOWED_ORIGINS", "").strip()
+    if env_raw:
+        allowed = {o.strip() for o in env_raw.split(",") if o.strip()}
+        return origin in allowed
+    host = websocket.headers.get("host", "")
+    return origin in (f"http://{host}", f"https://{host}")
 
 
 async def _send_initial_snapshot(
@@ -153,21 +178,22 @@ async def _send_initial_snapshot(
 
 
 async def _pump_client_frames(websocket: WebSocket) -> None:
-    """Handle inbound frames: ping → pong; subscribe is a no-op hint today."""
-    last_pong = datetime.now(tz=UTC)
+    """Handle inbound frames: close if no traffic within 2× heartbeat.
+
+    Previous version used an unreachable elapsed-since-last-pong check
+    that never fired, leaking dead sockets. Now any 2×_PONG_TIMEOUT
+    silence closes the connection.
+    """
     try:
         while True:
             try:
                 text = await asyncio.wait_for(
                     websocket.receive_text(),
-                    timeout=_PONG_TIMEOUT_SECONDS,
+                    timeout=_PONG_TIMEOUT_SECONDS * 2,
                 )
             except TimeoutError:
-                if (datetime.now(tz=UTC) - last_pong).total_seconds() > _PONG_TIMEOUT_SECONDS:
-                    await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason="no pong")
-                    return
-                continue
-            last_pong = datetime.now(tz=UTC)
+                await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason="no pong")
+                return
             await _handle_client_frame(websocket, text)
     except WebSocketDisconnect:
         return

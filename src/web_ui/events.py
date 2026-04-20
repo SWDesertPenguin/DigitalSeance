@@ -93,9 +93,16 @@ def audit_entry_event(entry: dict[str, Any]) -> dict[str, Any]:
     return _envelope("audit_entry", entry=entry)
 
 
-def proposal_created_event(proposal: dict[str, Any]) -> dict[str, Any]:
+def proposal_created_event(
+    proposal: dict[str, Any],
+    tally: dict[str, int] | None = None,
+) -> dict[str, Any]:
     """A new proposal was opened (US7 T153)."""
-    return _envelope("proposal_created", proposal=proposal)
+    return _envelope(
+        "proposal_created",
+        proposal=proposal,
+        tally=tally or {"accept": 0, "reject": 0, "abstain": 0},
+    )
 
 
 def proposal_voted_event(
@@ -115,9 +122,19 @@ def proposal_voted_event(
     )
 
 
-def proposal_resolved_event(*, proposal_id: str, status: str) -> dict[str, Any]:
-    """A proposal was resolved by the facilitator."""
-    return _envelope("proposal_resolved", proposal_id=proposal_id, status=status)
+def proposal_resolved_event(
+    *,
+    proposal_id: str,
+    status: str,
+    tally: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    """A proposal was resolved by the facilitator (includes final tally)."""
+    return _envelope(
+        "proposal_resolved",
+        proposal_id=proposal_id,
+        status=status,
+        tally=tally,
+    )
 
 
 def state_snapshot_event(
@@ -154,18 +171,21 @@ async def broadcast_participant_update(
     session_id: str,
     participant_id: str,
     participant_repo: Any,
+    log_repo: Any = None,
 ) -> None:
     """Fetch a fresh participant row and push a participant_update event.
 
-    Callers from facilitator / auth endpoints use this after any row
-    mutation so subscribed clients see role / status / budget changes
-    without polling.
+    Pass ``log_repo`` to include a fresh ``spend_daily`` aggregate — fix
+    for C3 (the BudgetPanel had no data source otherwise).
     """
     from src.web_ui.websocket import broadcast_to_session
 
     p = await participant_repo.get_participant(participant_id)
     if p is None:
         return
+    spend_daily = None
+    if log_repo is not None:
+        spend_daily = await log_repo.get_participant_cost(p.id, period="daily")
     payload = {
         "id": p.id,
         "session_id": p.session_id,
@@ -180,5 +200,6 @@ async def broadcast_participant_update(
         "consecutive_timeouts": p.consecutive_timeouts,
         "budget_hourly": p.budget_hourly,
         "budget_daily": p.budget_daily,
+        "spend_daily": spend_daily,
     }
     await broadcast_to_session(session_id, participant_update_event(payload))

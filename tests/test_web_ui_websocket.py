@@ -41,14 +41,42 @@ def _app():  # type: ignore[no-untyped-def]
     return create_web_app()
 
 
-def test_ws_rejects_missing_cookie() -> None:
-    """WebSocket without sacp_ui_token closes with 4401."""
+_GOOD_ORIGIN_HEADERS = {"origin": "http://testserver"}
+
+
+def test_ws_rejects_missing_origin() -> None:
+    """SR-004: upgrade without Origin header closes with 4403."""
     with (
         TestClient(_app()) as client,
         pytest.raises(WebSocketDisconnect) as excinfo,
         client.websocket_connect("/ws/some-session") as ws,
     ):
-        ws.receive_text()  # force read to surface the server-initiated close
+        ws.receive_text()
+    assert excinfo.value.code == CLOSE_FORBIDDEN
+
+
+def test_ws_rejects_bad_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SR-004: upgrade with an Origin not in the allowlist closes with 4403."""
+    monkeypatch.setenv("SACP_WEB_UI_ALLOWED_ORIGINS", "http://ok.example")
+    with (
+        TestClient(_app()) as client,
+        pytest.raises(WebSocketDisconnect) as excinfo,
+        client.websocket_connect(
+            "/ws/some-session", headers={"origin": "http://evil.example"}
+        ) as ws,
+    ):
+        ws.receive_text()
+    assert excinfo.value.code == CLOSE_FORBIDDEN
+
+
+def test_ws_rejects_missing_cookie() -> None:
+    """WebSocket without sacp_ui_token closes with 4401 (Origin is valid)."""
+    with (
+        TestClient(_app()) as client,
+        pytest.raises(WebSocketDisconnect) as excinfo,
+        client.websocket_connect("/ws/some-session", headers=_GOOD_ORIGIN_HEADERS) as ws,
+    ):
+        ws.receive_text()
     assert excinfo.value.code == CLOSE_UNAUTHENTICATED
 
 
@@ -59,7 +87,7 @@ def test_ws_rejects_wrong_session_cookie() -> None:
         client.cookies.set("sacp_ui_token", cookie)
         with (
             pytest.raises(WebSocketDisconnect) as excinfo,
-            client.websocket_connect("/ws/session-B") as ws,
+            client.websocket_connect("/ws/session-B", headers=_GOOD_ORIGIN_HEADERS) as ws,
         ):
             ws.receive_text()
     assert excinfo.value.code == CLOSE_FORBIDDEN
