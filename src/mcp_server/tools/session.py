@@ -180,6 +180,29 @@ async def stop_loop(
     return {"status": "stopped"}
 
 
+@router.get("/summary")
+async def get_summary(
+    request: Request,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Return the latest summary for the session (any participant can read)."""
+    msg_repo = request.app.state.message_repo
+    branch_id = await get_main_branch_id(request.app.state.pool, participant.session_id)
+    summaries = await msg_repo.get_summaries(participant.session_id, branch_id)
+    if not summaries:
+        return {"summary": None}
+    latest = summaries[-1]
+    try:
+        parsed = json.loads(latest.content)
+    except (json.JSONDecodeError, TypeError):
+        parsed = {"narrative": latest.content}
+    return {
+        "turn_number": latest.turn_number,
+        "summary_epoch": latest.summary_epoch,
+        "summary": parsed,
+    }
+
+
 @router.get("/export_markdown")
 async def export_markdown(
     request: Request,
