@@ -69,11 +69,17 @@ async def test_assembly_returns_context(
     assert len(context) > 0
 
 
-async def test_interjections_appear_first(
+async def test_interjections_appear_after_history(
     pool: asyncpg.Pool,
     session_data: tuple[str, str, object],
 ) -> None:
-    """Interjections appear before regular messages."""
+    """Pending interjections appear AFTER persisted history.
+
+    Why: the LLM reads context positionally — a pending interjection is
+    the newest user input for the AI to respond to, so it must be the
+    last non-system message. Placing it before older messages would
+    make the LLM respond to the stale tail instead.
+    """
     sid, pid, participant = session_data
     int_repo = InterruptRepository(pool)
     await int_repo.enqueue(
@@ -86,11 +92,10 @@ async def test_interjections_appear_first(
         session_id=sid,
         participant=participant,
     )
-    # Find the interjection (should be early in context)
     interjection_indices = [i for i, c in enumerate(context) if "Priority" in c.content]
     message_indices = [i for i, c in enumerate(context) if "Message" in c.content]
     if interjection_indices and message_indices:
-        assert min(interjection_indices) < min(message_indices)
+        assert min(interjection_indices) > max(message_indices)
 
 
 async def test_system_prompt_included(
