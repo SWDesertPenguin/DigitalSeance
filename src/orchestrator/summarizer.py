@@ -110,17 +110,26 @@ async def _find_cheapest_model(
     repo: ParticipantRepository,
     session_id: str,
 ) -> Participant | None:
-    """Find the participant with the lowest input token cost."""
+    """Find the active AI participant with the lowest input token cost.
+
+    Why: humans have cost_per_input_token=None which min() sees as 0,
+    so the facilitator was always "cheapest" and LiteLLM got model=human.
+    Filter to AI providers only, treat missing cost as +inf so seeded
+    participants don't outrank ones with real pricing.
+    """
     participants = await repo.list_participants(
         session_id,
         status_filter="active",
     )
-    if not participants:
+    ai = [p for p in participants if p.provider != "human"]
+    if not ai:
         return None
-    return min(
-        participants,
-        key=lambda p: p.cost_per_input_token or 0.0,
-    )
+    return min(ai, key=_cost_key)
+
+
+def _cost_key(p: Participant) -> float:
+    """Sort key: missing cost = +inf so unpriced rows don't outrank real pricing."""
+    return p.cost_per_input_token if p.cost_per_input_token is not None else float("inf")
 
 
 async def _fetch_turns_since(
