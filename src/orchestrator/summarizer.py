@@ -18,7 +18,7 @@ from src.repositories.session_repo import SessionRepository
 
 log = logging.getLogger(__name__)
 
-DEFAULT_THRESHOLD = 50
+DEFAULT_THRESHOLD = 10
 
 SUMMARIZATION_PROMPT = """Summarize the conversation so far as structured JSON.
 
@@ -90,30 +90,20 @@ class SummarizationManager:
     ) -> None:
         """Fetch turns, generate summary, persist result."""
         turns = await _fetch_turns_since(
-            self._msg_repo,
-            self._pool,
-            session_id,
-            session.last_summary_turn,
+            self._msg_repo, self._pool, session_id, session.last_summary_turn
         )
         if not turns:
             return
-        summary_json = await _generate_summary(
-            turns,
-            cheapest,
-            self._encryption_key,
-        )
+        summary_json = await _generate_summary(turns, cheapest, self._encryption_key)
         await _store_summary(
             self._msg_repo,
             self._pool,
             session_id,
             summary_json,
             session.current_turn,
+            speaker_id=session.facilitator_id,
         )
-        await _update_session_turn(
-            self._pool,
-            session_id,
-            session.current_turn,
-        )
+        await _update_session_turn(self._pool, session_id, session.current_turn)
 
 
 async def _find_cheapest_model(
@@ -224,13 +214,19 @@ async def _store_summary(
     session_id: str,
     summary_json: str,
     current_turn: int,
+    *,
+    speaker_id: str,
 ) -> None:
-    """Store summary as an immutable message."""
+    """Store summary as an immutable message.
+
+    Attributed to the session facilitator because the messages FK
+    requires speaker_id to reference a real participant row.
+    """
     bid = await get_main_branch_id(pool, session_id)
     await msg_repo.append_message(
         session_id=session_id,
         branch_id=bid,
-        speaker_id="system",
+        speaker_id=speaker_id,
         speaker_type="summary",
         content=summary_json,
         token_count=len(summary_json) // 4,
