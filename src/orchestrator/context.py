@@ -136,7 +136,7 @@ def _reorder_chronologically(context: list[ContextMessage]) -> list[ContextMessa
     """
     system = [m for m in context if m.role == "system"]
     others = [m for m in context if m.role != "system"]
-    others.sort(key=lambda m: (m.turn_number is None, m.turn_number or 0))
+    others.sort(key=lambda m: (m.source_turn is None, m.source_turn or 0))
     return system + others
 
 
