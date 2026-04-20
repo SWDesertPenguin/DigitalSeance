@@ -68,7 +68,7 @@ Execution order below is the recommended sequence. User-story phases are indepen
 - [ ] T055 [US1] Build `frontend/components/SessionControls.jsx`: Pause / Resume / Start Loop / Stop Loop / Archive buttons, facilitator-gated. Each hits the matching Phase 1 endpoint.
 - [ ] T056 [US1] Build `frontend/components/AddParticipantDialog.jsx`: facilitator modal; calls `POST /tools/facilitator/add_participant` with validation matching PR #66 placeholder rejection.
 - [ ] T057 [US1] Wire `SessionView` to subscribe to the WebSocket at mount, hydrate state from `state_snapshot`, apply `message` / `session_status_changed` / `participant_update` deltas.
-- [ ] T058 [US1] Add `tests/e2e/test_us1_facilitator_flow.py` Playwright script covering the independent-test criteria above.
+- [X] T058 [US1] Add `tests/e2e/test_us1_facilitator_flow.py` Playwright script covering the independent-test criteria above.
 
 **Checkpoint**: Phase 3 alone constitutes a shippable MVP. Everything below is additive.
 
