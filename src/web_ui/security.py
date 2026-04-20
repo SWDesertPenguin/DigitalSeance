@@ -22,27 +22,41 @@ CSRF_HEADER = "X-SACP-Request"
 CSRF_VALUE = "1"
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
-# Content-Security-Policy tuned for the CDN-loaded SPA. We allow unpkg +
-# jsdelivr for scripts because index.html loads React / Babel / marked /
-# DOMPurify from those origins with SRI integrity (T204).
+# Content-Security-Policy tuned for the CDN-loaded SPA.
 #
-# connect-src intentionally allows ``http:`` / ``https:`` / ``ws:`` /
-# ``wss:`` as schemes because the SPA fetches to the MCP server on a
-# sibling port (8750) — a strictly-enumerated host+port list would
-# couple CSP to deployment topology. Phase 6 (US8) can tighten this
-# when we formalize the allowed MCP origin (FR-006).
-_CSP = (
-    "default-src 'self'; "
-    "script-src 'self' https://unpkg.com https://cdn.jsdelivr.net; "
-    "style-src 'self' 'unsafe-inline'; "
-    "img-src 'self'; "
-    "connect-src 'self' http: https: ws: wss:; "
-    "font-src 'self'; "
-    "object-src 'none'; "
-    "frame-ancestors 'none'; "
-    "base-uri 'self'; "
-    "form-action 'self'"
+# script-src: self + the two pinned CDN origins. ``'unsafe-eval'`` is
+# mandatory because Babel Standalone compiles JSX at runtime via
+# ``new Function(...)``. Trade-off documented in spec SR-001; SRI
+# integrity attributes (task T204) are the primary CDN-compromise
+# defense once populated.
+#
+# connect-src: self + explicit MCP origin (env) + ws/wss scheme for the
+# Web UI's own WebSocket. Env default covers the standard localhost
+# dev pair; production operators set SACP_WEB_UI_MCP_ORIGIN to the
+# deployment's MCP host.
+_MCP_ORIGIN = os.environ.get(
+    "SACP_WEB_UI_MCP_ORIGIN",
+    "http://localhost:8750 http://127.0.0.1:8750",
 )
+
+
+def _build_csp() -> str:
+    connect = f"'self' ws: wss: {_MCP_ORIGIN}".strip()
+    return (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-eval' https://unpkg.com https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self'; "
+        f"connect-src {connect}; "
+        "font-src 'self'; "
+        "object-src 'none'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
+
+
+_CSP = _build_csp()
 
 _HEADERS = {
     "Content-Security-Policy": _CSP,
