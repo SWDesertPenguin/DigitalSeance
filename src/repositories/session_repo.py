@@ -158,7 +158,7 @@ async def _insert_session(
 ) -> None:
     """Insert a new session record with defaults."""
     await conn.execute(
-        "INSERT INTO sessions (id, name, review_gate_pause_scope)" " VALUES ($1, $2, $3)",
+        "INSERT INTO sessions (id, name, review_gate_pause_scope) VALUES ($1, $2, $3)",
         session_id,
         name,
         review_gate_pause_scope,
@@ -303,8 +303,7 @@ async def _delete_session_data(
     """Remove all session data except admin_audit_log."""
     # Delete votes via proposals (votes has no session_id)
     await conn.execute(
-        "DELETE FROM votes WHERE proposal_id IN"
-        " (SELECT id FROM proposals WHERE session_id = $1)",
+        "DELETE FROM votes WHERE proposal_id IN (SELECT id FROM proposals WHERE session_id = $1)",
         session_id,
     )
     # Delete usage_log via participants (no session_id column)

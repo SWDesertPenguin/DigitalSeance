@@ -214,7 +214,7 @@ async def set_routing_preference(
     pool = request.app.state.pool
     async with pool.acquire() as conn:
         result = await conn.execute(
-            "UPDATE participants SET routing_preference = $1" " WHERE id = $2 AND session_id = $3",
+            "UPDATE participants SET routing_preference = $1 WHERE id = $2 AND session_id = $3",
             body.preference,
             body.participant_id,
             participant.session_id,
@@ -260,6 +260,63 @@ async def set_review_gate_pause_scope(
         new_value=body.scope,
     )
     return {"status": "updated", "scope": body.scope}
+
+
+class _DebugSetTimeoutsBody(BaseModel):
+    """Request body for priming a participant's consecutive_timeouts counter."""
+
+    participant_id: str
+    consecutive_timeouts: int
+
+
+@router.post("/debug_set_timeouts")
+async def debug_set_timeouts(
+    request: Request,
+    body: _DebugSetTimeoutsBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Prime consecutive_timeouts for circuit-breaker testing (facilitator only).
+
+    Why: T3.6 reset verification otherwise needs server-side SQL. This
+    lets the facilitator set the counter to 2 (one-away-from-trip) via
+    Swagger, then watch it reset to 0 on the next successful turn.
+    """
+    if body.consecutive_timeouts < 0:
+        raise HTTPException(400, "consecutive_timeouts must be >= 0")
+    await _update_timeouts(request, participant.session_id, body)
+    log_repo = request.app.state.log_repo
+    await log_repo.log_admin_action(
+        session_id=participant.session_id,
+        facilitator_id=participant.id,
+        action="debug_set_timeouts",
+        target_id=body.participant_id,
+        previous_value=None,
+        new_value=str(body.consecutive_timeouts),
+    )
+    return {
+        "status": "updated",
+        "participant_id": body.participant_id,
+        "consecutive_timeouts": body.consecutive_timeouts,
+    }
+
+
+async def _update_timeouts(
+    request: Request,
+    session_id: str,
+    body: _DebugSetTimeoutsBody,
+) -> None:
+    """Write consecutive_timeouts and 404 if the participant isn't in session."""
+    pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE participants SET consecutive_timeouts = $1"
+            " WHERE id = $2 AND session_id = $3",
+            body.consecutive_timeouts,
+            body.participant_id,
+            session_id,
+        )
+    if result == "UPDATE 0":
+        raise HTTPException(404, "participant not found in session")
 
 
 class _SetBudgetBody(BaseModel):
