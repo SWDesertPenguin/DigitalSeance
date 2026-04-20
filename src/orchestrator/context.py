@@ -69,7 +69,7 @@ class ContextAssembler:
             participant=participant,
             interjections=interjections,
         )
-        return context
+        return _reorder_chronologically(context)
 
     async def _add_priorities(
         self,
@@ -121,6 +121,23 @@ class ContextAssembler:
         bid = await get_main_branch_id(self._pool, session_id)
         more = await self._msg_repo.get_recent(session_id, bid, _history_turns())
         _add_history(context, more, used, budget, already, speaker_id=speaker_id)
+
+
+def _reorder_chronologically(context: list[ContextMessage]) -> list[ContextMessage]:
+    """Put non-system messages in chronological (turn) order.
+
+    Why: _add_messages loads recent turns, then _fill_history APPENDS
+    older turns after — so the final list has older messages at the
+    end. Providers read context positionally; Claude was answering the
+    original stale prompt (last in list) instead of continuing from
+    its most recent turn, and _has_new_input was misled by the same
+    reversal. Pending interjections (turn_number=None) sort last as
+    they represent the newest pending input.
+    """
+    system = [m for m in context if m.role == "system"]
+    others = [m for m in context if m.role != "system"]
+    others.sort(key=lambda m: (m.turn_number is None, m.turn_number or 0))
+    return system + others
 
 
 def _available_budget(participant: Participant) -> int:
