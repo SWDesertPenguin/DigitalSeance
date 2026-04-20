@@ -108,10 +108,8 @@ async def pause_session(
 ) -> dict:
     """Pause the session."""
     session_repo = request.app.state.session_repo
-    session = await session_repo.update_status(
-        participant.session_id,
-        "paused",
-    )
+    session = await session_repo.update_status(participant.session_id, "paused")
+    await _broadcast_status(participant.session_id, session.status)
     return {"status": session.status}
 
 
@@ -125,10 +123,8 @@ async def resume_session(
     current = await session_repo.get_session(participant.session_id)
     if current and current.status == "active":
         return {"status": "active"}
-    session = await session_repo.update_status(
-        participant.session_id,
-        "active",
-    )
+    session = await session_repo.update_status(participant.session_id, "active")
+    await _broadcast_status(participant.session_id, session.status)
     return {"status": session.status}
 
 
@@ -139,11 +135,17 @@ async def archive_session(
 ) -> dict:
     """Archive the session (read-only)."""
     session_repo = request.app.state.session_repo
-    session = await session_repo.update_status(
-        participant.session_id,
-        "archived",
-    )
+    session = await session_repo.update_status(participant.session_id, "archived")
+    await _broadcast_status(participant.session_id, session.status)
     return {"status": session.status}
+
+
+async def _broadcast_status(session_id: str, status: str) -> None:
+    """Push a session_status_changed event to Web UI subscribers."""
+    from src.web_ui.events import session_status_changed_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    await broadcast_to_session(session_id, session_status_changed_event(status))
 
 
 @router.post("/start_loop")
@@ -236,7 +238,7 @@ async def export_json(
 
 
 async def _broadcast_turn(cm: object, session_id: str, result: object) -> None:
-    """Broadcast a completed turn event to all SSE subscribers."""
+    """Broadcast a completed turn event to SSE and Web UI subscribers."""
     await cm.broadcast(
         session_id,
         {
@@ -246,6 +248,21 @@ async def _broadcast_turn(cm: object, session_id: str, result: object) -> None:
             "skipped": False,
         },
     )
+    await _broadcast_turn_to_web_ui(session_id, result)
+
+
+async def _broadcast_turn_to_web_ui(session_id: str, result: object) -> None:
+    """Push a v1 `message` event to Web UI WebSocket subscribers."""
+    from src.web_ui.events import message_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    payload = {
+        "turn_number": result.turn_number,
+        "speaker_id": result.speaker_id,
+        "action": result.action,
+        "cost_usd": getattr(result, "cost_usd", None),
+    }
+    await broadcast_to_session(session_id, message_event(payload))
 
 
 async def _init_loop_from_session(

@@ -32,7 +32,7 @@ async def participant_with_budget(
     # Set budget via SQL
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE participants SET budget_daily = 1.00" " WHERE id = $1",
+            "UPDATE participants SET budget_daily = 1.00 WHERE id = $1",
             facilitator.id,
         )
     return session.id, facilitator.id

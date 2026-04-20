@@ -1,4 +1,11 @@
-"""SSE connection manager — per-session asyncio.Queue fan-out."""
+"""SSE connection manager — per-session asyncio.Queue fan-out.
+
+Phase 2 note: the MCP app (port 8750) and the Web UI app (port 8751)
+run in the same process (src/run_apps.py) and MUST share a single
+ConnectionManager instance so that a turn broadcast on the MCP side
+reaches Web UI WebSocket subscribers. The module-level singleton
+``CONN_MANAGER`` is that shared instance.
+"""
 
 from __future__ import annotations
 
@@ -43,3 +50,11 @@ class ConnectionManager:
         for q in list(queues):
             await q.put(event)
         log.debug("SSE broadcast to %d subscriber(s) for session %s", len(queues), session_id)
+
+
+CONN_MANAGER = ConnectionManager()
+
+
+def get_connection_manager() -> ConnectionManager:
+    """Return the process-wide shared ConnectionManager instance."""
+    return CONN_MANAGER
