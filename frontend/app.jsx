@@ -222,7 +222,9 @@ function reducer(state, action) {
     }
     case "message": {
       const incoming = action.event.message;
-      const others = state.messages.filter((m) => m.turn_number !== incoming.turn_number);
+      const key = (m) => `${m.turn_number}:${m.speaker_id}`;
+      const incomingKey = key(incoming);
+      const others = state.messages.filter((m) => key(m) !== incomingKey);
       return {
         ...state,
         messages: [...others, incoming].sort((a, b) => a.turn_number - b.turn_number),
@@ -296,6 +298,7 @@ function reducer(state, action) {
     case "clear_error":
       return { ...state, errors: state.errors.filter((_, i) => i !== action.index) };
     default:
+      console.warn("[ws] unknown event type:", action?.type);
       return state;
   }
 }
@@ -621,7 +624,6 @@ function HealthBadge({ participant, skipReasons }) {
 
 function pctColor(pct) {
   if (pct >= 0.95) return "var(--danger)";
-  if (pct >= 0.80) return "var(--warning)";
   if (pct >= 0.50) return "var(--warning)";
   return "var(--ok)";
 }
@@ -998,7 +1000,9 @@ function AdminPanel({ participants, session, auditEntries, onApprove, onReject, 
 function ProposalTracker({ proposals, me, isFacilitator, onCreate, onVote, onResolve }) {
   // US7 T151–T153.
   const [showCreator, setShowCreator] = useState(false);
-  const myVotes = useRef({}); // local optimistic marker so a second vote is disabled client-side
+  const [myVotes, setMyVotes] = useState({});
+
+  const recordVote = (pid) => setMyVotes((prev) => ({ ...prev, [pid]: true }));
 
   return (
     <section className="panel proposal-panel">
@@ -1009,7 +1013,7 @@ function ProposalTracker({ proposals, me, isFacilitator, onCreate, onVote, onRes
       {proposals.length === 0 && <p className="dim">No open proposals.</p>}
       {proposals.map((p) => {
         const tally = p.tally || { accept: 0, reject: 0, abstain: 0 };
-        const alreadyVoted = myVotes.current[p.id] === true;
+        const alreadyVoted = myVotes[p.id] === true;
         return (
           <div key={p.id} className="proposal-card">
             <header>
@@ -1026,21 +1030,21 @@ function ProposalTracker({ proposals, me, isFacilitator, onCreate, onVote, onRes
               <button
                 disabled={alreadyVoted}
                 onClick={async () => {
-                  try { await onVote(p.id, "accept"); myVotes.current[p.id] = true; }
+                  try { await onVote(p.id, "accept"); recordVote(p.id); }
                   catch (e) { alert(e.message); }
                 }}
               >Accept</button>
               <button
                 disabled={alreadyVoted}
                 onClick={async () => {
-                  try { await onVote(p.id, "reject"); myVotes.current[p.id] = true; }
+                  try { await onVote(p.id, "reject"); recordVote(p.id); }
                   catch (e) { alert(e.message); }
                 }}
               >Reject</button>
               <button
                 disabled={alreadyVoted}
                 onClick={async () => {
-                  try { await onVote(p.id, "abstain"); myVotes.current[p.id] = true; }
+                  try { await onVote(p.id, "abstain"); recordVote(p.id); }
                   catch (e) { alert(e.message); }
                 }}
               >Abstain</button>
@@ -1318,8 +1322,9 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     dispatch({ type: "ws_state", value: wsState });
   }, [wsState]);
 
-  const isFacilitator =
-    state.me?.role === "facilitator" || auth.role === "facilitator";
+  // state.me.role is authoritative from the snapshot / participant_update
+  // stream. Fall back to auth.role only during the snapshot-arrival window.
+  const isFacilitator = (state.me?.role || auth.role) === "facilitator";
 
   const sendMessage = async (content) => {
     await mcpCall("/tools/participant/inject_message", auth.token, {
