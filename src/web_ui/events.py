@@ -1,0 +1,152 @@
+"""v1 WebSocket event schema + helpers.
+
+Contract lives in ``specs/011-web-ui/contracts/websocket-events.md``.
+Every payload starts with ``{"v": 1, "type": "..."}`` so the client can
+refuse to act on unknown versions. These helpers keep serialization
+and field ordering consistent across the many broadcast sites that
+will call them (orchestrator loop, review-gate repo, summarizer, etc.).
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+SCHEMA_VERSION = 1
+
+
+def _envelope(event_type: str, **fields: Any) -> dict[str, Any]:
+    """Wrap an event payload in the standard {v, type, ...} envelope."""
+    return {"v": SCHEMA_VERSION, "type": event_type, **fields}
+
+
+def message_event(message: dict[str, Any]) -> dict[str, Any]:
+    """A completed turn was persisted — push full message content."""
+    return _envelope(
+        "message",
+        message=message,
+        turn_number=message.get("turn_number"),
+    )
+
+
+def turn_skipped_event(participant_id: str, reason: str, turn_number: int) -> dict[str, Any]:
+    """The loop skipped a turn (budget / circuit / review_gate / no_new_input)."""
+    return _envelope(
+        "turn_skipped",
+        participant_id=participant_id,
+        reason=reason,
+        turn_number=turn_number,
+    )
+
+
+def participant_update_event(participant: dict[str, Any]) -> dict[str, Any]:
+    """A participant row changed (role, status, consecutive_timeouts, ...)."""
+    return _envelope("participant_update", participant=participant)
+
+
+def convergence_update_event(point: dict[str, Any]) -> dict[str, Any]:
+    """One turn's convergence score."""
+    return _envelope("convergence_update", point=point)
+
+
+def review_gate_staged_event(draft: dict[str, Any]) -> dict[str, Any]:
+    """A new review-gate draft was created."""
+    return _envelope("review_gate_staged", draft=draft)
+
+
+def review_gate_resolved_event(
+    draft_id: str,
+    resolution: str,
+    turn_number: int | None,
+) -> dict[str, Any]:
+    """A draft was approved / rejected / edited / timed-out."""
+    return _envelope(
+        "review_gate_resolved",
+        draft_id=draft_id,
+        resolution=resolution,
+        turn_number=turn_number,
+    )
+
+
+def summary_created_event(summary: dict[str, Any]) -> dict[str, Any]:
+    """A summarization checkpoint was written."""
+    return _envelope("summary_created", summary=summary)
+
+
+def session_status_changed_event(status: str) -> dict[str, Any]:
+    """Session lifecycle transition (active/paused/archived)."""
+    return _envelope("session_status_changed", status=status)
+
+
+def error_event(code: str, message: str) -> dict[str, Any]:
+    """Non-fatal server-side warning for the UI to surface."""
+    return _envelope("error", code=code, message=message)
+
+
+def pong_event() -> dict[str, Any]:
+    """Reply to the client's ping frame."""
+    return _envelope("pong")
+
+
+def state_snapshot_event(
+    *,
+    session: dict[str, Any],
+    me: dict[str, Any],
+    participants: list[dict[str, Any]],
+    messages: list[dict[str, Any]],
+    pending_drafts: list[dict[str, Any]],
+    open_proposals: list[dict[str, Any]],
+    latest_summary: dict[str, Any] | None,
+    convergence_scores: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Full initial payload sent on WS connect + after every reconnect."""
+    return _envelope(
+        "state_snapshot",
+        session=session,
+        me=me,
+        participants=participants,
+        messages=messages,
+        pending_drafts=pending_drafts,
+        open_proposals=open_proposals,
+        latest_summary=latest_summary,
+        convergence_scores=convergence_scores,
+    )
+
+
+def iso(dt: datetime | None) -> str | None:
+    """Serialize a datetime to ISO-8601 or None."""
+    return dt.isoformat() if dt is not None else None
+
+
+async def broadcast_participant_update(
+    session_id: str,
+    participant_id: str,
+    participant_repo: Any,
+) -> None:
+    """Fetch a fresh participant row and push a participant_update event.
+
+    Callers from facilitator / auth endpoints use this after any row
+    mutation so subscribed clients see role / status / budget changes
+    without polling.
+    """
+    from src.web_ui.websocket import broadcast_to_session
+
+    p = await participant_repo.get_participant(participant_id)
+    if p is None:
+        return
+    payload = {
+        "id": p.id,
+        "session_id": p.session_id,
+        "display_name": p.display_name,
+        "role": p.role,
+        "provider": p.provider,
+        "model": p.model,
+        "model_tier": p.model_tier,
+        "model_family": p.model_family,
+        "routing_preference": p.routing_preference,
+        "status": p.status,
+        "consecutive_timeouts": p.consecutive_timeouts,
+        "budget_hourly": p.budget_hourly,
+        "budget_daily": p.budget_daily,
+    }
+    await broadcast_to_session(session_id, participant_update_event(payload))

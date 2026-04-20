@@ -393,6 +393,7 @@ async def approve_draft(
     msg = await _append_draft_to_transcript(request, draft, draft.draft_content)
     await _log_gate_action(request, participant, "review_gate_approve", draft.id)
     _skip_in_rotation(request, draft)
+    await _emit_resolved(participant.session_id, draft.id, "approved", msg.turn_number)
     return {"status": "approved", "draft_id": draft.id, "turn_number": msg.turn_number}
 
 
@@ -410,6 +411,7 @@ async def reject_draft(
         request, participant, "review_gate_reject", draft.id, {"new": body.reason}
     )
     _skip_in_rotation(request, draft)
+    await _emit_resolved(participant.session_id, draft.id, "rejected", None)
     return {"status": "rejected", "draft_id": draft.id}
 
 
@@ -432,7 +434,24 @@ async def edit_draft(
         {"previous": draft.draft_content, "new": body.edited_content},
     )
     _skip_in_rotation(request, draft)
+    await _emit_resolved(participant.session_id, draft.id, "edited", msg.turn_number)
     return {"status": "edited", "draft_id": draft.id, "turn_number": msg.turn_number}
+
+
+async def _emit_resolved(
+    session_id: str,
+    draft_id: str,
+    resolution: str,
+    turn_number: int | None,
+) -> None:
+    """Push a review_gate_resolved event to Web UI subscribers."""
+    from src.web_ui.events import review_gate_resolved_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    await broadcast_to_session(
+        session_id,
+        review_gate_resolved_event(draft_id, resolution, turn_number),
+    )
 
 
 def _skip_in_rotation(request: Request, draft: object) -> None:

@@ -17,6 +17,7 @@ services:
     image: ghcr.io/swdesertpenguin/digitalseance:latest
     ports:
       - "${SACP_MCP_PORT:-8750}:8750"
+      - "${SACP_WEB_UI_PORT:-8751}:8751"
     environment:
       SACP_DATABASE_URL: postgresql://${POSTGRES_USER:-sacp}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-sacp}
       SACP_ENCRYPTION_KEY: ${SACP_ENCRYPTION_KEY}
