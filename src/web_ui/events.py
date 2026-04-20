@@ -88,6 +88,11 @@ def pong_event() -> dict[str, Any]:
     return _envelope("pong")
 
 
+def audit_entry_event(entry: dict[str, Any]) -> dict[str, Any]:
+    """A facilitator action was logged (T252 audit push)."""
+    return _envelope("audit_entry", entry=entry)
+
+
 def state_snapshot_event(
     *,
     session: dict[str, Any],
