@@ -37,7 +37,7 @@ class CircuitBreaker:
         """Check if circuit is open (participant paused from failures)."""
         async with self._pool.acquire() as conn:
             count = await conn.fetchval(
-                "SELECT consecutive_timeouts FROM participants" " WHERE id = $1",
+                "SELECT consecutive_timeouts FROM participants WHERE id = $1",
                 participant_id,
             )
         return (count or 0) >= self._threshold
@@ -46,7 +46,7 @@ class CircuitBreaker:
         """Pause participant due to consecutive failures."""
         async with self._pool.acquire() as conn:
             await conn.execute(
-                "UPDATE participants SET status = 'paused'" " WHERE id = $1",
+                "UPDATE participants SET status = 'paused' WHERE id = $1",
                 participant_id,
             )
 
@@ -71,6 +71,6 @@ async def _reset_timeouts(
 ) -> None:
     """Reset consecutive timeout count to zero."""
     await conn.execute(
-        "UPDATE participants SET consecutive_timeouts = 0" " WHERE id = $1",
+        "UPDATE participants SET consecutive_timeouts = 0 WHERE id = $1",
         participant_id,
     )
