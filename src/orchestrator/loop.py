@@ -246,6 +246,7 @@ class ConversationLoop:
             session_id=session_id,
             content=content,
         )
+        await _emit_convergence(session_id, turn_number, similarity, diverge)
         if diverge:
             await self._enqueue_divergence(session_id)
         preset = self._cadence_presets.get(session_id, "cruise")
@@ -494,8 +495,42 @@ async def _stage_for_review(
     )
     log.info("Staged draft %s for review (participant=%s)", draft.id, speaker.id)
     await _log_routing(ctx.log_repo, ctx.session_id, decision)
+    await _emit_draft_staged(ctx.session_id, draft)
     skip = _skip_result(ctx.session_id, speaker.id, "review_gate_staged")
     return _with_delay(skip, 5.0)
+
+
+async def _emit_convergence(
+    session_id: str,
+    turn_number: int,
+    similarity: float,
+    diverge: bool,
+) -> None:
+    """Push a convergence_update event to Web UI subscribers."""
+    from src.web_ui.events import convergence_update_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    point = {
+        "turn_number": turn_number,
+        "similarity_score": similarity,
+        "divergence_prompted": diverge,
+    }
+    await broadcast_to_session(session_id, convergence_update_event(point))
+
+
+async def _emit_draft_staged(session_id: str, draft: object) -> None:
+    """Push a review_gate_staged WS event (Phase 2 Web UI)."""
+    from src.web_ui.events import review_gate_staged_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    payload = {
+        "id": draft.id,
+        "participant_id": draft.participant_id,
+        "draft_content": draft.draft_content,
+        "context_summary": draft.context_summary,
+        "created_at": draft.created_at.isoformat() if draft.created_at else None,
+    }
+    await broadcast_to_session(session_id, review_gate_staged_event(payload))
 
 
 async def _log_routing(
