@@ -57,7 +57,14 @@ async def add_participant(
     body: _AddParticipantBody,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Add a participant directly (facilitator only, auto-approved)."""
+    """Add a participant directly (facilitator only, auto-approved).
+
+    Dedupes AI participants by (provider, model) within the session to
+    prevent the "two Llama rows after a failed retry" footgun from
+    Test05-Web01. Human participants share provider="human"/model="human"
+    and can legitimately duplicate, so the check skips them.
+    """
+    await _reject_duplicate_ai(request.app.state.participant_repo, participant.session_id, body)
     p_repo = request.app.state.participant_repo
     new_p, token = await p_repo.add_participant(
         session_id=participant.session_id,
@@ -80,6 +87,20 @@ async def add_participant(
         "auth_token": auth_token,
         "role": new_p.role,
     }
+
+
+async def _reject_duplicate_ai(p_repo: object, session_id: str, body: _AddParticipantBody) -> None:
+    """Raise 409 if an active participant with the same provider+model exists."""
+    if body.provider == "human":
+        return
+    existing = await p_repo.list_participants(session_id)
+    for p in existing:
+        if p.provider == body.provider and p.model == body.model and p.status != "removed":
+            raise HTTPException(
+                409,
+                f"A participant with provider={body.provider}, model={body.model} "
+                f"already exists in this session (id={p.id}, status={p.status}).",
+            )
 
 
 @router.post("/create_invite")
