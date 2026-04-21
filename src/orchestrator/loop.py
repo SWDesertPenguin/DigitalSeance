@@ -386,7 +386,17 @@ async def _assemble_and_dispatch(
     except ProviderDispatchError as e:
         log.warning("Provider dispatch failed for %s: %s", speaker.id, e)
         await breaker.record_failure(speaker.id)
+        await _broadcast_provider_error(ctx.session_id, speaker, e)
         return None, "provider_error"
+
+
+async def _broadcast_provider_error(session_id: str, speaker: object, err: Exception) -> None:
+    """Surface provider failures so the UI can show a toast — not silent."""
+    from src.web_ui.events import error_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    message = f"Provider {speaker.provider}/{speaker.model} failed: {err}"
+    await broadcast_to_session(session_id, error_event("provider_unreachable", message))
 
 
 def _has_new_input(context: list) -> bool:

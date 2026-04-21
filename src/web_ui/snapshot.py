@@ -115,6 +115,7 @@ def _participant_dict(p: Any) -> dict[str, Any]:
         "budget_hourly": p.budget_hourly,
         "budget_daily": p.budget_daily,
         "context_window": p.context_window,
+        "invited_by": p.invited_by,
     }
 
 

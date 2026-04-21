@@ -50,8 +50,8 @@ _SESSION_BODY = {
 _PARTICIPANT_BODY = {
     "display_name": "AI Speaker",
     "provider": "openai",
-    "model": "gpt-4o",
-    "model_tier": "high",
+    "model": "gpt-4o-mini",  # distinct from facilitator's gpt-4o to clear dedupe check
+    "model_tier": "mid",
     "model_family": "gpt",
     "context_window": 128000,
     "api_key": "test-participant-key",
@@ -222,6 +222,56 @@ async def test_add_participant_rejects_placeholder(client):
         headers={"Authorization": f"Bearer {session['auth_token']}"},
     )
     assert resp.status_code == 422
+
+
+async def test_add_participant_rejects_duplicate_ai(client):
+    """Two AIs with the same provider+model in one session return 409."""
+    c, _ = client
+    session = await _create_session(c)
+    first = await c.post(
+        "/tools/facilitator/add_participant",
+        json=_PARTICIPANT_BODY,
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert first.status_code == 200
+    second = await c.post(
+        "/tools/facilitator/add_participant",
+        json=_PARTICIPANT_BODY,
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert second.status_code == 409
+    assert "already exists" in second.json().get("detail", "")
+
+
+async def test_start_loop_refuses_without_human_message(client):
+    """start_loop returns 409 when no human message exists yet."""
+    c, _ = client
+    session = await _create_session(c)
+    resp = await c.post(
+        "/tools/session/start_loop",
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert resp.status_code == 409
+    assert "opening message" in resp.json().get("detail", "").lower()
+
+
+async def test_session_rename(client):
+    """set_name updates the session name and rejects blanks."""
+    c, _ = client
+    session = await _create_session(c)
+    ok = await c.post(
+        "/tools/session/set_name",
+        json={"name": "Renamed By Test"},
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["name"] == "Renamed By Test"
+    blank = await c.post(
+        "/tools/session/set_name",
+        json={"name": "   "},
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert blank.status_code == 422
 
 
 async def test_unauthenticated_returns_error(client):

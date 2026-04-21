@@ -57,7 +57,14 @@ async def add_participant(
     body: _AddParticipantBody,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Add a participant directly (facilitator only, auto-approved)."""
+    """Add a participant directly (facilitator only, auto-approved).
+
+    Dedupes AI participants by (provider, model) within the session to
+    prevent the "two Llama rows after a failed retry" footgun from
+    Test05-Web01. Human participants share provider="human"/model="human"
+    and can legitimately duplicate, so the check skips them.
+    """
+    await _reject_duplicate_ai(request.app.state.participant_repo, participant.session_id, body)
     p_repo = request.app.state.participant_repo
     new_p, token = await p_repo.add_participant(
         session_id=participant.session_id,
@@ -72,6 +79,7 @@ async def add_participant(
         budget_hourly=body.budget_hourly,
         budget_daily=body.budget_daily,
         auto_approve=True,
+        invited_by=participant.id,
     )
     auth = request.app.state.auth_service
     auth_token = await auth.rotate_token(new_p.id)
@@ -80,6 +88,20 @@ async def add_participant(
         "auth_token": auth_token,
         "role": new_p.role,
     }
+
+
+async def _reject_duplicate_ai(p_repo: object, session_id: str, body: _AddParticipantBody) -> None:
+    """Raise 409 if an active participant with the same provider+model exists."""
+    if body.provider == "human":
+        return
+    existing = await p_repo.list_participants(session_id)
+    for p in existing:
+        if p.provider == body.provider and p.model == body.model and p.status != "removed":
+            raise HTTPException(
+                409,
+                f"A participant with provider={body.provider}, model={body.model} "
+                f"already exists in this session (id={p.id}, status={p.status}).",
+            )
 
 
 @router.post("/create_invite")
@@ -488,21 +510,61 @@ async def set_budget(
     body: _SetBudgetBody,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Set budget limits on a participant (facilitator only)."""
+    """Set or clear spend caps on a participant (facilitator only).
+
+    Covers the "human added an AI without a budget" case: the
+    facilitator can backfill caps after the fact. Audit-logged and
+    broadcast so every client's BudgetPanel updates live.
+    """
+    _reject_negative_budget(body.budget_hourly, body.budget_daily)
     p_repo = request.app.state.participant_repo
-    result = await p_repo.update_budget(
+    target = await p_repo.get_participant(body.participant_id)
+    if target is None or target.session_id != participant.session_id:
+        raise HTTPException(404, "participant not found in session")
+    await p_repo.update_budget(
         body.participant_id,
         budget_hourly=body.budget_hourly,
         budget_daily=body.budget_daily,
     )
-    if result == "UPDATE 0":
-        raise HTTPException(404, "participant not found")
+    await _audit_and_broadcast_budget(request, participant, target, body)
     return {
         "status": "updated",
         "participant_id": body.participant_id,
         "budget_hourly": body.budget_hourly,
         "budget_daily": body.budget_daily,
     }
+
+
+def _reject_negative_budget(hourly: float | None, daily: float | None) -> None:
+    """400 on negative caps."""
+    if (hourly is not None and hourly < 0) or (daily is not None and daily < 0):
+        raise HTTPException(400, "Budget values must be non-negative")
+
+
+async def _audit_and_broadcast_budget(
+    request: Request,
+    facilitator: Participant,
+    target: Participant,
+    body: _SetBudgetBody,
+) -> None:
+    """Log the set_budget action and push a fresh participant_update."""
+    log_repo = request.app.state.log_repo
+    await log_repo.log_admin_action(
+        session_id=facilitator.session_id,
+        facilitator_id=facilitator.id,
+        action="set_budget",
+        target_id=body.participant_id,
+        previous_value=f"{target.budget_hourly}/{target.budget_daily}",
+        new_value=f"{body.budget_hourly}/{body.budget_daily}",
+    )
+    from src.web_ui.events import broadcast_participant_update
+
+    await broadcast_participant_update(
+        facilitator.session_id,
+        body.participant_id,
+        request.app.state.participant_repo,
+        log_repo,
+    )
 
 
 @router.get("/list_drafts")
