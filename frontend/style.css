@@ -844,3 +844,22 @@ button:active:not(:disabled) { transform: translateY(1px); }
   font-size: 1.25rem; cursor: pointer; padding: 0 0.25rem;
 }
 .error-toast .toast-dismiss:hover { color: var(--fg); }
+
+/* PR-3: participant-list status buckets */
+.bucket-label {
+  font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted); margin: 0.75rem 0 0.25rem 0;
+  border-bottom: 1px solid var(--border); padding-bottom: 0.15rem;
+}
+
+/* PR-3: inline budget editor */
+.budget-editor {
+  display: flex; flex-direction: column; gap: 0.4rem;
+  margin-top: 0.5rem; padding: 0.5rem;
+  background: var(--panel-alt); border-radius: 4px;
+}
+.budget-editor label {
+  display: flex; gap: 0.5rem; align-items: center; font-size: 0.85rem;
+}
+.budget-editor input { width: 7rem; padding: 0.2rem 0.3rem; }
+.budget-editor-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
