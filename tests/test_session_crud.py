@@ -44,6 +44,39 @@ async def test_create_session_returns_session_participant_branch(
     assert branch.parent_branch_id is None
 
 
+async def test_update_name_renames_session(repo: SessionRepository) -> None:
+    """update_name persists a new session name and echoes it back."""
+    session, _, _ = await repo.create_session(
+        "Original",
+        facilitator_display_name="A",
+        facilitator_provider="human",
+        facilitator_model="human",
+        facilitator_model_tier="n/a",
+        facilitator_model_family="human",
+        facilitator_context_window=0,
+    )
+    updated = await repo.update_name(session.id, "Renamed")
+    assert updated.name == "Renamed"
+    refetched = await repo.get_session(session.id)
+    assert refetched is not None
+    assert refetched.name == "Renamed"
+
+
+async def test_update_name_rejects_blank(repo: SessionRepository) -> None:
+    """update_name refuses empty names and whitespace-only strings."""
+    session, _, _ = await repo.create_session(
+        "X",
+        facilitator_display_name="A",
+        facilitator_provider="human",
+        facilitator_model="human",
+        facilitator_model_tier="n/a",
+        facilitator_model_family="human",
+        facilitator_context_window=0,
+    )
+    with pytest.raises(ValueError, match="blank"):
+        await repo.update_name(session.id, "   ")
+
+
 async def test_create_session_defaults(
     repo: SessionRepository,
 ) -> None:
