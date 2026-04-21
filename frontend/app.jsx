@@ -561,6 +561,10 @@ function Transcript({ messages, participants }) {
     () => Object.fromEntries(participants.map((p) => [p.id, p])),
     [participants],
   );
+  const endRef = useRef(null);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages.length]);
   return (
     <section className="transcript">
       {messages.length === 0 && <p className="dim">No messages yet.</p>}
@@ -590,6 +594,7 @@ function Transcript({ messages, participants }) {
           </article>
         );
       })}
+      <div ref={endRef} />
     </section>
   );
 }
@@ -652,13 +657,16 @@ function BudgetPanel({ participants, me, isFacilitator }) {
         const isSelf = p.id === me?.participant_id;
         const showDollars = isFacilitator || isSelf;
         const daily = p.budget_daily;
-        const utilization = daily && p.spend_daily ? Math.min(1, p.spend_daily / daily) : null;
+        const spend = p.spend_daily ?? 0;
+        const utilization = daily ? Math.min(1, spend / daily) : null;
         return (
           <div key={p.id} className="budget-card">
             <div className="p-row">
               <strong>{p.display_name}</strong>
-              {showDollars && daily && (
-                <span className="dim">${(p.spend_daily ?? 0).toFixed(3)} / ${daily}</span>
+              {showDollars && (
+                <span className="dim">
+                  ${spend.toFixed(4)}{daily ? ` / $${daily}` : " (no cap)"}
+                </span>
               )}
             </div>
             {utilization !== null ? (
@@ -669,9 +677,7 @@ function BudgetPanel({ participants, me, isFacilitator }) {
                 />
                 {!showDollars && <span className="util-pct">{Math.round(utilization * 100)}%</span>}
               </div>
-            ) : (
-              <p className="dim">no daily cap</p>
-            )}
+            ) : null}
           </div>
         );
       })}

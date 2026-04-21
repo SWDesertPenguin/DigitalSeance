@@ -46,6 +46,9 @@ logs/
 # === Local test plans (not for GitHub) ===
 test-plan-*.md
 
+# === Local feedback backlog (not for GitHub) ===
+FEEDBACK.local.md
+
 # === OS ===
 .DS_Store
 Thumbs.db
