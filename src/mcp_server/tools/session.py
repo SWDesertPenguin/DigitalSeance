@@ -478,24 +478,32 @@ async def _init_loop_from_session(
     loop.set_review_gate_pause_scope(session_id, session.review_gate_pause_scope)
 
 
+_SKIP_BACKOFF_BASE_S = 5.0
+_SKIP_BACKOFF_MAX_S = 60.0
+
+
 async def _run_loop(
     loop: object,
     session_id: str,
     session_repo: object,
     connection_manager: object | None = None,
 ) -> None:
-    """Run the conversation loop with cadence-based pacing."""
+    """Run the conversation loop with cadence-based pacing + skip backoff.
+
+    Consecutive skips (no_new_input, provider_error, review_gate_pending)
+    ramp up the inter-tick delay exponentially from 5s to a 60s cap.
+    A real turn resets the counter. This prevents the 15-skips-in-2-min
+    log spam seen in Test05-Web01 when the only viable AI just spoke.
+    """
     await _init_loop_from_session(loop, session_id, session_repo)
+    skips = 0
     while True:
         try:
             result = await loop.execute_turn(session_id)
-            if result.skipped:
-                log.info("Skipped %s: %s", result.speaker_id, result.skip_reason)
-            else:
-                log.info("Turn %d done, delay=%.1fs", result.turn_number, result.delay_seconds)
+            skips = _log_and_count(result, skips)
             if connection_manager and not result.skipped:
                 await _broadcast_turn(connection_manager, session_id, result)
-            delay = result.delay_seconds or (5.0 if result.skipped else 0)
+            delay = _tick_delay(result, skips)
             if delay > 0:
                 await asyncio.sleep(delay)
         except AllParticipantsExhaustedError:
@@ -508,6 +516,23 @@ async def _run_loop(
         except Exception:
             log.exception("Loop crashed for session %s", session_id)
             break
+
+
+def _log_and_count(result: object, skips: int) -> int:
+    """Emit the per-tick log line and return the new consecutive-skip count."""
+    if result.skipped:
+        log.info("Skipped %s: %s (skips=%d)", result.speaker_id, result.skip_reason, skips + 1)
+        return skips + 1
+    log.info("Turn %d done, delay=%.1fs", result.turn_number, result.delay_seconds)
+    return 0
+
+
+def _tick_delay(result: object, skips: int) -> float:
+    """Return the sleep delay after this tick; backs off on consecutive skips."""
+    if not result.skipped:
+        return result.delay_seconds or 0.0
+    backoff = min(_SKIP_BACKOFF_BASE_S * (2 ** max(0, skips - 1)), _SKIP_BACKOFF_MAX_S)
+    return max(result.delay_seconds or 0.0, backoff)
 
 
 def _format_created(
