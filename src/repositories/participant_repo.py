@@ -40,6 +40,7 @@ class ParticipantRepository(BaseRepository):
         budget_hourly: float | None = None,
         budget_daily: float | None = None,
         auto_approve: bool = False,
+        invited_by: str | None = None,
     ) -> tuple[Participant, str | None]:
         """Add a participant, encrypting API key and hashing token."""
         pid = uuid.uuid4().hex[:12]
@@ -59,6 +60,7 @@ class ParticipantRepository(BaseRepository):
             api_endpoint,
             budget_hourly,
             budget_daily,
+            invited_by,
         )
         await self._execute(_INSERT_PARTICIPANT_SQL, *args)
         rec = await self._fetch_one("SELECT * FROM participants WHERE id = $1", pid)
@@ -202,8 +204,8 @@ _INSERT_PARTICIPANT_SQL = """
         (id, session_id, display_name, role, provider, model,
          model_tier, model_family, context_window,
          api_key_encrypted, auth_token_hash, api_endpoint,
-         budget_hourly, budget_daily)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         budget_hourly, budget_daily, invited_by)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 """
 
 

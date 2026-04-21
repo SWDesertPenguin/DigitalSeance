@@ -463,8 +463,8 @@ function SignInForm({ onLogin, onBack }) {
         onChange={(ev) => setToken(ev.target.value)} autoFocus />
       <div className="auth-actions">
         <button type="button" className="link-btn" onClick={onBack}>← back</button>
-        <button type="submit" disabled={busy || !token.trim()}>
-          {busy ? "Signing in…" : "Sign in"}
+        <button type="submit" className={busy ? "busy" : ""} disabled={busy || !token.trim()}>
+          {busy ? "Signing in" : "Sign in"}
         </button>
       </div>
       {error && <div className="error">{error}</div>}
@@ -503,8 +503,8 @@ function CreateSessionForm({ onLogin, onBack }) {
         onChange={(ev) => setName(ev.target.value)} autoFocus maxLength={64} />
       <div className="auth-actions">
         <button type="button" className="link-btn" onClick={onBack}>← back</button>
-        <button type="submit" disabled={busy || !name.trim()}>
-          {busy ? "Creating…" : "Create session"}
+        <button type="submit" className={busy ? "busy" : ""} disabled={busy || !name.trim()}>
+          {busy ? "Creating" : "Create session"}
         </button>
       </div>
       {error && <div className="error">{error}</div>}
@@ -569,8 +569,8 @@ function RequestJoinForm({ onLogin, onBack }) {
         onChange={(ev) => setName(ev.target.value)} maxLength={64} />
       <div className="auth-actions">
         <button type="button" className="link-btn" onClick={onBack}>← back</button>
-        <button type="submit" disabled={busy || !sid.trim() || !name.trim()}>
-          {busy ? "Requesting…" : "Request to join"}
+        <button type="submit" className={busy ? "busy" : ""} disabled={busy || !sid.trim() || !name.trim()}>
+          {busy ? "Requesting" : "Request to join"}
         </button>
       </div>
       {error && <div className="error">{error}</div>}
@@ -653,6 +653,23 @@ function SessionNameDisplay({ session, canEdit, onRename }) {
   );
 }
 
+function ErrorToasts({ errors, onDismiss }) {
+  if (!errors || errors.length === 0) return null;
+  return (
+    <div className="error-toasts">
+      {errors.map((err, i) => (
+        <div key={i} className={`error-toast toast-${err.code || "generic"}`}>
+          <div className="toast-body">
+            <strong>{err.code || "error"}</strong>
+            <span>{err.message}</span>
+          </div>
+          <button type="button" className="toast-dismiss" onClick={() => onDismiss(i)}>×</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PendingHoldingScreen({ session, humans, onLogout }) {
   return (
     <main className="pending-screen">
@@ -677,36 +694,82 @@ function PendingHoldingScreen({ session, humans, onLogout }) {
   );
 }
 
+function _participantBuckets(participants) {
+  const active = [], paused = [], pending = [], other = [];
+  for (const p of participants) {
+    if (p.role === "pending" || p.status === "pending") pending.push(p);
+    else if (p.status === "paused") paused.push(p);
+    else if (p.status === "active") active.push(p);
+    else other.push(p);
+  }
+  const alpha = (a, b) => a.display_name.localeCompare(b.display_name);
+  return {
+    active: active.sort(alpha),
+    paused: paused.sort(alpha),
+    pending: pending.sort(alpha),
+    other: other.sort(alpha),
+  };
+}
+
 function ParticipantList({ participants, me, skipReasons }) {
-  // US2 T073 + US10 T140–T142.
-  const visible = useMemo(
-    () => [...participants].sort((a, b) => a.display_name.localeCompare(b.display_name)),
+  const byId = useMemo(
+    () => Object.fromEntries(participants.map((p) => [p.id, p])),
     [participants],
+  );
+  const buckets = useMemo(() => _participantBuckets(participants), [participants]);
+  const renderCard = (p) => (
+    <ParticipantCard key={p.id} p={p} me={me} byId={byId} skipReasons={skipReasons} />
   );
   return (
     <section className="panel participant-list">
       <h2>Participants</h2>
-      {visible.length === 0 && <p className="dim">none</p>}
-      {visible.map((p) => (
-        <div key={p.id} className={`participant-card role-${p.role} status-${p.status}`}>
-          <div className="p-row">
-            <strong>{p.display_name}</strong>
-            {p.id === me?.participant_id && <span className="badge badge-you">you</span>}
-            {p.status === "pending" && <span className="badge badge-pending">pending</span>}
-          </div>
-          <div className="p-meta">
-            <span>{p.role}</span>
-            <span>·</span>
-            <span>{p.provider}</span>
-            {p.model_family && <><span>·</span><span>{p.model_family}</span></>}
-          </div>
-          <div className="p-meta">
-            <HealthBadge participant={p} skipReasons={skipReasons?.[p.id]} />
-            <span className="routing">{p.routing_preference}</span>
-          </div>
-        </div>
-      ))}
+      {participants.length === 0 && <p className="dim">none</p>}
+      {buckets.active.length > 0 && (<>
+        <h3 className="bucket-label">Active</h3>
+        {buckets.active.map(renderCard)}
+      </>)}
+      {buckets.paused.length > 0 && (<>
+        <h3 className="bucket-label">Paused</h3>
+        {buckets.paused.map(renderCard)}
+      </>)}
+      {buckets.pending.length > 0 && (<>
+        <h3 className="bucket-label">Pending</h3>
+        {buckets.pending.map(renderCard)}
+      </>)}
+      {buckets.other.length > 0 && buckets.other.map(renderCard)}
     </section>
+  );
+}
+
+function ParticipantCard({ p, me, byId, skipReasons }) {
+  const inviter = p.invited_by ? byId[p.invited_by] : null;
+  const inviterLabel = inviter ? inviter.display_name : null;
+  const isAI = p.provider !== "human";
+  return (
+    <div className={`participant-card role-${p.role} status-${p.status}`}>
+      <div className="p-row">
+        <strong>{p.display_name}</strong>
+        {p.id === me?.participant_id && <span className="badge badge-you">you</span>}
+        {(p.role === "pending" || p.status === "pending") && (
+          <span className="badge badge-pending">pending</span>
+        )}
+      </div>
+      <div className="p-meta">
+        <span>{p.role}</span>
+        <span>·</span>
+        <span>{p.provider}</span>
+        {p.model_family && <><span>·</span><span>{p.model_family}</span></>}
+      </div>
+      {isAI && inviterLabel && (
+        <div className="p-meta dim">
+          <span>added by {inviterLabel}</span>
+        </div>
+      )}
+      <div className="p-meta">
+        <HealthBadge participant={p} skipReasons={skipReasons?.[p.id]} />
+        <span className="routing">{p.routing_preference}</span>
+      </div>
+    </div>
   );
 }
 
@@ -813,12 +876,13 @@ function deriveHealth(p) {
 
 function HealthBadge({ participant, skipReasons }) {
   const health = deriveHealth(participant);
+  const label = health.count != null ? `${health.label} (${health.count})` : health.label;
   const title = skipReasons && skipReasons.length > 0
     ? skipReasons.map((s) => `#${s.turn_number}: ${s.reason}`).join("\n")
-    : health.label;
+    : label;
   return (
     <span className={`health-badge health-${health.tone}`} title={title}>
-      {health.label}
+      {label}
     </span>
   );
 }
@@ -829,9 +893,7 @@ function pctColor(pct) {
   return "var(--ok)";
 }
 
-function BudgetPanel({ participants, me, isFacilitator }) {
-  // US4 T100–T102. Renders one card per participant. Self + facilitator see
-  // dollar amounts; others only see utilization %.
+function BudgetPanel({ participants, me, isFacilitator, onSetBudget }) {
   const list = useMemo(
     () => participants
       .filter((p) => p.provider !== "human")
@@ -849,35 +911,85 @@ function BudgetPanel({ participants, me, isFacilitator }) {
   return (
     <section className="panel budget-panel">
       <h2>Budget</h2>
-      {list.map((p) => {
-        const isSelf = p.id === me?.participant_id;
-        const showDollars = isFacilitator || isSelf;
-        const daily = p.budget_daily;
-        const spend = p.spend_daily ?? 0;
-        const utilization = daily ? Math.min(1, spend / daily) : null;
-        return (
-          <div key={p.id} className="budget-card">
-            <div className="p-row">
-              <strong>{p.display_name}</strong>
-              {showDollars && (
-                <span className="dim">
-                  ${spend.toFixed(4)}{daily ? ` / $${daily}` : " (no cap)"}
-                </span>
-              )}
-            </div>
-            {utilization !== null ? (
-              <div className="util-bar">
-                <div
-                  className="util-fill"
-                  style={{ width: `${Math.round(utilization * 100)}%`, background: pctColor(utilization) }}
-                />
-                {!showDollars && <span className="util-pct">{Math.round(utilization * 100)}%</span>}
-              </div>
-            ) : null}
-          </div>
-        );
-      })}
+      {list.map((p) => (
+        <BudgetCard key={p.id} p={p} me={me}
+          isFacilitator={isFacilitator} onSetBudget={onSetBudget} />
+      ))}
     </section>
+  );
+}
+
+function BudgetCard({ p, me, isFacilitator, onSetBudget }) {
+  const isSelf = p.id === me?.participant_id;
+  const showDollars = isFacilitator || isSelf;
+  const [editing, setEditing] = useState(false);
+  const daily = p.budget_daily;
+  const spend = p.spend_daily ?? 0;
+  const utilization = daily ? Math.min(1, spend / daily) : null;
+  return (
+    <div className="budget-card">
+      <div className="p-row">
+        <strong>{p.display_name}</strong>
+        {showDollars && (
+          <span className="dim">
+            ${spend.toFixed(4)}{daily ? ` / $${daily}` : " (no cap)"}
+          </span>
+        )}
+        {isFacilitator && !editing && (
+          <button type="button" className="link-btn" onClick={() => setEditing(true)}>
+            edit
+          </button>
+        )}
+      </div>
+      {utilization !== null && (
+        <div className="util-bar">
+          <div className="util-fill"
+            style={{ width: `${Math.round(utilization * 100)}%`, background: pctColor(utilization) }} />
+          {!showDollars && <span className="util-pct">{Math.round(utilization * 100)}%</span>}
+        </div>
+      )}
+      {editing && (
+        <BudgetEditor p={p} onSave={onSetBudget} onClose={() => setEditing(false)} />
+      )}
+    </div>
+  );
+}
+
+function BudgetEditor({ p, onSave, onClose }) {
+  const [hourly, setHourly] = useState(p.budget_hourly ?? "");
+  const [daily, setDaily] = useState(p.budget_daily ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const parse = (s) => {
+    if (s === "" || s == null) return null;
+    const n = parseFloat(s);
+    return Number.isFinite(n) && n >= 0 ? n : "invalid";
+  };
+  const submit = async (ev) => {
+    ev.preventDefault();
+    const h = parse(hourly); const d = parse(daily);
+    if (h === "invalid" || d === "invalid") { setError("Budgets must be >= 0"); return; }
+    setBusy(true); setError(null);
+    try {
+      await onSave(p.id, { budget_hourly: h, budget_daily: d });
+      onClose();
+    } catch (e) { setError(e.message || "Save failed"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <form onSubmit={submit} className="budget-editor">
+      <label>hourly $ <input type="number" step="0.01" min="0" value={hourly}
+        onChange={(ev) => setHourly(ev.target.value)} placeholder="no cap" /></label>
+      <label>daily $ <input type="number" step="0.01" min="0" value={daily}
+        onChange={(ev) => setDaily(ev.target.value)} placeholder="no cap" /></label>
+      {error && <div className="error">{error}</div>}
+      <div className="budget-editor-actions">
+        <button type="button" onClick={onClose}>cancel</button>
+        <button type="submit" className={busy ? "busy" : ""} disabled={busy}>
+          {busy ? "saving" : "save"}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -1069,7 +1181,7 @@ function AdminPanel({ participants, session, auditEntries, onApprove, onReject, 
   const [maxUses, setMaxUses] = useState(1);
 
   const pending = useMemo(
-    () => participants.filter((p) => p.status === "pending"),
+    () => participants.filter((p) => p.role === "pending" || p.status === "pending"),
     [participants],
   );
   const activeOthers = useMemo(
@@ -1357,8 +1469,8 @@ function MessageInput({ onSend, disabled }) {
       />
       <div className="input-actions">
         <span className="dim">Ctrl+Enter to send</span>
-        <button onClick={send} disabled={disabled || busy || !text.trim()}>
-          {busy ? "…" : "Send"}
+        <button onClick={send} className={busy ? "busy" : ""} disabled={disabled || busy || !text.trim()}>
+          {busy ? "Sending" : "Send"}
         </button>
       </div>
     </div>
@@ -1386,6 +1498,38 @@ function SessionControls({ session, isFacilitator, onAction }) {
   );
 }
 
+const PROVIDER_DEFAULTS = {
+  human:     { model: "human",                            family: "human",    tier: "n/a", context: 0,     needsKey: false },
+  anthropic: { model: "anthropic/claude-haiku-4-5-20251001", family: "claude", tier: "mid", context: 200000, needsKey: true },
+  openai:    { model: "gpt-4o-mini",                       family: "gpt",      tier: "mid", context: 128000, needsKey: true },
+  ollama:    { model: "ollama_chat/llama3.2:3b",           family: "llama",    tier: "low", context: 4096,   needsKey: false },
+};
+
+function _applyProviderDefaults(form, provider) {
+  const d = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.human;
+  return {
+    ...form,
+    provider,
+    model: d.model,
+    model_family: d.family,
+    model_tier: d.tier,
+    context_window: d.context,
+  };
+}
+
+function _validateAddParticipant(form) {
+  if (!form.display_name.trim()) return "Display name is required";
+  if (form.provider === "human") return null;
+  if (!form.model.trim() || form.model.toLowerCase() === "string") {
+    return "Model is required for AI participants";
+  }
+  if (form.model === "human") return "Model cannot be 'human' for an AI participant";
+  if (PROVIDER_DEFAULTS[form.provider]?.needsKey && !form.api_key.trim()) {
+    return `API key is required for ${form.provider}`;
+  }
+  return null;
+}
+
 function AddParticipantDialog({ onClose, onAdd }) {
   const [form, setForm] = useState({
     display_name: "",
@@ -1400,11 +1544,13 @@ function AddParticipantDialog({ onClose, onAdd }) {
   const [error, setError] = useState(null);
 
   const update = (field) => (ev) => setForm({ ...form, [field]: ev.target.value });
+  const pickProvider = (ev) => setForm(_applyProviderDefaults(form, ev.target.value));
 
   const submit = async (ev) => {
     ev.preventDefault();
-    setBusy(true);
-    setError(null);
+    const validationError = _validateAddParticipant(form);
+    if (validationError) { setError(validationError); return; }
+    setBusy(true); setError(null);
     try {
       await onAdd({ ...form, context_window: parseInt(form.context_window, 10) || 0 });
       onClose();
@@ -1423,10 +1569,10 @@ function AddParticipantDialog({ onClose, onAdd }) {
         <h2>Add participant</h2>
         <form onSubmit={submit}>
           <label>Display name
-            <input value={form.display_name} onChange={update("display_name")} required />
+            <input value={form.display_name} onChange={update("display_name")} required autoFocus />
           </label>
           <label>Provider
-            <select value={form.provider} onChange={update("provider")}>
+            <select value={form.provider} onChange={pickProvider}>
               <option value="human">human</option>
               <option value="anthropic">anthropic</option>
               <option value="openai">openai</option>
@@ -1436,7 +1582,7 @@ function AddParticipantDialog({ onClose, onAdd }) {
           {isAI && (
             <>
               <label>Model
-                <input value={form.model} onChange={update("model")} placeholder="e.g. gpt-4o-mini" required />
+                <input value={form.model} onChange={update("model")} required />
               </label>
               <label>Model family
                 <input value={form.model_family} onChange={update("model_family")} />
@@ -1452,15 +1598,17 @@ function AddParticipantDialog({ onClose, onAdd }) {
               <label>Context window
                 <input type="number" value={form.context_window} onChange={update("context_window")} />
               </label>
-              <label>API key
-                <input type="password" value={form.api_key} onChange={update("api_key")} required />
-              </label>
+              {PROVIDER_DEFAULTS[form.provider]?.needsKey && (
+                <label>API key
+                  <input type="password" value={form.api_key} onChange={update("api_key")} required />
+                </label>
+              )}
             </>
           )}
           {error && <div className="error">{error}</div>}
           <div className="modal-actions">
             <button type="button" onClick={onClose}>Cancel</button>
-            <button type="submit" disabled={busy || !form.display_name}>
+            <button type="submit" className={busy ? "busy" : ""} disabled={busy}>
               {busy ? "Adding…" : "Add"}
             </button>
           </div>
@@ -1580,6 +1728,17 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     }
   };
 
+  const onSetBudget = async (participantId, { budget_hourly, budget_daily }) => {
+    await mcpCall("/tools/facilitator/set_budget", auth.token, {
+      method: "POST",
+      body: {
+        participant_id: participantId,
+        budget_hourly: budget_hourly,
+        budget_daily: budget_daily,
+      },
+    });
+  };
+
   const onRoutingChange = async (participantId, preference) => {
     try {
       // Prefer the self-serve endpoint (T250) when we're editing our own row.
@@ -1692,6 +1851,10 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
         onRename={onRenameSession}
         isFacilitator={isFacilitator}
       />
+      <ErrorToasts
+        errors={state.errors}
+        onDismiss={(index) => dispatch({ type: "clear_error", index })}
+      />
       {wsState === "reconnecting" && (
         <div className="banner banner-warn">
           Reconnecting to the server…
@@ -1753,6 +1916,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
             participants={state.participants}
             me={auth}
             isFacilitator={isFacilitator}
+            onSetBudget={onSetBudget}
           />
           <ConvergencePanel scores={state.convergenceScores} />
           <SummaryPanel summary={state.latestSummary} />
