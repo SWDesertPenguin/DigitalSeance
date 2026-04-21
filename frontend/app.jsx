@@ -463,8 +463,8 @@ function SignInForm({ onLogin, onBack }) {
         onChange={(ev) => setToken(ev.target.value)} autoFocus />
       <div className="auth-actions">
         <button type="button" className="link-btn" onClick={onBack}>← back</button>
-        <button type="submit" disabled={busy || !token.trim()}>
-          {busy ? "Signing in…" : "Sign in"}
+        <button type="submit" className={busy ? "busy" : ""} disabled={busy || !token.trim()}>
+          {busy ? "Signing in" : "Sign in"}
         </button>
       </div>
       {error && <div className="error">{error}</div>}
@@ -503,8 +503,8 @@ function CreateSessionForm({ onLogin, onBack }) {
         onChange={(ev) => setName(ev.target.value)} autoFocus maxLength={64} />
       <div className="auth-actions">
         <button type="button" className="link-btn" onClick={onBack}>← back</button>
-        <button type="submit" disabled={busy || !name.trim()}>
-          {busy ? "Creating…" : "Create session"}
+        <button type="submit" className={busy ? "busy" : ""} disabled={busy || !name.trim()}>
+          {busy ? "Creating" : "Create session"}
         </button>
       </div>
       {error && <div className="error">{error}</div>}
@@ -569,8 +569,8 @@ function RequestJoinForm({ onLogin, onBack }) {
         onChange={(ev) => setName(ev.target.value)} maxLength={64} />
       <div className="auth-actions">
         <button type="button" className="link-btn" onClick={onBack}>← back</button>
-        <button type="submit" disabled={busy || !sid.trim() || !name.trim()}>
-          {busy ? "Requesting…" : "Request to join"}
+        <button type="submit" className={busy ? "busy" : ""} disabled={busy || !sid.trim() || !name.trim()}>
+          {busy ? "Requesting" : "Request to join"}
         </button>
       </div>
       {error && <div className="error">{error}</div>}
@@ -650,6 +650,23 @@ function SessionNameDisplay({ session, canEdit, onRename }) {
     >
       {session?.name || "…"}
     </strong>
+  );
+}
+
+function ErrorToasts({ errors, onDismiss }) {
+  if (!errors || errors.length === 0) return null;
+  return (
+    <div className="error-toasts">
+      {errors.map((err, i) => (
+        <div key={i} className={`error-toast toast-${err.code || "generic"}`}>
+          <div className="toast-body">
+            <strong>{err.code || "error"}</strong>
+            <span>{err.message}</span>
+          </div>
+          <button type="button" className="toast-dismiss" onClick={() => onDismiss(i)}>×</button>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -813,12 +830,13 @@ function deriveHealth(p) {
 
 function HealthBadge({ participant, skipReasons }) {
   const health = deriveHealth(participant);
+  const label = health.count != null ? `${health.label} (${health.count})` : health.label;
   const title = skipReasons && skipReasons.length > 0
     ? skipReasons.map((s) => `#${s.turn_number}: ${s.reason}`).join("\n")
-    : health.label;
+    : label;
   return (
     <span className={`health-badge health-${health.tone}`} title={title}>
-      {health.label}
+      {label}
     </span>
   );
 }
@@ -1357,8 +1375,8 @@ function MessageInput({ onSend, disabled }) {
       />
       <div className="input-actions">
         <span className="dim">Ctrl+Enter to send</span>
-        <button onClick={send} disabled={disabled || busy || !text.trim()}>
-          {busy ? "…" : "Send"}
+        <button onClick={send} className={busy ? "busy" : ""} disabled={disabled || busy || !text.trim()}>
+          {busy ? "Sending" : "Send"}
         </button>
       </div>
     </div>
@@ -1386,6 +1404,38 @@ function SessionControls({ session, isFacilitator, onAction }) {
   );
 }
 
+const PROVIDER_DEFAULTS = {
+  human:     { model: "human",                            family: "human",    tier: "n/a", context: 0,     needsKey: false },
+  anthropic: { model: "anthropic/claude-haiku-4-5-20251001", family: "claude", tier: "mid", context: 200000, needsKey: true },
+  openai:    { model: "gpt-4o-mini",                       family: "gpt",      tier: "mid", context: 128000, needsKey: true },
+  ollama:    { model: "ollama_chat/llama3.2:3b",           family: "llama",    tier: "low", context: 4096,   needsKey: false },
+};
+
+function _applyProviderDefaults(form, provider) {
+  const d = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.human;
+  return {
+    ...form,
+    provider,
+    model: d.model,
+    model_family: d.family,
+    model_tier: d.tier,
+    context_window: d.context,
+  };
+}
+
+function _validateAddParticipant(form) {
+  if (!form.display_name.trim()) return "Display name is required";
+  if (form.provider === "human") return null;
+  if (!form.model.trim() || form.model.toLowerCase() === "string") {
+    return "Model is required for AI participants";
+  }
+  if (form.model === "human") return "Model cannot be 'human' for an AI participant";
+  if (PROVIDER_DEFAULTS[form.provider]?.needsKey && !form.api_key.trim()) {
+    return `API key is required for ${form.provider}`;
+  }
+  return null;
+}
+
 function AddParticipantDialog({ onClose, onAdd }) {
   const [form, setForm] = useState({
     display_name: "",
@@ -1400,11 +1450,13 @@ function AddParticipantDialog({ onClose, onAdd }) {
   const [error, setError] = useState(null);
 
   const update = (field) => (ev) => setForm({ ...form, [field]: ev.target.value });
+  const pickProvider = (ev) => setForm(_applyProviderDefaults(form, ev.target.value));
 
   const submit = async (ev) => {
     ev.preventDefault();
-    setBusy(true);
-    setError(null);
+    const validationError = _validateAddParticipant(form);
+    if (validationError) { setError(validationError); return; }
+    setBusy(true); setError(null);
     try {
       await onAdd({ ...form, context_window: parseInt(form.context_window, 10) || 0 });
       onClose();
@@ -1423,10 +1475,10 @@ function AddParticipantDialog({ onClose, onAdd }) {
         <h2>Add participant</h2>
         <form onSubmit={submit}>
           <label>Display name
-            <input value={form.display_name} onChange={update("display_name")} required />
+            <input value={form.display_name} onChange={update("display_name")} required autoFocus />
           </label>
           <label>Provider
-            <select value={form.provider} onChange={update("provider")}>
+            <select value={form.provider} onChange={pickProvider}>
               <option value="human">human</option>
               <option value="anthropic">anthropic</option>
               <option value="openai">openai</option>
@@ -1436,7 +1488,7 @@ function AddParticipantDialog({ onClose, onAdd }) {
           {isAI && (
             <>
               <label>Model
-                <input value={form.model} onChange={update("model")} placeholder="e.g. gpt-4o-mini" required />
+                <input value={form.model} onChange={update("model")} required />
               </label>
               <label>Model family
                 <input value={form.model_family} onChange={update("model_family")} />
@@ -1452,15 +1504,17 @@ function AddParticipantDialog({ onClose, onAdd }) {
               <label>Context window
                 <input type="number" value={form.context_window} onChange={update("context_window")} />
               </label>
-              <label>API key
-                <input type="password" value={form.api_key} onChange={update("api_key")} required />
-              </label>
+              {PROVIDER_DEFAULTS[form.provider]?.needsKey && (
+                <label>API key
+                  <input type="password" value={form.api_key} onChange={update("api_key")} required />
+                </label>
+              )}
             </>
           )}
           {error && <div className="error">{error}</div>}
           <div className="modal-actions">
             <button type="button" onClick={onClose}>Cancel</button>
-            <button type="submit" disabled={busy || !form.display_name}>
+            <button type="submit" className={busy ? "busy" : ""} disabled={busy}>
               {busy ? "Adding…" : "Add"}
             </button>
           </div>
@@ -1691,6 +1745,10 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
         onToggleTheme={toggleTheme}
         onRename={onRenameSession}
         isFacilitator={isFacilitator}
+      />
+      <ErrorToasts
+        errors={state.errors}
+        onDismiss={(index) => dispatch({ type: "clear_error", index })}
       />
       {wsState === "reconnecting" && (
         <div className="banner banner-warn">
