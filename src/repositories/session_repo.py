@@ -104,6 +104,22 @@ class SessionRepository(BaseRepository):
         )
         return await self.get_session(session_id)  # type: ignore[return-value]
 
+    async def update_name(self, session_id: str, new_name: str) -> Session:
+        """Rename a session. Validates non-empty and returns the updated row."""
+        cleaned = (new_name or "").strip()
+        if not cleaned:
+            msg = "Session name must not be blank"
+            raise ValueError(msg)
+        result = await self._execute(
+            "UPDATE sessions SET name = $1 WHERE id = $2",
+            cleaned,
+            session_id,
+        )
+        if result == "UPDATE 0":
+            msg = f"Session {session_id} not found"
+            raise ValueError(msg)
+        return await self.get_session(session_id)  # type: ignore[return-value]
+
     async def update_review_gate_pause_scope(
         self,
         session_id: str,

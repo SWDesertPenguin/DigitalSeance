@@ -24,24 +24,49 @@ async def build_state_snapshot(
     session_id: str,
     me_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """Build a full state_snapshot event for the Web UI."""
+    """Build a state_snapshot event; pending role gets a redacted view."""
     session = await _session_row(app_state, session_id)
-    participants = await _participants(app_state, session_id)
-    messages = await _recent_messages(app_state, session_id)
-    pending = await _pending_drafts(app_state, session_id)
-    proposals = await _open_proposals(app_state, session_id)
-    latest = await _latest_summary(app_state, session_id)
-    convergence = await _recent_convergence(app_state, session_id)
+    session["loop_running"] = _loop_running(session_id)
+    if (me_payload or {}).get("role") == "pending":
+        return await _pending_snapshot(app_state, session_id, me_payload, session)
     return state_snapshot_event(
         session=session,
         me=me_payload,
-        participants=participants,
-        messages=messages,
-        pending_drafts=pending,
-        open_proposals=proposals,
-        latest_summary=latest,
-        convergence_scores=convergence,
+        participants=await _participants(app_state, session_id),
+        messages=await _recent_messages(app_state, session_id),
+        pending_drafts=await _pending_drafts(app_state, session_id),
+        open_proposals=await _open_proposals(app_state, session_id),
+        latest_summary=await _latest_summary(app_state, session_id),
+        convergence_scores=await _recent_convergence(app_state, session_id),
     )
+
+
+async def _pending_snapshot(
+    app_state: Any,
+    session_id: str,
+    me_payload: dict[str, Any],
+    session: dict[str, Any],
+) -> dict[str, Any]:
+    """Redacted snapshot for role='pending' joiners: session + humans only."""
+    all_participants = await _participants(app_state, session_id)
+    humans = [p for p in all_participants if p.get("provider") == "human"]
+    return state_snapshot_event(
+        session=session,
+        me=me_payload,
+        participants=humans,
+        messages=[],
+        pending_drafts=[],
+        open_proposals=[],
+        latest_summary=None,
+        convergence_scores=[],
+    )
+
+
+def _loop_running(session_id: str) -> bool:
+    """Late import to avoid circulars; mirrors session.is_loop_running."""
+    from src.mcp_server.tools.session import is_loop_running
+
+    return is_loop_running(session_id)
 
 
 async def _session_row(app_state: Any, session_id: str) -> dict[str, Any]:
