@@ -183,11 +183,7 @@ async def broadcast_participant_update(
     participant_repo: Any,
     log_repo: Any = None,
 ) -> None:
-    """Fetch a fresh participant row and push a participant_update event.
-
-    Pass ``log_repo`` to include a fresh ``spend_daily`` aggregate — fix
-    for C3 (the BudgetPanel had no data source otherwise).
-    """
+    """Fetch a fresh participant row and push a participant_update event."""
     from src.web_ui.websocket import broadcast_to_session
 
     p = await participant_repo.get_participant(participant_id)
@@ -196,7 +192,15 @@ async def broadcast_participant_update(
     spend_daily = None
     if log_repo is not None:
         spend_daily = await log_repo.get_participant_cost(p.id, period="daily")
-    payload = {
+    await broadcast_to_session(
+        session_id,
+        participant_update_event(_participant_payload(p, spend_daily)),
+    )
+
+
+def _participant_payload(p: Any, spend_daily: float | None) -> dict[str, Any]:
+    """Serialize a Participant row for broadcast (drops encrypted fields)."""
+    return {
         "id": p.id,
         "session_id": p.session_id,
         "display_name": p.display_name,
@@ -211,5 +215,5 @@ async def broadcast_participant_update(
         "budget_hourly": p.budget_hourly,
         "budget_daily": p.budget_daily,
         "spend_daily": spend_daily,
+        "invited_by": p.invited_by,
     }
-    await broadcast_to_session(session_id, participant_update_event(payload))
