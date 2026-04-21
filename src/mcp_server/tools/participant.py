@@ -56,7 +56,7 @@ async def _try_persist_injection(
     pool = request.app.state.pool
     branch_id = await get_main_branch_id(pool, participant.session_id)
     try:
-        await msg_repo.append_message(
+        msg = await msg_repo.append_message(
             session_id=participant.session_id,
             branch_id=branch_id,
             speaker_id=participant.id,
@@ -67,7 +67,32 @@ async def _try_persist_injection(
         )
     except SessionNotActiveError:
         return False
+    await _broadcast_human_message(participant.session_id, msg)
     return True
+
+
+async def _broadcast_human_message(session_id: str, msg) -> None:  # type: ignore[no-untyped-def]
+    """Push the v1 message event so the injector sees their own post live.
+
+    AI turns broadcast via the turn-loop's _emit_message_to_web_ui. Human
+    injects bypass that path, so every subscriber — including the sender —
+    relied on the next state_snapshot to see the message. Now we emit the
+    same payload shape inline.
+    """
+    from src.web_ui.events import message_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    payload = {
+        "turn_number": msg.turn_number,
+        "speaker_id": msg.speaker_id,
+        "speaker_type": msg.speaker_type,
+        "content": msg.content,
+        "token_count": msg.token_count,
+        "cost_usd": None,
+        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+        "summary_epoch": msg.summary_epoch,
+    }
+    await broadcast_to_session(session_id, message_event(payload))
 
 
 @router.get("/status")
