@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, field_validator
 
 from src.mcp_server.middleware import get_current_participant
@@ -16,6 +17,57 @@ from src.orchestrator.branch import get_main_branch_id
 from src.repositories.errors import (
     AllParticipantsExhaustedError,
     SessionNotActiveError,
+)
+
+# Short wordlists for git-branch-style auto-generated session names.
+# Not cryptographic — just human-readable identifiers.
+_SLUG_ADJECTIVES = (
+    "amber",
+    "brave",
+    "clever",
+    "crimson",
+    "eager",
+    "fancy",
+    "gentle",
+    "happy",
+    "icy",
+    "jade",
+    "keen",
+    "lively",
+    "merry",
+    "noble",
+    "olive",
+    "proud",
+    "quiet",
+    "rapid",
+    "silver",
+    "teal",
+    "vivid",
+    "witty",
+)
+_SLUG_ANIMALS = (
+    "badger",
+    "cheetah",
+    "dolphin",
+    "eagle",
+    "falcon",
+    "gazelle",
+    "hawk",
+    "iguana",
+    "jaguar",
+    "koala",
+    "lynx",
+    "mantis",
+    "newt",
+    "otter",
+    "panda",
+    "quail",
+    "raven",
+    "swan",
+    "tiger",
+    "urchin",
+    "vixen",
+    "wolf",
 )
 
 log = logging.getLogger(__name__)
@@ -32,11 +84,13 @@ _SWAGGER_PLACEHOLDER = "string"
 class _CreateSessionBody(BaseModel):
     """Request body for session creation.
 
-    For a human facilitator, only ``name`` and ``display_name`` are
-    required — all AI-specific fields default to ``"human"`` / ``0``.
+    For a human facilitator, only ``display_name`` is required. ``name``
+    may be blank — a git-branch-style slug is auto-generated on the
+    server so the guest landing flow doesn't demand the user pick a
+    session name before they've even started.
     """
 
-    name: str
+    name: str = ""
     display_name: str
     provider: str = "human"
     model: str = "human"
@@ -47,14 +101,30 @@ class _CreateSessionBody(BaseModel):
     api_endpoint: str = ""
     review_gate_pause_scope: Literal["session", "participant"] = "session"
 
-    @field_validator("name", "display_name")
+    @field_validator("display_name")
     @classmethod
-    def _reject_placeholder(cls, v: str, info) -> str:
+    def _reject_placeholder_display(cls, v: str, info) -> str:
         cleaned = (v or "").strip()
         if not cleaned or cleaned.lower() == _SWAGGER_PLACEHOLDER:
             msg = f"{info.field_name} must not be blank or the placeholder 'string'"
             raise ValueError(msg)
         return cleaned
+
+    @field_validator("name")
+    @classmethod
+    def _reject_placeholder_name(cls, v: str) -> str:
+        cleaned = (v or "").strip()
+        if cleaned.lower() == _SWAGGER_PLACEHOLDER:
+            return ""
+        return cleaned
+
+
+def _generate_session_slug() -> str:
+    """Return a short git-branch-style identifier: adjective-animal-hex."""
+    adj = secrets.choice(_SLUG_ADJECTIVES)
+    noun = secrets.choice(_SLUG_ANIMALS)
+    suffix = secrets.token_hex(2)
+    return f"{adj}-{noun}-{suffix}"
 
 
 @router.post("/create")
@@ -64,8 +134,9 @@ async def create_session(
 ) -> dict:
     """Create a new session. API key sent in body, never in URL."""
     session_repo = request.app.state.session_repo
+    name = body.name or _generate_session_slug()
     session, facilitator, branch = await session_repo.create_session(
-        body.name,
+        name,
         facilitator_display_name=body.display_name,
         facilitator_provider=body.provider,
         facilitator_model=body.model,
@@ -99,6 +170,117 @@ async def _set_facilitator_key(
         encrypted,
         facilitator_id,
     )
+
+
+class _RequestJoinBody(BaseModel):
+    """Body for the public self-service join request."""
+
+    session_id: str
+    display_name: str
+
+    @field_validator("session_id", "display_name")
+    @classmethod
+    def _reject_blank(cls, v: str, info) -> str:
+        cleaned = (v or "").strip()
+        if not cleaned or cleaned.lower() == _SWAGGER_PLACEHOLDER:
+            msg = f"{info.field_name} must not be blank or the placeholder 'string'"
+            raise ValueError(msg)
+        return cleaned
+
+
+@router.post("/request_join")
+async def request_join(request: Request, body: _RequestJoinBody) -> dict:
+    """Public endpoint — create a pending participant for a self-join flow.
+
+    The guest enters a session ID and a display name. We create a
+    ``role='pending'`` participant and return an auth token so they
+    can /login immediately and see the pending holding screen. The
+    facilitator approves (or rejects) via the existing admin panel.
+    """
+    session_repo = request.app.state.session_repo
+    session = await session_repo.get_session(body.session_id)
+    if session is None:
+        raise HTTPException(404, "Session not found")
+    if session.status != "active":
+        raise HTTPException(409, f"Session is {session.status}")
+    p_repo = request.app.state.participant_repo
+    new_p, _ = await p_repo.add_participant(
+        session_id=body.session_id,
+        display_name=body.display_name,
+        provider="human",
+        model="human",
+        model_tier="n/a",
+        model_family="human",
+        context_window=0,
+        auto_approve=False,
+    )
+    auth = request.app.state.auth_service
+    auth_token = await auth.rotate_token(new_p.id)
+    return {
+        "participant_id": new_p.id,
+        "session_id": body.session_id,
+        "role": new_p.role,
+        "auth_token": auth_token,
+    }
+
+
+class _SetNameBody(BaseModel):
+    """Body for session rename."""
+
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def _reject_blank(cls, v: str) -> str:
+        cleaned = (v or "").strip()
+        if not cleaned or cleaned.lower() == _SWAGGER_PLACEHOLDER:
+            msg = "name must not be blank or the placeholder 'string'"
+            raise ValueError(msg)
+        return cleaned
+
+
+@router.post("/set_name")
+async def set_session_name(
+    request: Request,
+    body: _SetNameBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Rename the current session (facilitator-only)."""
+    if participant.role != "facilitator":
+        raise HTTPException(403, "Only the facilitator can rename a session")
+    session_repo = request.app.state.session_repo
+    session = await session_repo.update_name(participant.session_id, body.name)
+    log_repo = request.app.state.log_repo
+    await log_repo.log_admin_action(
+        session_id=session.id,
+        facilitator_id=participant.id,
+        action="rename_session",
+        target_id=session.id,
+        new_value=session.name,
+    )
+    from src.web_ui.events import session_updated_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    await broadcast_to_session(session.id, session_updated_event({"name": session.name}))
+    return {"session_id": session.id, "name": session.name}
+
+
+def is_loop_running(session_id: str) -> bool:
+    """Expose the in-memory loop-task registry for state snapshots."""
+    task = _loop_tasks.get(session_id)
+    return task is not None and not task.done()
+
+
+@router.get("/loop_status")
+async def get_loop_status(
+    request: Request,  # noqa: ARG001 — required for router signature parity
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Return whether the loop is running for this session."""
+    return {
+        "session_id": participant.session_id,
+        "loop_running": is_loop_running(participant.session_id),
+    }
 
 
 @router.post("/pause")
@@ -153,7 +335,12 @@ async def start_loop(
     request: Request,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Start the conversation loop for this session."""
+    """Start the conversation loop for this session.
+
+    Refuses to start when no human message exists yet so the first turn
+    can't be an AI hallucinating a welcome ("Understood! I look forward
+    to…"). The facilitator must send an opening message first.
+    """
     sid = participant.session_id
     if sid in _loop_tasks and not _loop_tasks[sid].done():
         return {"status": "already_running"}
@@ -161,12 +348,26 @@ async def start_loop(
     session = await session_repo.get_session(sid)
     if session and session.status != "active":
         return {"status": "error", "detail": f"session is {session.status}"}
+    if not await _has_human_message(request, sid):
+        raise HTTPException(
+            409,
+            "Send an opening message before starting the loop — AIs " "shouldn't speak first.",
+        )
     loop = request.app.state.conversation_loop
     cm = request.app.state.connection_manager
     _loop_tasks[sid] = asyncio.create_task(
         _run_loop(loop, sid, session_repo, cm),
     )
+    await _broadcast_loop_status(sid, running=True)
     return {"status": "started"}
+
+
+async def _has_human_message(request: Request, session_id: str) -> bool:
+    """Return True if at least one human message exists in the session."""
+    branch_id = await get_main_branch_id(request.app.state.pool, session_id)
+    msg_repo = request.app.state.message_repo
+    recent = await msg_repo.get_recent(session_id, branch_id, limit=200)
+    return any(m.speaker_type == "human" for m in recent)
 
 
 @router.post("/stop_loop")
@@ -179,7 +380,16 @@ async def stop_loop(
     task = _loop_tasks.pop(sid, None)
     if task and not task.done():
         task.cancel()
+    await _broadcast_loop_status(sid, running=False)
     return {"status": "stopped"}
+
+
+async def _broadcast_loop_status(session_id: str, *, running: bool) -> None:
+    """Push loop_status so the UI header can toggle the Loop badge."""
+    from src.web_ui.events import loop_status_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    await broadcast_to_session(session_id, loop_status_event(running))
 
 
 @router.get("/summary")

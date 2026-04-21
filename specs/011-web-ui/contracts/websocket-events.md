@@ -112,6 +112,22 @@ Sent on pause / resume / archive.
 { v:1, type:"session_status_changed", status: "active"|"paused"|"archived" }
 ```
 
+### `session_updated`
+
+Partial session-row update (rename, config change). UI merges `updates` into its local `state.session`. Added for US11 session rename.
+
+```text
+{ v:1, type:"session_updated", updates: { name?: str, ... } }
+```
+
+### `loop_status`
+
+Fires when the conversation loop starts or stops. UI uses this to drive a "loop: running / idle" badge in the header so facilitators can tell at a glance whether the AI turn dispatcher is active, separate from individual-user presence.
+
+```text
+{ v:1, type:"loop_status", running: bool }
+```
+
 ### `error`
 
 Sent for non-fatal server-side warnings (rate-limit hit, summarization failure, etc.)
