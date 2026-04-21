@@ -78,6 +78,16 @@ def session_status_changed_event(status: str) -> dict[str, Any]:
     return _envelope("session_status_changed", status=status)
 
 
+def session_updated_event(updates: dict[str, Any]) -> dict[str, Any]:
+    """Partial session-row update (e.g. rename). UI merges into state.session."""
+    return _envelope("session_updated", updates=updates)
+
+
+def loop_status_event(running: bool) -> dict[str, Any]:
+    """Loop-running indicator transition."""
+    return _envelope("loop_status", running=running)
+
+
 def error_event(code: str, message: str) -> dict[str, Any]:
     """Non-fatal server-side warning for the UI to surface."""
     return _envelope("error", code=code, message=message)
