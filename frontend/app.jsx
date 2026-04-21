@@ -71,8 +71,8 @@ function mcpCall(path, token, { method = "GET", body = null } = {}) {
   const headers = {
     "Content-Type": "application/json",
     "X-SACP-Request": "1",
-    Authorization: `Bearer ${token}`,
   };
+  if (token) headers.Authorization = `Bearer ${token}`;
   const opts = { method, headers };
   if (body !== null) opts.body = JSON.stringify(body);
   return _fetchJson(`${MCP_BASE}${path}`, opts);
@@ -237,6 +237,10 @@ function reducer(state, action) {
     }
     case "session_status_changed":
       return { ...state, session: { ...(state.session || {}), status: action.event.status } };
+    case "session_updated":
+      return { ...state, session: { ...(state.session || {}), ...(action.event.updates || {}) } };
+    case "loop_status":
+      return { ...state, session: { ...(state.session || {}), loop_running: action.event.running } };
     case "convergence_update":
       return {
         ...state,
@@ -403,48 +407,178 @@ function useWebSocket(sessionId, onEvent, onAuthExpired) {
 // ---------------------------------------------------------------------------
 
 function AuthGate({ banner, onLogin }) {
-  const [token, setToken] = useState("");
-  const [error, setError] = useState(null);
-  const [busy, setBusy] = useState(false);
-
-  const submit = async (ev) => {
-    ev.preventDefault();
-    if (!token.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await uiCall("/login", { method: "POST", body: { token: token.trim() } });
-      onLogin(result);
-    } catch (e) {
-      setError(e.message || "Login failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
+  // US11 guest landing — three paths: Sign in / Create / Request to join.
+  // All three ultimately call onLogin(result) once we hold a live cookie.
+  const [mode, setMode] = useState("choose");
+  const goLogin = useCallback((result) => onLogin(result), [onLogin]);
   return (
     <main className="auth-gate">
       <h1>SACP Web UI</h1>
       {banner && <div className="banner banner-warn">{banner}</div>}
-      <p className="dim">Paste your participant bearer token to continue.</p>
-      <form onSubmit={submit}>
-        <input
-          type="password"
-          placeholder="bearer token"
-          value={token}
-          onChange={(ev) => setToken(ev.target.value)}
-          autoFocus
-        />
-        <button type="submit" disabled={busy || !token.trim()}>
-          {busy ? "Signing in…" : "Sign in"}
-        </button>
-        {error && <div className="error">{error}</div>}
-      </form>
+      {mode === "choose" && <GuestChoose onPick={setMode} />}
+      {mode === "signin" && <SignInForm onLogin={goLogin} onBack={() => setMode("choose")} />}
+      {mode === "create" && <CreateSessionForm onLogin={goLogin} onBack={() => setMode("choose")} />}
+      {mode === "join" && <RequestJoinForm onLogin={goLogin} onBack={() => setMode("choose")} />}
     </main>
   );
 }
 
-function Header({ session, me, wsState, onExport, theme, onToggleTheme }) {
+function GuestChoose({ onPick }) {
+  return (
+    <div className="guest-choose">
+      <p className="dim">Pick a path to get started.</p>
+      <button type="button" className="big-btn" onClick={() => onPick("signin")}>
+        Sign in with a token
+      </button>
+      <button type="button" className="big-btn" onClick={() => onPick("create")}>
+        Create a new session
+      </button>
+      <button type="button" className="big-btn" onClick={() => onPick("join")}>
+        Request to join a session
+      </button>
+    </div>
+  );
+}
+
+async function _loginWithToken(token) {
+  return uiCall("/login", { method: "POST", body: { token } });
+}
+
+function SignInForm({ onLogin, onBack }) {
+  const [token, setToken] = useState("");
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (ev) => {
+    ev.preventDefault();
+    if (!token.trim()) return;
+    setBusy(true); setError(null);
+    try { onLogin(await _loginWithToken(token.trim())); }
+    catch (e) { setError(e.message || "Login failed"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <form onSubmit={submit} className="auth-form">
+      <p className="dim">Paste your bearer token.</p>
+      <input type="password" placeholder="bearer token" value={token}
+        onChange={(ev) => setToken(ev.target.value)} autoFocus />
+      <div className="auth-actions">
+        <button type="button" className="link-btn" onClick={onBack}>← back</button>
+        <button type="submit" disabled={busy || !token.trim()}>
+          {busy ? "Signing in…" : "Sign in"}
+        </button>
+      </div>
+      {error && <div className="error">{error}</div>}
+    </form>
+  );
+}
+
+function CreateSessionForm({ onLogin, onBack }) {
+  const [name, setName] = useState("");
+  const [reveal, setReveal] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (ev) => {
+    ev.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true); setError(null);
+    try {
+      const result = await mcpCall("/tools/session/create", null, {
+        method: "POST",
+        body: { display_name: `Facilitator-${name.trim()}` },
+      });
+      setReveal(result);
+    } catch (e) { setError(e.message || "Create failed"); }
+    finally { setBusy(false); }
+  };
+  const proceed = async () => {
+    if (!reveal?.auth_token) return;
+    try { onLogin(await _loginWithToken(reveal.auth_token)); }
+    catch (e) { setError(e.message || "Login failed"); }
+  };
+  if (reveal) return <TokenRevealModal result={reveal} onProceed={proceed} />;
+  return (
+    <form onSubmit={submit} className="auth-form">
+      <p className="dim">Your name (we'll prefix it with "Facilitator-").</p>
+      <input type="text" placeholder="your name" value={name}
+        onChange={(ev) => setName(ev.target.value)} autoFocus maxLength={64} />
+      <div className="auth-actions">
+        <button type="button" className="link-btn" onClick={onBack}>← back</button>
+        <button type="submit" disabled={busy || !name.trim()}>
+          {busy ? "Creating…" : "Create session"}
+        </button>
+      </div>
+      {error && <div className="error">{error}</div>}
+    </form>
+  );
+}
+
+function TokenRevealModal({ result, onProceed }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(result.auth_token || "");
+      setCopied(true);
+    } catch { /* clipboard blocked — user can still manually copy */ }
+  };
+  return (
+    <div className="token-reveal">
+      <h2>Session created</h2>
+      <p className="dim">
+        Save this token. It's your API key — you'll need it for reconnects,
+        MCP, Swagger, and CLI tools. It won't be shown again.
+      </p>
+      <div className="token-row">
+        <code>{result.auth_token}</code>
+        <button type="button" onClick={copy}>{copied ? "Copied ✓" : "Copy"}</button>
+      </div>
+      <div className="dim token-meta">
+        <div>Session ID: <code>{result.session_id}</code></div>
+        <div>Facilitator ID: <code>{result.facilitator_id}</code></div>
+      </div>
+      <button type="button" onClick={onProceed} className="big-btn">
+        I saved it — enter the session
+      </button>
+    </div>
+  );
+}
+
+function RequestJoinForm({ onLogin, onBack }) {
+  const [sid, setSid] = useState("");
+  const [name, setName] = useState("");
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (ev) => {
+    ev.preventDefault();
+    if (!sid.trim() || !name.trim()) return;
+    setBusy(true); setError(null);
+    try {
+      const result = await mcpCall("/tools/session/request_join", null, {
+        method: "POST",
+        body: { session_id: sid.trim(), display_name: name.trim() },
+      });
+      onLogin(await _loginWithToken(result.auth_token));
+    } catch (e) { setError(e.message || "Request failed"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <form onSubmit={submit} className="auth-form">
+      <p className="dim">Enter the session ID and your display name.</p>
+      <input type="text" placeholder="session id" value={sid}
+        onChange={(ev) => setSid(ev.target.value)} autoFocus />
+      <input type="text" placeholder="your display name" value={name}
+        onChange={(ev) => setName(ev.target.value)} maxLength={64} />
+      <div className="auth-actions">
+        <button type="button" className="link-btn" onClick={onBack}>← back</button>
+        <button type="submit" disabled={busy || !sid.trim() || !name.trim()}>
+          {busy ? "Requesting…" : "Request to join"}
+        </button>
+      </div>
+      {error && <div className="error">{error}</div>}
+    </form>
+  );
+}
+
+function Header({ session, me, wsState, onExport, theme, onToggleTheme, onRename, isFacilitator }) {
   const dotColor =
     wsState === "open" ? "var(--ok)" :
     wsState === "reconnecting" ? "var(--warning)" :
@@ -456,9 +590,15 @@ function Header({ session, me, wsState, onExport, theme, onToggleTheme }) {
   return (
     <header className="app-header">
       <div className="header-left">
-        <strong>{session?.name || "…"}</strong>
+        <SessionNameDisplay session={session} canEdit={isFacilitator} onRename={onRename} />
         <span className={`status-badge status-${session?.status || "unknown"}`}>
           {session?.status || "?"}
+        </span>
+        <span
+          className={`loop-badge loop-${session?.loop_running ? "running" : "idle"}`}
+          title={session?.loop_running ? "turn loop is running" : "turn loop is idle"}
+        >
+          loop: {session?.loop_running ? "running" : "idle"}
         </span>
       </div>
       <div className="header-center">
@@ -478,6 +618,62 @@ function Header({ session, me, wsState, onExport, theme, onToggleTheme }) {
         <span className="me">{me?.participant_id}</span>
       </div>
     </header>
+  );
+}
+
+function SessionNameDisplay({ session, canEdit, onRename }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(session?.name || "");
+  useEffect(() => { if (!editing) setDraft(session?.name || ""); }, [session?.name, editing]);
+  const save = async () => {
+    const next = draft.trim();
+    if (!next || next === session?.name) { setEditing(false); return; }
+    try { await onRename(next); } finally { setEditing(false); }
+  };
+  if (editing) {
+    return (
+      <span className="session-name edit">
+        <input value={draft} onChange={(ev) => setDraft(ev.target.value)}
+          onBlur={save} autoFocus maxLength={128}
+          onKeyDown={(ev) => {
+            if (ev.key === "Enter") save();
+            if (ev.key === "Escape") setEditing(false);
+          }} />
+      </span>
+    );
+  }
+  return (
+    <strong
+      className={`session-name${canEdit ? " editable" : ""}`}
+      title={canEdit ? "click to rename session" : session?.name}
+      onClick={() => canEdit && setEditing(true)}
+    >
+      {session?.name || "…"}
+    </strong>
+  );
+}
+
+function PendingHoldingScreen({ session, humans, onLogout }) {
+  return (
+    <main className="pending-screen">
+      <h1>Waiting for approval</h1>
+      <p className="dim">
+        The facilitator has been notified. You'll enter the session once they approve.
+      </p>
+      <section className="panel">
+        <h2>Session: {session?.name || "…"}</h2>
+        <h3>Humans in the room</h3>
+        {humans.length === 0
+          ? <p className="dim">No one yet.</p>
+          : <ul className="human-list">{humans.map((h) => (
+              <li key={h.id}>
+                <strong>{h.display_name}</strong>
+                <span className="dim"> ({h.role})</span>
+              </li>
+            ))}</ul>}
+      </section>
+      <button type="button" onClick={onLogout}>Cancel and sign out</button>
+    </main>
   );
 }
 
@@ -1278,6 +1474,25 @@ function AddParticipantDialog({ onClose, onAdd }) {
 // SessionView — main authenticated screen
 // ---------------------------------------------------------------------------
 
+function PendingSession({ auth, onLogout, onAuthExpired, onApproved }) {
+  // Minimal WS-subscribed view for role=pending users. The server
+  // filters state_snapshot to session name + humans only; when the
+  // facilitator approves, a participant_update arrives with our row
+  // flipped to role='participant' and we escalate to SessionView.
+  const [state, dispatch] = useReducer(reducer, undefined, initialState);
+  const onEvent = useCallback((event) => {
+    dispatch({ type: event.type, event });
+    if (event.type === "participant_update"
+        && event.participant?.id === auth.participant_id
+        && event.participant?.role !== "pending") {
+      onApproved({ ...auth, role: event.participant.role });
+    }
+  }, [auth, onApproved]);
+  useWebSocket(auth.session_id, onEvent, onAuthExpired);
+  const humans = (state.participants || []).filter((p) => p.provider === "human");
+  return <PendingHoldingScreen session={state.session} humans={humans} onLogout={onLogout} />;
+}
+
 function SessionView({ auth, onLogout, onAuthExpired }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -1352,6 +1567,17 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
       method: "POST",
       body: form,
     });
+  };
+
+  const onRenameSession = async (newName) => {
+    try {
+      await mcpCall("/tools/session/set_name", auth.token, {
+        method: "POST",
+        body: { name: newName },
+      });
+    } catch (e) {
+      alert(`Rename failed: ${e.message}`);
+    }
   };
 
   const onRoutingChange = async (participantId, preference) => {
@@ -1463,6 +1689,8 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
         onExport={exportTranscript}
         theme={theme}
         onToggleTheme={toggleTheme}
+        onRename={onRenameSession}
+        isFacilitator={isFacilitator}
       />
       {wsState === "reconnecting" && (
         <div className="banner banner-warn">
@@ -1586,6 +1814,9 @@ function App() {
   }, []);
 
   if (!auth) return <AuthGate banner={banner} onLogin={onLogin} />;
+  if (auth.role === "pending") {
+    return <PendingSession auth={auth} onLogout={logout} onAuthExpired={onAuthExpired} onApproved={setAuth} />;
+  }
   return <SessionView auth={auth} onLogout={logout} onAuthExpired={onAuthExpired} />;
 }
 
