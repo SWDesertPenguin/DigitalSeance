@@ -124,6 +124,36 @@ The facilitator (or any participant) can open a "Summary" panel that displays th
 
 ---
 
+### User Story 11 - Guest Landing (Priority: P1)
+
+A first-time visitor lands on the Web UI without a token and sees three paths: **Sign in** (paste an existing token), **Create a new session** (become a facilitator), or **Request to join a session** (by session ID). The token-first AuthGate is replaced so non-facilitator humans can self-onboard without the facilitator needing to manually distribute tokens.
+
+**Why this priority**: The prior flow required every human to obtain a bearer token out-of-band before they could even see the dashboard, which broke normal onboarding. Guest landing removes that friction and makes the UI usable as a first touchpoint.
+
+**Acceptance Scenarios**:
+
+1. **Given** a guest with no cookie, **When** they open the UI, **Then** the landing page offers Sign in / Create / Request to join.
+2. **Given** the Create form, **When** the guest enters their name and submits, **Then** a session is created with a git-branch-style slug, the facilitator display name is prefixed `Facilitator-<name>`, and a token-reveal modal displays the bearer token with a copy button.
+3. **Given** the facilitator acknowledges the token-reveal, **When** they click "enter the session", **Then** they land in the standard SessionView with their new session ready.
+4. **Given** the facilitator's SessionView, **When** they click the session name in the header, **Then** an inline input lets them rename it and the new name broadcasts to every subscriber.
+
+---
+
+### User Story 12 - Request to Join by Session ID (Priority: P1)
+
+A guest who wasn't given a token can enter an existing session ID plus their display name to submit a join request. The server creates a `role='pending'` participant and returns an auth token; the guest logs in and sees a minimal holding screen (session name + list of human participants) while the facilitator approves or rejects them. On approval, they transition seamlessly into the normal SessionView.
+
+**Why this priority**: Pairs with US11 to complete the self-onboarding flow — without it, facilitators still have to generate invites or tokens manually for every new participant. Also unblocks pending-participant testing of US6 AC1 which was previously unexercisable.
+
+**Acceptance Scenarios**:
+
+1. **Given** a guest with a known session ID, **When** they submit `{session_id, display_name}` via Request-to-join, **Then** the server creates a pending participant and returns an auth token.
+2. **Given** a pending participant logged in, **When** they connect the WebSocket, **Then** the state_snapshot is filtered to session name + human participants only (no transcript, no AI roster).
+3. **Given** the facilitator's admin panel shows N pending participants, **When** they click Approve on one, **Then** that participant's client receives a `participant_update` event flipping their role to `participant` and the UI escalates from the holding screen to SessionView.
+4. **Given** the facilitator's loop controls, **When** they click Start with no human message posted yet, **Then** the call returns `409` with an explanatory message — the loop refuses to dispatch so the first turn can't be an AI hallucinating a welcome message.
+
+---
+
 ### User Story 10 - Participant Health Indicators (Priority: P2)
 
 Each participant card in the left sidebar surfaces health state: `active`, `paused` (manually or by circuit breaker), `offline`, `pending approval`. When a participant is auto-paused by the circuit breaker (`consecutive_timeouts ≥ 3`), the card shows a distinct "breaker tripped" badge with the failure count, distinguishing it from manual pauses. The facilitator can see recent failure reasons (from `routing_log` skip entries).
