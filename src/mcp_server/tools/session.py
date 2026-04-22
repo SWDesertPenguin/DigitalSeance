@@ -77,6 +77,20 @@ router = APIRouter(prefix="/tools/session", tags=["session"])
 # In-memory loop tasks per session
 _loop_tasks: dict[str, asyncio.Task] = {}
 
+# Per-session lock serializing summarize_now / archive-time summarization so
+# concurrent clicks can't race on last_summary_turn (observed bug: second
+# call read stale last_summary_turn and wrote an older epoch over the newer).
+_summary_locks: dict[str, asyncio.Lock] = {}
+
+
+def _summary_lock(session_id: str) -> asyncio.Lock:
+    """Return (creating if needed) the per-session summary lock."""
+    lock = _summary_locks.get(session_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _summary_locks[session_id] = lock
+    return lock
+
 
 _SWAGGER_PLACEHOLDER = "string"
 
@@ -419,12 +433,12 @@ async def archive_session(
     request: Request,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Archive the session: stop the loop, flip status, auto-summarize.
+    """Archive the session: stop the loop, auto-summarize, flip status.
 
-    Facilitator-only. The natural close-out of a session: the turn loop
-    halts, UI subscribers get a banner event, and a final summary is
-    generated in the background so humans can read the wrap-up in the
-    same Summary panel they've been watching.
+    Summarization must run BEFORE the status flip — appending the summary
+    message goes through ``_verify_session_active`` which rejects non-
+    active sessions, so archiving first would make the final summary
+    always fail (exactly what happened in Test06-Web05).
     """
     if participant.role != "facilitator":
         raise HTTPException(403, "Only the facilitator can archive the session")
@@ -432,21 +446,17 @@ async def archive_session(
     task = _loop_tasks.pop(sid, None)
     if task and not task.done():
         task.cancel()
+    loop = request.app.state.conversation_loop
+    async with _summary_lock(sid):
+        try:
+            await loop._summarizer.run_checkpoint(sid)  # noqa: SLF001
+        except Exception:  # noqa: BLE001 — archive must not fail on summary hiccup
+            log.exception("Archive-time summary failed for %s", sid)
     session_repo = request.app.state.session_repo
     session = await session_repo.update_status(sid, "archived")
     await _broadcast_status(sid, session.status)
     await _broadcast_loop_status(sid, running=False)
-    loop = request.app.state.conversation_loop
-    asyncio.create_task(_archive_summary_best_effort(loop, sid))
     return {"status": session.status}
-
-
-async def _archive_summary_best_effort(loop: object, session_id: str) -> None:
-    """Run a final summarization checkpoint; swallow errors so archive succeeds."""
-    try:
-        await loop._summarizer.run_checkpoint(session_id)  # noqa: SLF001
-    except Exception:  # noqa: BLE001 — archive must not fail on summary hiccup
-        log.exception("Archive-time summary failed for %s", session_id)
 
 
 @router.post("/summarize_now")
@@ -456,16 +466,18 @@ async def summarize_now(
 ) -> dict:
     """Force a summarization checkpoint off-cadence. Facilitator only.
 
-    Users wanted a way to get a current summary without waiting for the
-    10-turn interval (especially before archiving or transferring).
+    Serialized per session — concurrent clicks would otherwise both read
+    ``last_summary_turn`` before either wrote, producing an older epoch
+    overwriting a newer one (Test06-Web05 repro).
     """
     if participant.role != "facilitator":
         raise HTTPException(403, "Only the facilitator can trigger a summary")
     loop = request.app.state.conversation_loop
-    try:
-        await loop._summarizer.run_checkpoint(participant.session_id)  # noqa: SLF001
-    except Exception as e:  # noqa: BLE001 — expose the failure reason
-        raise HTTPException(500, f"Summary generation failed: {e}") from None
+    async with _summary_lock(participant.session_id):
+        try:
+            await loop._summarizer.run_checkpoint(participant.session_id)  # noqa: SLF001
+        except Exception as e:  # noqa: BLE001 — expose the failure reason
+            raise HTTPException(500, f"Summary generation failed: {e}") from None
     return {"status": "ok"}
 
 
