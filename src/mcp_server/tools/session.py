@@ -419,11 +419,54 @@ async def archive_session(
     request: Request,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Archive the session (read-only)."""
+    """Archive the session: stop the loop, flip status, auto-summarize.
+
+    Facilitator-only. The natural close-out of a session: the turn loop
+    halts, UI subscribers get a banner event, and a final summary is
+    generated in the background so humans can read the wrap-up in the
+    same Summary panel they've been watching.
+    """
+    if participant.role != "facilitator":
+        raise HTTPException(403, "Only the facilitator can archive the session")
+    sid = participant.session_id
+    task = _loop_tasks.pop(sid, None)
+    if task and not task.done():
+        task.cancel()
     session_repo = request.app.state.session_repo
-    session = await session_repo.update_status(participant.session_id, "archived")
-    await _broadcast_status(participant.session_id, session.status)
+    session = await session_repo.update_status(sid, "archived")
+    await _broadcast_status(sid, session.status)
+    await _broadcast_loop_status(sid, running=False)
+    loop = request.app.state.conversation_loop
+    asyncio.create_task(_archive_summary_best_effort(loop, sid))
     return {"status": session.status}
+
+
+async def _archive_summary_best_effort(loop: object, session_id: str) -> None:
+    """Run a final summarization checkpoint; swallow errors so archive succeeds."""
+    try:
+        await loop._summarizer.run_checkpoint(session_id)  # noqa: SLF001
+    except Exception:  # noqa: BLE001 — archive must not fail on summary hiccup
+        log.exception("Archive-time summary failed for %s", session_id)
+
+
+@router.post("/summarize_now")
+async def summarize_now(
+    request: Request,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Force a summarization checkpoint off-cadence. Facilitator only.
+
+    Users wanted a way to get a current summary without waiting for the
+    10-turn interval (especially before archiving or transferring).
+    """
+    if participant.role != "facilitator":
+        raise HTTPException(403, "Only the facilitator can trigger a summary")
+    loop = request.app.state.conversation_loop
+    try:
+        await loop._summarizer.run_checkpoint(participant.session_id)  # noqa: SLF001
+    except Exception as e:  # noqa: BLE001 — expose the failure reason
+        raise HTTPException(500, f"Summary generation failed: {e}") from None
+    return {"status": "ok"}
 
 
 async def _broadcast_status(session_id: str, status: str) -> None:
