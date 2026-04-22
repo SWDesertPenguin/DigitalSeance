@@ -204,6 +204,7 @@ async def request_join(request: Request, body: _RequestJoinBody) -> dict:
     if session.status != "active":
         raise HTTPException(409, f"Session is {session.status}")
     p_repo = request.app.state.participant_repo
+    await _reject_duplicate_human_name(p_repo, body.session_id, body.display_name)
     new_p, _ = await p_repo.add_participant(
         session_id=body.session_id,
         display_name=body.display_name,
@@ -261,16 +262,49 @@ class _RedeemInviteBody(BaseModel):
 
 @router.post("/redeem_invite")
 async def redeem_invite(request: Request, body: _RedeemInviteBody) -> dict:
-    """Public endpoint — swap an invite token for a pre-approved auth token.
-
-    Unlike /request_join (pending until approved), invite redemption
-    is pre-authorized by the facilitator who issued the invite.
-    """
+    """Public endpoint — swap an invite token for a pre-approved auth token."""
     invite = await _redeem_or_raise(request, body.invite_token)
     p_repo = request.app.state.participant_repo
+    await _reject_duplicate_human_name(p_repo, invite.session_id, body.display_name)
+    new_p = await _persist_invite_redeemer(p_repo, invite, body.display_name)
+    auth_token = await _issue_and_broadcast(request, invite.session_id, new_p.id, p_repo)
+    return {
+        "participant_id": new_p.id,
+        "session_id": invite.session_id,
+        "role": new_p.role,
+        "auth_token": auth_token,
+    }
+
+
+async def _reject_duplicate_human_name(
+    p_repo: object,
+    session_id: str,
+    display_name: str,
+) -> None:
+    """409 if a human participant already has this display_name in the session."""
+    cleaned = display_name.strip().lower()
+    existing = await p_repo.list_participants(session_id)
+    for p in existing:
+        if (
+            p.status != "removed"
+            and p.provider == "human"
+            and p.display_name.strip().lower() == cleaned
+        ):
+            raise HTTPException(
+                409,
+                f"A participant named '{p.display_name}' is already in this session",
+            )
+
+
+async def _persist_invite_redeemer(
+    p_repo: object,
+    invite: object,
+    display_name: str,
+) -> Participant:
+    """Wrap repo.add_participant for the invite-redeem flow (auto-approved)."""
     new_p, _ = await p_repo.add_participant(
         session_id=invite.session_id,
-        display_name=body.display_name,
+        display_name=display_name,
         provider="human",
         model="human",
         model_tier="n/a",
@@ -279,18 +313,7 @@ async def redeem_invite(request: Request, body: _RedeemInviteBody) -> dict:
         auto_approve=True,
         invited_by=invite.created_by,
     )
-    auth_token = await _issue_and_broadcast(
-        request,
-        invite.session_id,
-        new_p.id,
-        p_repo,
-    )
-    return {
-        "participant_id": new_p.id,
-        "session_id": invite.session_id,
-        "role": new_p.role,
-        "auth_token": auth_token,
-    }
+    return new_p
 
 
 async def _redeem_or_raise(request: Request, invite_token: str) -> object:
