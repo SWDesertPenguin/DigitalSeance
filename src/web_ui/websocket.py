@@ -43,12 +43,21 @@ class WebSocketManager:
 
     def __init__(self) -> None:
         self._subs: dict[str, set[WebSocket]] = {}
+        # Per-ws participant tag so revoke/remove can target a specific user.
+        self._ws_pid: dict[int, str] = {}
         self._lock = asyncio.Lock()
 
-    async def register(self, session_id: str, ws: WebSocket) -> None:
-        """Add a subscriber."""
+    async def register(
+        self,
+        session_id: str,
+        ws: WebSocket,
+        participant_id: str | None = None,
+    ) -> None:
+        """Add a subscriber, optionally tagged with its participant id."""
         async with self._lock:
             self._subs.setdefault(session_id, set()).add(ws)
+            if participant_id:
+                self._ws_pid[id(ws)] = participant_id
         log.info(
             "WS subscriber added for session %s (%d total)",
             session_id,
@@ -63,6 +72,7 @@ class WebSocketManager:
                 bucket.discard(ws)
                 if not bucket:
                     del self._subs[session_id]
+            self._ws_pid.pop(id(ws), None)
         log.info("WS subscriber removed for session %s", session_id)
 
     def count(self, session_id: str) -> int:
@@ -81,6 +91,26 @@ class WebSocketManager:
             except Exception:  # noqa: BLE001 — drop dead socket, don't block others
                 log.debug("WS send failed for session %s; scheduling unregister", session_id)
                 await self.unregister(session_id, ws)
+
+    async def close_for_participant(self, session_id: str, participant_id: str) -> int:
+        """Close every WS belonging to a participant with code 4401.
+
+        Called on revoke / remove so a booted user's UI force-redirects to
+        landing instead of silently losing the ability to act.
+        """
+        closed = 0
+        targets = [
+            ws
+            for ws in list(self._subs.get(session_id, set()))
+            if self._ws_pid.get(id(ws)) == participant_id
+        ]
+        for ws in targets:
+            try:
+                await ws.close(code=CLOSE_UNAUTHENTICATED, reason="token revoked")
+                closed += 1
+            except Exception:  # noqa: BLE001 — socket may already be dead
+                log.debug("WS close_for_participant failed for %s", participant_id)
+        return closed
 
 
 _MANAGER = WebSocketManager()
@@ -104,7 +134,7 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
         return
     await websocket.accept()
     await _send_initial_snapshot(websocket, session_id, participant)
-    await _MANAGER.register(session_id, websocket)
+    await _MANAGER.register(session_id, websocket, participant.get("pid"))
     try:
         await _pump_client_frames(websocket)
     finally:
