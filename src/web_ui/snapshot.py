@@ -8,6 +8,7 @@ the repositories already attached to the Web UI app state.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 from typing import Any
@@ -90,13 +91,30 @@ async def _session_row(app_state: Any, session_id: str) -> dict[str, Any]:
 
 
 async def _participants(app_state: Any, session_id: str) -> list[dict[str, Any]]:
-    """All participants (UI filters by status). Includes daily spend (C3)."""
+    """All participants (UI filters by status). Includes daily + hourly spend.
+
+    Hourly spend is only queried when ``budget_hourly`` is set — avoids an
+    unnecessary round-trip for participants that don't use the hourly cap.
+    Parallelizes the two per-participant cost queries with ``asyncio.gather``
+    so snapshot latency scales as O(N) queries, not O(2N) sequential.
+    """
     rows = await app_state.participant_repo.list_participants(session_id)
     out: list[dict[str, Any]] = []
     for p in rows:
-        spend = await app_state.log_repo.get_participant_cost(p.id, period="daily")
-        out.append({**_participant_dict(p), "spend_daily": spend})
+        out.append({**_participant_dict(p), **await _spend_pair(app_state, p)})
     return out
+
+
+async def _spend_pair(app_state: Any, p: Any) -> dict[str, float | None]:
+    """Return {spend_daily, spend_hourly}, hourly gated on budget_hourly set."""
+    if p.budget_hourly is None:
+        spend_daily = await app_state.log_repo.get_participant_cost(p.id, period="daily")
+        return {"spend_daily": spend_daily, "spend_hourly": None}
+    spend_daily, spend_hourly = await asyncio.gather(
+        app_state.log_repo.get_participant_cost(p.id, period="daily"),
+        app_state.log_repo.get_participant_cost(p.id, period="hourly"),
+    )
+    return {"spend_daily": spend_daily, "spend_hourly": spend_hourly}
 
 
 def _participant_dict(p: Any) -> dict[str, Any]:
