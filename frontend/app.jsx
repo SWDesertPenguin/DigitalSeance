@@ -180,6 +180,13 @@ function renderMarkdown(content) {
 // State reducer — handles state_snapshot + delta WS events
 // ---------------------------------------------------------------------------
 
+function _prependResolved(resolved, openList, event) {
+  const source = openList.find((p) => p.id === event.proposal_id);
+  if (!source) return resolved;
+  const entry = { ...source, status: event.status || "resolved", tally: event.tally || source.tally };
+  return [entry, ...resolved].slice(0, 50);
+}
+
 function initialState() {
   return {
     session: null,
@@ -188,6 +195,7 @@ function initialState() {
     messages: [],
     pendingDrafts: [],
     openProposals: [],
+    resolvedProposals: [],
     latestSummary: null,
     convergenceScores: [],
     auditEntries: [],      // Phase 2b: fed by T252 audit_entry WS events
@@ -225,9 +233,12 @@ function reducer(state, action) {
       const key = (m) => `${m.turn_number}:${m.speaker_id}`;
       const incomingKey = key(incoming);
       const others = state.messages.filter((m) => key(m) !== incomingKey);
+      const currentTurn = state.session?.current_turn ?? 0;
+      const nextTurn = Math.max(currentTurn, incoming.turn_number || 0);
       return {
         ...state,
         messages: [...others, incoming].sort((a, b) => a.turn_number - b.turn_number),
+        session: state.session ? { ...state.session, current_turn: nextTurn } : state.session,
       };
     }
     case "participant_update": {
@@ -276,7 +287,7 @@ function reducer(state, action) {
     case "seed_audit_entries":
       return { ...state, auditEntries: action.entries.slice(0, 100) };
     case "seed_proposals":
-      return { ...state, openProposals: action.proposals };
+      return { ...state, openProposals: action.proposals, resolvedProposals: action.resolved || [] };
     case "proposal_created":
       return {
         ...state,
@@ -293,6 +304,7 @@ function reducer(state, action) {
       return {
         ...state,
         openProposals: state.openProposals.filter((p) => p.id !== action.event.proposal_id),
+        resolvedProposals: _prependResolved(state.resolvedProposals, state.openProposals, action.event),
       };
     case "error":
       return {
@@ -419,6 +431,7 @@ function AuthGate({ banner, onLogin }) {
       {mode === "signin" && <SignInForm onLogin={goLogin} onBack={() => setMode("choose")} />}
       {mode === "create" && <CreateSessionForm onLogin={goLogin} onBack={() => setMode("choose")} />}
       {mode === "join" && <RequestJoinForm onLogin={goLogin} onBack={() => setMode("choose")} />}
+      {mode === "invite" && <RedeemInviteForm onLogin={goLogin} onBack={() => setMode("choose")} />}
     </main>
   );
 }
@@ -436,7 +449,47 @@ function GuestChoose({ onPick }) {
       <button type="button" className="big-btn" onClick={() => onPick("join")}>
         Request to join a session
       </button>
+      <button type="button" className="big-btn" onClick={() => onPick("invite")}>
+        Redeem an invite code
+      </button>
     </div>
+  );
+}
+
+function RedeemInviteForm({ onLogin, onBack }) {
+  const [token, setToken] = useState("");
+  const [name, setName] = useState("");
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (ev) => {
+    ev.preventDefault();
+    if (!token.trim() || !name.trim()) return;
+    setBusy(true); setError(null);
+    try {
+      const result = await mcpCall("/tools/session/redeem_invite", null, {
+        method: "POST",
+        body: { invite_token: token.trim(), display_name: name.trim() },
+      });
+      onLogin(await _loginWithToken(result.auth_token));
+    } catch (e) { setError(e.message || "Redeem failed"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <form onSubmit={submit} className="auth-form">
+      <p className="dim">Paste the invite code the facilitator gave you.</p>
+      <input type="text" placeholder="invite code" value={token}
+        onChange={(ev) => setToken(ev.target.value)} autoFocus />
+      <input type="text" placeholder="your display name" value={name}
+        onChange={(ev) => setName(ev.target.value)} maxLength={64} />
+      <div className="auth-actions">
+        <button type="button" className="link-btn" onClick={onBack}>← back</button>
+        <button type="submit" className={busy ? "busy" : ""}
+          disabled={busy || !token.trim() || !name.trim()}>
+          {busy ? "Redeeming" : "Redeem"}
+        </button>
+      </div>
+      {error && <div className="error">{error}</div>}
+    </form>
   );
 }
 
@@ -711,14 +764,15 @@ function _participantBuckets(participants) {
   };
 }
 
-function ParticipantList({ participants, me, skipReasons }) {
+function ParticipantList({ participants, me, skipReasons, isFacilitator, onRemove, onRoutingChange }) {
   const byId = useMemo(
     () => Object.fromEntries(participants.map((p) => [p.id, p])),
     [participants],
   );
   const buckets = useMemo(() => _participantBuckets(participants), [participants]);
   const renderCard = (p) => (
-    <ParticipantCard key={p.id} p={p} me={me} byId={byId} skipReasons={skipReasons} />
+    <ParticipantCard key={p.id} p={p} me={me} byId={byId} skipReasons={skipReasons}
+      isFacilitator={isFacilitator} onRemove={onRemove} onRoutingChange={onRoutingChange} />
   );
   return (
     <section className="panel participant-list">
@@ -741,17 +795,24 @@ function ParticipantList({ participants, me, skipReasons }) {
   );
 }
 
-function ParticipantCard({ p, me, byId, skipReasons }) {
+function ParticipantCard({ p, me, byId, skipReasons, isFacilitator, onRemove, onRoutingChange }) {
   const inviter = p.invited_by ? byId[p.invited_by] : null;
   const inviterLabel = inviter ? inviter.display_name : null;
   const isAI = p.provider !== "human";
+  const isSelf = p.id === me?.participant_id;
+  const canManage = isFacilitator && !isSelf && p.role !== "facilitator";
   return (
     <div className={`participant-card role-${p.role} status-${p.status}`}>
       <div className="p-row">
         <strong>{p.display_name}</strong>
-        {p.id === me?.participant_id && <span className="badge badge-you">you</span>}
+        {isSelf && <span className="badge badge-you">you</span>}
         {(p.role === "pending" || p.status === "pending") && (
           <span className="badge badge-pending">pending</span>
+        )}
+        {canManage && (
+          <button type="button" className="icon-btn danger-btn"
+            onClick={() => onRemove?.(p)}
+            title="remove from session">✕</button>
         )}
       </div>
       <div className="p-meta">
@@ -767,7 +828,18 @@ function ParticipantCard({ p, me, byId, skipReasons }) {
       )}
       <div className="p-meta">
         <HealthBadge participant={p} skipReasons={skipReasons?.[p.id]} />
-        <span className="routing">{p.routing_preference}</span>
+        {canManage && onRoutingChange ? (
+          <select
+            className="routing-inline"
+            value={p.routing_preference}
+            onChange={(ev) => onRoutingChange(p.id, ev.target.value)}
+            title="routing preference"
+          >
+            {ROUTING_PREFERENCES.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        ) : (
+          <span className="routing">{p.routing_preference}</span>
+        )}
       </div>
     </div>
   );
@@ -1311,8 +1383,8 @@ function AdminPanel({ participants, session, auditEntries, onApprove, onReject, 
   );
 }
 
-function ProposalTracker({ proposals, me, isFacilitator, onCreate, onVote, onResolve }) {
-  // US7 T151–T153.
+function ProposalTracker({ proposals, resolved, me, isFacilitator, onCreate, onVote, onResolve }) {
+  // US7 T151–T153 + resolved-history (Test06 feedback).
   const [showCreator, setShowCreator] = useState(false);
   const [myVotes, setMyVotes] = useState({});
 
@@ -1376,6 +1448,28 @@ function ProposalTracker({ proposals, me, isFacilitator, onCreate, onVote, onRes
           </div>
         );
       })}
+      {resolved && resolved.length > 0 && (
+        <details className="resolved-proposals">
+          <summary>Resolved ({resolved.length})</summary>
+          {resolved.map((p) => {
+            const tally = p.tally || { accept: 0, reject: 0, abstain: 0 };
+            return (
+              <div key={p.id} className="proposal-card resolved">
+                <header>
+                  <strong>{p.topic}</strong>
+                  <span className={`pill pill-${p.status}`}>{p.status}</span>
+                </header>
+                <p className="proposal-position dim">{p.position}</p>
+                <div className="tally">
+                  <span className="pill pill-accepted">✓ {tally.accept}</span>
+                  <span className="pill pill-rejected">✗ {tally.reject}</span>
+                  <span className="pill pill-pending">· {tally.abstain}</span>
+                </div>
+              </div>
+            );
+          })}
+        </details>
+      )}
       {showCreator && (
         <ProposalCreator
           onClose={() => setShowCreator(false)}
@@ -1530,16 +1624,12 @@ function _validateAddParticipant(form) {
   return null;
 }
 
-function AddParticipantDialog({ onClose, onAdd }) {
-  const [form, setForm] = useState({
-    display_name: "",
-    provider: "human",
-    model: "human",
-    model_tier: "n/a",
-    model_family: "human",
-    context_window: 0,
-    api_key: "",
-  });
+function AddParticipantDialog({ onClose, onAdd, aiOnly = false }) {
+  const initial = aiOnly
+    ? _applyProviderDefaults({ display_name: "", api_key: "" }, "anthropic")
+    : { display_name: "", provider: "human", model: "human",
+        model_tier: "n/a", model_family: "human", context_window: 0, api_key: "" };
+  const [form, setForm] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -1566,14 +1656,14 @@ function AddParticipantDialog({ onClose, onAdd }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(ev) => ev.stopPropagation()}>
-        <h2>Add participant</h2>
+        <h2>{aiOnly ? "Add your AI" : "Add participant"}</h2>
         <form onSubmit={submit}>
           <label>Display name
             <input value={form.display_name} onChange={update("display_name")} required autoFocus />
           </label>
           <label>Provider
             <select value={form.provider} onChange={pickProvider}>
-              <option value="human">human</option>
+              {!aiOnly && <option value="human">human</option>}
               <option value="anthropic">anthropic</option>
               <option value="openai">openai</option>
               <option value="ollama">ollama</option>
@@ -1711,10 +1801,19 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   };
 
   const addParticipant = async (form) => {
-    await mcpCall("/tools/facilitator/add_participant", auth.token, {
-      method: "POST",
-      body: form,
-    });
+    // Facilitator path supports adding humans + AIs; non-facilitators use
+    // the narrower /tools/participant/add_ai endpoint (AI-only, sponsored).
+    if (isFacilitator) {
+      await mcpCall("/tools/facilitator/add_participant", auth.token, {
+        method: "POST",
+        body: form,
+      });
+      return;
+    }
+    if (form.provider === "human") {
+      throw new Error("Only the facilitator can add human participants");
+    }
+    await onAddMyAI(form);
   };
 
   const onRenameSession = async (newName) => {
@@ -1726,6 +1825,27 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     } catch (e) {
       alert(`Rename failed: ${e.message}`);
     }
+  };
+
+  const onRemoveParticipant = async (p) => {
+    const label = p.display_name || p.id;
+    if (!confirm(`Remove ${label} from this session?`)) return;
+    try {
+      await mcpCall(
+        `/tools/facilitator/remove_participant?participant_id=${encodeURIComponent(p.id)}`,
+        auth.token,
+        { method: "POST" },
+      );
+    } catch (e) {
+      alert(`Remove failed: ${e.message}`);
+    }
+  };
+
+  const onAddMyAI = async (form) => {
+    await mcpCall("/tools/participant/add_ai", auth.token, {
+      method: "POST",
+      body: { ...form, context_window: parseInt(form.context_window, 10) || 0 },
+    });
   };
 
   const onSetBudget = async (participantId, { budget_hourly, budget_daily }) => {
@@ -1816,12 +1936,18 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     });
   };
 
-  // Seed open proposals on first WS attach so tallies are current.
+  // Seed open + resolved proposals on first WS attach so tallies + history are current.
   useEffect(() => {
     if (!auth.session_id) return;
-    mcpCall("/tools/proposal/list", auth.token)
+    mcpCall("/tools/proposal/list?include_resolved=true", auth.token)
       .then((data) => {
-        if (data?.proposals) dispatch({ type: "seed_proposals", proposals: data.proposals });
+        if (data?.proposals) {
+          dispatch({
+            type: "seed_proposals",
+            proposals: data.proposals,
+            resolved: data.resolved || [],
+          });
+        }
       })
       .catch(() => { /* ignore; snapshot will still deliver open_proposals */ });
   }, [auth.session_id, auth.token]);
@@ -1872,13 +1998,16 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
             participants={state.participants}
             me={auth}
             skipReasons={state.skipReasons}
+            isFacilitator={isFacilitator}
+            onRemove={onRemoveParticipant}
+            onRoutingChange={onRoutingChange}
           />
           <SessionControls
             session={state.session}
             isFacilitator={isFacilitator}
             onAction={onSessionAction}
           />
-          {isFacilitator && (
+          {isFacilitator ? (
             <>
               <button className="full-width" onClick={() => setShowAddDialog(true)}>
                 + Add participant
@@ -1894,6 +2023,10 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                 onConfig={setSessionConfig}
               />
             </>
+          ) : auth && (
+            <button className="full-width" onClick={() => setShowAddDialog(true)}>
+              + Add my AI
+            </button>
           )}
           <button className="full-width logout" onClick={onLogout}>Sign out</button>
         </aside>
@@ -1922,6 +2055,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
           <SummaryPanel summary={state.latestSummary} />
           <ProposalTracker
             proposals={state.openProposals}
+            resolved={state.resolvedProposals}
             me={auth}
             isFacilitator={isFacilitator}
             onCreate={createProposal}
@@ -1934,6 +2068,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
         <AddParticipantDialog
           onClose={() => setShowAddDialog(false)}
           onAdd={addParticipant}
+          aiOnly={!isFacilitator}
         />
       )}
       {editDraft && (

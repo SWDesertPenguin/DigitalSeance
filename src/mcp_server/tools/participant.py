@@ -152,6 +152,101 @@ async def _get_branch_id(request: Request, session_id: str) -> str:
     return result or "main"
 
 
+class _AddAIBody(BaseModel):
+    """Body for a participant to add their own AI (non-facilitator path)."""
+
+    display_name: str
+    provider: Literal["anthropic", "openai", "ollama"]
+    model: str
+    model_tier: str = "mid"
+    model_family: str = "unknown"
+    context_window: int = 0
+    api_key: str = ""
+    api_endpoint: str = ""
+    budget_hourly: float | None = None
+    budget_daily: float | None = None
+
+
+@router.post("/add_ai")
+async def add_ai_participant(
+    request: Request,
+    body: _AddAIBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Let a non-facilitator human sponsor an AI (auto-approved, tagged invited_by)."""
+    if participant.provider != "human":
+        raise HTTPException(403, "Only human participants may sponsor an AI")
+    p_repo = request.app.state.participant_repo
+    await _reject_duplicate_ai_in_session(p_repo, participant.session_id, body)
+    new_p = await _persist_sponsored_ai(p_repo, participant, body)
+    auth_token = await _issue_and_broadcast_ai(
+        request,
+        participant.session_id,
+        new_p.id,
+        p_repo,
+    )
+    return {"participant_id": new_p.id, "auth_token": auth_token, "role": new_p.role}
+
+
+async def _persist_sponsored_ai(
+    p_repo: object,
+    sponsor: Participant,
+    body: _AddAIBody,
+) -> Participant:
+    """Wrap the repo add_participant call for the sponsor flow."""
+    new_p, _ = await p_repo.add_participant(
+        session_id=sponsor.session_id,
+        display_name=body.display_name.strip(),
+        provider=body.provider,
+        model=body.model.strip(),
+        model_tier=body.model_tier,
+        model_family=body.model_family,
+        context_window=body.context_window,
+        api_key=body.api_key or None,
+        api_endpoint=body.api_endpoint or None,
+        budget_hourly=body.budget_hourly,
+        budget_daily=body.budget_daily,
+        auto_approve=True,
+        invited_by=sponsor.id,
+    )
+    return new_p
+
+
+async def _issue_and_broadcast_ai(
+    request: Request,
+    session_id: str,
+    participant_id: str,
+    p_repo: object,
+) -> str:
+    """Mint token + broadcast participant_update after a sponsor-AI add."""
+    from src.web_ui.events import broadcast_participant_update
+
+    token = await request.app.state.auth_service.rotate_token(participant_id)
+    await broadcast_participant_update(
+        session_id,
+        participant_id,
+        p_repo,
+        request.app.state.log_repo,
+    )
+    return token
+
+
+async def _reject_duplicate_ai_in_session(
+    p_repo: object,
+    session_id: str,
+    body: _AddAIBody,
+) -> None:
+    """Mirror of the facilitator endpoint's dedupe guard."""
+    existing = await p_repo.list_participants(session_id)
+    for p in existing:
+        if p.provider == body.provider and p.model == body.model and p.status != "removed":
+            raise HTTPException(
+                409,
+                f"A participant with provider={body.provider}, model={body.model} "
+                f"already exists in this session (id={p.id}, status={p.status}).",
+            )
+
+
 _SelfRoutingPreference = Literal[
     "always",
     "review_gate",
