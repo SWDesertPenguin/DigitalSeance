@@ -53,11 +53,18 @@ def _signer() -> itsdangerous.URLSafeTimedSerializer:
     return itsdangerous.URLSafeTimedSerializer(secret, salt="sacp-ui-cookie-v1")
 
 
-def _make_cookie_value(participant_id: str, session_id: str) -> str:
-    """Sign a cookie payload binding the browser to participant+session."""
+def _make_cookie_value(participant_id: str, session_id: str, token: str) -> str:
+    """Sign a cookie payload binding the browser to participant+session+bearer.
+
+    Storing the bearer in the signed+HttpOnly+Secure+SameSite=Strict cookie
+    lets /me restore the SPA's in-memory token after refresh without
+    rotating the persistent bearer. Rotating on /me invalidated the
+    user's original token, so after logout they couldn't log back in.
+    """
     payload = {
         "pid": participant_id,
         "sid": session_id,
+        "tok": token,
         "issued_at": datetime.now(tz=UTC).isoformat(),
     }
     return _signer().dumps(json.dumps(payload))
@@ -90,14 +97,11 @@ async def login(
     if auth_service is None:
         raise HTTPException(503, "Auth service not available")
     participant = await _authenticate_or_raise(auth_service, body.token, request)
-    _set_session_cookie(response, participant.id, participant.session_id)
+    _set_session_cookie(response, participant.id, participant.session_id, body.token)
     return {
         "participant_id": participant.id,
         "session_id": participant.session_id,
         "role": participant.role,
-        # Echo the plaintext token back so the SPA can hold it in a React
-        # ref (FR-003) and authorize cross-origin calls to the MCP app
-        # on port 8750. Never persisted to localStorage / IndexedDB.
         "token": body.token,
         "expires_in": COOKIE_MAX_AGE_SECONDS,
     }
@@ -120,11 +124,16 @@ async def _authenticate_or_raise(
         raise HTTPException(403, str(e)) from None
 
 
-def _set_session_cookie(response: Response, participant_id: str, session_id: str) -> None:
+def _set_session_cookie(
+    response: Response,
+    participant_id: str,
+    session_id: str,
+    token: str,
+) -> None:
     """Issue the HttpOnly + Secure + SameSite=Strict session cookie."""
     response.set_cookie(
         key=COOKIE_NAME,
-        value=_make_cookie_value(participant_id, session_id),
+        value=_make_cookie_value(participant_id, session_id, token),
         max_age=COOKIE_MAX_AGE_SECONDS,
         httponly=True,
         secure=_secure_cookie_flag(),
@@ -168,27 +177,21 @@ UiParticipant = Annotated[Participant, Depends(get_current_ui_participant)]
 
 @router.get("/me")
 async def whoami(
-    request: Request,
+    sacp_ui_token: Annotated[str | None, Cookie()] = None,
     participant: Participant = Depends(get_current_ui_participant),
 ) -> dict:
     """Restore session state on page refresh.
 
-    The HttpOnly cookie survives refresh, but the SPA loses its
-    in-memory bearer token. This endpoint rotates a fresh bearer for
-    the cookie-identified participant so mcpCall() keeps working after
-    F5 without forcing a re-login. Trade-off documented in FEEDBACK
-    ("refresh logs user out"): the old bearer is invalidated, which
-    costs any concurrent tab that was holding it. For Phase 2 single-
-    tab use this is acceptable; multi-tab support is Phase 3 territory.
+    The HttpOnly cookie carries the bearer so the SPA can re-hydrate
+    after F5 without rotating the user's persistent token. Previous
+    behavior rotated on every /me which invalidated the user's copy of
+    the token — so after logout they could not log back in.
     """
-    auth_service = getattr(request.app.state, "auth_service", None)
-    if auth_service is None:
-        raise HTTPException(503, "Auth service not available")
-    fresh_token = await auth_service.rotate_token(participant.id)
+    payload = _parse_cookie_value(sacp_ui_token) if sacp_ui_token else {}
     return {
         "participant_id": participant.id,
         "session_id": participant.session_id,
         "role": participant.role,
-        "token": fresh_token,
+        "token": payload.get("tok", ""),
         "expires_in": COOKIE_MAX_AGE_SECONDS,
     }
