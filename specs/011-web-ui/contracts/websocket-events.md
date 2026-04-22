@@ -64,10 +64,22 @@ Sent when the loop skips a turn (budget/circuit/review-gate/no_new_input).
 
 Sent on any field change for a participant in the session (role, status,
 consecutive_timeouts, routing_preference, budget values, etc.). Clients merge
-over the existing `ParticipantCard` in state.
+over the existing `ParticipantCard` in state. The payload includes `spend_daily`
+always and `spend_hourly` whenever `budget_hourly` is set (skipped otherwise
+to avoid an extra aggregate query per broadcast).
 
 ```text
 { v:1, type:"participant_update", participant: ParticipantCard }
+```
+
+### `participant_removed`
+
+Sent when a participant row has been hard-deleted server-side (currently only
+`reject_participant`, which removes pending rows). Clients MUST drop the
+participant from local state on receipt.
+
+```text
+{ v:1, type:"participant_removed", participant_id: str }
 ```
 
 ### `convergence_update`

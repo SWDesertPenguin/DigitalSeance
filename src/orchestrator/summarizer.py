@@ -88,23 +88,30 @@ class SummarizationManager:
         session: object,
         cheapest: Participant,
     ) -> None:
-        """Fetch turns, generate summary, persist result."""
+        """Fetch turns, generate summary, persist result.
+
+        Watermark advances to the MAX dispatched-turn actually consumed,
+        not session.current_turn — summary appends don't advance
+        current_turn, so using it leaves last_summary_turn frozen and
+        the next checkpoint re-reads the same range (Test06-Web06 loop).
+        """
         turns = await _fetch_turns_since(
             self._msg_repo, self._pool, session_id, session.last_summary_turn
         )
         if not turns:
             return
+        watermark = max(t.source_turn for t in turns)
         summary_json = await _generate_summary(turns, cheapest, self._encryption_key)
         await _store_summary(
             self._msg_repo,
             self._pool,
             session_id,
             summary_json,
-            session.current_turn,
+            watermark,
             speaker_id=session.facilitator_id,
         )
-        await _update_session_turn(self._pool, session_id, session.current_turn)
-        await _emit_summary_created(session_id, summary_json, session.current_turn)
+        await _update_session_turn(self._pool, session_id, watermark)
+        await _emit_summary_created(session_id, summary_json, watermark)
 
 
 async def _find_cheapest_model(
@@ -139,13 +146,18 @@ async def _fetch_turns_since(
     session_id: str,
     last_summary_turn: int,
 ) -> list[ContextMessage]:
-    """Fetch turns since the last checkpoint as context messages."""
+    """Fetch turns since the last checkpoint as context messages.
+
+    Excludes prior summary rows so the summarizer never feeds its own
+    output back in as new content (Test06-Web06).
+    """
     bid = await get_main_branch_id(pool, session_id)
     messages = await msg_repo.get_range(
         session_id,
         bid,
         start_turn=last_summary_turn + 1,
         end_turn=last_summary_turn + 1000,
+        exclude_speaker_types=["summary"],
     )
     return [
         ContextMessage(
