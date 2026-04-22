@@ -121,15 +121,28 @@ async def resolve_proposal(
 @router.get("/list")
 async def list_proposals(
     request: Request,
+    *,
+    include_resolved: bool = False,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """List open proposals for the caller's session."""
+    """List proposals for the caller's session.
+
+    Defaults to open only. Pass ``include_resolved=true`` to also get
+    the most-recent 50 resolved entries in a separate ``resolved``
+    field so the UI can render a history section alongside the
+    active-vote pane.
+    """
     repo = ProposalRepository(request.app.state.pool)
     proposals = await repo.get_open_proposals(participant.session_id)
     tallies = {p.id: await _tally(repo, p.id) for p in proposals}
-    return {
+    payload: dict = {
         "proposals": [{**_serialize(p), "tally": tallies[p.id]} for p in proposals],
     }
+    if include_resolved:
+        resolved = await repo.get_resolved_proposals(participant.session_id)
+        resolved_tallies = {p.id: await _tally(repo, p.id) for p in resolved}
+        payload["resolved"] = [{**_serialize(p), "tally": resolved_tallies[p.id]} for p in resolved]
+    return payload
 
 
 async def _tally(repo: ProposalRepository, proposal_id: str) -> dict:
