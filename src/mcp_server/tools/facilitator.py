@@ -57,17 +57,32 @@ async def add_participant(
     body: _AddParticipantBody,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Add a participant directly (facilitator only, auto-approved).
-
-    Dedupes AI participants by (provider, model) within the session to
-    prevent the "two Llama rows after a failed retry" footgun from
-    Test05-Web01. Human participants share provider="human"/model="human"
-    and can legitimately duplicate, so the check skips them.
-    """
-    await _reject_duplicate_ai(request.app.state.participant_repo, participant.session_id, body)
+    """Add a participant directly (facilitator only, auto-approved)."""
     p_repo = request.app.state.participant_repo
-    new_p, token = await p_repo.add_participant(
-        session_id=participant.session_id,
+    await _reject_duplicate_ai(p_repo, participant.session_id, body)
+    await _reject_duplicate_display_name(p_repo, participant.session_id, body.display_name)
+    new_p = await _persist_added_participant(p_repo, participant.id, participant.session_id, body)
+    auth_token = await request.app.state.auth_service.rotate_token(new_p.id)
+    from src.web_ui.events import broadcast_participant_update
+
+    await broadcast_participant_update(
+        participant.session_id,
+        new_p.id,
+        p_repo,
+        request.app.state.log_repo,
+    )
+    return {"participant_id": new_p.id, "auth_token": auth_token, "role": new_p.role}
+
+
+async def _persist_added_participant(
+    p_repo: object,
+    inviter_id: str,
+    session_id: str,
+    body: _AddParticipantBody,
+) -> Participant:
+    """Wrap repo.add_participant for the facilitator add path."""
+    new_p, _ = await p_repo.add_participant(
+        session_id=session_id,
         display_name=body.display_name,
         provider=body.provider,
         model=body.model,
@@ -79,15 +94,25 @@ async def add_participant(
         budget_hourly=body.budget_hourly,
         budget_daily=body.budget_daily,
         auto_approve=True,
-        invited_by=participant.id,
+        invited_by=inviter_id,
     )
-    auth = request.app.state.auth_service
-    auth_token = await auth.rotate_token(new_p.id)
-    return {
-        "participant_id": new_p.id,
-        "auth_token": auth_token,
-        "role": new_p.role,
-    }
+    return new_p
+
+
+async def _reject_duplicate_display_name(
+    p_repo: object,
+    session_id: str,
+    display_name: str,
+) -> None:
+    """409 if an active participant already has this display_name in the session."""
+    cleaned = display_name.strip().lower()
+    existing = await p_repo.list_participants(session_id)
+    for p in existing:
+        if p.status != "removed" and p.display_name.strip().lower() == cleaned:
+            raise HTTPException(
+                409,
+                f"A participant named '{p.display_name}' is already in this session",
+            )
 
 
 async def _reject_duplicate_ai(p_repo: object, session_id: str, body: _AddParticipantBody) -> None:
@@ -174,6 +199,7 @@ async def remove_participant(
         participant_id=participant_id,
         reason=reason,
     )
+    await _close_ws_for_participant(participant.session_id, participant_id)
     await _push_participant_update(request, participant.session_id, participant_id)
     return {"status": "removed"}
 
@@ -200,14 +226,30 @@ async def revoke_token(
     participant_id: str,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Revoke a participant's auth token."""
+    """Revoke a participant's auth token.
+
+    After the repo revocation lands, we close the target's open WS
+    connections with 4401 so their UI force-redirects to the guest
+    landing instead of silently losing the ability to mutate state.
+    The HttpOnly cookie remains but points to an invalidated token
+    hash; the client's /me probe on reload returns 401 → landing.
+    """
     auth = request.app.state.auth_service
     await auth.revoke_token(
         facilitator_id=participant.id,
         session_id=participant.session_id,
         participant_id=participant_id,
     )
+    await _close_ws_for_participant(participant.session_id, participant_id)
+    await _push_participant_update(request, participant.session_id, participant_id)
     return {"status": "revoked"}
+
+
+async def _close_ws_for_participant(session_id: str, participant_id: str) -> None:
+    """Boot any live WS for this participant with the 4401 close code."""
+    from src.web_ui.websocket import get_ws_manager
+
+    await get_ws_manager().close_for_participant(session_id, participant_id)
 
 
 @router.post("/transfer_facilitator")
@@ -230,8 +272,36 @@ async def transfer_facilitator(
         session_id=participant.session_id,
         target_id=target_id,
     )
+    await _rename_facilitator_prefix(request, participant.id, target_id)
     await _broadcast_transfer(request, participant.session_id, participant.id, target_id)
     return {"status": "transferred", "new_facilitator": target_id}
+
+
+async def _rename_facilitator_prefix(
+    request: Request,
+    demoted_id: str,
+    promoted_id: str,
+) -> None:
+    """Move the 'Facilitator-' display_name prefix from old to new."""
+    pool = request.app.state.pool
+    p_repo = request.app.state.participant_repo
+    demoted = await p_repo.get_participant(demoted_id)
+    promoted = await p_repo.get_participant(promoted_id)
+    if demoted and demoted.display_name.startswith("Facilitator-"):
+        stripped = demoted.display_name[len("Facilitator-") :]
+        await _rename_participant(pool, demoted_id, stripped)
+    if promoted and not promoted.display_name.startswith("Facilitator-"):
+        await _rename_participant(pool, promoted_id, f"Facilitator-{promoted.display_name}")
+
+
+async def _rename_participant(pool: object, participant_id: str, new_name: str) -> None:
+    """Raw display_name update used by the facilitator-prefix shuffle."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE participants SET display_name = $1 WHERE id = $2",
+            new_name,
+            participant_id,
+        )
 
 
 async def _broadcast_transfer(
@@ -279,22 +349,39 @@ async def set_routing_preference(
     body: _SetRoutingBody,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Set routing preference on a participant (facilitator only)."""
-    pool = request.app.state.pool
-    async with pool.acquire() as conn:
-        result = await conn.execute(
-            "UPDATE participants SET routing_preference = $1 WHERE id = $2 AND session_id = $3",
-            body.preference,
-            body.participant_id,
-            participant.session_id,
-        )
-    if result == "UPDATE 0":
+    """Set routing preference on a participant (facilitator or sponsor)."""
+    p_repo = request.app.state.participant_repo
+    target = await p_repo.get_participant(body.participant_id)
+    if target is None or target.session_id != participant.session_id:
         raise HTTPException(404, "participant not found in session")
+    _require_facilitator_or_inviter(participant, target)
+    await _write_routing(request, body, participant.session_id)
+    from src.web_ui.events import broadcast_participant_update
+
+    await broadcast_participant_update(
+        participant.session_id,
+        body.participant_id,
+        p_repo,
+        request.app.state.log_repo,
+    )
     return {
         "status": "updated",
         "participant_id": body.participant_id,
         "preference": body.preference,
     }
+
+
+async def _write_routing(request: Request, body: _SetRoutingBody, session_id: str) -> None:
+    """Raw UPDATE for routing_preference; 404 if the row moved sessions."""
+    async with request.app.state.pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE participants SET routing_preference = $1 WHERE id = $2 AND session_id = $3",
+            body.preference,
+            body.participant_id,
+            session_id,
+        )
+    if result == "UPDATE 0":
+        raise HTTPException(404, "participant not found in session")
 
 
 class _SetReviewGatePauseScopeBody(BaseModel):
@@ -572,17 +659,19 @@ async def set_budget(
     body: _SetBudgetBody,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Set or clear spend caps on a participant (facilitator only).
+    """Set or clear spend caps on a participant.
 
-    Covers the "human added an AI without a budget" case: the
-    facilitator can backfill caps after the fact. Audit-logged and
-    broadcast so every client's BudgetPanel updates live.
+    Authorized for (a) the session facilitator and (b) the human who
+    invited this AI (participant.id == target.invited_by). The sponsor
+    path lets a non-facilitator manage the AI they brought without
+    requiring a facilitator handoff. Audit-logged and broadcast live.
     """
     _reject_negative_budget(body.budget_hourly, body.budget_daily)
     p_repo = request.app.state.participant_repo
     target = await p_repo.get_participant(body.participant_id)
     if target is None or target.session_id != participant.session_id:
         raise HTTPException(404, "participant not found in session")
+    _require_facilitator_or_inviter(participant, target)
     await p_repo.update_budget(
         body.participant_id,
         budget_hourly=body.budget_hourly,
@@ -595,6 +684,15 @@ async def set_budget(
         "budget_hourly": body.budget_hourly,
         "budget_daily": body.budget_daily,
     }
+
+
+def _require_facilitator_or_inviter(caller: Participant, target: Participant) -> None:
+    """403 unless caller is the facilitator or invited the target."""
+    if caller.role == "facilitator":
+        return
+    if target.invited_by == caller.id:
+        return
+    raise HTTPException(403, "Only the facilitator or the participant's sponsor may edit this")
 
 
 def _reject_negative_budget(hourly: float | None, daily: float | None) -> None:
