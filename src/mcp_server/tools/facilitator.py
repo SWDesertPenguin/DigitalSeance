@@ -216,14 +216,42 @@ async def transfer_facilitator(
     target_id: str,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Transfer facilitator role to another participant."""
+    """Transfer facilitator role to another participant.
+
+    Broadcasts participant_update for BOTH the demoted caller and the
+    promoted target, plus session_updated with the new facilitator_id,
+    so every connected client sees the role swap live without a
+    refresh. Before this, Test06 showed the promoted user's UI didn't
+    unlock facilitator controls because their me.role never changed.
+    """
     auth = request.app.state.auth_service
     await auth.transfer_facilitator(
         facilitator_id=participant.id,
         session_id=participant.session_id,
         target_id=target_id,
     )
+    await _broadcast_transfer(request, participant.session_id, participant.id, target_id)
     return {"status": "transferred", "new_facilitator": target_id}
+
+
+async def _broadcast_transfer(
+    request: Request,
+    session_id: str,
+    demoted_id: str,
+    promoted_id: str,
+) -> None:
+    """Push participant_updates + session_updated after a role swap."""
+    from src.web_ui.events import broadcast_participant_update, session_updated_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    p_repo = request.app.state.participant_repo
+    log_repo = request.app.state.log_repo
+    await broadcast_participant_update(session_id, demoted_id, p_repo, log_repo)
+    await broadcast_participant_update(session_id, promoted_id, p_repo, log_repo)
+    await broadcast_to_session(
+        session_id,
+        session_updated_event({"facilitator_id": promoted_id}),
+    )
 
 
 _RoutingPreference = Literal[

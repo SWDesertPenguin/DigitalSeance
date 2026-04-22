@@ -85,6 +85,7 @@ async def _session_row(app_state: Any, session_id: str) -> dict[str, Any]:
         "min_model_tier": session.min_model_tier,
         "acceptance_mode": session.acceptance_mode,
         "review_gate_pause_scope": session.review_gate_pause_scope,
+        "facilitator_id": session.facilitator_id,
     }
 
 
