@@ -187,6 +187,12 @@ main.scaffold {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.message-input {
+  flex-shrink: 0;
 }
 
 /* ========== Panels ========== */
@@ -287,11 +293,15 @@ main.scaffold {
 .msg-type { text-transform: uppercase; font-size: 0.75em; }
 .turn-num { margin-left: auto; font-family: monospace; }
 
-.msg-body { line-height: 1.5; }
+.msg-body { line-height: 1.5; overflow-wrap: anywhere; word-break: break-word; }
 .msg-body p:first-child { margin-top: 0; }
 .msg-body p:last-child { margin-bottom: 0; }
 .msg-body code { background: var(--bg); }
-.msg-body pre { background: var(--bg); padding: 0.8em; border-radius: 4px; overflow-x: auto; }
+.msg-body pre {
+  background: var(--bg); padding: 0.8em; border-radius: 4px;
+  overflow-x: auto; max-width: 100%;
+}
+.msg, .transcript { min-width: 0; max-width: 100%; }
 
 /* ========== Message input ========== */
 
@@ -863,3 +873,15 @@ button:active:not(:disabled) { transform: translateY(1px); }
 }
 .budget-editor input { width: 7rem; padding: 0.2rem 0.3rem; }
 .budget-editor-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+
+/* Test06 sweep: per-card management controls */
+.participant-card .danger-btn {
+  padding: 0 0.3rem; font-size: 0.75rem;
+  background: transparent; border: 1px solid var(--danger); color: var(--danger);
+}
+.participant-card .danger-btn:hover { background: var(--danger); color: var(--bg); }
+.routing-inline { font-size: 0.8rem; padding: 0.1rem 0.3rem; }
+.resolved-proposals summary {
+  cursor: pointer; font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem;
+}
+.proposal-card.resolved { opacity: 0.75; }
