@@ -73,6 +73,8 @@ class TurnRouter:
         """Evaluate routing based on participant's preference."""
         complexity = classify(recent_text)
         mode = participant.routing_preference
+        if mode == "addressed_only":
+            return _route_addressed_only(participant, complexity, recent_text)
         handler = _ROUTE_HANDLERS.get(mode, _route_always)
         return handler(participant, complexity, has_interjection)
 
@@ -183,8 +185,24 @@ def _route_observer(
 def _route_addressed_only(
     p: Participant,
     complexity: str,
-    _has_intr: bool,
+    recent_text: str,
 ) -> RoutingDecision:
+    """Speak only when the last message addresses this AI by @name or name.
+
+    Matches ``@<name>`` (explicit mention) and ``<name>`` as a whole word,
+    case-insensitive. Empty display_name falls through to skip so an AI
+    without a readable handle can't be silent-triggered.
+    """
+    name = (p.display_name or "").strip()
+    if name and _text_addresses(recent_text, name):
+        return RoutingDecision(
+            intended=p.id,
+            actual=p.id,
+            action="normal",
+            complexity=complexity,
+            domain_match=True,
+            reason=f"addressed by name: {name}",
+        )
     return RoutingDecision(
         intended=p.id,
         actual=p.id,
@@ -193,6 +211,14 @@ def _route_addressed_only(
         domain_match=False,
         reason="not addressed by name",
     )
+
+
+def _text_addresses(text: str, name: str) -> bool:
+    """Case-insensitive match for @<name> or <name> as a word in text."""
+    import re
+
+    pattern = rf"(?:@|\b){re.escape(name)}\b"
+    return re.search(pattern, text or "", flags=re.IGNORECASE) is not None
 
 
 def _route_human_only(
