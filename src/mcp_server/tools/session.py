@@ -193,9 +193,9 @@ async def request_join(request: Request, body: _RequestJoinBody) -> dict:
     """Public endpoint — create a pending participant for a self-join flow.
 
     The guest enters a session ID and a display name. We create a
-    ``role='pending'`` participant and return an auth token so they
-    can /login immediately and see the pending holding screen. The
-    facilitator approves (or rejects) via the existing admin panel.
+    role='pending' participant, return an auth token so they can
+    /login, and broadcast participant_update so the facilitator sees
+    them appear without reloading.
     """
     session_repo = request.app.state.session_repo
     session = await session_repo.get_session(body.session_id)
@@ -214,14 +214,95 @@ async def request_join(request: Request, body: _RequestJoinBody) -> dict:
         context_window=0,
         auto_approve=False,
     )
-    auth = request.app.state.auth_service
-    auth_token = await auth.rotate_token(new_p.id)
+    auth_token = await _issue_and_broadcast(request, body.session_id, new_p.id, p_repo)
     return {
         "participant_id": new_p.id,
         "session_id": body.session_id,
         "role": new_p.role,
         "auth_token": auth_token,
     }
+
+
+async def _issue_and_broadcast(
+    request: Request,
+    session_id: str,
+    participant_id: str,
+    p_repo: object,
+) -> str:
+    """Mint an auth token for a freshly-added participant + broadcast."""
+    from src.web_ui.events import broadcast_participant_update
+
+    auth = request.app.state.auth_service
+    token = await auth.rotate_token(participant_id)
+    await broadcast_participant_update(
+        session_id,
+        participant_id,
+        p_repo,
+        request.app.state.log_repo,
+    )
+    return token
+
+
+class _RedeemInviteBody(BaseModel):
+    """Body for the public invite-redeem flow."""
+
+    invite_token: str
+    display_name: str
+
+    @field_validator("invite_token", "display_name")
+    @classmethod
+    def _reject_blank(cls, v: str, info) -> str:
+        cleaned = (v or "").strip()
+        if not cleaned or cleaned.lower() == _SWAGGER_PLACEHOLDER:
+            msg = f"{info.field_name} must not be blank or the placeholder 'string'"
+            raise ValueError(msg)
+        return cleaned
+
+
+@router.post("/redeem_invite")
+async def redeem_invite(request: Request, body: _RedeemInviteBody) -> dict:
+    """Public endpoint — swap an invite token for a pre-approved auth token.
+
+    Unlike /request_join (pending until approved), invite redemption
+    is pre-authorized by the facilitator who issued the invite.
+    """
+    invite = await _redeem_or_raise(request, body.invite_token)
+    p_repo = request.app.state.participant_repo
+    new_p, _ = await p_repo.add_participant(
+        session_id=invite.session_id,
+        display_name=body.display_name,
+        provider="human",
+        model="human",
+        model_tier="n/a",
+        model_family="human",
+        context_window=0,
+        auto_approve=True,
+        invited_by=invite.created_by,
+    )
+    auth_token = await _issue_and_broadcast(
+        request,
+        invite.session_id,
+        new_p.id,
+        p_repo,
+    )
+    return {
+        "participant_id": new_p.id,
+        "session_id": invite.session_id,
+        "role": new_p.role,
+        "auth_token": auth_token,
+    }
+
+
+async def _redeem_or_raise(request: Request, invite_token: str) -> object:
+    """Redeem via invite_repo, mapping domain errors to 410 HTTP."""
+    from src.repositories.errors import InviteExhaustedError, InviteExpiredError
+
+    try:
+        return await request.app.state.invite_repo.redeem_invite(invite_token)
+    except InviteExpiredError as e:
+        raise HTTPException(410, str(e)) from None
+    except InviteExhaustedError as e:
+        raise HTTPException(410, str(e)) from None
 
 
 class _SetNameBody(BaseModel):
