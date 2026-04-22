@@ -164,3 +164,31 @@ async def get_current_ui_participant(
 
 
 UiParticipant = Annotated[Participant, Depends(get_current_ui_participant)]
+
+
+@router.get("/me")
+async def whoami(
+    request: Request,
+    participant: Participant = Depends(get_current_ui_participant),
+) -> dict:
+    """Restore session state on page refresh.
+
+    The HttpOnly cookie survives refresh, but the SPA loses its
+    in-memory bearer token. This endpoint rotates a fresh bearer for
+    the cookie-identified participant so mcpCall() keeps working after
+    F5 without forcing a re-login. Trade-off documented in FEEDBACK
+    ("refresh logs user out"): the old bearer is invalidated, which
+    costs any concurrent tab that was holding it. For Phase 2 single-
+    tab use this is acceptable; multi-tab support is Phase 3 territory.
+    """
+    auth_service = getattr(request.app.state, "auth_service", None)
+    if auth_service is None:
+        raise HTTPException(503, "Auth service not available")
+    fresh_token = await auth_service.rotate_token(participant.id)
+    return {
+        "participant_id": participant.id,
+        "session_id": participant.session_id,
+        "role": participant.role,
+        "token": fresh_token,
+        "expires_in": COOKIE_MAX_AGE_SECONDS,
+    }
