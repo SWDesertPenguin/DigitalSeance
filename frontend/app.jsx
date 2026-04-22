@@ -52,6 +52,16 @@ const ROUTING_PREFERENCES = [
   "human_only",
 ];
 
+// Float noise from Postgres REAL columns (e.g. 0.18000000715255737) looked
+// awful next to clean spend totals. Clamp to 4 decimals and strip trailing
+// zeros so $0.18 stays $0.18 but $0.0041 keeps precision.
+function fmtDollars(n) {
+  if (n == null) return "";
+  const num = Number(n);
+  if (!Number.isFinite(num)) return "";
+  return num.toFixed(4).replace(/\.?0+$/, "") || "0";
+}
+
 // ---------------------------------------------------------------------------
 // HTTP helpers
 // ---------------------------------------------------------------------------
@@ -903,7 +913,7 @@ function SelfControls({ me, participants, isFacilitator, onRoutingChange, onShow
 
   const spend = self.cost_per_input_token ?? null; // budget bar requires Phase 2b spend map
   const utilLabel = self.budget_daily
-    ? `$${(spend || 0).toFixed(2)} / $${self.budget_daily}`
+    ? `$${fmtDollars(spend || 0)} / $${fmtDollars(self.budget_daily)}`
     : "no daily cap";
 
   return (
@@ -1056,7 +1066,7 @@ function BudgetCard({ p, me, isFacilitator, onSetBudget }) {
         <strong>{p.display_name}</strong>
         {showDollars && (
           <span className="dim">
-            ${spend.toFixed(4)}{daily ? ` / $${daily}` : " (no cap)"}
+            ${fmtDollars(spend)}{daily ? ` / $${fmtDollars(daily)}` : " (no cap)"}
           </span>
         )}
         {canEdit && !editing && (
@@ -1089,16 +1099,23 @@ function BudgetEditor({ p, onSave, onClose }) {
     const n = parseFloat(s);
     return Number.isFinite(n) && n >= 0 ? n : "invalid";
   };
+  const save = async (payload) => {
+    setBusy(true); setError(null);
+    try {
+      await onSave(p.id, payload);
+      onClose();
+    } catch (e) { setError(e.message || "Save failed"); }
+    finally { setBusy(false); }
+  };
   const submit = async (ev) => {
     ev.preventDefault();
     const h = parse(hourly); const d = parse(daily);
     if (h === "invalid" || d === "invalid") { setError("Budgets must be >= 0"); return; }
-    setBusy(true); setError(null);
-    try {
-      await onSave(p.id, { budget_hourly: h, budget_daily: d });
-      onClose();
-    } catch (e) { setError(e.message || "Save failed"); }
-    finally { setBusy(false); }
+    await save({ budget_hourly: h, budget_daily: d });
+  };
+  const clearCaps = () => {
+    setHourly(""); setDaily("");
+    save({ budget_hourly: null, budget_daily: null });
   };
   return (
     <form onSubmit={submit} className="budget-editor">
@@ -1109,6 +1126,10 @@ function BudgetEditor({ p, onSave, onClose }) {
       {error && <div className="error">{error}</div>}
       <div className="budget-editor-actions">
         <button type="button" onClick={onClose}>cancel</button>
+        <button type="button" onClick={clearCaps} disabled={busy}
+          title="Remove both caps (no spending limit)">
+          no cap
+        </button>
         <button type="submit" className={busy ? "busy" : ""} disabled={busy}>
           {busy ? "saving" : "save"}
         </button>
@@ -1622,12 +1643,28 @@ function MessageInput({ onSend, disabled }) {
   );
 }
 
-function SessionControls({ session, isFacilitator, onAction }) {
+function SessionControls({ session, isFacilitator, onAction, onSummarize, onReviewGateAll }) {
   if (!isFacilitator) return null;
   const canStart = session?.status === "active";
+  const allInGate = session?.all_ais_in_review_gate;
+  const onArchive = () => {
+    if (!confirm(
+      "Archive this session?\n\n" +
+      "The loop will stop, all participants will be notified, " +
+      "and a final summary will be generated. This cannot be undone."
+    )) return;
+    onAction("archive");
+  };
+  const toggleGate = () => onReviewGateAll(allInGate ? "always" : "review_gate");
   return (
     <section className="panel session-controls">
       <h2>Session</h2>
+      {session?.id && (
+        <div className="kv">
+          <span className="dim">id</span>
+          <code className="session-id" title="session id (shareable)">{session.id}</code>
+        </div>
+      )}
       <div className="button-row">
         <button onClick={() => onAction("start_loop")} disabled={!canStart}>Start loop</button>
         <button onClick={() => onAction("stop_loop")}>Stop loop</button>
@@ -1637,7 +1674,16 @@ function SessionControls({ session, isFacilitator, onAction }) {
         <button onClick={() => onAction("resume")}>Resume</button>
       </div>
       <div className="button-row">
-        <button onClick={() => onAction("archive")} className="danger">Archive</button>
+        <button onClick={onSummarize} title="Force a summary checkpoint now">
+          Summarize now
+        </button>
+        <button onClick={toggleGate}
+          title="Flip every AI between review-gated and always-on routing">
+          {allInGate ? "Ungate all AIs" : "Review-gate all AIs"}
+        </button>
+      </div>
+      <div className="button-row">
+        <button onClick={onArchive} className="danger">Archive</button>
       </div>
     </section>
   );
@@ -1852,6 +1898,25 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     }
   };
 
+  const onSummarizeNow = async () => {
+    try {
+      await mcpCall("/tools/session/summarize_now", auth.token, { method: "POST" });
+    } catch (e) {
+      alert(`Summarize failed: ${e.message}`);
+    }
+  };
+
+  const onReviewGateAll = async (preference) => {
+    try {
+      await mcpCall("/tools/facilitator/set_routing_all_ais", auth.token, {
+        method: "POST",
+        body: { preference },
+      });
+    } catch (e) {
+      alert(`Bulk routing change failed: ${e.message}`);
+    }
+  };
+
   const addParticipant = async (form) => {
     // Facilitator path supports adding humans + AIs; non-facilitators use
     // the narrower /tools/participant/add_ai endpoint (AI-only, sponsored).
@@ -2048,6 +2113,12 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
           Reconnecting to the server…
         </div>
       )}
+      {state.session?.status === "archived" && (
+        <div className="banner banner-warn">
+          This session has been archived. The chat is finished and is now read-only.
+          {state.latestSummary && " A final summary has been generated below."}
+        </div>
+      )}
       <div className="app-body">
         <aside className="sidebar-left">
           <SelfControls
@@ -2069,6 +2140,8 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
             session={state.session}
             isFacilitator={isFacilitator}
             onAction={onSessionAction}
+            onSummarize={onSummarizeNow}
+            onReviewGateAll={onReviewGateAll}
           />
           {isFacilitator ? (
             <>
