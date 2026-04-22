@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import json
 
+import asyncpg
+import pytest
+from cryptography.fernet import Fernet
+
 from src.orchestrator.summarizer import (
     SummarizationManager,
+    _fetch_turns_since,
     _narrative_fallback,
     _normalize_summary,
     _validate_summary_json,
 )
+from src.repositories.message_repo import MessageRepository
+from src.repositories.session_repo import SessionRepository
 
 
 def test_should_summarize_at_threshold() -> None:
@@ -93,3 +100,44 @@ def test_narrative_fallback_is_valid_json() -> None:
     result = _narrative_fallback("Any text here")
     parsed = json.loads(result)
     assert "narrative" in parsed
+
+
+@pytest.fixture
+async def _summary_session(pool: asyncpg.Pool) -> tuple[str, str, str]:
+    """Create a session + branch; return (session_id, speaker_id, branch_id)."""
+    repo = SessionRepository(pool)
+    session, participant, branch = await repo.create_session(
+        "Summary Loop Test",
+        facilitator_display_name="Alice",
+        facilitator_provider="anthropic",
+        facilitator_model="claude-sonnet-4-20250514",
+        facilitator_model_tier="high",
+        facilitator_model_family="claude",
+        facilitator_context_window=200000,
+    )
+    return session.id, participant.id, branch.id
+
+
+async def test_fetch_turns_since_excludes_prior_summaries(
+    pool: asyncpg.Pool,
+    _summary_session: tuple[str, str, str],
+) -> None:
+    """Regression: Test06-Web06 loop where summaries re-summarized themselves."""
+    session_id, speaker_id, branch_id = _summary_session
+    msg_repo = MessageRepository(pool)
+    base = {
+        "session_id": session_id,
+        "branch_id": branch_id,
+        "speaker_id": speaker_id,
+        "token_count": 1,
+        "complexity_score": "low",
+    }
+    await msg_repo.append_message(**base, speaker_type="ai", content="real AI turn")
+    await msg_repo.append_message(
+        **base, speaker_type="summary", content='{"n":"prior"}', summary_epoch=0
+    )
+    turns = await _fetch_turns_since(msg_repo, pool, session_id, last_summary_turn=-1)
+    contents = [t.content for t in turns]
+    assert any("real AI turn" in c for c in contents)
+    assert not any("prior" in c for c in contents)
+    _ = Fernet.generate_key()  # hush unused-import warning
