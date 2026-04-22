@@ -162,8 +162,10 @@ class ConversationLoop:
         has_interjection: bool,
     ) -> tuple[object, TurnResult | None]:
         """Route speaker; return early-exit result if skipped or blocked."""
+        recent_text = await self._latest_human_text(session_id)
         decision = await self._router.route(
             speaker,
+            recent_text=recent_text,
             has_interjection=has_interjection,
         )
         if decision.action in ("skipped", "burst_accumulating"):
@@ -173,6 +175,20 @@ class ConversationLoop:
         if blocked:
             return decision, blocked
         return decision, None
+
+    async def _latest_human_text(self, session_id: str) -> str:
+        """Return the most recent human message content, or '' if none.
+
+        Fed into the router so addressed_only can check for @<name>
+        mentions and the classifier can score complexity off real input
+        instead of an empty string.
+        """
+        branch_id = await get_main_branch_id(self._pool, session_id)
+        recent = await self._msg_repo.get_recent(session_id, branch_id, limit=5)
+        for m in reversed(recent):
+            if m.speaker_type == "human":
+                return m.content or ""
+        return ""
 
     async def _dispatch_with_delay(
         self,
