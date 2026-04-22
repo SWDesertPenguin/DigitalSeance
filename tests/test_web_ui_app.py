@@ -160,4 +160,4 @@ def test_missing_encryption_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.web_ui.auth import _make_cookie_value  # local import after env mutation
 
     with pytest.raises(RuntimeError):
-        _make_cookie_value("pid", "sid")
+        _make_cookie_value("pid", "sid", "tok")
