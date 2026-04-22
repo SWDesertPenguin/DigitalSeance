@@ -135,6 +135,21 @@ class ProposalRepository(BaseRepository):
         )
         return [Proposal.from_record(r) for r in rows]
 
+    async def get_resolved_proposals(
+        self,
+        session_id: str,
+        *,
+        limit: int = 50,
+    ) -> list[Proposal]:
+        """Fetch resolved proposals (accepted / rejected / withdrawn) for history."""
+        rows = await self._fetch_all(
+            "SELECT * FROM proposals WHERE session_id = $1 AND status != 'open' "
+            "ORDER BY created_at DESC LIMIT $2",
+            session_id,
+            limit,
+        )
+        return [Proposal.from_record(r) for r in rows]
+
 
 _INSERT_PROPOSAL_SQL = """
     INSERT INTO proposals
