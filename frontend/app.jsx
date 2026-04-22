@@ -571,13 +571,6 @@ function CreateSessionForm({ onLogin, onBack }) {
 }
 
 function TokenRevealModal({ result, onProceed }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(result.auth_token || "");
-      setCopied(true);
-    } catch { /* clipboard blocked — user can still manually copy */ }
-  };
   return (
     <div className="token-reveal">
       <h2>Session created</h2>
@@ -585,10 +578,7 @@ function TokenRevealModal({ result, onProceed }) {
         Save this token. It's your API key — you'll need it for reconnects,
         MCP, Swagger, and CLI tools. It won't be shown again.
       </p>
-      <div className="token-row">
-        <code>{result.auth_token}</code>
-        <button type="button" onClick={copy}>{copied ? "Copied ✓" : "Copy"}</button>
-      </div>
+      <CopyableToken token={result.auth_token} />
       <div className="dim token-meta">
         <div>Session ID: <code>{result.session_id}</code></div>
         <div>Facilitator ID: <code>{result.facilitator_id}</code></div>
@@ -601,27 +591,47 @@ function TokenRevealModal({ result, onProceed }) {
 }
 
 function SelfTokenModal({ token, onClose }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(token); setCopied(true); }
-    catch { /* ignore */ }
-  };
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal token-reveal" onClick={(ev) => ev.stopPropagation()}>
         <h2>Your token</h2>
         <p className="dim">
-          This rotates on every view — any previously-saved copy is now invalid.
-          Save this one for API / MCP / Swagger calls.
+          Your current bearer. Use it for API / MCP / Swagger calls.
+          Treat it like a password.
         </p>
-        <div className="token-row">
-          <code>{token}</code>
-          <button type="button" onClick={copy}>{copied ? "Copied ✓" : "Copy"}</button>
-        </div>
+        <CopyableToken token={token} />
         <div className="modal-actions">
           <button type="button" onClick={onClose}>Close</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function CopyableToken({ token }) {
+  // Shared clipboard surface for token + invite display. navigator.clipboard
+  // often fails silently under LAN/HTTP or strict CSP; we fall back to a
+  // selectable <input readonly> so users can always Ctrl+C manually.
+  const [copied, setCopied] = useState(false);
+  const inputRef = useRef(null);
+  const copy = async () => {
+    const value = token || "";
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      return;
+    } catch { /* fall through to manual select */ }
+    try {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+      document.execCommand?.("copy");
+      setCopied(true);
+    } catch { /* keep silent — user can still Ctrl+C */ }
+  };
+  return (
+    <div className="token-row">
+      <input ref={inputRef} type="text" readOnly value={token || ""} onClick={(e) => e.target.select()} />
+      <button type="button" onClick={copy}>{copied ? "Copied ✓" : "Copy"}</button>
     </div>
   );
 }
@@ -831,7 +841,11 @@ function ParticipantCard({ p, me, byId, skipReasons, isFacilitator, onRemove, on
   const inviterLabel = inviter ? inviter.display_name : null;
   const isAI = p.provider !== "human";
   const isSelf = p.id === me?.participant_id;
-  const canManage = isFacilitator && !isSelf && p.role !== "facilitator";
+  const isMyAI = isAI && p.invited_by === me?.participant_id;
+  // Facilitator can manage anyone non-self; a human sponsor can manage
+  // AIs they invited (routing + remove + budget). Covers the Test06-Web03
+  // "non-facilitator can't change their sponsored AI's routing/budget" reports.
+  const canManage = (isFacilitator && !isSelf && p.role !== "facilitator") || isMyAI;
   return (
     <div className={`participant-card role-${p.role} status-${p.status}`}>
       <div className="p-row">
@@ -859,7 +873,7 @@ function ParticipantCard({ p, me, byId, skipReasons, isFacilitator, onRemove, on
       )}
       <div className="p-meta">
         <HealthBadge participant={p} skipReasons={skipReasons?.[p.id]} />
-        {canManage && onRoutingChange ? (
+        {isAI && canManage && onRoutingChange ? (
           <select
             className="routing-inline"
             value={p.routing_preference}
@@ -868,9 +882,9 @@ function ParticipantCard({ p, me, byId, skipReasons, isFacilitator, onRemove, on
           >
             {ROUTING_PREFERENCES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
-        ) : (
+        ) : isAI ? (
           <span className="routing">{p.routing_preference}</span>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -901,19 +915,17 @@ function SelfControls({ me, participants, isFacilitator, onRoutingChange, onShow
       <div className="kv"><span className="dim">model</span><span>{self.model || "—"}</span></div>
       <div className="kv"><span className="dim">tier</span><span>{self.model_tier}</span></div>
       <div className="kv"><span className="dim">budget</span><span>{utilLabel}</span></div>
-      <div className="kv">
-        <span className="dim">routing</span>
-        {isFacilitator ? (
+      {self.provider !== "human" && (
+        <div className="kv">
+          <span className="dim">routing</span>
           <select
             value={self.routing_preference}
             onChange={(ev) => onRoutingChange(self.id, ev.target.value)}
           >
             {ROUTING_PREFERENCES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
-        ) : (
-          <span title="facilitator-only until T250 lands">{self.routing_preference} 🔒</span>
-        )}
-      </div>
+        </div>
+      )}
       {onShowToken && (
         <button type="button" className="full-width" onClick={onShowToken}>
           Show my token
@@ -1029,7 +1041,11 @@ function BudgetPanel({ participants, me, isFacilitator, onSetBudget }) {
 
 function BudgetCard({ p, me, isFacilitator, onSetBudget }) {
   const isSelf = p.id === me?.participant_id;
-  const showDollars = isFacilitator || isSelf;
+  const isMyAI = p.provider !== "human" && p.invited_by === me?.participant_id;
+  // Facilitator sees everything; self sees own; sponsor sees $ on AIs
+  // they invited. Others still only see utilization % (US4 privacy).
+  const showDollars = isFacilitator || isSelf || isMyAI;
+  const canEdit = isFacilitator || isMyAI;
   const [editing, setEditing] = useState(false);
   const daily = p.budget_daily;
   const spend = p.spend_daily ?? 0;
@@ -1043,7 +1059,7 @@ function BudgetCard({ p, me, isFacilitator, onSetBudget }) {
             ${spend.toFixed(4)}{daily ? ` / $${daily}` : " (no cap)"}
           </span>
         )}
-        {isFacilitator && !editing && (
+        {canEdit && !editing && (
           <button type="button" className="link-btn" onClick={() => setEditing(true)}>
             edit
           </button>
@@ -1344,9 +1360,8 @@ function AdminPanel({ participants, session, auditEntries, onApprove, onReject, 
             <button onClick={createInvite}>Generate invite</button>
             {invite && (
               <div className="invite-display">
-                <code>{invite.invite_token}</code>
-                <button onClick={() => copy(invite.invite_token)}>Copy</button>
-                <p className="dim">Paste this token into another participant's sign-in. Accept flow is Phase 2c.</p>
+                <CopyableToken token={invite.invite_token} />
+                <p className="dim">Share this code. Recipient uses "Redeem an invite code" on the landing page.</p>
               </div>
             )}
           </details>
@@ -1864,15 +1879,14 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     }
   };
 
-  const onShowMyToken = async () => {
-    try {
-      const result = await mcpCall("/tools/participant/rotate_my_token", auth.token, {
-        method: "POST",
-      });
-      setRotatedToken(result.token);
-    } catch (e) {
-      alert(`Token rotation failed: ${e.message}`);
-    }
+  const onShowMyToken = () => {
+    // Display the in-memory token rather than calling /rotate_my_token.
+    // The rotate endpoint invalidates the caller's current bearer, which
+    // cascaded into 401s on every subsequent mcpCall in Test06-Web03.
+    // The SPA already holds a valid token (from create / login / /me
+    // restore) — showing it is sufficient for the "copy for API use"
+    // need; a dedicated rotation UI can come later if security demands.
+    if (auth?.token) setRotatedToken(auth.token);
   };
 
   const onRemoveParticipant = async (p) => {
