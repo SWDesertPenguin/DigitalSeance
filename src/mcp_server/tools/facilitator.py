@@ -134,6 +134,7 @@ async def approve_participant(
         session_id=participant.session_id,
         participant_id=participant_id,
     )
+    await _push_participant_update(request, participant.session_id, participant_id)
     return {"status": "approved", "participant_id": result.id}
 
 
@@ -153,6 +154,7 @@ async def reject_participant(
         participant_id=participant_id,
         reason=reason,
     )
+    await _push_participant_update(request, participant.session_id, participant_id)
     return {"status": "rejected"}
 
 
@@ -172,7 +174,24 @@ async def remove_participant(
         participant_id=participant_id,
         reason=reason,
     )
+    await _push_participant_update(request, participant.session_id, participant_id)
     return {"status": "removed"}
+
+
+async def _push_participant_update(
+    request: Request,
+    session_id: str,
+    participant_id: str,
+) -> None:
+    """Broadcast a fresh participant row after a lifecycle change."""
+    from src.web_ui.events import broadcast_participant_update
+
+    await broadcast_participant_update(
+        session_id,
+        participant_id,
+        request.app.state.participant_repo,
+        request.app.state.log_repo,
+    )
 
 
 @router.post("/revoke_token")
@@ -266,22 +285,37 @@ async def set_review_gate_pause_scope(
     session_repo = request.app.state.session_repo
     current = await session_repo.get_session(participant.session_id)
     previous = current.review_gate_pause_scope if current else None
-    await session_repo.update_review_gate_pause_scope(
+    await session_repo.update_review_gate_pause_scope(participant.session_id, body.scope)
+    request.app.state.conversation_loop.set_review_gate_pause_scope(
         participant.session_id,
         body.scope,
     )
-    loop = request.app.state.conversation_loop
-    loop.set_review_gate_pause_scope(participant.session_id, body.scope)
-    log_repo = request.app.state.log_repo
-    await log_repo.log_admin_action(
+    await _audit_and_broadcast_scope(request, participant, previous, body.scope)
+    return {"status": "updated", "scope": body.scope}
+
+
+async def _audit_and_broadcast_scope(
+    request: Request,
+    participant: Participant,
+    previous: str | None,
+    scope: str,
+) -> None:
+    """Log the pause-scope change and broadcast session_updated."""
+    from src.web_ui.events import session_updated_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    await request.app.state.log_repo.log_admin_action(
         session_id=participant.session_id,
         facilitator_id=participant.id,
         action="set_review_gate_pause_scope",
         target_id=participant.session_id,
         previous_value=previous,
-        new_value=body.scope,
+        new_value=scope,
     )
-    return {"status": "updated", "scope": body.scope}
+    await broadcast_to_session(
+        participant.session_id,
+        session_updated_event({"review_gate_pause_scope": scope}),
+    )
 
 
 # --- T251: session config mutation endpoints (Phase 2b admin panel) ---
