@@ -244,7 +244,12 @@ function reducer(state, action) {
     case "participant_update": {
       const updated = action.event.participant;
       const others = state.participants.filter((p) => p.id !== updated.id);
-      return { ...state, participants: [...others, updated] };
+      // If the update is for the current user, also refresh state.me so
+      // isFacilitator / role-gated UI responds to promotions/demotions
+      // (e.g. transfer_facilitator) without a refresh.
+      const isSelf = state.me?.participant_id === updated.id;
+      const nextMe = isSelf ? { ...state.me, role: updated.role } : state.me;
+      return { ...state, participants: [...others, updated], me: nextMe };
     }
     case "session_status_changed":
       return { ...state, session: { ...(state.session || {}), status: action.event.status } };
@@ -595,6 +600,32 @@ function TokenRevealModal({ result, onProceed }) {
   );
 }
 
+function SelfTokenModal({ token, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(token); setCopied(true); }
+    catch { /* ignore */ }
+  };
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal token-reveal" onClick={(ev) => ev.stopPropagation()}>
+        <h2>Your token</h2>
+        <p className="dim">
+          This rotates on every view — any previously-saved copy is now invalid.
+          Save this one for API / MCP / Swagger calls.
+        </p>
+        <div className="token-row">
+          <code>{token}</code>
+          <button type="button" onClick={copy}>{copied ? "Copied ✓" : "Copy"}</button>
+        </div>
+        <div className="modal-actions">
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RequestJoinForm({ onLogin, onBack }) {
   const [sid, setSid] = useState("");
   const [name, setName] = useState("");
@@ -845,7 +876,7 @@ function ParticipantCard({ p, me, byId, skipReasons, isFacilitator, onRemove, on
   );
 }
 
-function SelfControls({ me, participants, isFacilitator, onRoutingChange }) {
+function SelfControls({ me, participants, isFacilitator, onRoutingChange, onShowToken }) {
   // US2 T071–T072: display the caller's own routing preference. Today the
   // backend's set_routing_preference is facilitator-scoped (PR #61); only
   // facilitators get a live selector. Non-facilitators see read-only with
@@ -883,6 +914,11 @@ function SelfControls({ me, participants, isFacilitator, onRoutingChange }) {
           <span title="facilitator-only until T250 lands">{self.routing_preference} 🔒</span>
         )}
       </div>
+      {onShowToken && (
+        <button type="button" className="full-width" onClick={onShowToken}>
+          Show my token
+        </button>
+      )}
     </section>
   );
 }
@@ -1735,6 +1771,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editDraft, setEditDraft] = useState(null);
+  const [rotatedToken, setRotatedToken] = useState(null);
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || "dark");
 
   const toggleTheme = () => {
@@ -1824,6 +1861,17 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
       });
     } catch (e) {
       alert(`Rename failed: ${e.message}`);
+    }
+  };
+
+  const onShowMyToken = async () => {
+    try {
+      const result = await mcpCall("/tools/participant/rotate_my_token", auth.token, {
+        method: "POST",
+      });
+      setRotatedToken(result.token);
+    } catch (e) {
+      alert(`Token rotation failed: ${e.message}`);
     }
   };
 
@@ -1993,6 +2041,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
             participants={state.participants}
             isFacilitator={isFacilitator}
             onRoutingChange={onRoutingChange}
+            onShowToken={onShowMyToken}
           />
           <ParticipantList
             participants={state.participants}
@@ -2078,6 +2127,9 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
           onClose={() => setEditDraft(null)}
         />
       )}
+      {rotatedToken && (
+        <SelfTokenModal token={rotatedToken} onClose={() => setRotatedToken(null)} />
+      )}
     </div>
   );
 }
@@ -2089,6 +2141,24 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
 function App() {
   const [auth, setAuth] = useState(null);
   const [banner, setBanner] = useState(null);
+  // `restoring` gates the first render: while the cookie-restore call
+  // is in flight we must not render AuthGate or we'd briefly show the
+  // landing page on every refresh. Null = unknown / in-flight;
+  // 'done' = resolved (either auth set or confirmed no session).
+  const [restoring, setRestoring] = useState("pending");
+
+  useEffect(() => {
+    // Attempt cookie-based session restore on first mount so F5 doesn't
+    // kick the user back to landing. /me succeeds only when a valid
+    // HttpOnly cookie is already in place; 401 is the normal "no
+    // session yet" case and we silently fall through.
+    let cancelled = false;
+    uiCall("/me", { method: "GET" })
+      .then((result) => { if (!cancelled) setAuth(result); })
+      .catch(() => { /* no cookie — show landing */ })
+      .finally(() => { if (!cancelled) setRestoring("done"); });
+    return () => { cancelled = true; };
+  }, []);
 
   const logout = async () => {
     try {
@@ -2112,6 +2182,9 @@ function App() {
     setAuth(result);
   }, []);
 
+  if (restoring === "pending") {
+    return <main className="auth-gate"><p className="dim">Restoring session…</p></main>;
+  }
   if (!auth) return <AuthGate banner={banner} onLogin={onLogin} />;
   if (auth.role === "pending") {
     return <PendingSession auth={auth} onLogout={logout} onAuthExpired={onAuthExpired} onApproved={setAuth} />;

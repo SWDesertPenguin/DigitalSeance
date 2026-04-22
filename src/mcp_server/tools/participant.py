@@ -152,6 +152,24 @@ async def _get_branch_id(request: Request, session_id: str) -> str:
     return result or "main"
 
 
+@router.post("/rotate_my_token")
+async def rotate_my_token(
+    request: Request,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Mint a fresh bearer token for the caller and return it once.
+
+    Needed because tokens are only shown at create/login; a promoted
+    facilitator or a returning participant otherwise has no way to
+    see their own token for API / MCP / Swagger use. Rotating
+    invalidates the prior token, so the caller MUST save the new
+    value immediately (same UX as the create-session reveal modal).
+    """
+    auth = request.app.state.auth_service
+    token = await auth.rotate_token(participant.id)
+    return {"participant_id": participant.id, "token": token}
+
+
 class _AddAIBody(BaseModel):
     """Body for a participant to add their own AI (non-facilitator path)."""
 
