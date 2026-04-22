@@ -247,6 +247,20 @@ main.scaffold {
   font-size: 0.9em;
 }
 
+.session-controls .kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6em;
+  margin-bottom: 0.4em;
+}
+
+.session-controls .session-id {
+  font-family: var(--mono, monospace);
+  font-size: 0.85em;
+  user-select: all;
+}
+
 .full-width {
   width: 100%;
 }

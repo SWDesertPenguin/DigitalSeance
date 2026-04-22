@@ -384,6 +384,46 @@ async def _write_routing(request: Request, body: _SetRoutingBody, session_id: st
         raise HTTPException(404, "participant not found in session")
 
 
+class _SetRoutingAllBody(BaseModel):
+    """Request body for bulk-setting routing on every AI in the session."""
+
+    preference: _RoutingPreference
+
+
+@router.post("/set_routing_all_ais")
+async def set_routing_all_ais(
+    request: Request,
+    body: _SetRoutingAllBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """One-click flip every AI's routing preference (facilitator only).
+
+    Added so the facilitator can gate or ungate every AI at once instead
+    of editing each row. Typical use: set to ``review_gate`` before a
+    sensitive section of the conversation, then back to ``always``.
+    """
+    if participant.role != "facilitator":
+        raise HTTPException(403, "Only the facilitator can bulk-update routing")
+    async with request.app.state.pool.acquire() as conn:
+        rows = await conn.fetch(
+            "UPDATE participants SET routing_preference = $1 "
+            "WHERE session_id = $2 AND provider != 'human' AND status = 'active' "
+            "RETURNING id",
+            body.preference,
+            participant.session_id,
+        )
+    from src.web_ui.events import broadcast_participant_update
+
+    for row in rows:
+        await broadcast_participant_update(
+            participant.session_id,
+            row["id"],
+            request.app.state.participant_repo,
+            request.app.state.log_repo,
+        )
+    return {"status": "updated", "preference": body.preference, "count": len(rows)}
+
+
 class _SetReviewGatePauseScopeBody(BaseModel):
     """Request body for setting the session's review-gate pause scope."""
 
@@ -667,6 +707,11 @@ async def set_budget(
     requiring a facilitator handoff. Audit-logged and broadcast live.
     """
     _reject_negative_budget(body.budget_hourly, body.budget_daily)
+    # 0 means "no cap" — nobody sensibly wants a zero-dollar cap, and the
+    # prior semantics (0 blocks every dispatch) silently broke AIs when a
+    # facilitator tried to clear a cap by typing 0 into the input.
+    body.budget_hourly = _zero_as_none(body.budget_hourly)
+    body.budget_daily = _zero_as_none(body.budget_daily)
     p_repo = request.app.state.participant_repo
     target = await p_repo.get_participant(body.participant_id)
     if target is None or target.session_id != participant.session_id:
@@ -699,6 +744,11 @@ def _reject_negative_budget(hourly: float | None, daily: float | None) -> None:
     """400 on negative caps."""
     if (hourly is not None and hourly < 0) or (daily is not None and daily < 0):
         raise HTTPException(400, "Budget values must be non-negative")
+
+
+def _zero_as_none(v: float | None) -> float | None:
+    """Normalize a 0-dollar cap to None (no cap)."""
+    return None if v is not None and v <= 0 else v
 
 
 async def _audit_and_broadcast_budget(
