@@ -82,7 +82,7 @@ def test_ws_rejects_missing_cookie() -> None:
 
 def test_ws_rejects_wrong_session_cookie() -> None:
     """Cookie bound to session A cannot open a WS for session B."""
-    cookie = _make_cookie_value("pid-1", "session-A")
+    cookie = _make_cookie_value("pid-1", "session-A", "tok")
     with TestClient(_app()) as client:
         client.cookies.set("sacp_ui_token", cookie)
         with (
