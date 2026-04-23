@@ -408,8 +408,11 @@ async def pause_session(
 ) -> dict:
     """Pause the session."""
     session_repo = request.app.state.session_repo
+    current = await session_repo.get_session(participant.session_id)
+    prior = current.status if current else "unknown"
     session = await session_repo.update_status(participant.session_id, "paused")
     await _broadcast_status(participant.session_id, session.status)
+    await _audit_status_change(request, participant, "pause_session", prior, session.status)
     return {"status": session.status}
 
 
@@ -423,9 +426,36 @@ async def resume_session(
     current = await session_repo.get_session(participant.session_id)
     if current and current.status == "active":
         return {"status": "active"}
+    prior = current.status if current else "unknown"
     session = await session_repo.update_status(participant.session_id, "active")
     await _broadcast_status(participant.session_id, session.status)
+    await _audit_status_change(request, participant, "resume_session", prior, session.status)
     return {"status": session.status}
+
+
+async def _audit_status_change(
+    request: Request,
+    participant: Participant,
+    action: str,
+    prior: str,
+    new: str,
+) -> None:
+    """Log a facilitator-triggered session-lifecycle transition.
+
+    Closes the forensic-trail gap flagged by Test07-Web08: pause/resume/
+    archive/start_loop/stop_loop/summarize_now all meaningfully change
+    state but previously left no admin_audit_log entry, so a reviewer
+    couldn't reconstruct why the loop was idle at a given turn.
+    """
+    log_repo = request.app.state.log_repo
+    await log_repo.log_admin_action(
+        session_id=participant.session_id,
+        facilitator_id=participant.id,
+        action=action,
+        target_id=participant.session_id,
+        previous_value=prior,
+        new_value=new,
+    )
 
 
 @router.post("/archive")
@@ -453,9 +483,12 @@ async def archive_session(
         except Exception:  # noqa: BLE001 — archive must not fail on summary hiccup
             log.exception("Archive-time summary failed for %s", sid)
     session_repo = request.app.state.session_repo
+    current = await session_repo.get_session(sid)
+    prior = current.status if current else "unknown"
     session = await session_repo.update_status(sid, "archived")
     await _broadcast_status(sid, session.status)
     await _broadcast_loop_status(sid, running=False)
+    await _audit_status_change(request, participant, "archive_session", prior, session.status)
     return {"status": session.status}
 
 
@@ -478,6 +511,7 @@ async def summarize_now(
             await loop._summarizer.run_checkpoint(participant.session_id)  # noqa: SLF001
         except Exception as e:  # noqa: BLE001 — expose the failure reason
             raise HTTPException(500, f"Summary generation failed: {e}") from None
+    await _audit_status_change(request, participant, "summarize_now", "", "forced")
     return {"status": "ok"}
 
 
@@ -518,6 +552,7 @@ async def start_loop(
         _run_loop(loop, sid, session_repo, cm),
     )
     await _broadcast_loop_status(sid, running=True)
+    await _audit_status_change(request, participant, "start_loop", "idle", "running")
     return {"status": "started"}
 
 
@@ -536,10 +571,13 @@ async def stop_loop(
 ) -> dict:
     """Stop the conversation loop for this session."""
     sid = participant.session_id
+    was_running = sid in _loop_tasks and not _loop_tasks[sid].done()
     task = _loop_tasks.pop(sid, None)
     if task and not task.done():
         task.cancel()
     await _broadcast_loop_status(sid, running=False)
+    if was_running:
+        await _audit_status_change(request, participant, "stop_loop", "running", "idle")
     return {"status": "stopped"}
 
 
