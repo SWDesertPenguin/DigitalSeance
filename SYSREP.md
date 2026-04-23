@@ -1,6 +1,6 @@
 # SACP System Report
 
-**Last Updated**: 2026-04-20 (Phase 2 Web UI shipped)
+**Last Updated**: 2026-04-22 (Phase 2 shakedown through Test06-Web06)
 
 ## Project Overview
 
@@ -8,117 +8,117 @@
 |------|-------|
 | **Project** | DigitalSeance / SACP (Sovereign AI Collaboration Protocol) |
 | **Constitution** | v0.5.1, ratified 2026-04-11 |
-| **Phase** | Phase 1 — TESTING (code complete, live validation in progress) |
-| **Server** | Running on Dockge via GHCR image |
-| **Port** | 8750 (MCP Server / FastAPI) |
+| **Phase** | Phase 2 — SHAKEDOWN (Web UI shipped 2026-04-20; 6 sweep PRs through 2026-04-22) |
+| **Server** | Two-app FastAPI process on Dockge via GHCR image |
+| **Ports** | 8750 (MCP server / SSE) + 8751 (Web UI / WebSocket) |
 | **Image** | `ghcr.io/swdesertpenguin/digitalseance:latest` |
-| **Main** | `af477e2` (PRs #45-64 merged) |
+| **Main** | `df13ec2` (PR #110 merged — Test06-Web06 sweep) |
 
 ## Features
 
-| # | Feature | Status | Stories | Tasks |
+| # | Feature | Status | Stories | Notes |
 |---|---------|--------|---------|-------|
-| 001 | Core Data Model | Merged | 9 | 42/42 |
-| 002 | Participant Auth | Merged | 8 | 30/30 |
-| 003 | Turn Loop Engine | Merged | 10 | 26/26 |
-| 004 | Convergence Detection | Merged | 5 | 17/17 |
-| 005 | Summarization Checkpoints | Merged | 5 | 12/12 |
-| 006 | MCP Server | Merged | 7 | 14/14 |
-| 007 | AI Security Pipeline | Merged | 7 | 20/20 |
-| 008 | System Prompts + Security Wiring | Merged | 3 | — |
-| 009 | Rate Limiting | Merged | 1 | — |
-| 011 | Web UI | Spec Draft | 8 | — |
+| 001 | Core Data Model | Merged | 9 | PostgreSQL 16, 13 tables, 8 repositories |
+| 002 | Participant Auth | Merged | 8 | bcrypt, IP binding, token expiry, rotation |
+| 003 | Turn Loop Engine | Merged | 10 | 8 routing modes, circuit breaker |
+| 004 | Convergence Detection | Merged | 5 | MiniLM-L6-v2 SafeTensors, cadence, adversarial rotation |
+| 005 | Summarization Checkpoints | Merged | 5 | structured JSON, cheapest model |
+| 006 | MCP Server | Merged | 7 | FastAPI + SSE, port 8750 |
+| 007 | AI Security Pipeline | Merged | 7 | 7 modules (sanitize, spotlight, validate, exfil, jailbreak, prompt defense, scrub) |
+| 008 | System Prompts + Security Wiring | Merged | 3 | 4-tier delta, canary tokens |
+| 009 | Rate Limiting | Merged | 1 | per-participant, 60 req/min default |
+| 010 | Review-gate Pause Scope | Merged | — | session / participant toggle |
+| 011 | Web UI | Merged (+6 shakedown sweeps) | 10 | port 8751, React SPA + CDN/SRI, WebSocket v1 envelope |
 
 ## Codebase Stats
 
 | Metric | Count |
 |--------|-------|
-| Source files (src/) | 63 |
-| Test files (tests/) | 45 |
-| Lines of Python (total) | ~11,100 |
-| Lines of Python (src/) | ~6,300 |
-| Lines of Python (tests/) | ~4,800 |
-| Spec/plan/task docs | ~50 |
-| PRs merged | 64 |
+| Source files (`src/`) | 73 |
+| Test files (`tests/`) | 52 |
+| Lines of Python (`src/`) | ~9,750 |
+| Lines of Python (`tests/`) | ~5,700 |
 | Database tables | 13 |
-| API endpoints | 28 |
+| Alembic migrations | 5 |
+| API endpoints (MCP + Web UI) | 51 |
 | Routing modes | 8 |
 | Security modules | 7 |
-| Test results (non-DB) | 120+ passing |
+| Test results | 191 pass / 114 skip (Postgres-gated) locally; CI runs the skipped set |
+| Commits on `main` | 256 |
 
 ## Architecture
 
 ```
 src/
-├── config.py                    # Environment settings
-├── database/                    # asyncpg pool, Fernet encryption
-├── models/                      # Frozen dataclasses (7 entity types)
-├── repositories/                # Data access (8 repositories)
-├── auth/                        # AuthService, guards
-├── orchestrator/                # Turn loop, routing, context, convergence
-├── api_bridge/                  # LiteLLM provider dispatch
-├── mcp_server/                  # FastAPI app + tool endpoints + rate limiter
-├── security/                    # Sanitizer, spotlighting, validator, exfiltration, jailbreak, prompt protector, scrubber
-└── prompts/                     # 4-tier delta system prompt assembly
+├── api_bridge/     # LiteLLM provider dispatch
+├── auth/           # AuthService, guards
+├── database/       # asyncpg pool, Fernet encryption
+├── models/         # Frozen dataclasses (entity types)
+├── repositories/   # 8 data access objects (append-only transcripts)
+├── orchestrator/   # Turn loop, routing, context, convergence, cadence, summarizer, branch, budget, circuit breaker
+├── security/       # 7 security modules
+├── prompts/        # 4-tier delta system prompt assembly
+├── mcp_server/     # FastAPI app on 8750 + tool routers + rate limiter
+└── web_ui/         # FastAPI app on 8751 + auth, events, websocket, snapshot, security headers
+run_apps.py         # dual-uvicorn via asyncio.gather
 ```
 
 ## API Endpoints
 
-### Session Tools
-- `POST /tools/session/create` — create a new session (human facilitator default)
-- `POST /tools/session/pause` — pause active session
-- `POST /tools/session/resume` — resume paused session
-- `POST /tools/session/archive` — archive session (read-only)
-- `POST /tools/session/start_loop` — start conversation loop
-- `POST /tools/session/stop_loop` — stop conversation loop
-- `GET /tools/session/summary` — latest structured summarization checkpoint (any participant)
-- `GET /tools/session/export_markdown` — export transcript
-- `GET /tools/session/export_json` — export as JSON
+### Session Tools (`/tools/session/*`)
+- `POST /create` — create a new session (human facilitator default)
+- `POST /request_join` — public request for pending role
+- `POST /redeem_invite` — swap invite token → pre-approved participant
+- `POST /set_name` — facilitator rename
+- `POST /pause` / `POST /resume` / `POST /archive` — lifecycle (archive auto-summarizes)
+- `POST /start_loop` / `POST /stop_loop` — loop control
+- `GET /loop_status` — is the loop running?
+- `POST /summarize_now` — facilitator force-checkpoint (serialized per session)
+- `GET /summary` — latest structured summarization checkpoint (any participant)
+- `GET /export_markdown` / `GET /export_json` — transcript export
 
-### Participant Tools
-- `POST /tools/participant/inject_message` — human interjection (works while paused)
-- `GET /tools/participant/status` — session status
-- `GET /tools/participant/history` — conversation history
-- `GET /tools/participant/summary` — latest checkpoint
-- `POST /tools/participant/rotate_token` — rotate auth token
+### Participant Tools (`/tools/participant/*`)
+- `POST /inject_message` — human interjection (works while paused)
+- `GET /status` — session status
+- `GET /history` — conversation history
+- `GET /summary` — latest checkpoint
+- `POST /rotate_my_token` — self-rotate (returns new bearer)
+- `POST /rotate_token` — facilitator-triggered rotation (legacy)
+- `POST /add_ai` — non-facilitator adds own sponsored AI
+- `POST /set_routing_preference` — caller mutates own row
 
-### Facilitator Tools
-- `POST /tools/facilitator/add_participant` — add AI participant (with budget fields)
-- `POST /tools/facilitator/create_invite` — generate invite link
-- `POST /tools/facilitator/approve_participant` — approve pending
-- `POST /tools/facilitator/reject_participant` — reject pending
-- `POST /tools/facilitator/remove_participant` — remove active
-- `POST /tools/facilitator/revoke_token` — force-revoke token
-- `POST /tools/facilitator/transfer_facilitator` — transfer role
-- `POST /tools/facilitator/set_routing_preference` — change participant routing mode
-- `POST /tools/facilitator/set_budget` — set participant budget limits
-- `POST /tools/facilitator/set_review_gate_pause_scope` — toggle session-wide vs participant-only pause while drafts are pending
-- `GET /tools/facilitator/list_drafts` — list pending review-gate drafts
-- `POST /tools/facilitator/approve_draft` — approve a staged draft (writes to transcript)
-- `POST /tools/facilitator/reject_draft` — reject a staged draft (discard)
-- `POST /tools/facilitator/edit_draft` — edit and approve a staged draft
-- `POST /tools/facilitator/debug_set_timeouts` — prime a participant's consecutive_timeouts counter for circuit-breaker testing
-- `POST /tools/facilitator/set_cadence_preset` — sprint/cruise/idle (T251)
-- `POST /tools/facilitator/set_acceptance_mode` — unanimous/majority (T251)
-- `POST /tools/facilitator/set_min_model_tier` — low/mid/high/max (T251)
-- `POST /tools/facilitator/set_complexity_classifier_mode` — pattern/llm (T251)
+### Facilitator Tools (`/tools/facilitator/*`)
+- `POST /add_participant` — add AI or human (with budget fields)
+- `POST /create_invite` — generate invite link
+- `POST /approve_participant` / `POST /reject_participant` / `POST /remove_participant`
+- `POST /revoke_token` — force-revoke + close target's WebSockets with 4401
+- `POST /transfer_facilitator` — transfer role; renames `Facilitator-` prefix accordingly
+- `POST /set_routing_preference` — facilitator or sponsor edits any AI's mode
+- `POST /set_routing_all_ais` — bulk flip every AI's routing (review_gate / always)
+- `POST /set_budget` — facilitator or sponsor; 0 normalized to null (no cap)
+- `POST /set_review_gate_pause_scope` — session-wide vs participant-only pause
+- `POST /set_cadence_preset` — sprint/cruise/idle
+- `POST /set_acceptance_mode` — unanimous/majority
+- `POST /set_min_model_tier` — low/mid/high/max
+- `POST /set_complexity_classifier_mode` — pattern/llm
+- `POST /debug_set_timeouts` — prime consecutive_timeouts for circuit-breaker testing
+- `GET /list_drafts` — list pending review-gate drafts
+- `POST /approve_draft` / `POST /reject_draft` / `POST /edit_draft`
 
-### Participant Tools (additional)
-- `POST /tools/participant/set_routing_preference` — caller mutates own row (T250)
-
-### Proposal Tools (Phase 2c)
-- `POST /tools/proposal/create` — create a new proposal
-- `POST /tools/proposal/vote` — cast accept/reject/abstain
-- `POST /tools/proposal/resolve` — facilitator-only resolution
-- `GET /tools/proposal/list` — open proposals + tallies
+### Proposal Tools (`/tools/proposal/*`)
+- `POST /create` — new proposal
+- `POST /vote` — accept/reject/abstain
+- `POST /resolve` — facilitator-only resolution
+- `GET /list` — open + resolved proposals with tallies
 
 ### Web UI (port 8751)
-- `POST /login` — bearer token → HttpOnly cookie + returned plaintext for MCP bearer auth
+- `POST /login` — bearer token → HttpOnly signed cookie + returned plaintext for MCP bearer auth
 - `POST /logout` — clear cookie
+- `GET /me` — cookie-restore (returns token without rotation so logout+relogin works)
 - `GET /ws/{session_id}` — push-only WebSocket with v1 event envelope
 
-### Debug Tools
-- `GET /tools/debug/export` — full session export (facilitator only)
+### Debug Tools (`/tools/debug/*`)
+- `GET /export` — full session export (facilitator only)
 
 ## Infrastructure
 
@@ -126,78 +126,52 @@ src/
 |-----------|-----------|
 | Runtime | Python 3.11, FastAPI |
 | Database | PostgreSQL 16 (Docker) |
-| Provider Abstraction | LiteLLM >=1.83.0 |
-| Embeddings | sentence-transformers (MiniLM-L6-v2) |
-| Encryption | Fernet (AES-128-CBC + HMAC-SHA256) |
+| Provider Abstraction | LiteLLM >= 1.83.0 |
+| Embeddings | sentence-transformers (MiniLM-L6-v2, SafeTensors only) |
+| Encryption | Fernet (AES-128-CBC + HMAC-SHA256) for API keys |
 | Token Hashing | bcrypt (cost factor 12) |
-| Migrations | Alembic (5 migrations through 005_session_review_gate_pause_scope) |
-| CI/CD | GitHub Actions -> GHCR |
+| Migrations | Alembic (5 migrations, 001 through 005_session_review_gate_pause_scope) |
+| CI/CD | GitHub Actions → GHCR |
 | Deployment | Docker Compose via Dockge |
-| Pre-commit | 13 hooks (gitleaks, ruff, bandit, 25/5 lint) |
+| Pre-commit | 13 hooks (gitleaks, ruff, bandit, 25-line / 5-arg coding-standards lint) |
 
 ## Phase 1 Status
 
-Phase 1 COMPLETE. All features implemented; all scenario tests pass.
+Phase 1 COMPLETE (2026-04-20). All scenario tests pass.
 
-- [x] Core data model (13 tables, 8 repositories)
+- [x] Core data model (13 tables, 8 repositories, append-only transcripts)
 - [x] Participant auth (tokens, approval, rotation, IP binding)
 - [x] Turn loop engine (8 routing modes, context assembly, LiteLLM)
 - [x] Convergence detection (embeddings, cadence, adversarial rotation)
-- [x] Summarization checkpoints (structured JSON)
-- [x] MCP server (30 endpoints, SSE)
-- [x] Web UI (port 8751, WebSocket, React SPA, 10 user stories shipped)
-- [x] AI security pipeline (sanitization, spotlighting, validation, exfiltration, jailbreak, prompt protection, log scrubbing)
+- [x] Summarization checkpoints (structured JSON, summaries excluded from own input)
+- [x] MCP server (SSE, authoritative API surface)
+- [x] AI security pipeline (sanitization, spotlighting, validation, exfiltration, jailbreak, prompt defense, log scrubbing)
 - [x] System prompt management (4-tier delta with canary tokens)
 - [x] Security pipeline integrated into turn loop + context assembly
 - [x] Rate limiting (per-participant, 60 req/min default)
 
-## Live Testing Progress
-
-Scenario 1 (1 AI): 9/9 PASS. Scenario 2 (2 AIs): 6/6 PASS. Scenario 3 (multi-AI + closeout):
-T3.1 partial (invite accept deferred to Phase 2), T3.2 / T3.3 / T3.4 / T3.5 / T3.6 PASS.
-(Test-plan working doc is maintained locally; not committed.)
-
-## Phase 2 Web UI (011-web-ui)
+## Phase 2 Status — Web UI
 
 Two FastAPI apps in one process via `src/run_apps.py`:
-- **MCP server** on 8750 — unchanged Phase 1 contract + 5 T250/T251 endpoints + 4 T150 proposal endpoints.
-- **Web UI** on 8751 — React SPA from `frontend/` (CDN-loaded React 18 / Babel Standalone / marked / DOMPurify, SRI pins via `scripts/generate_sri_hashes.sh`), strict CSP, HttpOnly cookie auth, `POST /login`+`POST /logout`, `GET /ws/{session_id}` WebSocket with v1 event envelope.
+- **MCP server** on 8750 — unchanged Phase 1 contract + proposal/session-config/self-serve routing endpoints.
+- **Web UI** on 8751 — single-file React SPA from `frontend/` (CDN-loaded React 18 / Babel / marked / DOMPurify, SRI pins via `scripts/generate_sri_hashes.sh`), strict CSP, HttpOnly cookie auth, `POST /login` + `POST /logout` + `GET /me`, `GET /ws/{session_id}` WebSocket with v1 event envelope.
 
-Ten user stories shipped (US1 facilitator flow, US2 participant view, US3 WS resilience, US4 budget/convergence, US5 review gate, US6 admin panel, US7 proposals, US8 XSS hardening, US9 summary viewer, US10 health indicators). Playwright e2e (T058/T074/T085/T094/T103/T115/T126/T134/T143) deferred.
+Ten user stories shipped (US1 facilitator flow, US2 participant view, US3 WS resilience, US4 budget / convergence, US5 review gate, US6 admin panel, US7 proposals, US8 XSS hardening, US9 summary viewer, US10 health indicators). Playwright e2e (T058/T074/T085/T094/T103/T115/T126/T134/T143) deferred to a shared-infra PR.
 
-## Post-Deployment Fixes (PRs #28-84)
+Six in-anger shakedown sweeps (2026-04-20 → 2026-04-22):
 
-| PR Range | Fixes |
-|----------|-------|
-| #28-37 | API key to body, dynamic branch ID, context markers, Ollama dispatch, IPv4 |
-| #38-44 | Feature completions (prompts, security, rate limiting) |
-| #45-58 | Spec plans, task docs, context updates |
-| #59 | routing_log turn numbers, empty response guard, budget fields, human facilitator |
-| #60 | cost_usd tracking, graceful pause, observer skip action |
-| #61-62 | set_routing_preference moved to facilitator endpoint + fix |
-| #63 | Skip spin delay (5s min sleep for skipped turns, dedup skip logs) |
-| #64 | inject-on-pause fix, current_turn sync, set_routing/set_budget 404 guard |
-| #65-66 | Swagger add_participant placeholder rejection, alembic migration 004 |
-| #67-69 | Degenerate output detection, convergence skip-turn guard, divergence prompt injection |
-| #70-72 | Review gate approve/reject/edit endpoints, dispatch-pause + configurable scope, conftest alembic mirror |
-| #73-74 | Session-scope pause blocks all speakers, pause actually stops loop, set_routing Literal, skip just-resolved participant |
-| #75 | export_markdown/export_json fixed to use get_main_branch_id |
-| #76 | Multi-stage Dockerfile + .dockerignore + add_participant human defaults |
-| #77 | Exclude provider='human' from round-robin dispatch |
-| #78-79 | Claude empty-response fix (role mapping + no_new_input guard) + first-turn allow |
-| #80-81 | Context chronological ordering (fill_history was appending older turns) + attribute fix |
-| #82 | Wire SummarizationManager into loop, threshold 50→10, GET /tools/session/summary, debug_set_timeouts |
-| #83 | Summarizer excludes human participants when picking cheapest model |
-| #84 | Strip markdown code fences before parsing summarizer JSON |
+| Sweep | PR | Ships |
+|---|---|---|
+| Test06 initial + ops | #98/#99/#100/ux-polish/test06-sweep | guest landing, invite redeem, layout pinning, skip backoff, invited_by attribution |
+| Session restore | #103 | cookie F5 restore, transfer_facilitator broadcasts, Show-my-token |
+| Web03 | #105 | rotate_my_token cascade fix, sponsor perms, revoke boot, dedupe 409s, prefix swap |
+| Web04 | #106 | re-login after logout, budget 0 = no cap, decimal formatting, Summarize-now + Review-gate-all + Archive-confirm + session ID |
+| Web05 | #108 | archive auto-summary order fix, summarize_now per-session lock, addressed_only actually matches @name |
+| Web06 | #110 | summary feedback loop closed, participant_removed event, hourly-only budget renders |
 
-## Phase 2 — Web UI (Planned)
+## Phase 3 — Planned (not started)
 
-Spec drafted at `specs/011-web-ui/spec.md`. Needs plan.md + tasks.md.
-
-- 8 user stories, 17 functional + 8 security requirements
-- Internal phasing: 2a (core), 2b (dashboard), 2c (workflows)
-- Single-file React JSX, no build toolchain, port 8751
-- Phases: 2a = login + transcript + WebSocket + controls, 2b = budget + convergence + admin, 2c = review gate + proposals + export
+Per constitution §10: branching UI, sub-sessions, OAuth 2.1 with PKCE, MCP-to-MCP topology 7, Ollama/vLLM per-participant URL, Vaire shared-memory integration, step-up authorization. Requires a new Speckit cycle (`012-...`).
 
 ## Constitution Compliance
 
@@ -206,3 +180,18 @@ All 11 validation gates fully pass:
 - V4 Facilitator bounded | V5 Transparency | V6 Graceful degradation
 - V7 Coding standards | V8 Data security | V9 Log integrity
 - V10 AI security (FULL) | V11 Supply chain
+
+## Docs on Disk
+
+- `README.md` — product entry + problem statement.
+- `SACP-Exec-Summary.md` — executive overview of what SACP is and the current status.
+- `SYSREP.md` — this file (system state snapshot).
+- `CLAUDE.md` — auto-generated agent context.
+- `SECURITY.md` — security policy.
+- `docs/user-guide.md` — shakedown-tester user guide.
+- `docs/phase2-test-playbook.md` — operator shakedown script.
+- `docs/red-team-runbook.md` — 70+ attacks keyed to the 7-layer security pipeline; re-runnable after any security change.
+- `docs/testing-runbook.md` — general testing runbook.
+- `docs/AI_attack_surface_analysis_for_SACP_orchestrator.md` — threat-model analysis.
+- `docs/sacp-design.md`, `docs/sacp-system-prompts.md`, `docs/sacp-use-cases.md`, `docs/sacp-communication-topologies.md` — design docs.
+- `wiki/` — short-form index for the GitHub wiki.
