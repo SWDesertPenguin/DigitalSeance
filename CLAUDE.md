@@ -43,7 +43,7 @@ cd src; pytest; ruff check .
 Python 3.11+ (constitution §6.1): Follow standard conventions
 
 ## Recent Changes
-- Message char limit (2026-04-23) — `MessageInput` capped at 64 KB (`MAX_MSG_CHARS = 65_536`) matching server-side guard; `maxLength` on textarea; live remaining-chars counter turns amber at ≤2 K, red at ≤200; Send disabled at cap.
+- Test08 sweep (2026-04-23) — `_InjectMessageBody.content` and `_EditDraftBody.edited_content` capped at 64 KB via Pydantic `max_length`; `_RejectDraftBody.reason` capped at 2 KB. Runbook annotated with Test08 pass/fail for all 18+ tested sections (only §3.1 failed). UX finding §X.1: facilitator note leaked into AI transcript via review_gate_edit.
 - Test06-Web07 sweep (2026-04-23, PR #112) — review_gate one-shot auto-revert after draft resolve (ConversationLoop._prior_routing cache), remove_participant cascades to sponsored AIs via invited_by, pending user sees "Request declined" + 4s redirect; red-team runbook 5.4 annotated with gpt-4o-mini fiction-wrapper FAIL
 - Test06-Web06 sweep (2026-04-22, PR #110) — summary feedback loop closed (speaker-type filter + watermark to max source_turn), participant_removed event for reject refresh, hourly-only budget cap renders correctly
 - Test06-Web05 sweep (2026-04-22, PR #108) — archive auto-summary runs before status flip, summarize_now per-session lock, addressed_only routing matches @name or name as word
