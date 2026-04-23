@@ -1854,15 +1854,41 @@ function PendingSession({ auth, onLogout, onAuthExpired, onApproved }) {
   // facilitator approves, a participant_update arrives with our row
   // flipped to role='participant' and we escalate to SessionView.
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
+  const [denied, setDenied] = useState(false);
   const onEvent = useCallback((event) => {
     dispatch({ type: event.type, event });
     if (event.type === "participant_update"
         && event.participant?.id === auth.participant_id
         && event.participant?.role !== "pending") {
       onApproved({ ...auth, role: event.participant.role });
+      return;
+    }
+    // Facilitator rejected us: the server hard-deletes the row and
+    // emits participant_removed. Show the denial notice and redirect
+    // to the guest landing instead of sitting in pending limbo.
+    if (event.type === "participant_removed"
+        && event.participant_id === auth.participant_id) {
+      setDenied(true);
     }
   }, [auth, onApproved]);
   useWebSocket(auth.session_id, onEvent, onAuthExpired);
+  useEffect(() => {
+    if (!denied) return;
+    const t = setTimeout(onLogout, 4000);
+    return () => clearTimeout(t);
+  }, [denied, onLogout]);
+  if (denied) {
+    return (
+      <main className="pending-screen">
+        <h1>Request declined</h1>
+        <p className="dim">
+          The facilitator declined your request to join this session.
+          Returning to the sign-in screen…
+        </p>
+        <button type="button" onClick={onLogout}>Return now</button>
+      </main>
+    );
+  }
   const humans = (state.participants || []).filter((p) => p.provider === "human");
   return <PendingHoldingScreen session={state.session} humans={humans} onLogout={onLogout} />;
 }

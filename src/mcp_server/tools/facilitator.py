@@ -191,7 +191,13 @@ async def remove_participant(
     reason: str = "",
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Remove an active participant."""
+    """Remove an active participant and any AIs they sponsored.
+
+    Cascade removes every AI whose ``invited_by`` is the target, so a
+    sponsor's AIs don't keep spending their API budget after the
+    sponsor leaves (Test06-Web07). Humans removed by the facilitator
+    still drag their sponsored AIs with them.
+    """
     auth = request.app.state.auth_service
     await auth.remove_participant(
         facilitator_id=participant.id,
@@ -201,7 +207,34 @@ async def remove_participant(
     )
     await _close_ws_for_participant(participant.session_id, participant_id)
     await _push_participant_update(request, participant.session_id, participant_id)
+    await _cascade_remove_sponsored_ais(request, participant, participant_id, reason)
     return {"status": "removed"}
+
+
+async def _cascade_remove_sponsored_ais(
+    request: Request,
+    caller: Participant,
+    removed_id: str,
+    reason: str,
+) -> None:
+    """Depart every active AI whose invited_by is the removed participant."""
+    p_repo = request.app.state.participant_repo
+    all_participants = await p_repo.list_participants(caller.session_id)
+    sponsored = [
+        p
+        for p in all_participants
+        if p.invited_by == removed_id and p.provider != "human" and p.status == "active"
+    ]
+    auth = request.app.state.auth_service
+    for ai in sponsored:
+        await auth.remove_participant(
+            facilitator_id=caller.id,
+            session_id=caller.session_id,
+            participant_id=ai.id,
+            reason=reason or f"sponsor {removed_id} was removed",
+        )
+        await _close_ws_for_participant(caller.session_id, ai.id)
+        await _push_participant_update(request, caller.session_id, ai.id)
 
 
 async def _push_participant_update(
@@ -355,6 +388,7 @@ async def set_routing_preference(
     if target is None or target.session_id != participant.session_id:
         raise HTTPException(404, "participant not found in session")
     _require_facilitator_or_inviter(participant, target)
+    _capture_prior_if_gating(request, target, body.preference)
     await _write_routing(request, body, participant.session_id)
     from src.web_ui.events import broadcast_participant_update
 
@@ -369,6 +403,20 @@ async def set_routing_preference(
         "participant_id": body.participant_id,
         "preference": body.preference,
     }
+
+
+def _capture_prior_if_gating(request: Request, target: Participant, new_pref: str) -> None:
+    """Remember prior routing so resolve-a-draft can one-shot back to it.
+
+    Without this, flipping an AI to ``review_gate`` would stick even after
+    the first draft is resolved — every subsequent turn would stage
+    another draft (Test06-Web07).
+    """
+    if new_pref != "review_gate" or target.routing_preference == "review_gate":
+        return
+    loop = getattr(request.app.state, "conversation_loop", None)
+    if loop is not None:
+        loop.remember_prior_routing(target.id, target.routing_preference)
 
 
 async def _write_routing(request: Request, body: _SetRoutingBody, session_id: str) -> None:
@@ -404,14 +452,7 @@ async def set_routing_all_ais(
     """
     if participant.role != "facilitator":
         raise HTTPException(403, "Only the facilitator can bulk-update routing")
-    async with request.app.state.pool.acquire() as conn:
-        rows = await conn.fetch(
-            "UPDATE participants SET routing_preference = $1 "
-            "WHERE session_id = $2 AND provider != 'human' AND status = 'active' "
-            "RETURNING id",
-            body.preference,
-            participant.session_id,
-        )
+    rows = await _bulk_flip_routing(request, participant.session_id, body.preference)
     from src.web_ui.events import broadcast_participant_update
 
     for row in rows:
@@ -422,6 +463,37 @@ async def set_routing_all_ais(
             request.app.state.log_repo,
         )
     return {"status": "updated", "preference": body.preference, "count": len(rows)}
+
+
+async def _bulk_flip_routing(request: Request, session_id: str, new_pref: str) -> list:
+    """Capture prior routing (for gate revert), then flip all AIs in session."""
+    async with request.app.state.pool.acquire() as conn, conn.transaction():
+        priors = await conn.fetch(
+            "SELECT id, routing_preference FROM participants "
+            "WHERE session_id = $1 AND provider != 'human' AND status = 'active'",
+            session_id,
+        )
+        await conn.execute(
+            "UPDATE participants SET routing_preference = $1 "
+            "WHERE session_id = $2 AND provider != 'human' AND status = 'active'",
+            new_pref,
+            session_id,
+        )
+    _remember_bulk_priors(request, priors, new_pref)
+    return list(priors)
+
+
+def _remember_bulk_priors(request: Request, rows: list, new_pref: str) -> None:
+    """Cache pre-flip routing for each AI whose mode is now review_gate."""
+    if new_pref != "review_gate":
+        return
+    loop = getattr(request.app.state, "conversation_loop", None)
+    if loop is None:
+        return
+    for row in rows:
+        prior = row["routing_preference"]
+        if prior and prior != "review_gate":
+            loop.remember_prior_routing(row["id"], prior)
 
 
 class _SetReviewGatePauseScopeBody(BaseModel):
@@ -821,6 +893,7 @@ async def approve_draft(
     msg = await _append_draft_to_transcript(request, draft, draft.draft_content)
     await _log_gate_action(request, participant, "review_gate_approve", draft.id)
     _skip_in_rotation(request, draft)
+    await _restore_routing_after_gate(request, draft, participant.session_id)
     await _emit_resolved(participant.session_id, draft.id, "approved", msg.turn_number)
     return {"status": "approved", "draft_id": draft.id, "turn_number": msg.turn_number}
 
@@ -839,6 +912,7 @@ async def reject_draft(
         request, participant, "review_gate_reject", draft.id, {"new": body.reason}
     )
     _skip_in_rotation(request, draft)
+    await _restore_routing_after_gate(request, draft, participant.session_id)
     await _emit_resolved(participant.session_id, draft.id, "rejected", None)
     return {"status": "rejected", "draft_id": draft.id}
 
@@ -862,8 +936,39 @@ async def edit_draft(
         {"previous": draft.draft_content, "new": body.edited_content},
     )
     _skip_in_rotation(request, draft)
+    await _restore_routing_after_gate(request, draft, participant.session_id)
     await _emit_resolved(participant.session_id, draft.id, "edited", msg.turn_number)
     return {"status": "edited", "draft_id": draft.id, "turn_number": msg.turn_number}
+
+
+async def _restore_routing_after_gate(request: Request, draft: object, session_id: str) -> None:
+    """Flip the drafter's routing back to its pre-gate value.
+
+    Without this, once an AI is set to ``review_gate`` the mode sticks
+    and every subsequent turn stages a draft forever (Test06-Web07).
+    ``remember_prior_routing`` captured the pre-gate value when the
+    flip happened; we pop it here and write it back. Fallback to
+    ``always`` if no cached prior (direct-from-create review_gate).
+    """
+    loop = getattr(request.app.state, "conversation_loop", None)
+    if loop is None:
+        return
+    prior = loop.pop_prior_routing(draft.participant_id) or "always"
+    async with request.app.state.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE participants SET routing_preference = $1 " "WHERE id = $2 AND session_id = $3",
+            prior,
+            draft.participant_id,
+            session_id,
+        )
+    from src.web_ui.events import broadcast_participant_update
+
+    await broadcast_participant_update(
+        session_id,
+        draft.participant_id,
+        request.app.state.participant_repo,
+        request.app.state.log_repo,
+    )
 
 
 async def _emit_resolved(

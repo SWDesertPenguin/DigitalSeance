@@ -72,6 +72,19 @@ class ConversationLoop:
         self._cadence_presets: dict[str, str] = {}
         self._pause_scopes: dict[str, str] = {}
         self._last_skip: dict[str, str] = {}  # session → last skip reason
+        # Participant_id → routing_preference captured immediately before a
+        # flip-to-review_gate, so the gate is one-shot: after the draft is
+        # approved / rejected / edited, the AI reverts to its prior mode
+        # instead of staging another draft forever (Test06-Web07).
+        self._prior_routing: dict[str, str] = {}
+
+    def remember_prior_routing(self, participant_id: str, prior: str) -> None:
+        """Cache prior routing before a flip to review_gate."""
+        self._prior_routing[participant_id] = prior
+
+    def pop_prior_routing(self, participant_id: str) -> str | None:
+        """Return (and clear) a cached prior routing, if any."""
+        return self._prior_routing.pop(participant_id, None)
 
     def set_cadence_preset(
         self,
