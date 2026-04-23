@@ -75,14 +75,21 @@ class MessageRepository(BaseRepository):
         *,
         start_turn: int,
         end_turn: int,
+        exclude_speaker_types: list[str] | None = None,
     ) -> list[Message]:
-        """Fetch messages in a turn number range."""
+        """Fetch messages in a turn number range, optionally excluding types.
+
+        ``exclude_speaker_types`` filters rows whose ``speaker_type`` matches
+        any entry. Used by the summarizer to avoid feeding its own prior
+        output back in as "new content" (see Test06-Web06 incident).
+        """
         rows = await self._fetch_all(
             _RANGE_MESSAGES_SQL,
             session_id,
             branch_id,
             start_turn,
             end_turn,
+            exclude_speaker_types,
         )
         return [Message.from_record(r) for r in rows]
 
@@ -247,6 +254,7 @@ _RANGE_MESSAGES_SQL = """
     SELECT * FROM messages
     WHERE session_id = $1 AND branch_id = $2
       AND turn_number >= $3 AND turn_number <= $4
+      AND ($5::text[] IS NULL OR NOT (speaker_type = ANY($5)))
     ORDER BY turn_number
 """
 
