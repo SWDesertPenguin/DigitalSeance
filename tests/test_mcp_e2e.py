@@ -279,3 +279,110 @@ async def test_unauthenticated_returns_error(client):
     c, _ = client
     resp = await c.get("/tools/participant/history")
     assert resp.status_code == 401
+
+
+async def test_reset_ai_credentials_rotates_key_in_place(client):
+    """Facilitator can rotate an AI's API key without losing the row."""
+    c, _ = client
+    session = await _create_session(c)
+    ai = await _add_participant(c, session["auth_token"])
+    resp = await c.post(
+        "/tools/facilitator/reset_ai_credentials",
+        json={"participant_id": ai["participant_id"], "api_key": "sk-rotated-42"},
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "reset"
+
+
+async def test_reset_ai_credentials_rejects_human_target(client):
+    """Humans have no credentials — reset must 400."""
+    c, _ = client
+    session = await _create_session(c)
+    # Add a human participant via the facilitator path (default provider='human').
+    human_resp = await c.post(
+        "/tools/facilitator/add_participant",
+        json={"display_name": "Human Bob"},
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert human_resp.status_code == 200
+    human_id = human_resp.json()["participant_id"]
+    resp = await c.post(
+        "/tools/facilitator/reset_ai_credentials",
+        json={"participant_id": human_id, "api_key": "irrelevant"},
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert resp.status_code == 400
+
+
+async def test_release_ai_slot_frees_display_name(client):
+    """After release, re-adding the same display_name succeeds (no 409)."""
+    c, _ = client
+    session = await _create_session(c)
+    ai = await _add_participant(c, session["auth_token"])
+    # Release the AI's slot.
+    released = await c.post(
+        "/tools/facilitator/release_ai_slot",
+        json={"participant_id": ai["participant_id"], "reason": "key burned out"},
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert released.status_code == 200
+    # Re-add under the same display_name + provider+model — must NOT 409.
+    readd = await c.post(
+        "/tools/facilitator/add_participant",
+        json=_PARTICIPANT_BODY,
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert readd.status_code == 200
+    assert readd.json()["participant_id"] != ai["participant_id"]
+
+
+async def _add_human_and_get_token(client, fac_token, display_name):
+    """Add a human participant via the facilitator; return their token."""
+    resp = await client.post(
+        "/tools/facilitator/add_participant",
+        json={"display_name": display_name},
+        headers={"Authorization": f"Bearer {fac_token}"},
+    )
+    assert resp.status_code == 200
+    return resp.json()["auth_token"]
+
+
+async def _sponsor_adds_ai(client, sponsor_token):
+    """Sponsor adds an AI via /tools/participant/add_ai; return participant_id."""
+    resp = await client.post(
+        "/tools/participant/add_ai",
+        json={
+            "display_name": "Sponsored AI",
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "model_tier": "mid",
+            "model_family": "gpt",
+            "context_window": 128000,
+            "api_key": "sk-sponsor-key",
+        },
+        headers={"Authorization": f"Bearer {sponsor_token}"},
+    )
+    assert resp.status_code == 200
+    return resp.json()["participant_id"]
+
+
+async def test_reset_ai_credentials_sponsor_allowed(client):
+    """Sponsor (invited_by) can reset their own AI; a third party cannot."""
+    c, _ = client
+    session = await _create_session(c)
+    sponsor_token = await _add_human_and_get_token(c, session["auth_token"], "Sponsor Human")
+    ai_id = await _sponsor_adds_ai(c, sponsor_token)
+    ok = await c.post(
+        "/tools/facilitator/reset_ai_credentials",
+        json={"participant_id": ai_id, "api_key": "sk-sponsor-rotated"},
+        headers={"Authorization": f"Bearer {sponsor_token}"},
+    )
+    assert ok.status_code == 200
+    other_token = await _add_human_and_get_token(c, session["auth_token"], "Third Party")
+    denied = await c.post(
+        "/tools/facilitator/reset_ai_credentials",
+        json={"participant_id": ai_id, "api_key": "sk-hijack"},
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert denied.status_code == 403

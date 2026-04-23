@@ -116,6 +116,61 @@ class ParticipantRepository(BaseRepository):
             participant_id,
         )
 
+    async def reset_ai_credentials(
+        self,
+        participant_id: str,
+        *,
+        api_key: str,
+        provider: str | None = None,
+        model: str | None = None,
+        api_endpoint: str | None = None,
+    ) -> None:
+        """Rotate an AI's API key in place (optionally swap provider/model/endpoint).
+
+        Keeps the participant row so prior messages stay attributed and the
+        turn-loop can dispatch the AI again on the next turn. Clears the
+        timeout counter so the circuit breaker doesn't keep skipping the
+        AI after a bad-key episode; nulls the old auth_token_hash so any
+        client still holding the AI's bearer is forced to re-mint.
+        """
+        new_encrypted = _encrypt_api_key(api_key, self._encryption_key)
+        await self._execute(
+            """UPDATE participants
+               SET api_key_encrypted = $1,
+                   auth_token_hash = NULL,
+                   consecutive_timeouts = 0,
+                   provider = COALESCE($2, provider),
+                   model = COALESCE($3, model),
+                   api_endpoint = COALESCE($4, api_endpoint)
+               WHERE id = $5""",
+            new_encrypted,
+            provider,
+            model,
+            api_endpoint,
+            participant_id,
+        )
+
+    async def release_ai_slot(
+        self,
+        participant_id: str,
+    ) -> None:
+        """Unbind credentials and park the slot so the display_name is reusable.
+
+        Distinct from ``depart_participant``: the row stays, the key is
+        nulled (not overwritten with garbage), status flips to 'reset'.
+        The dedupe guard treats 'reset' as 'name free', so a facilitator
+        can immediately re-add a fresh AI under the same display_name
+        without hitting 409.
+        """
+        await self._execute(
+            """UPDATE participants
+               SET api_key_encrypted = NULL,
+                   auth_token_hash = NULL,
+                   status = 'reset'
+               WHERE id = $1""",
+            participant_id,
+        )
+
     async def get_all_with_tokens(self) -> list[Participant]:
         """Fetch all participants with token hashes across sessions."""
         rows = await self._fetch_all(

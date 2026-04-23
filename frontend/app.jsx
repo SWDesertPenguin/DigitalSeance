@@ -862,7 +862,10 @@ function _participantBuckets(participants) {
   };
 }
 
-function ParticipantList({ participants, me, skipReasons, isFacilitator, onRemove, onRoutingChange }) {
+function ParticipantList({
+  participants, me, skipReasons, isFacilitator,
+  onRemove, onRoutingChange, onResetAI, onReleaseAI,
+}) {
   const byId = useMemo(
     () => Object.fromEntries(participants.map((p) => [p.id, p])),
     [participants],
@@ -870,7 +873,8 @@ function ParticipantList({ participants, me, skipReasons, isFacilitator, onRemov
   const buckets = useMemo(() => _participantBuckets(participants), [participants]);
   const renderCard = (p) => (
     <ParticipantCard key={p.id} p={p} me={me} byId={byId} skipReasons={skipReasons}
-      isFacilitator={isFacilitator} onRemove={onRemove} onRoutingChange={onRoutingChange} />
+      isFacilitator={isFacilitator} onRemove={onRemove} onRoutingChange={onRoutingChange}
+      onResetAI={onResetAI} onReleaseAI={onReleaseAI} />
   );
   return (
     <section className="panel participant-list">
@@ -893,21 +897,29 @@ function ParticipantList({ participants, me, skipReasons, isFacilitator, onRemov
   );
 }
 
-function ParticipantCard({ p, me, byId, skipReasons, isFacilitator, onRemove, onRoutingChange }) {
+function ParticipantCard({
+  p, me, byId, skipReasons, isFacilitator,
+  onRemove, onRoutingChange, onResetAI, onReleaseAI,
+}) {
   const inviter = p.invited_by ? byId[p.invited_by] : null;
   const inviterLabel = inviter ? inviter.display_name : null;
   const isAI = p.provider !== "human";
   const isSelf = p.id === me?.participant_id;
   const isMyAI = isAI && p.invited_by === me?.participant_id;
-  const isDeparted = p.status === "offline" || p.status === "removed";
+  // 'reset' joins offline/removed as a "this slot is parked" state — the
+  // credentials have been unbound so no management action applies; the
+  // facilitator's path forward is Add Participant with the same name.
+  const isDeparted = p.status === "offline" || p.status === "removed" || p.status === "reset";
   // Facilitator can manage anyone non-self; a human sponsor can manage
-  // AIs they invited (routing + remove + budget). Covers the Test06-Web03
-  // "non-facilitator can't change their sponsored AI's routing/budget" reports.
-  // Departed participants can't be re-managed — hides the ✕ button and
-  // routing dropdown on already-offline rows so rapid clicks don't produce
-  // the Test07-Web08 pattern (cascade-removed AI still visibly clickable).
+  // AIs they invited (routing + remove + budget + reset). Covers the
+  // Test06-Web03 "non-facilitator can't change their sponsored AI's
+  // routing/budget" reports. Departed participants can't be re-managed
+  // — hides action buttons on already-parked rows so rapid clicks don't
+  // produce the Test07-Web08 pattern (cascade-removed AI still visibly
+  // clickable).
   const canManage = !isDeparted
     && ((isFacilitator && !isSelf && p.role !== "facilitator") || isMyAI);
+  const canResetOrRelease = canManage && isAI;
   return (
     <div className={`participant-card role-${p.role} status-${p.status}`}>
       <div className="p-row">
@@ -915,6 +927,21 @@ function ParticipantCard({ p, me, byId, skipReasons, isFacilitator, onRemove, on
         {isSelf && <span className="badge badge-you">you</span>}
         {(p.role === "pending" || p.status === "pending") && (
           <span className="badge badge-pending">pending</span>
+        )}
+        {p.status === "reset" && (
+          <span className="badge badge-reset" title="API key unbound; slot reservable">
+            released
+          </span>
+        )}
+        {canResetOrRelease && onResetAI && (
+          <button type="button" className="icon-btn"
+            onClick={() => onResetAI(p)}
+            title="reset credentials (rotate API key)">↻</button>
+        )}
+        {canResetOrRelease && onReleaseAI && (
+          <button type="button" className="icon-btn"
+            onClick={() => onReleaseAI(p)}
+            title="release slot (free the display name for re-add)">⏏</button>
         )}
         {canManage && (
           <button type="button" className="icon-btn danger-btn"
@@ -1886,6 +1913,82 @@ function AddParticipantDialog({ onClose, onAdd, aiOnly = false }) {
   );
 }
 
+function ResetAICredentialsDialog({ participant, onClose, onSubmit }) {
+  // Smaller cousin of AddParticipantDialog — the AI already exists, the
+  // only required field is a fresh API key. Provider/model/endpoint are
+  // optional swaps for the "rotated to a different key AND upgraded the
+  // model in one go" case.
+  const [form, setForm] = useState({
+    api_key: "",
+    provider: participant.provider,
+    model: participant.model,
+    api_endpoint: participant.api_endpoint || "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const update = (field) => (ev) => setForm({ ...form, [field]: ev.target.value });
+
+  const submit = async (ev) => {
+    ev.preventDefault();
+    if (!form.api_key.trim()) { setError("API key is required"); return; }
+    setBusy(true); setError(null);
+    try {
+      await onSubmit({
+        participant_id: participant.id,
+        api_key: form.api_key.trim(),
+        provider: form.provider !== participant.provider ? form.provider : null,
+        model: form.model !== participant.model ? form.model.trim() : null,
+        api_endpoint: form.api_endpoint !== (participant.api_endpoint || "")
+          ? (form.api_endpoint || null)
+          : null,
+      });
+      onClose();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(ev) => ev.stopPropagation()}>
+        <h2>Reset credentials: {participant.display_name}</h2>
+        <p className="dim">
+          Rotates the stored API key in place. Message history stays attributed
+          to this participant; the next dispatch uses the new key.
+        </p>
+        <form onSubmit={submit}>
+          <label>New API key
+            <input type="password" value={form.api_key}
+              onChange={update("api_key")} required autoFocus />
+          </label>
+          <label>Provider (optional swap)
+            <select value={form.provider} onChange={update("provider")}>
+              <option value="anthropic">anthropic</option>
+              <option value="openai">openai</option>
+              <option value="ollama">ollama</option>
+            </select>
+          </label>
+          <label>Model (optional swap)
+            <input value={form.model} onChange={update("model")} />
+          </label>
+          <label>API endpoint (optional, for Ollama/custom)
+            <input value={form.api_endpoint} onChange={update("api_endpoint")} />
+          </label>
+          {error && <div className="error">{error}</div>}
+          <div className="modal-actions">
+            <button type="button" onClick={onClose}>Cancel</button>
+            <button type="submit" className={busy ? "busy" : ""} disabled={busy}>
+              {busy ? "Resetting…" : "Reset credentials"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // SessionView — main authenticated screen
 // ---------------------------------------------------------------------------
@@ -1938,6 +2041,7 @@ function PendingSession({ auth, onLogout, onAuthExpired, onApproved }) {
 function SessionView({ auth, onLogout, onAuthExpired }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [resetTarget, setResetTarget] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
   const [rotatedToken, setRotatedToken] = useState(null);
   const [addedToken, setAddedToken] = useState(null);
@@ -2090,6 +2194,31 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     } catch (e) {
       dispatch({ type: "participant_restore", participant: p });
       alert(`Remove failed: ${e.message}`);
+    }
+  };
+
+  const onResetAI = (p) => setResetTarget(p);
+
+  const onSubmitResetAI = async (body) => {
+    await mcpCall("/tools/facilitator/reset_ai_credentials", auth.token, {
+      method: "POST",
+      body,
+    });
+  };
+
+  const onReleaseAI = async (p) => {
+    const label = p.display_name || p.id;
+    if (!confirm(
+      `Release ${label}? Credentials are unbound and the name becomes `
+      + `available for re-add. Message history stays linked to this slot.`
+    )) return;
+    try {
+      await mcpCall("/tools/facilitator/release_ai_slot", auth.token, {
+        method: "POST",
+        body: { participant_id: p.id },
+      });
+    } catch (e) {
+      alert(`Release failed: ${e.message}`);
     }
   };
 
@@ -2275,6 +2404,8 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
             isFacilitator={isFacilitator}
             onRemove={onRemoveParticipant}
             onRoutingChange={onRoutingChange}
+            onResetAI={onResetAI}
+            onReleaseAI={onReleaseAI}
           />
           <SessionControls
             session={state.session}
@@ -2359,6 +2490,13 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
       )}
       {addedToken && (
         <AddedParticipantTokenModal entry={addedToken} onClose={() => setAddedToken(null)} />
+      )}
+      {resetTarget && (
+        <ResetAICredentialsDialog
+          participant={resetTarget}
+          onClose={() => setResetTarget(null)}
+          onSubmit={onSubmitResetAI}
+        />
       )}
     </div>
   );

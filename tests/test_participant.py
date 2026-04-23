@@ -182,3 +182,99 @@ async def test_list_participants_by_session(
     names = {p.display_name for p in participants}
     # Should include the facilitator plus Frank
     assert "Frank" in names
+
+
+async def _add_haiku(
+    repo: ParticipantRepository,
+    session_id: str,
+    *,
+    name: str,
+    api_key: str | None = None,
+    auth_token: str | None = None,
+):
+    """Minimal helper to add a Haiku AI for reset/release tests."""
+    return await repo.add_participant(
+        session_id=session_id,
+        display_name=name,
+        provider="anthropic",
+        model="claude-haiku-4-5-20251001",
+        model_tier="low",
+        model_family="claude",
+        context_window=200000,
+        api_key=api_key,
+        auth_token=auth_token,
+        auto_approve=True,
+    )
+
+
+async def test_reset_ai_credentials_rotates_key(
+    repo: ParticipantRepository,
+    session_id: str,
+) -> None:
+    """reset_ai_credentials swaps the encrypted key and clears timeout/token state."""
+    participant, _ = await _add_haiku(
+        repo,
+        session_id,
+        name="RotateMe",
+        api_key="sk-old-key-1111",
+        auth_token="pre-reset-token",  # noqa: S106
+    )
+    old_encrypted = participant.api_key_encrypted
+    new_key = "sk-new-key-9999"
+    await repo.reset_ai_credentials(participant.id, api_key=new_key)
+
+    refreshed = await repo.get_participant(participant.id)
+    assert refreshed is not None
+    assert refreshed.api_key_encrypted != old_encrypted
+    fernet = Fernet(TEST_KEY.encode())
+    assert fernet.decrypt(refreshed.api_key_encrypted.encode()).decode() == new_key
+    assert refreshed.auth_token_hash is None
+    assert refreshed.consecutive_timeouts == 0
+    assert refreshed.status == "active"
+    assert refreshed.provider == "anthropic"
+
+
+async def test_reset_ai_credentials_optional_swap(
+    repo: ParticipantRepository,
+    session_id: str,
+) -> None:
+    """Passing provider/model/api_endpoint overrides them; None leaves as-is."""
+    participant, _ = await _add_haiku(
+        repo,
+        session_id,
+        name="SwapMe",
+        api_key="sk-orig",
+    )
+    await repo.reset_ai_credentials(
+        participant.id,
+        api_key="sk-next",
+        provider="openai",
+        model="gpt-4o-mini",
+        api_endpoint="https://api.openai.com",
+    )
+    refreshed = await repo.get_participant(participant.id)
+    assert refreshed is not None
+    assert refreshed.provider == "openai"
+    assert refreshed.model == "gpt-4o-mini"
+    assert refreshed.api_endpoint == "https://api.openai.com"
+
+
+async def test_release_ai_slot_nulls_key_and_parks_status(
+    repo: ParticipantRepository,
+    session_id: str,
+) -> None:
+    """release_ai_slot sets status='reset' and nulls credentials."""
+    participant, _ = await _add_haiku(
+        repo,
+        session_id,
+        name="ReleaseMe",
+        api_key="sk-to-release",
+        auth_token="release-token",  # noqa: S106
+    )
+    await repo.release_ai_slot(participant.id)
+
+    refreshed = await repo.get_participant(participant.id)
+    assert refreshed is not None
+    assert refreshed.api_key_encrypted is None
+    assert refreshed.auth_token_hash is None
+    assert refreshed.status == "reset"
