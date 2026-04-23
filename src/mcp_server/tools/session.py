@@ -295,15 +295,20 @@ async def _reject_duplicate_human_name(
     session_id: str,
     display_name: str,
 ) -> None:
-    """409 if a human participant already has this display_name in the session."""
+    """409 if a human participant already has this display_name in the session.
+
+    Shares ``_DEPARTED_STATUSES`` with the facilitator guard so offline
+    or released ('reset') humans don't block the same name from being
+    redeemed on a fresh invite.
+    """
+    from src.mcp_server.tools.facilitator import _DEPARTED_STATUSES
+
     cleaned = display_name.strip().lower()
     existing = await p_repo.list_participants(session_id)
     for p in existing:
-        if (
-            p.status != "removed"
-            and p.provider == "human"
-            and p.display_name.strip().lower() == cleaned
-        ):
+        if p.status in _DEPARTED_STATUSES:
+            continue
+        if p.provider == "human" and p.display_name.strip().lower() == cleaned:
             raise HTTPException(
                 409,
                 f"A participant named '{p.display_name}' is already in this session",
