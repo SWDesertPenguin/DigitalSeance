@@ -44,6 +44,11 @@ def participant_update_event(participant: dict[str, Any]) -> dict[str, Any]:
     return _envelope("participant_update", participant=participant)
 
 
+def participant_removed_event(participant_id: str) -> dict[str, Any]:
+    """A participant row is gone (hard-delete from reject_participant)."""
+    return _envelope("participant_removed", participant_id=participant_id)
+
+
 def convergence_update_event(point: dict[str, Any]) -> dict[str, Any]:
     """One turn's convergence score."""
     return _envelope("convergence_update", point=point)
@@ -183,22 +188,36 @@ async def broadcast_participant_update(
     participant_repo: Any,
     log_repo: Any = None,
 ) -> None:
-    """Fetch a fresh participant row and push a participant_update event."""
+    """Fetch a fresh participant row and push a participant_update event.
+
+    If the row no longer exists (hard-delete from ``reject_participant``),
+    emit a ``participant_removed`` event instead so the UI can clean its
+    state — silently returning here is what made Test06-Web06's reject
+    look frozen.
+    """
     from src.web_ui.websocket import broadcast_to_session
 
     p = await participant_repo.get_participant(participant_id)
     if p is None:
+        await broadcast_to_session(session_id, participant_removed_event(participant_id))
         return
     spend_daily = None
+    spend_hourly = None
     if log_repo is not None:
         spend_daily = await log_repo.get_participant_cost(p.id, period="daily")
+        if p.budget_hourly is not None:
+            spend_hourly = await log_repo.get_participant_cost(p.id, period="hourly")
     await broadcast_to_session(
         session_id,
-        participant_update_event(_participant_payload(p, spend_daily)),
+        participant_update_event(_participant_payload(p, spend_daily, spend_hourly)),
     )
 
 
-def _participant_payload(p: Any, spend_daily: float | None) -> dict[str, Any]:
+def _participant_payload(
+    p: Any,
+    spend_daily: float | None,
+    spend_hourly: float | None = None,
+) -> dict[str, Any]:
     """Serialize a Participant row for broadcast (drops encrypted fields)."""
     return {
         "id": p.id,
@@ -215,5 +234,6 @@ def _participant_payload(p: Any, spend_daily: float | None) -> dict[str, Any]:
         "budget_hourly": p.budget_hourly,
         "budget_daily": p.budget_daily,
         "spend_daily": spend_daily,
+        "spend_hourly": spend_hourly,
         "invited_by": p.invited_by,
     }
