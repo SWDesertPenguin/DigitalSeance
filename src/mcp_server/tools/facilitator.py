@@ -453,6 +453,7 @@ async def set_routing_all_ais(
     if participant.role != "facilitator":
         raise HTTPException(403, "Only the facilitator can bulk-update routing")
     rows = await _bulk_flip_routing(request, participant.session_id, body.preference)
+    await _audit_bulk_routing(request, participant, rows, body.preference)
     from src.web_ui.events import broadcast_participant_update
 
     for row in rows:
@@ -463,6 +464,32 @@ async def set_routing_all_ais(
             request.app.state.log_repo,
         )
     return {"status": "updated", "preference": body.preference, "count": len(rows)}
+
+
+async def _audit_bulk_routing(
+    request: Request,
+    facilitator: Participant,
+    rows: list,
+    new_pref: str,
+) -> None:
+    """Write one admin_audit_log entry per flipped AI.
+
+    Without this trail, forensic reconstruction of a session (why did the
+    router behave that way at turn N?) is impossible — Test07-Web08
+    hit exactly this gap when trying to explain a consecutive_timeouts
+    count on a participant whose routing had been silently bulk-flipped.
+    """
+    log_repo = request.app.state.log_repo
+    for row in rows:
+        prior = row["routing_preference"] or "unknown"
+        await log_repo.log_admin_action(
+            session_id=facilitator.session_id,
+            facilitator_id=facilitator.id,
+            action="set_routing_all_ais",
+            target_id=row["id"],
+            previous_value=prior,
+            new_value=new_pref,
+        )
 
 
 async def _bulk_flip_routing(request: Request, session_id: str, new_pref: str) -> list:
