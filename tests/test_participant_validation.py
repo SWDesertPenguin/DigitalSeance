@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from src.mcp_server.tools.facilitator import _AddParticipantBody
+from src.mcp_server.tools.facilitator import _AddParticipantBody, _EditDraftBody
+from src.mcp_server.tools.participant import (
+    MAX_MESSAGE_CONTENT_CHARS,
+    _InjectMessageBody,
+)
 
 
 def _valid_body(**overrides) -> dict:
@@ -52,3 +56,34 @@ def test_rejects_placeholder_case_insensitive():
 def test_strips_whitespace():
     model = _AddParticipantBody(**_valid_body(model="  llama3.2:3b  "))
     assert model.model == "llama3.2:3b"
+
+
+# --- Oversized-message guards (red-team runbook 3.1) --------------------------
+
+
+def test_inject_message_accepts_at_cap():
+    body = _InjectMessageBody(content="A" * MAX_MESSAGE_CONTENT_CHARS)
+    assert len(body.content) == MAX_MESSAGE_CONTENT_CHARS
+
+
+def test_inject_message_rejects_over_cap():
+    with pytest.raises(ValidationError):
+        _InjectMessageBody(content="A" * (MAX_MESSAGE_CONTENT_CHARS + 1))
+
+
+def test_inject_message_rejects_empty():
+    with pytest.raises(ValidationError):
+        _InjectMessageBody(content="")
+
+
+def test_inject_message_rejects_multi_megabyte_payload():
+    with pytest.raises(ValidationError):
+        _InjectMessageBody(content="Test data" * 250_000)
+
+
+def test_edit_draft_rejects_over_cap():
+    with pytest.raises(ValidationError):
+        _EditDraftBody(
+            draft_id="d1",
+            edited_content="A" * (MAX_MESSAGE_CONTENT_CHARS + 1),
+        )
