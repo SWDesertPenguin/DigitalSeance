@@ -872,10 +872,15 @@ function ParticipantCard({ p, me, byId, skipReasons, isFacilitator, onRemove, on
   const isAI = p.provider !== "human";
   const isSelf = p.id === me?.participant_id;
   const isMyAI = isAI && p.invited_by === me?.participant_id;
+  const isDeparted = p.status === "offline" || p.status === "removed";
   // Facilitator can manage anyone non-self; a human sponsor can manage
   // AIs they invited (routing + remove + budget). Covers the Test06-Web03
   // "non-facilitator can't change their sponsored AI's routing/budget" reports.
-  const canManage = (isFacilitator && !isSelf && p.role !== "facilitator") || isMyAI;
+  // Departed participants can't be re-managed — hides the ✕ button and
+  // routing dropdown on already-offline rows so rapid clicks don't produce
+  // the Test07-Web08 pattern (cascade-removed AI still visibly clickable).
+  const canManage = !isDeparted
+    && ((isFacilitator && !isSelf && p.role !== "facilitator") || isMyAI);
   return (
     <div className={`participant-card role-${p.role} status-${p.status}`}>
       <div className="p-row">
