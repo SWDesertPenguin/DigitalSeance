@@ -1,6 +1,6 @@
 # SACP System Report
 
-**Last Updated**: 2026-04-22 (Phase 2 shakedown through Test06-Web06)
+**Last Updated**: 2026-04-23 (Phase 2 shakedown through Test06-Web07)
 
 ## Project Overview
 
@@ -12,7 +12,7 @@
 | **Server** | Two-app FastAPI process on Dockge via GHCR image |
 | **Ports** | 8750 (MCP server / SSE) + 8751 (Web UI / WebSocket) |
 | **Image** | `ghcr.io/swdesertpenguin/digitalseance:latest` |
-| **Main** | `df13ec2` (PR #110 merged — Test06-Web06 sweep) |
+| **Main** | `8e71e41` (PR #112 merged — Test06-Web07 sweep) |
 
 ## Features
 
@@ -28,7 +28,7 @@
 | 008 | System Prompts + Security Wiring | Merged | 3 | 4-tier delta, canary tokens |
 | 009 | Rate Limiting | Merged | 1 | per-participant, 60 req/min default |
 | 010 | Review-gate Pause Scope | Merged | — | session / participant toggle |
-| 011 | Web UI | Merged (+6 shakedown sweeps) | 10 | port 8751, React SPA + CDN/SRI, WebSocket v1 envelope |
+| 011 | Web UI | Merged (+7 shakedown sweeps) | 10 | port 8751, React SPA + CDN/SRI, WebSocket v1 envelope |
 
 ## Codebase Stats
 
@@ -158,7 +158,7 @@ Two FastAPI apps in one process via `src/run_apps.py`:
 
 Ten user stories shipped (US1 facilitator flow, US2 participant view, US3 WS resilience, US4 budget / convergence, US5 review gate, US6 admin panel, US7 proposals, US8 XSS hardening, US9 summary viewer, US10 health indicators). Playwright e2e (T058/T074/T085/T094/T103/T115/T126/T134/T143) deferred to a shared-infra PR.
 
-Six in-anger shakedown sweeps (2026-04-20 → 2026-04-22):
+Seven in-anger shakedown sweeps (2026-04-20 → 2026-04-23):
 
 | Sweep | PR | Ships |
 |---|---|---|
@@ -168,6 +168,7 @@ Six in-anger shakedown sweeps (2026-04-20 → 2026-04-22):
 | Web04 | #106 | re-login after logout, budget 0 = no cap, decimal formatting, Summarize-now + Review-gate-all + Archive-confirm + session ID |
 | Web05 | #108 | archive auto-summary order fix, summarize_now per-session lock, addressed_only actually matches @name |
 | Web06 | #110 | summary feedback loop closed, participant_removed event, hourly-only budget renders |
+| Web07 | #112 | review_gate one-shot auto-revert (prior routing cached + restored), remove_participant cascades to sponsored AIs, pending user sees denial + redirect to landing |
 
 ## Phase 3 — Planned (not started)
 
