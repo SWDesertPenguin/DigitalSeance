@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
@@ -14,11 +14,16 @@ from src.repositories.errors import SessionNotActiveError
 
 router = APIRouter(prefix="/tools/participant", tags=["participant"])
 
+# Per red-team runbook 3.1: oversized message bodies must be rejected before
+# reaching the provider. 64 KB ≈ 16K tokens — comfortably above any realistic
+# human interjection, well below the 1 MB runbook trigger.
+MAX_MESSAGE_CONTENT_CHARS = 65_536
+
 
 class _InjectMessageBody(BaseModel):
     """Request body for injecting a message."""
 
-    content: str
+    content: str = Field(..., min_length=1, max_length=MAX_MESSAGE_CONTENT_CHARS)
     priority: int = 1
 
 
