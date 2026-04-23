@@ -211,6 +211,24 @@ Verify via `curl -I http://<host>:8751/healthz`:
 
 ---
 
+## 13.5. Reset AI + Release slot
+
+A session facilitator (or the human sponsor who added an AI) can fix a burned-out API key without losing the AI's transcript attribution. Two distinct affordances:
+
+| ID | Action | Expected |
+| --- | --- | --- |
+| RA1 | Click ↻ on an active AI's card | `ResetAICredentialsDialog` opens with provider/model pre-filled from the participant |
+| RA2 | Submit with a new API key | 200 response, `audit_entry` with `action="reset_ai_credentials"` and `previous_value` = `...<ciphertext-tail>`; next dispatch uses the new key |
+| RA3 | Click ⏏ on an active AI's card → confirm | 200 response, `audit_entry` with `action="release_ai_slot"`; card dims with "released" badge; AI disappears from active routing |
+| RA4 | After RA3, click `+ Add participant` with the same display_name + provider + model | 200 (no 409) — a fresh row is created with a new `participant_id`; the released row's prior messages stay in the transcript attributed to the old id |
+| RA5 | As a non-facilitator human who did NOT sponsor the AI, try ↻ or ⏏ | Buttons are not rendered. Direct POST returns 403. |
+| RA6 | Try to reset a human participant | Buttons are not rendered. Direct POST returns 400 with `Only AI participants can be reset or released`. |
+| RA7 | As the sponsor (human whose id is the AI's `invited_by`), use ↻ on their AI | Allowed; same success path as RA2. |
+
+**Implementation note**: `release_ai_slot` does not cascade to other AIs the released row may have sponsored — release is recoverable, and a cascade would be surprising. Use Remove (✕) if you want the cascade behavior.
+
+---
+
 ## 14. Observability sanity (ongoing)
 
 Throughout the run, keep the DevTools WS panel open and confirm these events arrive in reasonable sequence:

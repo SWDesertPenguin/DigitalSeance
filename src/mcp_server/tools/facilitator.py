@@ -101,16 +101,28 @@ async def _persist_added_participant(
     return new_p
 
 
+_DEPARTED_STATUSES = frozenset({"removed", "offline", "reset"})
+
+
 async def _reject_duplicate_display_name(
     p_repo: object,
     session_id: str,
     display_name: str,
 ) -> None:
-    """409 if an active participant already has this display_name in the session."""
+    """409 if an active participant already has this display_name in the session.
+
+    Statuses in ``_DEPARTED_STATUSES`` are skipped so a released slot
+    ('reset') or a removed participant ('offline') frees the name for
+    re-add. Without this, the latent bug was that ``depart_participant``
+    set status='offline' but the guard only skipped 'removed', so any
+    removed name was blocked forever.
+    """
     cleaned = display_name.strip().lower()
     existing = await p_repo.list_participants(session_id)
     for p in existing:
-        if p.status != "removed" and p.display_name.strip().lower() == cleaned:
+        if p.status in _DEPARTED_STATUSES:
+            continue
+        if p.display_name.strip().lower() == cleaned:
             raise HTTPException(
                 409,
                 f"A participant named '{p.display_name}' is already in this session",
@@ -123,7 +135,9 @@ async def _reject_duplicate_ai(p_repo: object, session_id: str, body: _AddPartic
         return
     existing = await p_repo.list_participants(session_id)
     for p in existing:
-        if p.provider == body.provider and p.model == body.model and p.status != "removed":
+        if p.status in _DEPARTED_STATUSES:
+            continue
+        if p.provider == body.provider and p.model == body.model:
             raise HTTPException(
                 409,
                 f"A participant with provider={body.provider}, model={body.model} "
@@ -253,6 +267,136 @@ async def _push_participant_update(
         request.app.state.participant_repo,
         request.app.state.log_repo,
     )
+
+
+class _ResetAICredentialsBody(BaseModel):
+    """Request body for rotating an AI's API key in place."""
+
+    participant_id: str
+    api_key: str = Field(..., min_length=1)
+    provider: str | None = None
+    model: str | None = None
+    api_endpoint: str | None = None
+
+
+@router.post("/reset_ai_credentials")
+async def reset_ai_credentials(
+    request: Request,
+    body: _ResetAICredentialsBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Rotate an AI's API key in place (facilitator or sponsor).
+
+    Use case: the stored key burned out / was wrong / hit a tier limit.
+    The AI keeps its participant_id (and therefore its message history
+    attribution), the new key is encrypted and swapped, and the next
+    dispatch picks up the new credentials. Humans cannot be reset — they
+    have no credentials to rotate.
+    """
+    p_repo = request.app.state.participant_repo
+    target = await _load_ai_target(p_repo, participant.session_id, body.participant_id)
+    _require_facilitator_or_inviter(participant, target)
+    await p_repo.reset_ai_credentials(
+        body.participant_id,
+        api_key=body.api_key,
+        provider=body.provider,
+        model=body.model,
+        api_endpoint=body.api_endpoint,
+    )
+    await _audit_reset(request, participant, target)
+    await _push_participant_update(request, participant.session_id, body.participant_id)
+    return {"status": "reset", "participant_id": body.participant_id}
+
+
+class _ReleaseAISlotBody(BaseModel):
+    """Request body for releasing an AI slot so the name becomes reservable."""
+
+    participant_id: str
+    reason: str = Field(default="", max_length=_MAX_REJECT_REASON_CHARS)
+
+
+@router.post("/release_ai_slot")
+async def release_ai_slot(
+    request: Request,
+    body: _ReleaseAISlotBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Unbind an AI's credentials and free the display_name for re-add.
+
+    Softer than ``remove_participant``: the row stays (so prior messages
+    keep their attribution), credentials are nulled, and status flips to
+    'reset'. The dedupe guard treats 'reset' as a free slot, so the
+    facilitator can re-add a fresh AI under the same display_name
+    without hitting 409. No cascade to sponsored AIs — release is
+    recoverable and a cascade would be surprising.
+    """
+    p_repo = request.app.state.participant_repo
+    target = await _load_ai_target(p_repo, participant.session_id, body.participant_id)
+    _require_facilitator_or_inviter(participant, target)
+    await p_repo.release_ai_slot(body.participant_id)
+    await _close_ws_for_participant(participant.session_id, body.participant_id)
+    await _audit_release(request, participant, target, body.reason)
+    await _push_participant_update(request, participant.session_id, body.participant_id)
+    return {"status": "released", "participant_id": body.participant_id}
+
+
+async def _load_ai_target(
+    p_repo: object,
+    session_id: str,
+    participant_id: str,
+) -> Participant:
+    """Fetch the target participant, rejecting missing rows and humans."""
+    target = await p_repo.get_participant(participant_id)
+    if target is None or target.session_id != session_id:
+        raise HTTPException(404, "participant not found in session")
+    if target.provider == "human":
+        raise HTTPException(400, "Only AI participants can be reset or released")
+    return target
+
+
+async def _audit_reset(
+    request: Request,
+    caller: Participant,
+    target: Participant,
+) -> None:
+    """Log a reset_ai_credentials entry with the previous key's last 4 chars."""
+    await request.app.state.log_repo.log_admin_action(
+        session_id=caller.session_id,
+        facilitator_id=caller.id,
+        action="reset_ai_credentials",
+        target_id=target.id,
+        previous_value=_key_tail(target.api_key_encrypted),
+        new_value="rekeyed",
+    )
+
+
+async def _audit_release(
+    request: Request,
+    caller: Participant,
+    target: Participant,
+    reason: str,
+) -> None:
+    """Log a release_ai_slot entry capturing the prior status + optional reason."""
+    await request.app.state.log_repo.log_admin_action(
+        session_id=caller.session_id,
+        facilitator_id=caller.id,
+        action="release_ai_slot",
+        target_id=target.id,
+        previous_value=target.status,
+        new_value=reason or "reset",
+    )
+
+
+def _key_tail(encrypted: str | None) -> str:
+    """Return a short identifier for the prior key for forensic audit.
+
+    The stored value is Fernet ciphertext, not the plaintext key, so
+    "last 4 chars of ciphertext" is the cheapest signal that uniquely
+    identifies which key was rotated without ever revealing it.
+    """
+    if not encrypted:
+        return "none"
+    return f"...{encrypted[-4:]}"
 
 
 @router.post("/revoke_token")
