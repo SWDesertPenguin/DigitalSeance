@@ -5,15 +5,17 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from src.mcp_server.middleware import get_current_participant
+from src.mcp_server.tools.participant import MAX_MESSAGE_CONTENT_CHARS
 from src.models.participant import Participant
 from src.orchestrator.branch import get_main_branch_id
 
 router = APIRouter(prefix="/tools/facilitator", tags=["facilitator"])
 
 _SWAGGER_PLACEHOLDER = "string"
+_MAX_REJECT_REASON_CHARS = 2_000
 
 
 class _AddParticipantBody(BaseModel):
@@ -897,14 +899,14 @@ class _RejectDraftBody(BaseModel):
     """Request body for rejecting a draft."""
 
     draft_id: str
-    reason: str = ""
+    reason: str = Field("", max_length=_MAX_REJECT_REASON_CHARS)
 
 
 class _EditDraftBody(BaseModel):
     """Request body for editing a draft before approval."""
 
     draft_id: str
-    edited_content: str
+    edited_content: str = Field(..., min_length=1, max_length=MAX_MESSAGE_CONTENT_CHARS)
 
 
 @router.post("/approve_draft")
