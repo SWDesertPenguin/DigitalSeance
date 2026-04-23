@@ -28,7 +28,7 @@ The loop isn't just round-robin prompting. Three mechanisms keep conversations p
 
 ## Further Details
 
-See the [Executive Summary](SACP-Exec-Summary.md) for a detailed overview.
+See the [Wiki](https://github.com/SWDesertPenguin/DigitalSeance/wiki) for more details.
 
 
 ## License
