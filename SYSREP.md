@@ -195,4 +195,4 @@ All 11 validation gates fully pass:
 - `docs/testing-runbook.md` — general testing runbook.
 - `docs/AI_attack_surface_analysis_for_SACP_orchestrator.md` — threat-model analysis.
 - `docs/sacp-design.md`, `docs/sacp-system-prompts.md`, `docs/sacp-use-cases.md`, `docs/sacp-communication-topologies.md` — design docs.
-- `wiki/` — short-form index for the GitHub wiki.
+- GitHub wiki — hosted at `https://github.com/SWDesertPenguin/DigitalSeance.wiki.git` (separate repo, not part of the main tree).
