@@ -1662,13 +1662,21 @@ function ProposalCreator({ onClose, onCreate }) {
   );
 }
 
+const MAX_MSG_CHARS = 65_536; // mirrors server-side MAX_MESSAGE_CONTENT_CHARS
+
 function MessageInput({ onSend, disabled }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const remaining = MAX_MSG_CHARS - text.length;
+  const counterClass = remaining <= 200 ? "char-counter danger"
+    : remaining <= 2000 ? "char-counter warn"
+    : "char-counter dim";
+  const atLimit = text.length >= MAX_MSG_CHARS;
+
   const send = async () => {
     const trimmed = text.trim();
-    if (!trimmed || busy) return;
+    if (!trimmed || busy || atLimit) return;
     setBusy(true);
     try {
       await onSend(trimmed);
@@ -1695,11 +1703,13 @@ function MessageInput({ onSend, disabled }) {
         onKeyDown={onKeyDown}
         placeholder="Type a message — Ctrl+Enter to send"
         disabled={disabled || busy}
+        maxLength={MAX_MSG_CHARS}
         rows={3}
       />
       <div className="input-actions">
         <span className="dim">Ctrl+Enter to send</span>
-        <button onClick={send} className={busy ? "busy" : ""} disabled={disabled || busy || !text.trim()}>
+        <span className={counterClass}>{remaining.toLocaleString()} / {MAX_MSG_CHARS.toLocaleString()}</span>
+        <button onClick={send} className={busy ? "busy" : ""} disabled={disabled || busy || !text.trim() || atLimit}>
           {busy ? "Sending" : "Send"}
         </button>
       </div>

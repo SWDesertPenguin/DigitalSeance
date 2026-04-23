@@ -339,6 +339,10 @@ main.scaffold {
   font-size: 0.85em;
 }
 
+.char-counter { font-variant-numeric: tabular-nums; }
+.char-counter.warn { color: var(--warning); }
+.char-counter.danger { color: var(--danger); font-weight: 600; }
+
 /* ========== Modal ========== */
 
 .modal-overlay {
