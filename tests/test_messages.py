@@ -231,3 +231,39 @@ async def test_get_summaries_filters_by_type(
     summaries = await repo.get_summaries(session_id, branch_id)
     assert len(summaries) == 1
     assert summaries[0].speaker_type == "summary"
+
+
+async def _seed_mixed_rows(
+    repo: MessageRepository,
+    session_id: str,
+    speaker_id: str,
+    branch_id: str,
+) -> None:
+    """Insert one human, two AI, and one summary row in the given branch."""
+    rows = [("human", "h0"), ("ai", "a1"), ("summary", '{"n":"s2"}'), ("ai", "a3")]
+    for speaker_type, content in rows:
+        await repo.append_message(
+            session_id=session_id,
+            branch_id=branch_id,
+            speaker_id=speaker_id,
+            speaker_type=speaker_type,
+            content=content,
+            token_count=1,
+            complexity_score="low",
+        )
+
+
+async def test_get_range_excludes_speaker_types(
+    repo: MessageRepository,
+    session_and_speaker: tuple[str, str, str],
+) -> None:
+    """get_range(exclude_speaker_types=[...]) filters out the requested types."""
+    session_id, speaker_id, branch_id = session_and_speaker
+    await _seed_mixed_rows(repo, session_id, speaker_id, branch_id)
+    kwargs = {"start_turn": 0, "end_turn": 100}
+    full = await repo.get_range(session_id, branch_id, **kwargs)
+    filtered = await repo.get_range(
+        session_id, branch_id, **kwargs, exclude_speaker_types=["summary"]
+    )
+    assert [m.speaker_type for m in full] == ["human", "ai", "summary", "ai"]
+    assert [m.speaker_type for m in filtered] == ["human", "ai", "ai"]

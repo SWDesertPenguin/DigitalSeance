@@ -261,6 +261,26 @@ function reducer(state, action) {
       const nextMe = isSelf ? { ...state.me, role: updated.role } : state.me;
       return { ...state, participants: [...others, updated], me: nextMe };
     }
+    case "participant_removed": {
+      // Row was hard-deleted server-side (reject_participant). Drop it
+      // from local state so the pending/participant lists refresh
+      // without a page reload.
+      const removedId = action.event.participant_id;
+      return {
+        ...state,
+        participants: state.participants.filter((p) => p.id !== removedId),
+      };
+    }
+    case "participant_restore":
+      // Client-only: re-insert a participant we optimistically removed
+      // when the server call turned out to fail.
+      return {
+        ...state,
+        participants: [
+          ...state.participants.filter((p) => p.id !== action.participant.id),
+          action.participant,
+        ],
+      };
     case "session_status_changed":
       return { ...state, session: { ...(state.session || {}), status: action.event.status } };
     case "session_updated":
@@ -1057,16 +1077,15 @@ function BudgetCard({ p, me, isFacilitator, onSetBudget }) {
   const showDollars = isFacilitator || isSelf || isMyAI;
   const canEdit = isFacilitator || isMyAI;
   const [editing, setEditing] = useState(false);
-  const daily = p.budget_daily;
-  const spend = p.spend_daily ?? 0;
-  const utilization = daily ? Math.min(1, spend / daily) : null;
+  const { cap, spend, label } = _activeBudget(p);
+  const utilization = cap ? Math.min(1, spend / cap) : null;
   return (
     <div className="budget-card">
       <div className="p-row">
         <strong>{p.display_name}</strong>
         {showDollars && (
           <span className="dim">
-            ${fmtDollars(spend)}{daily ? ` / $${fmtDollars(daily)}` : " (no cap)"}
+            ${fmtDollars(spend)}{cap ? ` / $${fmtDollars(cap)} (${label})` : " (no cap)"}
           </span>
         )}
         {canEdit && !editing && (
@@ -1087,6 +1106,19 @@ function BudgetCard({ p, me, isFacilitator, onSetBudget }) {
       )}
     </div>
   );
+}
+
+function _activeBudget(p) {
+  // Prefer daily when both are set (longer window gives more useful context).
+  // Falls back to hourly when only hourly is configured — previously the UI
+  // mis-labeled hourly-only budgets as "no cap" (Test06-Web06).
+  if (p.budget_daily != null) {
+    return { cap: p.budget_daily, spend: p.spend_daily ?? 0, label: "daily" };
+  }
+  if (p.budget_hourly != null) {
+    return { cap: p.budget_hourly, spend: p.spend_hourly ?? 0, label: "hourly" };
+  }
+  return { cap: null, spend: p.spend_daily ?? 0, label: "" };
 }
 
 function BudgetEditor({ p, onSave, onClose }) {
@@ -1647,6 +1679,7 @@ function SessionControls({ session, isFacilitator, onAction, onSummarize, onRevi
   if (!isFacilitator) return null;
   const canStart = session?.status === "active";
   const allInGate = session?.all_ais_in_review_gate;
+  const [summarizing, setSummarizing] = useState(false);
   const onArchive = () => {
     if (!confirm(
       "Archive this session?\n\n" +
@@ -1656,6 +1689,11 @@ function SessionControls({ session, isFacilitator, onAction, onSummarize, onRevi
     onAction("archive");
   };
   const toggleGate = () => onReviewGateAll(allInGate ? "always" : "review_gate");
+  const runSummarize = async () => {
+    if (summarizing) return;
+    setSummarizing(true);
+    try { await onSummarize(); } finally { setSummarizing(false); }
+  };
   return (
     <section className="panel session-controls">
       <h2>Session</h2>
@@ -1674,8 +1712,9 @@ function SessionControls({ session, isFacilitator, onAction, onSummarize, onRevi
         <button onClick={() => onAction("resume")}>Resume</button>
       </div>
       <div className="button-row">
-        <button onClick={onSummarize} title="Force a summary checkpoint now">
-          Summarize now
+        <button onClick={runSummarize} disabled={summarizing}
+          title="Force a summary checkpoint now">
+          {summarizing ? "Summarizing…" : "Summarize now"}
         </button>
         <button onClick={toggleGate}
           title="Flip every AI between review-gated and always-on routing">
@@ -1957,6 +1996,9 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   const onRemoveParticipant = async (p) => {
     const label = p.display_name || p.id;
     if (!confirm(`Remove ${label} from this session?`)) return;
+    // Optimistic removal: drop the row from local state so the UI updates
+    // immediately; if the server rejects, restore the original snapshot.
+    dispatch({ type: "participant_removed", event: { participant_id: p.id } });
     try {
       await mcpCall(
         `/tools/facilitator/remove_participant?participant_id=${encodeURIComponent(p.id)}`,
@@ -1964,6 +2006,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
         { method: "POST" },
       );
     } catch (e) {
+      dispatch({ type: "participant_restore", participant: p });
       alert(`Remove failed: ${e.message}`);
     }
   };
@@ -2027,7 +2070,22 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     await mcpCall(`/tools/facilitator/approve_participant?participant_id=${encodeURIComponent(pid)}`, auth.token, { method: "POST" });
   };
   const rejectParticipant = async (pid) => {
-    await mcpCall(`/tools/facilitator/reject_participant?participant_id=${encodeURIComponent(pid)}`, auth.token, { method: "POST" });
+    // Optimistic removal: reject hard-deletes the row, so drop it from local
+    // state immediately. The server will also broadcast participant_removed,
+    // but the optimistic path prevents the 10-click/9x-400 pathology we saw
+    // in Test06-Web06 where users kept clicking a stale row.
+    const prev = state.participants.find((p) => p.id === pid);
+    dispatch({ type: "participant_removed", event: { participant_id: pid } });
+    try {
+      await mcpCall(
+        `/tools/facilitator/reject_participant?participant_id=${encodeURIComponent(pid)}`,
+        auth.token,
+        { method: "POST" },
+      );
+    } catch (e) {
+      if (prev) dispatch({ type: "participant_restore", participant: prev });
+      alert(`Reject failed: ${e.message}`);
+    }
   };
   const createInvite = async (maxUses) => {
     return await mcpCall(`/tools/facilitator/create_invite?max_uses=${maxUses}`, auth.token, { method: "POST" });
