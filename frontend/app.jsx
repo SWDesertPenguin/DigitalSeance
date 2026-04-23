@@ -638,6 +638,24 @@ function SelfTokenModal({ token, onClose }) {
   );
 }
 
+function AddedParticipantTokenModal({ entry, onClose }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal token-reveal" onClick={(ev) => ev.stopPropagation()}>
+        <h2>Token for {entry.display_name}</h2>
+        <p className="dim">
+          Give this to them privately — it's their API key, and it won't be
+          shown again. They'll paste it into the login screen to join.
+        </p>
+        <CopyableToken token={entry.token} />
+        <div className="modal-actions">
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CopyableToken({ token }) {
   // Shared clipboard surface for token + invite display. navigator.clipboard
   // often fails silently under LAN/HTTP or strict CSP; we fall back to a
@@ -681,7 +699,16 @@ function RequestJoinForm({ onLogin, onBack }) {
         body: { session_id: sid.trim(), display_name: name.trim() },
       });
       onLogin(await _loginWithToken(result.auth_token));
-    } catch (e) { setError(e.message || "Request failed"); }
+    } catch (e) {
+      const msg = e.message || "Request failed";
+      if (msg.startsWith("404")) {
+        setError("No active session with that ID. Check the ID and try again.");
+      } else if (msg.startsWith("409")) {
+        setError("That session isn't accepting new joins right now (paused or archived).");
+      } else {
+        setError(msg);
+      }
+    }
     finally { setBusy(false); }
   };
   return (
@@ -1903,12 +1930,23 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editDraft, setEditDraft] = useState(null);
   const [rotatedToken, setRotatedToken] = useState(null);
-  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || "dark");
+  const [addedToken, setAddedToken] = useState(null);
+  const [theme, setTheme] = useState(() => {
+    try {
+      const stored = localStorage.getItem("sacp-theme");
+      if (stored === "dark" || stored === "light") {
+        document.documentElement.dataset.theme = stored;
+        return stored;
+      }
+    } catch { /* Safari private mode, etc. — fall back silently */ }
+    return document.documentElement.dataset.theme || "dark";
+  });
 
   const toggleTheme = () => {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
     document.documentElement.dataset.theme = next;
+    try { localStorage.setItem("sacp-theme", next); } catch { /* persistence best-effort */ }
   };
 
   const exportTranscript = async (format) => {
@@ -1991,10 +2029,13 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     // Facilitator path supports adding humans + AIs; non-facilitators use
     // the narrower /tools/participant/add_ai endpoint (AI-only, sponsored).
     if (isFacilitator) {
-      await mcpCall("/tools/facilitator/add_participant", auth.token, {
+      const result = await mcpCall("/tools/facilitator/add_participant", auth.token, {
         method: "POST",
         body: form,
       });
+      if (form.provider === "human" && result?.auth_token) {
+        setAddedToken({ display_name: form.display_name, token: result.auth_token });
+      }
       return;
     }
     if (form.provider === "human") {
@@ -2305,6 +2346,9 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
       )}
       {rotatedToken && (
         <SelfTokenModal token={rotatedToken} onClose={() => setRotatedToken(null)} />
+      )}
+      {addedToken && (
+        <AddedParticipantTokenModal entry={addedToken} onClose={() => setAddedToken(null)} />
       )}
     </div>
   );
