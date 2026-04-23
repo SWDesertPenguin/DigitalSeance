@@ -1,6 +1,6 @@
 ﻿# SACP Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-04-20
+Auto-generated from all feature plans. Last updated: 2026-04-22
 
 ## Active Technologies
 - Python 3.11+ (constitution §6.1) + FastAPI, asyncpg, Alembic, cryptography (Fernet), bcrypt (001-core-data-model)
@@ -9,11 +9,12 @@ Auto-generated from all feature plans. Last updated: 2026-04-20
 - litellm>=1.83.0, 8-mode routing, circuit breaker (003-turn-loop-engine)
 - sentence-transformers, numpy — SafeTensors only (004-convergence-cadence)
 - Structured JSON summarization via cheapest model (005-summarization-checkpoints)
-- FastAPI SSE server, 25 endpoints, port 8750 (006-mcp-server)
+- FastAPI SSE server, ~47 MCP endpoints, port 8750 (006-mcp-server)
 - 7-layer security pipeline — sanitization, spotlighting, validation, exfiltration, jailbreak, prompt defense, log scrubbing (007-ai-security-pipeline)
 - 4-tier delta system prompts with canary tokens (008-prompts-security-wiring)
 - Per-participant rate limiting, 60 req/min default (009-rate-limiting)
-- Web UI: FastAPI app on port 8751, WebSocket /ws/{session_id}, single-file React SPA via CDN + SRI pins (011-web-ui)
+- Review-gate pause scope (session / participant) configurable at create + mid-session (010)
+- Web UI: FastAPI app on port 8751, WebSocket /ws/{session_id} with v1 event envelope, single-file React SPA via CDN + SRI pins, HttpOnly+Secure+SameSite=Strict signed cookies (011-web-ui)
 
 ## Project Structure
 
@@ -42,7 +43,13 @@ cd src; pytest; ruff check .
 Python 3.11+ (constitution §6.1): Follow standard conventions
 
 ## Recent Changes
-- 011-web-ui: Phase 2 COMPLETE (2026-04-20) — 10 user stories shipped on port 8751, React SPA with CDN+SRI, strict CSP, HttpOnly cookie auth, WebSocket v1 event envelope, dashboards + review gate + admin + proposals
+- Test06-Web06 sweep (2026-04-22, PR #110) — summary feedback loop closed (speaker-type filter + watermark to max source_turn), participant_removed event for reject refresh, hourly-only budget cap renders correctly
+- Test06-Web05 sweep (2026-04-22, PR #108) — archive auto-summary runs before status flip, summarize_now per-session lock, addressed_only routing matches @name or name as word
+- Test06-Web04 sweep (2026-04-22, PR #106) — re-login after logout (cookie carries token, /me no longer rotates), budget 0 = no cap, currency formatting, Summarize-now + Review-gate-all + Archive-confirm controls, session ID visible
+- Test06-Web03 sweep (2026-04-22, PR #105) — rotate_my_token cascade fix, sponsor perms for budget/routing, revoke boot-out, display-name dedupe 409s, facilitator prefix swap on transfer
+- Session-restore + transfer broadcasts (PR #103) — cookie F5 restore, transfer_facilitator broadcasts both sides, Show-my-token
+- docs/red-team-runbook.md — 70+ attacks keyed to the 7-layer security pipeline
+- 011-web-ui: Phase 2 COMPLETE (2026-04-20) — 10 user stories shipped on port 8751, React SPA with CDN+SRI, strict CSP, HttpOnly cookie auth, WebSocket v1 event envelope
 - Phase 1 COMPLETE (2026-04-20) — all scenario tests pass after PR #84
 - 010 review-gate pause scope — facilitator-configurable session/participant pause, dispatch-pause while drafts pending
 - 009-rate-limiting: Per-participant rate limiting middleware
