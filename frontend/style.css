@@ -223,7 +223,8 @@ main.scaffold {
 }
 
 .participant-card.role-facilitator { border-left: 3px solid var(--accent); }
-.participant-card.status-paused, .participant-card.status-offline {
+.participant-card.status-paused, .participant-card.status-offline,
+.participant-card.status-reset {
   opacity: 0.7;
 }
 
@@ -437,6 +438,11 @@ main.scaffold {
 .badge-pending {
   background: var(--warning);
   color: #432;
+}
+
+.badge-reset {
+  background: var(--muted);
+  color: var(--bg);
 }
 
 /* ========== Hardened markdown artifacts (US8) ========== */

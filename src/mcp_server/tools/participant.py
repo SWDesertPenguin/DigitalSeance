@@ -259,10 +259,18 @@ async def _reject_duplicate_ai_in_session(
     session_id: str,
     body: _AddAIBody,
 ) -> None:
-    """Mirror of the facilitator endpoint's dedupe guard."""
+    """Mirror of the facilitator endpoint's dedupe guard.
+
+    Shares the 'departed' statuses with the facilitator guard so a
+    released ('reset') or offline slot frees the provider+model pair.
+    """
+    from src.mcp_server.tools.facilitator import _DEPARTED_STATUSES
+
     existing = await p_repo.list_participants(session_id)
     for p in existing:
-        if p.provider == body.provider and p.model == body.model and p.status != "removed":
+        if p.status in _DEPARTED_STATUSES:
+            continue
+        if p.provider == body.provider and p.model == body.model:
             raise HTTPException(
                 409,
                 f"A participant with provider={body.provider}, model={body.model} "
