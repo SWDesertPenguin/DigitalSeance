@@ -79,7 +79,7 @@ The codebase enforces a strict secure development pipeline: pre-commit hooks (gi
 
 **Phase 1 COMPLETE** (2026-04-20) — all scenario tests pass. Core data model, participant auth, turn loop engine, convergence detection, summarization checkpoints, MCP server, AI security pipeline, and rate limiting all shipped.
 
-**Phase 2 COMPLETE** (2026-04-20 through 2026-04-22) — Web UI on port 8751 with 10 user stories delivered. Six post-release shakedown sweeps (Test06-Web01 through Test06-Web06) have each produced a fix PR landing in `main`:
+**Phase 2 COMPLETE** (2026-04-20 through 2026-04-23) — Web UI on port 8751 with 10 user stories delivered. Seven post-release shakedown sweeps (Test06-Web01 through Test06-Web07) have each produced a fix PR landing in `main`:
 
 - Guest landing, invite redeem, cookie-based F5 session restore
 - Transfer facilitator (role + display-name prefix + broadcast to both sides)
@@ -92,8 +92,11 @@ The codebase enforces a strict secure development pipeline: pre-commit hooks (gi
 - Summary feedback loop closed (summaries excluded from own input; watermark advances to max source_turn)
 - Reject-participant refresh (new `participant_removed` event; optimistic UI removal)
 - Hourly-only budget cap renders correctly
+- Review-gate is now one-shot: after draft approval/rejection/edit the AI auto-reverts to its pre-gate routing (cached in ConversationLoop); bulk `set_routing_all_ais` captures per-AI priors in a single transaction
+- Removing a human cascades to every AI they sponsored (prevents orphan-AI API spend)
+- Rejected pending users see a "Request declined" notice and redirect to the guest landing instead of sitting in limbo
 
-Shakedown-tester documentation lives in [docs/user-guide.md](docs/user-guide.md). The red-team runbook ([docs/red-team-runbook.md](docs/red-team-runbook.md)) has 70+ attacks keyed to the seven-layer pipeline for re-running after any security change.
+Shakedown-tester documentation lives in [docs/user-guide.md](docs/user-guide.md). The red-team runbook ([docs/red-team-runbook.md](docs/red-team-runbook.md)) has 70+ attacks keyed to the seven-layer pipeline for re-running after any security change. Section 5.4 (multi-turn jailbreak escalation via fictional framing) is a **known weakness** on `gpt-4o-mini`; Haiku held under the same test. Mitigation candidates documented in the runbook, not yet implemented.
 
 **Phase 3 (planned)** — branching UI + sub-sessions, OAuth 2.1 with PKCE, MCP-to-MCP topology 7, local model support (Ollama/vLLM per-participant URL), Vaire shared-memory integration, step-up authorization. Will require a new Speckit cycle (`012-...`) when pursued.
 
