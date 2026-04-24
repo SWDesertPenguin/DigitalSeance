@@ -61,6 +61,8 @@ class ContextAssembler:
         budget = _available_budget(participant)
         context: list[ContextMessage] = []
         used = _add_system_prompt(context, participant)
+        roster = await self._fetch_roster(session_id)
+        used = _add_participant_roster(context, roster, participant.id, used)
         used = await self._add_priorities(
             context,
             session_id,
@@ -68,8 +70,25 @@ class ContextAssembler:
             budget,
             participant=participant,
             interjections=interjections,
+            roster=roster,
         )
         return _reorder_chronologically(context)
+
+    async def _fetch_roster(self, session_id: str) -> dict[str, dict[str, str]]:
+        """Lightweight participant lookup: id → {display_name, provider}.
+
+        Used by the prompt assembler so AIs can see *who* said *what*
+        with type disambiguation (human vs AI:provider) — today the
+        prompt only carries `<sacp:human>` / `<sacp:ai>` tags without
+        names, so multi-AI sessions can't reliably address a specific
+        peer or distinguish human voices from each other.
+        """
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT id, display_name, provider FROM participants WHERE session_id = $1",
+                session_id,
+            )
+        return {r["id"]: dict(r) for r in rows}
 
     async def _add_priorities(
         self,
@@ -80,30 +99,25 @@ class ContextAssembler:
         *,
         participant: Participant,
         interjections: list | None = None,
+        roster: dict[str, dict[str, str]] | None = None,
     ) -> int:
         """Add P2-P6 content in priority order."""
         bid = await get_main_branch_id(self._pool, session_id)
         if interjections is None:
             interjections = await self._int_repo.get_pending(session_id)
         used = _add_interjections(context, interjections, used)
-        used = _add_proposals(
-            context,
-            await self._prop_repo.get_open_proposals(session_id),
-            used,
-        )
+        proposals = await self._prop_repo.get_open_proposals(session_id)
+        used = _add_proposals(context, proposals, used)
         recent = await self._msg_repo.get_recent(session_id, bid, MVC_FLOOR_TURNS)
-        used = _add_messages(context, recent, used, budget, speaker_id=participant.id)
+        used = _add_messages(
+            context, recent, used, budget, speaker_id=participant.id, roster=roster
+        )
         summaries = await self._msg_repo.get_summaries(session_id, bid)
         if summaries:
             used = _add_summary(context, summaries[-1], used, budget)
         if used < budget:
             await self._fill_history(
-                context,
-                session_id,
-                used,
-                budget,
-                recent,
-                speaker_id=participant.id,
+                context, session_id, used, budget, recent, speaker_id=participant.id, roster=roster
             )
         return used
 
@@ -116,11 +130,12 @@ class ContextAssembler:
         already: list[Message],
         *,
         speaker_id: str,
+        roster: dict[str, dict[str, str]] | None = None,
     ) -> None:
         """Fill remaining budget with additional history."""
         bid = await get_main_branch_id(self._pool, session_id)
         more = await self._msg_repo.get_recent(session_id, bid, _history_turns())
-        _add_history(context, more, used, budget, already, speaker_id=speaker_id)
+        _add_history(context, more, used, budget, already, speaker_id=speaker_id, roster=roster)
 
 
 def _reorder_chronologically(context: list[ContextMessage]) -> list[ContextMessage]:
@@ -206,10 +221,11 @@ def _add_messages(
     budget: int,
     *,
     speaker_id: str,
+    roster: dict[str, dict[str, str]] | None = None,
 ) -> int:
     """Add messages with sanitization + conditional spotlighting."""
     for msg in messages:
-        content = _secure_content(msg, speaker_id)
+        content = _secure_content(msg, speaker_id, roster)
         tokens = _estimate_tokens(content)
         if used + tokens > budget:
             break
@@ -219,21 +235,52 @@ def _add_messages(
     return used
 
 
-def _secure_content(msg: Message, current_speaker_id: str) -> str:
+def _secure_content(
+    msg: Message,
+    current_speaker_id: str,
+    roster: dict[str, dict[str, str]] | None = None,
+) -> str:
     """Sanitize, tag, and spotlight messages.
 
     For same-speaker (self) messages we skip both the <sacp:TYPE> tag
     and spotlighting — the role field (assistant/user) already carries
     that signal, the XML-like wrapper just confuses smaller models and
     the trust boundary doesn't exist when you're reading your own output.
+
+    Non-self messages get a `[<display_name>]` prefix when a roster is
+    supplied, so the consuming AI can address peers by name and tell
+    multiple humans apart from each other (and from each other AI).
     """
     cleaned = sanitize(msg.content)
     if msg.speaker_id == current_speaker_id:
         return cleaned
-    tagged = f"<sacp:{msg.speaker_type}>{cleaned}"
+    speaker_label = _speaker_label(msg.speaker_id, roster)
+    body = f"[{speaker_label}] {cleaned}" if speaker_label else cleaned
+    tagged = f"<sacp:{msg.speaker_type}>{body}"
     if should_spotlight(msg.speaker_type):
         return spotlight(tagged, msg.speaker_id)
     return tagged
+
+
+def _speaker_label(
+    speaker_id: str,
+    roster: dict[str, dict[str, str]] | None,
+) -> str | None:
+    """Return a `name (kind)` label for a participant; None if unknown.
+
+    Kind = `human` for provider='human', `AI:provider` otherwise. Kept
+    short to bound prompt overhead — running labels add up across long
+    transcripts even though the per-line cost is small.
+    """
+    if not roster:
+        return None
+    info = roster.get(speaker_id)
+    if not info:
+        return None
+    name = info.get("display_name") or speaker_id
+    provider = info.get("provider") or ""
+    kind = "human" if provider == "human" else f"AI:{provider}"
+    return f"{name} ({kind})"
 
 
 def _add_summary(
@@ -261,6 +308,7 @@ def _add_history(
     already_added: list[Message],
     *,
     speaker_id: str,
+    roster: dict[str, dict[str, str]] | None = None,
 ) -> None:
     """Fill remaining budget with additional history."""
     added_turns = {m.turn_number for m in already_added}
@@ -271,10 +319,34 @@ def _add_history(
         if used + tokens > budget:
             break
         role = _message_role(msg.speaker_type, msg.speaker_id, speaker_id)
-        content = _secure_content(msg, speaker_id)
+        content = _secure_content(msg, speaker_id, roster)
         context.append(ContextMessage(role, content, msg.turn_number))
         used += tokens
         added_turns.add(msg.turn_number)
+
+
+def _add_participant_roster(
+    context: list[ContextMessage],
+    roster: dict[str, dict[str, str]],
+    self_id: str,
+    used: int,
+) -> int:
+    """Inject a system-level roster so AIs know who's in the room."""
+    lines = [_roster_line(p, self_id == p["id"]) for p in roster.values()]
+    if not lines:
+        return used
+    body = "[Participants]\n" + "\n".join(lines)
+    context.append(ContextMessage("system", body, None))
+    return used + _estimate_tokens(body)
+
+
+def _roster_line(p: dict[str, str], is_self: bool) -> str:
+    """Format one roster entry with type marker + (you) flag for the speaker."""
+    name = p.get("display_name") or p.get("id") or "?"
+    provider = p.get("provider") or ""
+    kind = "human" if provider == "human" else f"AI:{provider}"
+    suffix = " (you)" if is_self else ""
+    return f"- {name} ({kind}){suffix}"
 
 
 def _message_role(

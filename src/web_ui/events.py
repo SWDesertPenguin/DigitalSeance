@@ -108,6 +108,48 @@ def audit_entry_event(entry: dict[str, Any]) -> dict[str, Any]:
     return _envelope("audit_entry", entry=entry)
 
 
+def ai_question_opened_event(
+    *,
+    participant_id: str,
+    turn_number: int,
+    questions: list[str],
+) -> dict[str, Any]:
+    """An AI's turn contained a question that looks like an open prompt.
+
+    Detected by the heuristics in src.orchestrator.signals; surfaced
+    in the Web UI's "Open AI questions" panel so humans don't miss
+    questions that scrolled past while the loop kept dispatching.
+    """
+    return _envelope(
+        "ai_question_opened",
+        participant_id=participant_id,
+        turn_number=turn_number,
+        questions=questions,
+        at=datetime.utcnow().isoformat(),
+    )
+
+
+def ai_exit_requested_event(
+    *,
+    participant_id: str,
+    turn_number: int,
+    phrase: str,
+) -> dict[str, Any]:
+    """An AI signaled voluntary exit ('I'm stepping back', etc.).
+
+    Advisory only — the facilitator decides whether to honor by flipping
+    the AI's routing_preference to observer. Captures the exact phrase
+    so the facilitator can sanity-check the detection.
+    """
+    return _envelope(
+        "ai_exit_requested",
+        participant_id=participant_id,
+        turn_number=turn_number,
+        phrase=phrase,
+        at=datetime.utcnow().isoformat(),
+    )
+
+
 def proposal_created_event(
     proposal: dict[str, Any],
     tally: dict[str, int] | None = None,
