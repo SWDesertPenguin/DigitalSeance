@@ -235,6 +235,62 @@ main.scaffold {
 .badge { font-size: 0.75em; padding: 0.05em 0.4em; border-radius: 3px; }
 .badge-you { background: var(--accent); color: #001826; }
 
+.p-exit-banner {
+  margin-top: 0.4em;
+  padding: 0.3em 0.5em;
+  background: rgba(255, 209, 102, 0.12);
+  border: 1px solid var(--warning);
+  border-radius: 4px;
+  font-size: 0.8em;
+}
+
+.p-exit-banner .exit-actions {
+  display: inline-flex;
+  gap: 0.3em;
+  margin-left: 0.4em;
+}
+
+.p-exit-banner .small {
+  font-size: 0.75em;
+  padding: 0.1em 0.4em;
+  background: var(--panel-alt);
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+
+.ai-questions-panel ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.ai-questions-panel li {
+  padding: 0.4em 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: 0.85em;
+}
+
+.ai-questions-panel .q-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+  margin-bottom: 0.2em;
+}
+
+.ai-questions-panel .q-meta .small {
+  margin-left: auto;
+  font-size: 0.75em;
+  padding: 0.05em 0.4em;
+  background: var(--panel-alt);
+  color: var(--ok);
+  border: 1px solid var(--border);
+}
+
+.ai-questions-panel .q-body {
+  color: var(--fg);
+  line-height: 1.4;
+}
+
 /* ========== Session controls ========== */
 
 .session-controls .button-row {
