@@ -520,7 +520,61 @@ async def _persist_turn(
     await _sync_current_turn(ctx.pool, ctx.session_id, msg.turn_number)
     await _emit_message_to_web_ui(ctx.session_id, msg, response.cost_usd)
     await _emit_spend_update(ctx, speaker.id)
+    await _emit_ai_signals(ctx, speaker, msg)
     return _turn_result(ctx.session_id, msg.turn_number, speaker, decision, response)
+
+
+async def _emit_ai_signals(
+    ctx: _TurnContext,
+    speaker: object,
+    msg: object,
+) -> None:
+    """Detect open questions / exit-intent in AI output and broadcast WS events.
+
+    Heuristic detectors live in src.orchestrator.signals. False positives
+    are intentionally cheap — both events are advisory: the question
+    panel surfaces them for humans to resolve, and the exit badge waits
+    for the facilitator to click "honor" (flip to observer). Nothing
+    auto-mutes the AI based on detection alone.
+    """
+    from src.orchestrator.signals import detect_exit_intent, extract_questions
+    from src.web_ui.events import ai_exit_requested_event, ai_question_opened_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    roster = await _fetch_signal_roster(ctx.pool, ctx.session_id)
+    questions = extract_questions(msg.content, roster)
+    exit_phrase = detect_exit_intent(msg.content)
+    if questions:
+        await broadcast_to_session(
+            ctx.session_id,
+            ai_question_opened_event(
+                participant_id=speaker.id,
+                turn_number=msg.turn_number,
+                questions=questions,
+            ),
+        )
+    if exit_phrase:
+        await broadcast_to_session(
+            ctx.session_id,
+            ai_exit_requested_event(
+                participant_id=speaker.id,
+                turn_number=msg.turn_number,
+                phrase=exit_phrase,
+            ),
+        )
+
+
+async def _fetch_signal_roster(
+    pool: asyncpg.Pool,
+    session_id: str,
+) -> dict[str, dict[str, str]]:
+    """Lightweight participant lookup for question-detection name matching."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, display_name, provider FROM participants WHERE session_id = $1",
+            session_id,
+        )
+    return {r["id"]: dict(r) for r in rows}
 
 
 async def _emit_message_to_web_ui(
