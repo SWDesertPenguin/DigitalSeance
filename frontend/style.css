@@ -654,6 +654,43 @@ main.scaffold {
 .pill-pending { background: rgba(255, 209, 102, 0.2); color: var(--warning); }
 .pill-rejected { background: rgba(255, 110, 110, 0.2); color: var(--danger); }
 
+.summary-actions {
+  display: flex;
+  gap: 0.4em;
+  margin-top: 0.6em;
+}
+
+.summary-actions .small {
+  font-size: 0.75em;
+  padding: 0.2em 0.5em;
+  background: var(--panel-alt);
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+
+.summary-history {
+  margin-top: 0.8em;
+  font-size: 0.85em;
+}
+
+.summary-history > summary {
+  cursor: pointer;
+  color: var(--muted);
+  list-style: revert;
+}
+
+.summary-history-entry {
+  margin-top: 0.6em;
+  padding-top: 0.6em;
+  border-top: 1px dashed var(--border);
+}
+
+.summary-history-entry h4 {
+  margin: 0 0 0.3em;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+
 /* ========== Review gate queue (US5) ========== */
 
 .review-gate-panel .panel-header,
