@@ -210,6 +210,13 @@ function initialState() {
     convergenceScores: [],
     auditEntries: [],      // Phase 2b: fed by T252 audit_entry WS events
     skipReasons: {},       // { participant_id: [{reason, timestamp}, ...] } (last 3 per pid)
+    // Open AI questions: list of {key, participant_id, turn_number,
+    // questions: [str], at}. Transient (not persisted server-side).
+    // Dismissed manually via "✓ resolved" button.
+    openAIQuestions: [],
+    // Exit requests: { participant_id: {turn_number, phrase, at} }.
+    // The facilitator can "honor" (flip routing to observer) or dismiss.
+    aiExitRequests: {},
     wsState: "connecting",
     authError: null,
     errors: [],
@@ -301,6 +308,37 @@ function reducer(state, action) {
       };
     case "summary_created":
       return { ...state, latestSummary: action.event.summary };
+    case "ai_question_opened": {
+      const { participant_id, turn_number, questions, at } = action.event;
+      const entries = (questions || []).map((q, i) => ({
+        key: `${participant_id}-${turn_number}-${i}`,
+        participant_id,
+        turn_number,
+        question: q,
+        at,
+      }));
+      return { ...state, openAIQuestions: [...state.openAIQuestions, ...entries] };
+    }
+    case "ai_question_dismissed":
+      return {
+        ...state,
+        openAIQuestions: state.openAIQuestions.filter((q) => q.key !== action.key),
+      };
+    case "ai_exit_requested": {
+      const { participant_id, turn_number, phrase, at } = action.event;
+      return {
+        ...state,
+        aiExitRequests: {
+          ...state.aiExitRequests,
+          [participant_id]: { turn_number, phrase, at },
+        },
+      };
+    }
+    case "ai_exit_dismissed": {
+      const next = { ...state.aiExitRequests };
+      delete next[action.participant_id];
+      return { ...state, aiExitRequests: next };
+    }
     case "audit_entry":
       // T252: keep a ring buffer of the last 100 facilitator actions.
       return {
@@ -863,8 +901,8 @@ function _participantBuckets(participants) {
 }
 
 function ParticipantList({
-  participants, me, skipReasons, isFacilitator,
-  onRemove, onRoutingChange, onResetAI, onReleaseAI,
+  participants, me, skipReasons, isFacilitator, exitRequests,
+  onRemove, onRoutingChange, onResetAI, onReleaseAI, onHonorExit, onDismissExit,
 }) {
   const byId = useMemo(
     () => Object.fromEntries(participants.map((p) => [p.id, p])),
@@ -874,7 +912,9 @@ function ParticipantList({
   const renderCard = (p) => (
     <ParticipantCard key={p.id} p={p} me={me} byId={byId} skipReasons={skipReasons}
       isFacilitator={isFacilitator} onRemove={onRemove} onRoutingChange={onRoutingChange}
-      onResetAI={onResetAI} onReleaseAI={onReleaseAI} />
+      onResetAI={onResetAI} onReleaseAI={onReleaseAI}
+      exitRequest={exitRequests?.[p.id]}
+      onHonorExit={onHonorExit} onDismissExit={onDismissExit} />
   );
   return (
     <section className="panel participant-list">
@@ -900,6 +940,7 @@ function ParticipantList({
 function ParticipantCard({
   p, me, byId, skipReasons, isFacilitator,
   onRemove, onRoutingChange, onResetAI, onReleaseAI,
+  exitRequest, onHonorExit, onDismissExit,
 }) {
   const inviter = p.invited_by ? byId[p.invited_by] : null;
   const inviterLabel = inviter ? inviter.display_name : null;
@@ -958,6 +999,19 @@ function ParticipantCard({
       {isAI && inviterLabel && (
         <div className="p-meta dim">
           <span>added by {inviterLabel}</span>
+        </div>
+      )}
+      {exitRequest && (
+        <div className="p-exit-banner" title={`Detected at turn ${exitRequest.turn_number}`}>
+          <span className="dim">wants to exit:</span> "{exitRequest.phrase}"
+          {isFacilitator && (
+            <span className="exit-actions">
+              <button type="button" className="small"
+                onClick={() => onHonorExit?.(p)}>Honor (→ observer)</button>
+              <button type="button" className="small"
+                onClick={() => onDismissExit?.(p.id)}>Dismiss</button>
+            </span>
+          )}
         </div>
       )}
       <div className="p-meta">
@@ -1542,6 +1596,37 @@ function AdminPanel({ participants, session, auditEntries, onApprove, onReject, 
           </details>
         </>
       )}
+    </section>
+  );
+}
+
+function AIQuestionsPanel({ questions, participants, onResolve }) {
+  // Surfaces AI-emitted questions that the heuristic detector flagged
+  // as plausibly aimed at a participant. Transient (not persisted on
+  // the server) — ephemeral signal that "this question is sitting
+  // unanswered" so humans don't lose direct prompts under fast turns.
+  if (!questions || questions.length === 0) return null;
+  const nameOf = (pid) => {
+    const p = participants.find((x) => x.id === pid);
+    return p ? p.display_name : pid;
+  };
+  return (
+    <section className="panel ai-questions-panel">
+      <h2>Open AI questions ({questions.length})</h2>
+      <ul className="ai-questions-list">
+        {questions.map((q) => (
+          <li key={q.key}>
+            <div className="q-meta">
+              <strong>{nameOf(q.participant_id)}</strong>
+              <span className="dim"> · turn {q.turn_number}</span>
+              <button type="button" className="small"
+                onClick={() => onResolve?.(q.key)}
+                title="dismiss this question">✓</button>
+            </div>
+            <div className="q-body">{q.question}</div>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -2229,6 +2314,26 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     });
   };
 
+  const onResolveQuestion = (key) => {
+    dispatch({ type: "ai_question_dismissed", key });
+  };
+
+  const onHonorExit = async (p) => {
+    try {
+      await mcpCall("/tools/facilitator/set_routing_preference", auth.token, {
+        method: "POST",
+        body: { participant_id: p.id, preference: "observer" },
+      });
+      dispatch({ type: "ai_exit_dismissed", participant_id: p.id });
+    } catch (e) {
+      alert(`Honor exit failed: ${e.message}`);
+    }
+  };
+
+  const onDismissExit = (participantId) => {
+    dispatch({ type: "ai_exit_dismissed", participant_id: participantId });
+  };
+
   const onSetBudget = async (participantId, { budget_hourly, budget_daily }) => {
     await mcpCall("/tools/facilitator/set_budget", auth.token, {
       method: "POST",
@@ -2402,10 +2507,13 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
             me={auth}
             skipReasons={state.skipReasons}
             isFacilitator={isFacilitator}
+            exitRequests={state.aiExitRequests}
             onRemove={onRemoveParticipant}
             onRoutingChange={onRoutingChange}
             onResetAI={onResetAI}
             onReleaseAI={onReleaseAI}
+            onHonorExit={onHonorExit}
+            onDismissExit={onDismissExit}
           />
           <SessionControls
             session={state.session}
@@ -2460,6 +2568,11 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
           />
           <ConvergencePanel scores={state.convergenceScores} />
           <SummaryPanel summary={state.latestSummary} />
+          <AIQuestionsPanel
+            questions={state.openAIQuestions}
+            participants={state.participants}
+            onResolve={onResolveQuestion}
+          />
           <ProposalTracker
             proposals={state.openProposals}
             resolved={state.resolvedProposals}
