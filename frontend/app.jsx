@@ -1272,9 +1272,16 @@ function ConvergencePanel({ scores, threshold = 0.85 }) {
   );
 }
 
-function SummaryPanel({ summary }) {
-  // US9 T130–T133.
+function SummaryPanel({ summary, onLoadHistory, onExport }) {
+  // US9 T130–T133. Now with chronological history (lazy-loaded on first
+  // expand) + markdown/JSON export buttons. The latest summary stays at
+  // the top; earlier checkpoints render in a collapsed details element
+  // so the sidebar doesn't grow without bound on long sessions.
   const [open, setOpen] = useState(true);
+  const [history, setHistory] = useState(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
   if (!summary) {
     return (
       <section className="panel">
@@ -1283,7 +1290,38 @@ function SummaryPanel({ summary }) {
       </section>
     );
   }
-  const { decisions = [], open_questions = [], key_positions = [], narrative } = summary;
+
+  const toggleHistory = async () => {
+    const next = !historyOpen;
+    setHistoryOpen(next);
+    if (next && history === null && onLoadHistory) {
+      setBusy(true);
+      try {
+        const rows = await onLoadHistory();
+        setHistory(rows || []);
+      } catch (e) {
+        setHistory([]);
+        alert(`Load history failed: ${e.message}`);
+      } finally {
+        setBusy(false);
+      }
+    }
+  };
+
+  const handleExport = async (fmt) => {
+    if (!onExport) return;
+    try {
+      const result = await onExport(fmt);
+      _downloadBlob(
+        result.content,
+        fmt === "markdown" ? "text/markdown" : "application/json",
+        `sacp-summaries.${fmt === "markdown" ? "md" : "json"}`,
+      );
+    } catch (e) {
+      alert(`Export failed: ${e.message}`);
+    }
+  };
+
   return (
     <section className="panel summary-panel">
       <div className="panel-header" onClick={() => setOpen(!open)}>
@@ -1292,33 +1330,80 @@ function SummaryPanel({ summary }) {
       </div>
       {open && (
         <>
-          {narrative && <p className="narrative">{narrative}</p>}
-          {decisions.length > 0 && (
-            <div>
-              <h3>Decisions</h3>
-              <ul>{decisions.map((d, i) => (
-                <li key={i}><span className={`pill pill-${d.status}`}>{d.status}</span> {d.summary}</li>
-              ))}</ul>
-            </div>
-          )}
-          {open_questions.length > 0 && (
-            <div>
-              <h3>Open questions</h3>
-              <ul>{open_questions.map((q, i) => <li key={i}>{q.summary}</li>)}</ul>
-            </div>
-          )}
-          {key_positions.length > 0 && (
-            <div>
-              <h3>Positions</h3>
-              <ul>{key_positions.map((k, i) => (
-                <li key={i}><strong>{k.participant}:</strong> {k.position}</li>
-              ))}</ul>
-            </div>
-          )}
+          <SummaryBody summary={summary} />
+          <div className="summary-actions">
+            <button type="button" className="small"
+              onClick={(ev) => { ev.stopPropagation(); handleExport("markdown"); }}>
+              Export .md
+            </button>
+            <button type="button" className="small"
+              onClick={(ev) => { ev.stopPropagation(); handleExport("json"); }}>
+              Export .json
+            </button>
+          </div>
+          <details className="summary-history" open={historyOpen}>
+            <summary onClick={(ev) => { ev.preventDefault(); toggleHistory(); }}>
+              Earlier checkpoints {history ? `(${Math.max(0, history.length - 1)})` : ""}
+            </summary>
+            {busy && <p className="dim">Loading…</p>}
+            {history && history.length <= 1 && !busy && (
+              <p className="dim">No earlier checkpoints.</p>
+            )}
+            {history && history.length > 1 && history.slice(0, -1).reverse().map((row) => (
+              <div key={row.turn_number} className="summary-history-entry">
+                <h4>Turn {row.turn_number}</h4>
+                <SummaryBody summary={row.summary} />
+              </div>
+            ))}
+          </details>
         </>
       )}
     </section>
   );
+}
+
+function SummaryBody({ summary }) {
+  // Shared renderer for the latest summary + each historical checkpoint.
+  const { decisions = [], open_questions = [], key_positions = [], narrative } = summary || {};
+  return (
+    <>
+      {narrative && <p className="narrative">{narrative}</p>}
+      {decisions.length > 0 && (
+        <div>
+          <h3>Decisions</h3>
+          <ul>{decisions.map((d, i) => (
+            <li key={i}><span className={`pill pill-${d.status}`}>{d.status}</span> {d.summary}</li>
+          ))}</ul>
+        </div>
+      )}
+      {open_questions.length > 0 && (
+        <div>
+          <h3>Open questions</h3>
+          <ul>{open_questions.map((q, i) => <li key={i}>{q.summary}</li>)}</ul>
+        </div>
+      )}
+      {key_positions.length > 0 && (
+        <div>
+          <h3>Positions</h3>
+          <ul>{key_positions.map((k, i) => (
+            <li key={i}><strong>{k.participant}:</strong> {k.position}</li>
+          ))}</ul>
+        </div>
+      )}
+    </>
+  );
+}
+
+function _downloadBlob(content, mimeType, filename) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function ReviewGateQueue({ drafts, participants, pauseScope, isFacilitator, onApprove, onReject, onEdit, onToggleScope }) {
@@ -2128,6 +2213,18 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     }
   };
 
+  const onLoadSummaryHistory = async () => {
+    const result = await mcpCall("/tools/session/list_summaries", auth.token);
+    return result.summaries || [];
+  };
+
+  const onExportSummaries = async (fmt) => {
+    return await mcpCall(
+      `/tools/session/export_summaries?fmt=${encodeURIComponent(fmt)}`,
+      auth.token,
+    );
+  };
+
   const onReviewGateAll = async (preference) => {
     try {
       await mcpCall("/tools/facilitator/set_routing_all_ais", auth.token, {
@@ -2459,7 +2556,11 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
             onSetBudget={onSetBudget}
           />
           <ConvergencePanel scores={state.convergenceScores} />
-          <SummaryPanel summary={state.latestSummary} />
+          <SummaryPanel
+            summary={state.latestSummary}
+            onLoadHistory={onLoadSummaryHistory}
+            onExport={onExportSummaries}
+          />
           <ProposalTracker
             proposals={state.openProposals}
             resolved={state.resolvedProposals}
