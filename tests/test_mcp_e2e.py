@@ -306,6 +306,46 @@ async def test_unauthenticated_returns_error(client):
     assert resp.status_code == 401
 
 
+async def test_list_summaries_returns_empty_initially(client):
+    """list_summaries returns an empty list before any checkpoint runs."""
+    c, _ = client
+    session = await _create_session(c)
+    resp = await c.get(
+        "/tools/session/list_summaries",
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"summaries": []}
+
+
+async def test_export_summaries_markdown_empty(client):
+    """export_summaries with no checkpoints returns the empty-state marker."""
+    c, _ = client
+    session = await _create_session(c)
+    resp = await c.get(
+        "/tools/session/export_summaries?fmt=markdown",
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["format"] == "markdown"
+    assert "_No summaries yet._" in body["content"]
+
+
+async def test_export_summaries_json_empty(client):
+    """export_summaries default format is JSON; empty session yields '[]'."""
+    c, _ = client
+    session = await _create_session(c)
+    resp = await c.get(
+        "/tools/session/export_summaries",
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["format"] == "json"
+    assert body["content"].strip() == "[]"
+
+
 async def test_reset_ai_credentials_rotates_key_in_place(client):
     """Facilitator can rotate an AI's API key without losing the row."""
     c, _ = client
