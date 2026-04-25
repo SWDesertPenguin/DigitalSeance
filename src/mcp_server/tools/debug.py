@@ -60,18 +60,34 @@ async def _build_dump(
     interrupts = await _fetch_all_interrupts(state.pool, session_id)
     logs = await _fetch_logs(state.pool, session_id, participants)
     spend = await _fetch_spend(state.pool, participants)
+    name_by_id = {p.id: p.display_name for p in participants}
     return {
         "exported_at": datetime.utcnow().isoformat() + "Z",
         "exported_by": requester_id,
         "session": _serialize(session),
         "branch_id": branch_id,
         "participants": [_scrub(_serialize(p)) for p in participants],
-        "messages": [_serialize(m) for m in messages],
+        "messages": [_with_speaker_name(_serialize(m), name_by_id) for m in messages],
         "interrupts": [_serialize(i) for i in interrupts],
         "logs": logs,
         "spend": spend,
         "config_snapshot": _config_snapshot(),
     }
+
+
+def _with_speaker_name(row: dict, name_by_id: dict[str, str]) -> dict:
+    """Inject a `speaker_display_name` next to `speaker_id` for readability.
+
+    The raw export gave only `speaker_id` (12-char hash) and a coarse
+    `speaker_type` ('human'/'ai'/'summary'), so reconstructing who said
+    what required cross-referencing participants[]. Inlining the
+    display_name keeps the row self-contained for forensics + LLM
+    summarization workflows.
+    """
+    sid = row.get("speaker_id")
+    if sid:
+        row["speaker_display_name"] = name_by_id.get(sid, "unknown")
+    return row
 
 
 async def _fetch_all_interrupts(pool: Any, session_id: str) -> list:

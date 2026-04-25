@@ -706,12 +706,10 @@ async def export_markdown(
 ) -> dict:
     """Export transcript as markdown."""
     msg_repo = request.app.state.message_repo
-    branch_id = await get_main_branch_id(
-        request.app.state.pool,
-        participant.session_id,
-    )
+    branch_id = await get_main_branch_id(request.app.state.pool, participant.session_id)
     messages = await msg_repo.get_recent(participant.session_id, branch_id, 10000)
-    lines = [_format_md_message(m) for m in messages]
+    name_by_id = await _participant_names(request, participant.session_id)
+    lines = [_format_md_message(m, name_by_id) for m in messages]
     return {"format": "markdown", "content": "\n\n".join(lines)}
 
 
@@ -722,13 +720,17 @@ async def export_json(
 ) -> dict:
     """Export transcript as JSON."""
     msg_repo = request.app.state.message_repo
-    branch_id = await get_main_branch_id(
-        request.app.state.pool,
-        participant.session_id,
-    )
+    branch_id = await get_main_branch_id(request.app.state.pool, participant.session_id)
     messages = await msg_repo.get_recent(participant.session_id, branch_id, 10000)
-    data = [_format_json_message(m) for m in messages]
+    name_by_id = await _participant_names(request, participant.session_id)
+    data = [_format_json_message(m, name_by_id) for m in messages]
     return {"format": "json", "content": json.dumps(data)}
+
+
+async def _participant_names(request: Request, session_id: str) -> dict[str, str]:
+    """Return id → display_name map for transcript export labeling."""
+    participants = await request.app.state.participant_repo.list_participants(session_id)
+    return {p.id: p.display_name for p in participants}
 
 
 async def _broadcast_turn(cm: object, session_id: str, result: object) -> None:
@@ -846,16 +848,18 @@ def _format_created(
     }
 
 
-def _format_md_message(msg: object) -> str:
-    """Format a message as markdown."""
-    return f"**[{msg.speaker_type}]** {msg.content}"
+def _format_md_message(msg: object, name_by_id: dict[str, str]) -> str:
+    """Format a message as markdown with the speaker's display_name."""
+    name = name_by_id.get(msg.speaker_id, "unknown")
+    return f"**[{msg.speaker_type}: {name}]** {msg.content}"
 
 
-def _format_json_message(msg: object) -> dict:
-    """Format a message for JSON export."""
+def _format_json_message(msg: object, name_by_id: dict[str, str]) -> dict:
+    """Format a message for JSON export, embedding speaker_display_name."""
     return {
         "turn": msg.turn_number,
         "speaker": msg.speaker_id,
+        "speaker_display_name": name_by_id.get(msg.speaker_id, "unknown"),
         "type": msg.speaker_type,
         "content": msg.content,
     }
