@@ -61,7 +61,6 @@ async def add_participant(
 ) -> dict:
     """Add a participant directly (facilitator only, auto-approved)."""
     p_repo = request.app.state.participant_repo
-    await _reject_duplicate_ai(p_repo, participant.session_id, body)
     await _reject_duplicate_display_name(p_repo, participant.session_id, body.display_name)
     new_p = await _persist_added_participant(p_repo, participant.id, participant.session_id, body)
     auth_token = await request.app.state.auth_service.rotate_token(new_p.id)
@@ -126,22 +125,6 @@ async def _reject_duplicate_display_name(
             raise HTTPException(
                 409,
                 f"A participant named '{p.display_name}' is already in this session",
-            )
-
-
-async def _reject_duplicate_ai(p_repo: object, session_id: str, body: _AddParticipantBody) -> None:
-    """Raise 409 if an active participant with the same provider+model exists."""
-    if body.provider == "human":
-        return
-    existing = await p_repo.list_participants(session_id)
-    for p in existing:
-        if p.status in _DEPARTED_STATUSES:
-            continue
-        if p.provider == body.provider and p.model == body.model:
-            raise HTTPException(
-                409,
-                f"A participant with provider={body.provider}, model={body.model} "
-                f"already exists in this session (id={p.id}, status={p.status}).",
             )
 
 
