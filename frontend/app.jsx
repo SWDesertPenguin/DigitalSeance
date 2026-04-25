@@ -1240,6 +1240,7 @@ function BudgetCard({ p, me, isFacilitator, onSetBudget }) {
   const [editing, setEditing] = useState(false);
   const { cap, spend, label } = _activeBudget(p);
   const utilization = cap ? Math.min(1, spend / cap) : null;
+  const maxTok = p.max_tokens_per_turn;
   return (
     <div className="budget-card">
       <div className="p-row">
@@ -1247,6 +1248,7 @@ function BudgetCard({ p, me, isFacilitator, onSetBudget }) {
         {showDollars && (
           <span className="dim">
             ${fmtDollars(spend)}{cap ? ` / $${fmtDollars(cap)} (${label})` : " (no cap)"}
+            {maxTok ? ` · max ${maxTok} tok/turn` : ""}
           </span>
         )}
         {canEdit && !editing && (
