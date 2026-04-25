@@ -379,11 +379,18 @@ function reducer(state, action) {
         openProposals: state.openProposals.filter((p) => p.id !== action.event.proposal_id),
         resolvedProposals: _prependResolved(state.resolvedProposals, state.openProposals, action.event),
       };
-    case "error":
-      return {
-        ...state,
-        errors: [...state.errors, { code: action.event.code, message: action.event.message }],
-      };
+    case "error": {
+      // Dedupe by code+message — when the loop keeps retrying a bad
+      // key it would otherwise pile up identical toasts faster than
+      // the user can dismiss them. Cap at 5 so a single misconfigured
+      // session can't fill the screen with toasts. Newest stays on top.
+      const next = { code: action.event.code, message: action.event.message };
+      const isDup = state.errors.some(
+        (e) => e.code === next.code && e.message === next.message,
+      );
+      if (isDup) return state;
+      return { ...state, errors: [next, ...state.errors].slice(0, 5) };
+    }
     case "clear_error":
       return { ...state, errors: state.errors.filter((_, i) => i !== action.index) };
     default:
@@ -843,16 +850,28 @@ function SessionNameDisplay({ session, canEdit, onRename }) {
 }
 
 function ErrorToasts({ errors, onDismiss }) {
+  // Auto-fade each toast after 10s so a transient provider blip doesn't
+  // stick around forever even if the operator misses it. Click the X to
+  // dismiss sooner. The reducer also dedupes by code+message and caps
+  // at 5 so the loop's retry-storm can't drown out user clicks.
+  useEffect(() => {
+    if (!errors || errors.length === 0) return;
+    const timer = setTimeout(() => onDismiss(errors.length - 1), 10_000);
+    return () => clearTimeout(timer);
+  }, [errors, onDismiss]);
   if (!errors || errors.length === 0) return null;
   return (
     <div className="error-toasts">
       {errors.map((err, i) => (
-        <div key={i} className={`error-toast toast-${err.code || "generic"}`}>
+        <div key={`${err.code}-${err.message}-${i}`}
+             className={`error-toast toast-${err.code || "generic"}`}>
           <div className="toast-body">
             <strong>{err.code || "error"}</strong>
             <span>{err.message}</span>
           </div>
-          <button type="button" className="toast-dismiss" onClick={() => onDismiss(i)}>×</button>
+          <button type="button" className="toast-dismiss"
+                  aria-label="dismiss"
+                  onClick={() => onDismiss(i)}>×</button>
         </div>
       ))}
     </div>
@@ -884,11 +903,18 @@ function PendingHoldingScreen({ session, humans, onLogout }) {
 }
 
 function _participantBuckets(participants) {
-  const active = [], paused = [], pending = [], other = [];
+  // Split into active / paused / pending / departed (offline/removed/
+  // reset) / other. Departed get their own bucket so the UI can render
+  // them collapsed by default — operators don't want a removed AI's
+  // card sitting in the active list with stale management buttons.
+  const active = [], paused = [], pending = [], departed = [], other = [];
   for (const p of participants) {
     if (p.role === "pending" || p.status === "pending") pending.push(p);
     else if (p.status === "paused") paused.push(p);
     else if (p.status === "active") active.push(p);
+    else if (p.status === "offline" || p.status === "removed" || p.status === "reset") {
+      departed.push(p);
+    }
     else other.push(p);
   }
   const alpha = (a, b) => a.display_name.localeCompare(b.display_name);
@@ -896,6 +922,7 @@ function _participantBuckets(participants) {
     active: active.sort(alpha),
     paused: paused.sort(alpha),
     pending: pending.sort(alpha),
+    departed: departed.sort(alpha),
     other: other.sort(alpha),
   };
 }
@@ -932,6 +959,12 @@ function ParticipantList({
         <h3 className="bucket-label">Pending</h3>
         {buckets.pending.map(renderCard)}
       </>)}
+      {buckets.departed.length > 0 && (
+        <details className="departed-section">
+          <summary>Departed ({buckets.departed.length})</summary>
+          {buckets.departed.map(renderCard)}
+        </details>
+      )}
       {buckets.other.length > 0 && buckets.other.map(renderCard)}
     </section>
   );
@@ -1157,13 +1190,16 @@ function pctColor(pct) {
 }
 
 function BudgetPanel({ participants, me, isFacilitator, onSetBudget }) {
-  const list = useMemo(
+  const ais = useMemo(
     () => participants
       .filter((p) => p.provider !== "human")
       .sort((a, b) => a.display_name.localeCompare(b.display_name)),
     [participants],
   );
-  if (list.length === 0) {
+  const isDeparted = (p) => ["offline", "removed", "reset"].includes(p.status);
+  const active = ais.filter((p) => !isDeparted(p));
+  const departed = ais.filter(isDeparted);
+  if (ais.length === 0) {
     return (
       <section className="panel budget-panel">
         <h2>Budget</h2>
@@ -1171,13 +1207,20 @@ function BudgetPanel({ participants, me, isFacilitator, onSetBudget }) {
       </section>
     );
   }
+  const renderCard = (p) => (
+    <BudgetCard key={p.id} p={p} me={me}
+      isFacilitator={isFacilitator} onSetBudget={onSetBudget} />
+  );
   return (
     <section className="panel budget-panel">
       <h2>Budget</h2>
-      {list.map((p) => (
-        <BudgetCard key={p.id} p={p} me={me}
-          isFacilitator={isFacilitator} onSetBudget={onSetBudget} />
-      ))}
+      {active.map(renderCard)}
+      {departed.length > 0 && (
+        <details className="departed-section">
+          <summary>Departed ({departed.length})</summary>
+          {departed.map(renderCard)}
+        </details>
+      )}
     </section>
   );
 }
@@ -1185,10 +1228,15 @@ function BudgetPanel({ participants, me, isFacilitator, onSetBudget }) {
 function BudgetCard({ p, me, isFacilitator, onSetBudget }) {
   const isSelf = p.id === me?.participant_id;
   const isMyAI = p.provider !== "human" && p.invited_by === me?.participant_id;
+  // 'reset' / 'offline' / 'removed' are departed states — credentials
+  // are unbound or the row is closed, so editing budget is meaningless
+  // (and was confusing in shakedown — operators saw an edit button on
+  // a removed AI). Match the ParticipantCard isDeparted gate.
+  const isDeparted = p.status === "offline" || p.status === "removed" || p.status === "reset";
   // Facilitator sees everything; self sees own; sponsor sees $ on AIs
   // they invited. Others still only see utilization % (US4 privacy).
   const showDollars = isFacilitator || isSelf || isMyAI;
-  const canEdit = isFacilitator || isMyAI;
+  const canEdit = !isDeparted && (isFacilitator || isMyAI);
   const [editing, setEditing] = useState(false);
   const { cap, spend, label } = _activeBudget(p);
   const utilization = cap ? Math.min(1, spend / cap) : null;
