@@ -36,6 +36,7 @@ class _AddParticipantBody(BaseModel):
     api_endpoint: str = ""
     budget_hourly: float | None = None
     budget_daily: float | None = None
+    max_tokens_per_turn: int | None = None
 
     @field_validator("display_name", "provider", "model", "model_tier", "model_family")
     @classmethod
@@ -94,6 +95,7 @@ async def _persist_added_participant(
         api_endpoint=body.api_endpoint or None,
         budget_hourly=body.budget_hourly,
         budget_daily=body.budget_daily,
+        max_tokens_per_turn=body.max_tokens_per_turn,
         auto_approve=True,
         invited_by=inviter_id,
     )
@@ -933,11 +935,12 @@ async def _update_timeouts(
 
 
 class _SetBudgetBody(BaseModel):
-    """Request body for setting participant budget limits."""
+    """Request body for setting participant budget limits and output token cap."""
 
     participant_id: str
     budget_hourly: float | None = None
     budget_daily: float | None = None
+    max_tokens_per_turn: int | None = None
 
 
 @router.post("/set_budget")
@@ -968,6 +971,7 @@ async def set_budget(
         body.participant_id,
         budget_hourly=body.budget_hourly,
         budget_daily=body.budget_daily,
+        max_tokens_per_turn=body.max_tokens_per_turn,
     )
     await _audit_and_broadcast_budget(request, participant, target, body)
     return {
@@ -975,6 +979,7 @@ async def set_budget(
         "participant_id": body.participant_id,
         "budget_hourly": body.budget_hourly,
         "budget_daily": body.budget_daily,
+        "max_tokens_per_turn": body.max_tokens_per_turn,
     }
 
 
@@ -1011,8 +1016,8 @@ async def _audit_and_broadcast_budget(
         facilitator_id=facilitator.id,
         action="set_budget",
         target_id=body.participant_id,
-        previous_value=f"{target.budget_hourly}/{target.budget_daily}",
-        new_value=f"{body.budget_hourly}/{body.budget_daily}",
+        previous_value=f"{target.budget_hourly}/{target.budget_daily}/{target.max_tokens_per_turn}",
+        new_value=f"{body.budget_hourly}/{body.budget_daily}/{body.max_tokens_per_turn}",
     )
     from src.web_ui.events import broadcast_participant_update
 
