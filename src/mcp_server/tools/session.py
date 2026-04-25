@@ -549,7 +549,7 @@ async def start_loop(
     if not await _has_human_message(request, sid):
         raise HTTPException(
             409,
-            "Send an opening message before starting the loop — AIs " "shouldn't speak first.",
+            "Send an opening message before starting the loop — AIs shouldn't speak first.",
         )
     loop = request.app.state.conversation_loop
     cm = request.app.state.connection_manager
@@ -778,6 +778,11 @@ async def _run_loop(
     ramp up the inter-tick delay exponentially from 5s to a 60s cap.
     A real turn resets the counter. This prevents the 15-skips-in-2-min
     log spam seen in Test05-Web01 when the only viable AI just spoke.
+
+    AllParticipantsExhaustedError no longer terminates the loop — instead
+    we sleep with the same backoff and retry. That way adding an AI
+    mid-session (e.g. via Reset/Release-then-Add) is picked up on the
+    next tick without the operator having to manually restart the loop.
     """
     await _init_loop_from_session(loop, session_id, session_repo)
     skips = 0
@@ -791,7 +796,15 @@ async def _run_loop(
             if delay > 0:
                 await asyncio.sleep(delay)
         except AllParticipantsExhaustedError:
-            break
+            skips += 1
+            delay = min(_SKIP_BACKOFF_BASE_S * (2 ** (skips - 1)), _SKIP_BACKOFF_MAX_S)
+            log.info(
+                "No active AI in %s; sleeping %.1fs before retry (skips=%d)",
+                session_id,
+                delay,
+                skips,
+            )
+            await asyncio.sleep(delay)
         except SessionNotActiveError:
             log.info("Session %s paused/archived, loop stopping", session_id)
             break

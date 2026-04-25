@@ -115,3 +115,52 @@ def test_add_ai_accepts_whitelisted_providers(provider):
 def test_add_ai_rejects_unknown_provider():
     with pytest.raises(ValidationError):
         _AddAIBody(**_valid_ai_body(provider="bedrock"))
+
+
+# --- Reset AI credentials body — empty-swap guard ----------------------------
+
+from src.mcp_server.tools.facilitator import _ResetAICredentialsBody  # noqa: E402
+
+
+def test_reset_credentials_accepts_keep_current_via_none():
+    body = _ResetAICredentialsBody(
+        participant_id="p1",
+        api_key="sk-new",
+        provider=None,
+        model=None,
+        api_endpoint=None,
+    )
+    assert body.provider is None
+    assert body.model is None
+    assert body.api_endpoint is None
+
+
+def test_reset_credentials_accepts_real_swap():
+    body = _ResetAICredentialsBody(
+        participant_id="p1",
+        api_key="sk-new",
+        provider="openai",
+        model="gpt-4o-mini",
+    )
+    assert body.provider == "openai"
+    assert body.model == "gpt-4o-mini"
+
+
+@pytest.mark.parametrize("field", ["provider", "model", "api_endpoint"])
+def test_reset_credentials_rejects_blank_swap(field):
+    """Empty/whitespace must 422 — would otherwise overwrite via COALESCE."""
+    with pytest.raises(ValidationError):
+        _ResetAICredentialsBody(
+            participant_id="p1",
+            api_key="sk-new",
+            **{field: "   "},
+        )
+
+
+def test_reset_credentials_strips_whitespace():
+    body = _ResetAICredentialsBody(
+        participant_id="p1",
+        api_key="sk-new",
+        model="  gpt-4o-mini  ",
+    )
+    assert body.model == "gpt-4o-mini"
