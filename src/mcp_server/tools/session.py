@@ -617,6 +617,88 @@ async def get_summary(
     }
 
 
+@router.get("/list_summaries")
+async def list_summaries(
+    request: Request,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Return the chronological history of summary checkpoints.
+
+    Each entry includes turn_number, summary_epoch, created_at, and the
+    parsed JSON body (or a narrative fallback if parsing fails). The
+    Web UI renders this as a collapsible "Summary History" panel so
+    operators can scroll back through earlier checkpoints — today only
+    the latest summary is visible without re-running summarize_now.
+    """
+    msg_repo = request.app.state.message_repo
+    branch_id = await get_main_branch_id(request.app.state.pool, participant.session_id)
+    summaries = await msg_repo.get_summaries(participant.session_id, branch_id)
+    return {"summaries": [_format_summary_row(s) for s in summaries]}
+
+
+def _format_summary_row(s: object) -> dict:
+    """Shape a summary Message row for the list_summaries response."""
+    try:
+        parsed = json.loads(s.content)
+    except (json.JSONDecodeError, TypeError):
+        parsed = {"narrative": s.content}
+    return {
+        "turn_number": s.turn_number,
+        "summary_epoch": s.summary_epoch,
+        "created_at": s.created_at.isoformat() if s.created_at else None,
+        "summary": parsed,
+    }
+
+
+@router.get("/export_summaries")
+async def export_summaries(
+    request: Request,
+    *,
+    fmt: Literal["json", "markdown"] = "json",
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Export the full summary history as JSON or markdown.
+
+    Mirrors the transcript-export pattern (export_json / export_markdown).
+    Markdown emits a per-checkpoint header + the structured fields so
+    operators can paste a session digest into a notebook or ticket.
+    """
+    msg_repo = request.app.state.message_repo
+    branch_id = await get_main_branch_id(request.app.state.pool, participant.session_id)
+    summaries = await msg_repo.get_summaries(participant.session_id, branch_id)
+    rows = [_format_summary_row(s) for s in summaries]
+    if fmt == "markdown":
+        return {"format": "markdown", "content": _summaries_to_markdown(rows)}
+    return {"format": "json", "content": json.dumps(rows, indent=2)}
+
+
+def _summaries_to_markdown(rows: list[dict]) -> str:
+    """Render summary rows as a markdown digest, newest at the bottom."""
+    if not rows:
+        return "_No summaries yet._"
+    return "\n\n---\n\n".join(_summary_section(r) for r in rows)
+
+
+def _summary_section(row: dict) -> str:
+    """Render a single summary checkpoint as markdown."""
+    s = row.get("summary") or {}
+    header = f"## Checkpoint @ turn {row['turn_number']}"
+    if row.get("created_at"):
+        header += f"  _{row['created_at']}_"
+    parts = [header]
+    if s.get("narrative"):
+        parts.append(s["narrative"])
+    for label, key in [
+        ("Decisions", "decisions"),
+        ("Open questions", "open_questions"),
+        ("Key positions", "key_positions"),
+    ]:
+        items = s.get(key) or []
+        if items:
+            parts.append(f"**{label}:**\n" + "\n".join(f"- {i}" for i in items))
+    return "\n\n".join(parts)
+
+
 @router.get("/export_markdown")
 async def export_markdown(
     request: Request,
