@@ -424,7 +424,12 @@ async def _broadcast_provider_error(session_id: str, speaker: object, err: Excep
     from src.web_ui.events import error_event
     from src.web_ui.websocket import broadcast_to_session
 
-    message = f"Provider {speaker.provider}/{speaker.model} failed: {err}"
+    # If the model string already carries the provider prefix (e.g.
+    # `gemini/gemini-2.0-flash`, `groq/...`, `anthropic/...`), don't
+    # double-prefix it. OpenAI models like `gpt-4o-mini` don't carry
+    # a prefix so we still want `openai/gpt-4o-mini` for clarity.
+    label = speaker.model if "/" in (speaker.model or "") else f"{speaker.provider}/{speaker.model}"
+    message = f"Provider {label} failed: {err}"
     await broadcast_to_session(session_id, error_event("provider_unreachable", message))
 
 
