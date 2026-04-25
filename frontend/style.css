@@ -968,11 +968,33 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .error-toast strong { color: var(--danger); font-size: 0.85rem; }
 .error-toast .toast-dismiss {
   background: none; border: none; color: var(--muted);
-  font-size: 1.25rem; cursor: pointer; padding: 0 0.25rem;
+  font-size: 1.5rem; line-height: 1; cursor: pointer;
+  padding: 0.25rem 0.6rem; min-width: 2rem; min-height: 2rem;
+  flex-shrink: 0;
 }
-.error-toast .toast-dismiss:hover { color: var(--fg); }
+.error-toast .toast-dismiss:hover { color: var(--fg); background: var(--panel-alt); }
 
 /* PR-3: participant-list status buckets */
+.departed-section {
+  margin-top: 0.75rem;
+  font-size: 0.85em;
+}
+
+.departed-section > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--border);
+  list-style: revert;
+}
+
+.departed-section > summary:hover {
+  color: var(--fg);
+}
+
 .bucket-label {
   font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
   color: var(--muted); margin: 0.75rem 0 0.25rem 0;
