@@ -247,40 +247,24 @@ def _secure_content(
     that signal, the XML-like wrapper just confuses smaller models and
     the trust boundary doesn't exist when you're reading your own output.
 
-    Non-self messages get a `[<display_name>]` prefix when a roster is
-    supplied, so the consuming AI can address peers by name and tell
-    multiple humans apart from each other (and from each other AI).
+    Per-message speaker labels (added in PR #124) were removed after
+    Gemini 2.5-flash-lite was observed reading the `[Name (kind)] `
+    prefix as a chat-app role marker — it copied other speakers'
+    content verbatim and prefixed its own responses with the format.
+    The `[Participants]` roster (still in `_add_participant_roster`)
+    delivers the speaker-typing information AIs need without giving
+    smaller models a per-line pattern to mimic. The `roster` parameter
+    is kept on the signature for the moment — threading it out across
+    `_add_messages`/`_add_history` is a separate cleanup PR.
     """
+    del roster  # unused after the prefix was dropped; see docstring
     cleaned = sanitize(msg.content)
     if msg.speaker_id == current_speaker_id:
         return cleaned
-    speaker_label = _speaker_label(msg.speaker_id, roster)
-    body = f"[{speaker_label}] {cleaned}" if speaker_label else cleaned
-    tagged = f"<sacp:{msg.speaker_type}>{body}"
+    tagged = f"<sacp:{msg.speaker_type}>{cleaned}"
     if should_spotlight(msg.speaker_type):
         return spotlight(tagged, msg.speaker_id)
     return tagged
-
-
-def _speaker_label(
-    speaker_id: str,
-    roster: dict[str, dict[str, str]] | None,
-) -> str | None:
-    """Return a `name (kind)` label for a participant; None if unknown.
-
-    Kind = `human` for provider='human', `AI:provider` otherwise. Kept
-    short to bound prompt overhead — running labels add up across long
-    transcripts even though the per-line cost is small.
-    """
-    if not roster:
-        return None
-    info = roster.get(speaker_id)
-    if not info:
-        return None
-    name = info.get("display_name") or speaker_id
-    provider = info.get("provider") or ""
-    kind = "human" if provider == "human" else f"AI:{provider}"
-    return f"{name} ({kind})"
 
 
 def _add_summary(
