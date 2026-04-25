@@ -194,6 +194,7 @@ class _AddAIBody(BaseModel):
     api_endpoint: str = ""
     budget_hourly: float | None = None
     budget_daily: float | None = None
+    max_tokens_per_turn: int | None = None
 
 
 @router.post("/add_ai")
@@ -234,6 +235,7 @@ async def _persist_sponsored_ai(
         api_endpoint=body.api_endpoint or None,
         budget_hourly=body.budget_hourly,
         budget_daily=body.budget_daily,
+        max_tokens_per_turn=body.max_tokens_per_turn,
         auto_approve=True,
         invited_by=sponsor.id,
     )

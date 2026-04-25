@@ -108,34 +108,23 @@ class ContextAssembler:
         used = _add_interjections(context, interjections, used)
         proposals = await self._prop_repo.get_open_proposals(session_id)
         used = _add_proposals(context, proposals, used)
-        recent = await self._msg_repo.get_recent(session_id, bid, MVC_FLOOR_TURNS)
-        used = _add_messages(
-            context, recent, used, budget, speaker_id=participant.id, roster=roster
-        )
+        all_recent = await self._msg_repo.get_recent(session_id, bid, _history_turns())
+        floor = all_recent[:MVC_FLOOR_TURNS]
+        used = _add_messages(context, floor, used, budget, speaker_id=participant.id, roster=roster)
         summaries = await self._msg_repo.get_summaries(session_id, bid)
         if summaries:
             used = _add_summary(context, summaries[-1], used, budget)
         if used < budget:
-            await self._fill_history(
-                context, session_id, used, budget, recent, speaker_id=participant.id, roster=roster
+            _add_history(
+                context,
+                all_recent,
+                used,
+                budget,
+                floor,
+                speaker_id=participant.id,
+                roster=roster,
             )
         return used
-
-    async def _fill_history(
-        self,
-        context: list[ContextMessage],
-        session_id: str,
-        used: int,
-        budget: int,
-        already: list[Message],
-        *,
-        speaker_id: str,
-        roster: dict[str, dict[str, str]] | None = None,
-    ) -> None:
-        """Fill remaining budget with additional history."""
-        bid = await get_main_branch_id(self._pool, session_id)
-        more = await self._msg_repo.get_recent(session_id, bid, _history_turns())
-        _add_history(context, more, used, budget, already, speaker_id=speaker_id, roster=roster)
 
 
 def _reorder_chronologically(context: list[ContextMessage]) -> list[ContextMessage]:
