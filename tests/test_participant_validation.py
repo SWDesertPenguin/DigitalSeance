@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from src.mcp_server.tools.facilitator import _AddParticipantBody, _EditDraftBody
 from src.mcp_server.tools.participant import (
     MAX_MESSAGE_CONTENT_CHARS,
+    _AddAIBody,
     _InjectMessageBody,
 )
 
@@ -87,3 +88,30 @@ def test_edit_draft_rejects_over_cap():
             draft_id="d1",
             edited_content="A" * (MAX_MESSAGE_CONTENT_CHARS + 1),
         )
+
+
+# --- Sponsor add_ai provider whitelist ----------------------------------------
+
+
+def _valid_ai_body(**overrides) -> dict:
+    body = {
+        "display_name": "Sponsored",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "model_tier": "mid",
+        "model_family": "claude",
+        "context_window": 200_000,
+    }
+    body.update(overrides)
+    return body
+
+
+@pytest.mark.parametrize("provider", ["anthropic", "openai", "ollama", "gemini", "groq"])
+def test_add_ai_accepts_whitelisted_providers(provider):
+    body = _AddAIBody(**_valid_ai_body(provider=provider))
+    assert body.provider == provider
+
+
+def test_add_ai_rejects_unknown_provider():
+    with pytest.raises(ValidationError):
+        _AddAIBody(**_valid_ai_body(provider="bedrock"))
