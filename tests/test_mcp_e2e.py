@@ -224,8 +224,33 @@ async def test_add_participant_rejects_placeholder(client):
     assert resp.status_code == 422
 
 
-async def test_add_participant_rejects_duplicate_ai(client):
-    """Two AIs with the same provider+model in one session return 409."""
+async def test_add_participant_allows_same_model_different_name(client):
+    """Two AIs with the same provider+model coexist as long as display_names differ.
+
+    Use case: same model under two different API keys (different accounts,
+    different cost buckets, different role personas). The display_name
+    dedupe alone is enough to prevent UI ambiguity; the prior provider+model
+    409 was too aggressive and blocked legitimate multi-account configs.
+    """
+    c, _ = client
+    session = await _create_session(c)
+    first = await c.post(
+        "/tools/facilitator/add_participant",
+        json=_PARTICIPANT_BODY,
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert first.status_code == 200
+    second = await c.post(
+        "/tools/facilitator/add_participant",
+        json={**_PARTICIPANT_BODY, "display_name": "AI Speaker Twin", "api_key": "different-key"},
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert second.status_code == 200
+    assert second.json()["participant_id"] != first.json()["participant_id"]
+
+
+async def test_add_participant_still_rejects_duplicate_display_name(client):
+    """Display-name dedupe is still enforced — that's the only ambiguity check left."""
     c, _ = client
     session = await _create_session(c)
     first = await c.post(
@@ -240,7 +265,7 @@ async def test_add_participant_rejects_duplicate_ai(client):
         headers={"Authorization": f"Bearer {session['auth_token']}"},
     )
     assert second.status_code == 409
-    assert "already exists" in second.json().get("detail", "")
+    assert "already in this session" in second.json().get("detail", "")
 
 
 async def test_start_loop_refuses_without_human_message(client):

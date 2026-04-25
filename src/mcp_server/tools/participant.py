@@ -206,7 +206,6 @@ async def add_ai_participant(
     if participant.provider != "human":
         raise HTTPException(403, "Only human participants may sponsor an AI")
     p_repo = request.app.state.participant_repo
-    await _reject_duplicate_ai_in_session(p_repo, participant.session_id, body)
     new_p = await _persist_sponsored_ai(p_repo, participant, body)
     auth_token = await _issue_and_broadcast_ai(
         request,
@@ -258,30 +257,6 @@ async def _issue_and_broadcast_ai(
         request.app.state.log_repo,
     )
     return token
-
-
-async def _reject_duplicate_ai_in_session(
-    p_repo: object,
-    session_id: str,
-    body: _AddAIBody,
-) -> None:
-    """Mirror of the facilitator endpoint's dedupe guard.
-
-    Shares the 'departed' statuses with the facilitator guard so a
-    released ('reset') or offline slot frees the provider+model pair.
-    """
-    from src.mcp_server.tools.facilitator import _DEPARTED_STATUSES
-
-    existing = await p_repo.list_participants(session_id)
-    for p in existing:
-        if p.status in _DEPARTED_STATUSES:
-            continue
-        if p.provider == body.provider and p.model == body.model:
-            raise HTTPException(
-                409,
-                f"A participant with provider={body.provider}, model={body.model} "
-                f"already exists in this session (id={p.id}, status={p.status}).",
-            )
 
 
 _SelfRoutingPreference = Literal[
