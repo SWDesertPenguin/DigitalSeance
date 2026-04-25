@@ -60,16 +60,23 @@ def test_extract_questions_returns_empty_for_no_questions():
     assert extract_questions("", _roster()) == []
 
 
-def test_extract_questions_picks_up_second_person_question():
+def test_extract_questions_ignores_second_person_alone():
+    # Second-person pronoun without a named human no longer triggers.
     out = extract_questions("Are you sure that's right?", _roster())
-    assert len(out) == 1
-    assert "you" in out[0].lower()
+    assert out == []
 
 
 def test_extract_questions_picks_up_named_human():
     roster = _roster(("Alice", "human"), ("Bot", "anthropic"))
     out = extract_questions("Alice, what do you think about the plan?", roster)
     assert len(out) == 1
+
+
+def test_extract_questions_ignores_ai_to_ai_question():
+    # A question naming only an AI participant should not fire.
+    roster = _roster(("Alice", "human"), ("Bot", "anthropic"))
+    out = extract_questions("Bot, what is your perspective on this?", roster)
+    assert out == []
 
 
 def test_extract_questions_skips_rhetorical_questions():
@@ -82,13 +89,15 @@ def test_extract_questions_skips_rhetorical_questions():
 
 
 def test_extract_questions_collects_multiple():
+    roster = _roster(("Alice", "human"), ("Bob", "human"))
     out = extract_questions(
-        "Are you free? Can you confirm the timing?",
-        _roster(),
+        "Alice, are you free? Bob, can you confirm the timing?",
+        roster,
     )
     assert len(out) == 2
 
 
 def test_extract_questions_handles_missing_roster():
+    # No roster means no human names → no questions surfaced.
     out = extract_questions("Are you sure?", None)
-    assert len(out) == 1
+    assert out == []
