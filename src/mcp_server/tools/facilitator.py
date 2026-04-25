@@ -253,13 +253,32 @@ async def _push_participant_update(
 
 
 class _ResetAICredentialsBody(BaseModel):
-    """Request body for rotating an AI's API key in place."""
+    """Request body for rotating an AI's API key in place.
+
+    Optional swap fields are nullable but cannot be empty/whitespace —
+    a blank provider or model would otherwise overwrite the existing
+    value with `""` via COALESCE in `reset_ai_credentials`, leaving the
+    AI un-dispatchable. Send `None` (or omit the field) to keep the
+    current value, send a real string to swap.
+    """
 
     participant_id: str
     api_key: str = Field(..., min_length=1)
     provider: str | None = None
     model: str | None = None
     api_endpoint: str | None = None
+
+    @field_validator("provider", "model", "api_endpoint")
+    @classmethod
+    def _reject_blank_optional(cls, v: str | None, info) -> str | None:
+        """Reject whitespace-only swaps; leave None alone for 'keep current'."""
+        if v is None:
+            return None
+        cleaned = v.strip()
+        if not cleaned:
+            msg = f"{info.field_name} must be omitted or non-blank, not whitespace"
+            raise ValueError(msg)
+        return cleaned
 
 
 @router.post("/reset_ai_credentials")
@@ -1112,7 +1131,7 @@ async def _restore_routing_after_gate(request: Request, draft: object, session_i
     prior = loop.pop_prior_routing(draft.participant_id) or "always"
     async with request.app.state.pool.acquire() as conn:
         await conn.execute(
-            "UPDATE participants SET routing_preference = $1 " "WHERE id = $2 AND session_id = $3",
+            "UPDATE participants SET routing_preference = $1 WHERE id = $2 AND session_id = $3",
             prior,
             draft.participant_id,
             session_id,
