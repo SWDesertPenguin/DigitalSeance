@@ -2117,7 +2117,13 @@ function AddParticipantDialog({ onClose, onAdd, aiOnly = false }) {
               </label>
               {PROVIDER_DEFAULTS[form.provider]?.needsKey && (
                 <label>API key
-                  <input type="password" value={form.api_key} onChange={update("api_key")} required />
+                  <input type="password" value={form.api_key}
+                    onChange={update("api_key")} required />
+                  {_keyPrefixWarning(form.provider, form.api_key) && (
+                    <div className="warn key-warning">
+                      {_keyPrefixWarning(form.provider, form.api_key)}
+                    </div>
+                  )}
                 </label>
               )}
             </>
@@ -2133,6 +2139,32 @@ function AddParticipantDialog({ onClose, onAdd, aiOnly = false }) {
       </div>
     </div>
   );
+}
+
+// Recognized API key prefixes per provider. Used by AddParticipantDialog
+// and ResetAICredentialsDialog to warn (not block) when an operator
+// pastes a key that doesn't match the selected provider — observed
+// during shakedown when an `sk-ant-` key got pasted into an OpenAI
+// slot, producing a confusing 401 from the OpenAI endpoint instead of
+// an upfront UI signal. Soft warning only — self-hosted gateways +
+// custom proxies may use arbitrary tokens, so we don't block submit.
+const _PROVIDER_KEY_PREFIXES = {
+  openai:    { matches: (k) => k.startsWith("sk-") && !k.startsWith("sk-ant-"),
+               hint: "OpenAI keys typically start with `sk-` (and not `sk-ant-`)." },
+  anthropic: { matches: (k) => k.startsWith("sk-ant-"),
+               hint: "Anthropic keys typically start with `sk-ant-`." },
+  gemini:    { matches: (k) => k.startsWith("AIza"),
+               hint: "Gemini keys typically start with `AIza`." },
+  groq:      { matches: (k) => k.startsWith("gsk_"),
+               hint: "Groq keys typically start with `gsk_`." },
+};
+
+function _keyPrefixWarning(provider, apiKey) {
+  if (!apiKey || !apiKey.trim()) return null;
+  const rule = _PROVIDER_KEY_PREFIXES[provider];
+  if (!rule) return null;
+  if (rule.matches(apiKey.trim())) return null;
+  return `Heads up: this doesn't look like a ${provider} key. ${rule.hint}`;
 }
 
 function _swapValue(formValue, currentValue) {
@@ -2196,6 +2228,11 @@ function ResetAICredentialsDialog({ participant, onClose, onSubmit }) {
           <label>New API key
             <input type="password" value={form.api_key}
               onChange={update("api_key")} required autoFocus />
+            {_keyPrefixWarning(form.provider, form.api_key) && (
+              <div className="warn key-warning">
+                {_keyPrefixWarning(form.provider, form.api_key)}
+              </div>
+            )}
           </label>
           <label>Provider (optional swap)
             <select value={form.provider} onChange={update("provider")}>
