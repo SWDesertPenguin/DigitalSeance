@@ -176,10 +176,16 @@ async def rotate_my_token(
 
 
 class _AddAIBody(BaseModel):
-    """Body for a participant to add their own AI (non-facilitator path)."""
+    """Body for a participant to add their own AI (non-facilitator path).
+
+    The provider whitelist mirrors the Web UI's curated list. Backend
+    dispatch is LiteLLM-agnostic, so adding a provider here is mostly
+    a UX gate. Gemini + Groq added for low-cost / high-speed alternatives
+    to Anthropic and OpenAI.
+    """
 
     display_name: str
-    provider: Literal["anthropic", "openai", "ollama"]
+    provider: Literal["anthropic", "openai", "ollama", "gemini", "groq"]
     model: str
     model_tier: str = "mid"
     model_family: str = "unknown"
