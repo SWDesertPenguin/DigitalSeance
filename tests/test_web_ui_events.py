@@ -33,6 +33,7 @@ class _P:
     consecutive_timeouts: int = 0
     budget_hourly: float | None = None
     budget_daily: float | None = None
+    max_tokens_per_turn: int | None = None
     invited_by: str | None = None
 
 

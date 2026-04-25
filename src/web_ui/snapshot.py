@@ -133,6 +133,7 @@ def _participant_dict(p: Any) -> dict[str, Any]:
         "consecutive_timeouts": p.consecutive_timeouts,
         "budget_hourly": p.budget_hourly,
         "budget_daily": p.budget_daily,
+        "max_tokens_per_turn": p.max_tokens_per_turn,
         "context_window": p.context_window,
         "invited_by": p.invited_by,
     }
