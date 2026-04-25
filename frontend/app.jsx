@@ -2020,7 +2020,7 @@ const PROVIDER_DEFAULTS = {
   anthropic: { model: "anthropic/claude-haiku-4-5-20251001", family: "claude", tier: "mid", context: 200000, needsKey: true },
   openai:    { model: "gpt-4o-mini",                       family: "gpt",      tier: "mid", context: 128000, needsKey: true },
   ollama:    { model: "ollama_chat/llama3.2:3b",           family: "llama",    tier: "low", context: 4096,   needsKey: false },
-  gemini:    { model: "gemini/gemini-2.0-flash",           family: "gemini",   tier: "mid", context: 1000000, needsKey: true },
+  gemini:    { model: "gemini/gemini-2.5-flash-lite",      family: "gemini",   tier: "low", context: 1000000, needsKey: true },
   groq:      { model: "groq/llama-3.3-70b-versatile",      family: "llama",    tier: "mid", context: 128000, needsKey: true },
 };
 
