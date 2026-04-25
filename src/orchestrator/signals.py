@@ -36,43 +36,52 @@ def detect_exit_intent(content: str) -> str | None:
 
 
 _SENTENCE_RE = re.compile(r"[^.!?]+[.!?]+")
-_SECOND_PERSON_RE = re.compile(r"\b(?:you|your|yours|y'all)\b", re.IGNORECASE)
 
 
 def extract_questions(
     content: str,
     roster: dict[str, dict[str, str]] | None = None,
 ) -> list[str]:
-    """Return the open questions in `content` plausibly aimed at a participant.
+    """Return questions in `content` directed at a human participant.
 
-    Heuristic: a sentence with a `?` that EITHER names a participant
-    (any role — human or AI) OR uses a second-person pronoun. Captures
-    the Test06-Web07 pattern where Haiku asked direct questions that
-    scrolled away because no peer recognized the address. Rhetorical
-    questions ("Why does this happen? Because...") rarely match either
-    criterion, so they're filtered out cheaply.
+    Heuristic: a sentence with `?` that names a human participant
+    (provider == "human") by display name. AI-to-AI questions are
+    excluded — the loop will route the response to the named AI
+    naturally; only questions that risk being missed by a human need
+    surfacing in the panel.
+
+    Why: the original second-person trigger ("you/your") caused every
+    AI turn in a multi-AI session to fire the event (models routinely
+    end responses with "What do you think?"), flooding the panel and
+    making it unusable. Restricting to named humans eliminates the
+    false-positive class while preserving the original Test06-Web07
+    use case: Haiku says "Alice, could you clarify?" → fires once.
     """
     if not content or "?" not in content:
         return []
-    names = _participant_names_lower(roster or {})
+    human_names = _human_names_lower(roster or {})
+    if not human_names:
+        return []
     out: list[str] = []
     for sentence in _SENTENCE_RE.findall(content):
         if "?" not in sentence:
             continue
         clean = sentence.strip()
-        if not clean:
-            continue
-        if _addresses_someone(clean, names) or _SECOND_PERSON_RE.search(clean):
+        if clean and _addresses_someone(clean, human_names):
             out.append(clean)
     return out
 
 
-def _participant_names_lower(roster: dict[str, dict[str, str]]) -> set[str]:
-    """Lowercased display names of all participants in the roster."""
-    return {(p.get("display_name") or "").strip().lower() for p in roster.values()} - {""}
+def _human_names_lower(roster: dict[str, dict[str, str]]) -> set[str]:
+    """Lowercased display names of human participants only (provider == "human")."""
+    return {
+        (p.get("display_name") or "").strip().lower()
+        for p in roster.values()
+        if p.get("provider") == "human"
+    } - {""}
 
 
 def _addresses_someone(sentence: str, names: set[str]) -> bool:
-    """True iff a roster display_name appears anywhere in the sentence."""
+    """True iff a name from the given set appears anywhere in the sentence."""
     s = sentence.lower()
     return any(name and name in s for name in names)
