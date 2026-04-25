@@ -275,6 +275,7 @@ def _participant_payload(
         "consecutive_timeouts": p.consecutive_timeouts,
         "budget_hourly": p.budget_hourly,
         "budget_daily": p.budget_daily,
+        "max_tokens_per_turn": p.max_tokens_per_turn,
         "spend_daily": spend_daily,
         "spend_hourly": spend_hourly,
         "invited_by": p.invited_by,
