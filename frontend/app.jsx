@@ -1887,6 +1887,8 @@ const PROVIDER_DEFAULTS = {
   anthropic: { model: "anthropic/claude-haiku-4-5-20251001", family: "claude", tier: "mid", context: 200000, needsKey: true },
   openai:    { model: "gpt-4o-mini",                       family: "gpt",      tier: "mid", context: 128000, needsKey: true },
   ollama:    { model: "ollama_chat/llama3.2:3b",           family: "llama",    tier: "low", context: 4096,   needsKey: false },
+  gemini:    { model: "gemini/gemini-2.0-flash",           family: "gemini",   tier: "mid", context: 1000000, needsKey: true },
+  groq:      { model: "groq/llama-3.3-70b-versatile",      family: "llama",    tier: "mid", context: 128000, needsKey: true },
 };
 
 function _applyProviderDefaults(form, provider) {
@@ -1956,6 +1958,8 @@ function AddParticipantDialog({ onClose, onAdd, aiOnly = false }) {
               {!aiOnly && <option value="human">human</option>}
               <option value="anthropic">anthropic</option>
               <option value="openai">openai</option>
+              <option value="gemini">gemini</option>
+              <option value="groq">groq</option>
               <option value="ollama">ollama</option>
             </select>
           </label>
@@ -2052,6 +2056,8 @@ function ResetAICredentialsDialog({ participant, onClose, onSubmit }) {
             <select value={form.provider} onChange={update("provider")}>
               <option value="anthropic">anthropic</option>
               <option value="openai">openai</option>
+              <option value="gemini">gemini</option>
+              <option value="groq">groq</option>
               <option value="ollama">ollama</option>
             </select>
           </label>
