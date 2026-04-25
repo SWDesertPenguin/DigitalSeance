@@ -1285,12 +1285,18 @@ function _activeBudget(p) {
 function BudgetEditor({ p, onSave, onClose }) {
   const [hourly, setHourly] = useState(p.budget_hourly ?? "");
   const [daily, setDaily] = useState(p.budget_daily ?? "");
+  const [maxTok, setMaxTok] = useState(p.max_tokens_per_turn ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const parse = (s) => {
+  const parseMoney = (s) => {
     if (s === "" || s == null) return null;
     const n = parseFloat(s);
     return Number.isFinite(n) && n >= 0 ? n : "invalid";
+  };
+  const parseTok = (s) => {
+    if (s === "" || s == null) return null;
+    const n = parseInt(s, 10);
+    return Number.isFinite(n) && n > 0 ? n : "invalid";
   };
   const save = async (payload) => {
     setBusy(true); setError(null);
@@ -1302,13 +1308,14 @@ function BudgetEditor({ p, onSave, onClose }) {
   };
   const submit = async (ev) => {
     ev.preventDefault();
-    const h = parse(hourly); const d = parse(daily);
+    const h = parseMoney(hourly); const d = parseMoney(daily); const t = parseTok(maxTok);
     if (h === "invalid" || d === "invalid") { setError("Budgets must be >= 0"); return; }
-    await save({ budget_hourly: h, budget_daily: d });
+    if (t === "invalid") { setError("Max tokens must be a positive integer"); return; }
+    await save({ budget_hourly: h, budget_daily: d, max_tokens_per_turn: t });
   };
   const clearCaps = () => {
-    setHourly(""); setDaily("");
-    save({ budget_hourly: null, budget_daily: null });
+    setHourly(""); setDaily(""); setMaxTok("");
+    save({ budget_hourly: null, budget_daily: null, max_tokens_per_turn: null });
   };
   return (
     <form onSubmit={submit} className="budget-editor">
@@ -1316,11 +1323,13 @@ function BudgetEditor({ p, onSave, onClose }) {
         onChange={(ev) => setHourly(ev.target.value)} placeholder="no cap" /></label>
       <label>daily $ <input type="number" step="0.01" min="0" value={daily}
         onChange={(ev) => setDaily(ev.target.value)} placeholder="no cap" /></label>
+      <label>max tok <input type="number" step="1" min="1" value={maxTok}
+        onChange={(ev) => setMaxTok(ev.target.value)} placeholder="no limit" /></label>
       {error && <div className="error">{error}</div>}
       <div className="budget-editor-actions">
         <button type="button" onClick={onClose}>cancel</button>
         <button type="button" onClick={clearCaps} disabled={busy}
-          title="Remove both caps (no spending limit)">
+          title="Remove all caps (no spending or token limits)">
           no cap
         </button>
         <button type="submit" className={busy ? "busy" : ""} disabled={busy}>
@@ -2066,8 +2075,14 @@ function AddParticipantDialog({ onClose, onAdd, aiOnly = false }) {
     const validationError = _validateAddParticipant(form);
     if (validationError) { setError(validationError); return; }
     setBusy(true); setError(null);
+    const tok = parseInt(form.max_tokens_per_turn, 10);
+    const parsedTok = Number.isFinite(tok) && tok > 0 ? tok : null;
     try {
-      await onAdd({ ...form, context_window: parseInt(form.context_window, 10) || 0 });
+      await onAdd({
+        ...form,
+        context_window: parseInt(form.context_window, 10) || 0,
+        max_tokens_per_turn: parsedTok,
+      });
       onClose();
     } catch (e) {
       setError(e.message);
@@ -2114,6 +2129,12 @@ function AddParticipantDialog({ onClose, onAdd, aiOnly = false }) {
               </label>
               <label>Context window
                 <input type="number" value={form.context_window} onChange={update("context_window")} />
+              </label>
+              <label>Max tokens / turn
+                <input type="number" step="1" min="1"
+                  value={form.max_tokens_per_turn ?? ""}
+                  onChange={update("max_tokens_per_turn")}
+                  placeholder="no limit" />
               </label>
               {PROVIDER_DEFAULTS[form.provider]?.needsKey && (
                 <label>API key
@@ -2534,13 +2555,14 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     dispatch({ type: "ai_exit_dismissed", participant_id: participantId });
   };
 
-  const onSetBudget = async (participantId, { budget_hourly, budget_daily }) => {
+  const onSetBudget = async (participantId, { budget_hourly, budget_daily, max_tokens_per_turn }) => {
     await mcpCall("/tools/facilitator/set_budget", auth.token, {
       method: "POST",
       body: {
         participant_id: participantId,
         budget_hourly: budget_hourly,
         budget_daily: budget_daily,
+        max_tokens_per_turn: max_tokens_per_turn,
       },
     });
   };

@@ -39,6 +39,7 @@ class ParticipantRepository(BaseRepository):
         auth_token: str | None = None,
         budget_hourly: float | None = None,
         budget_daily: float | None = None,
+        max_tokens_per_turn: int | None = None,
         auto_approve: bool = False,
         invited_by: str | None = None,
     ) -> tuple[Participant, str | None]:
@@ -61,6 +62,7 @@ class ParticipantRepository(BaseRepository):
             budget_hourly,
             budget_daily,
             invited_by,
+            max_tokens_per_turn,
         )
         await self._execute(_INSERT_PARTICIPANT_SQL, *args)
         rec = await self._fetch_one("SELECT * FROM participants WHERE id = $1", pid)
@@ -244,12 +246,16 @@ class ParticipantRepository(BaseRepository):
         *,
         budget_hourly: float | None = None,
         budget_daily: float | None = None,
+        max_tokens_per_turn: int | None = None,
     ) -> str:
-        """Update a participant's budget limits."""
+        """Update a participant's budget limits and output token cap."""
         return await self._execute(
-            "UPDATE participants SET budget_hourly = $1, budget_daily = $2 WHERE id = $3",
+            "UPDATE participants"
+            " SET budget_hourly = $1, budget_daily = $2, max_tokens_per_turn = $3"
+            " WHERE id = $4",
             budget_hourly,
             budget_daily,
+            max_tokens_per_turn,
             participant_id,
         )
 
@@ -259,8 +265,8 @@ _INSERT_PARTICIPANT_SQL = """
         (id, session_id, display_name, role, provider, model,
          model_tier, model_family, context_window,
          api_key_encrypted, auth_token_hash, api_endpoint,
-         budget_hourly, budget_daily, invited_by)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+         budget_hourly, budget_daily, invited_by, max_tokens_per_turn)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 """
 
 
