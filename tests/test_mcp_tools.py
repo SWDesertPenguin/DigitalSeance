@@ -10,7 +10,7 @@ from src.mcp_server.tools.session import (
 
 
 def test_markdown_format() -> None:
-    """Markdown formatter produces expected output."""
+    """Markdown formatter produces expected output with speaker name."""
 
     class _FakeMsg:
         speaker_type = "human"
@@ -18,13 +18,26 @@ def test_markdown_format() -> None:
         turn_number = 0
         speaker_id = "alice"
 
-    result = _format_md_message(_FakeMsg())
-    assert "**[human]**" in result
+    result = _format_md_message(_FakeMsg(), {"alice": "Alice"})
+    assert "**[human: Alice]**" in result
     assert "Hello world" in result
 
 
+def test_markdown_format_unknown_speaker() -> None:
+    """Unknown speaker_id falls back to 'unknown' instead of crashing."""
+
+    class _FakeMsg:
+        speaker_type = "ai"
+        content = "Hi"
+        turn_number = 0
+        speaker_id = "ghost"
+
+    result = _format_md_message(_FakeMsg(), {})
+    assert "**[ai: unknown]**" in result
+
+
 def test_json_format() -> None:
-    """JSON formatter produces expected structure."""
+    """JSON formatter produces expected structure including speaker name."""
 
     class _FakeMsg:
         speaker_type = "ai"
@@ -32,10 +45,12 @@ def test_json_format() -> None:
         turn_number = 1
         speaker_id = "bob"
 
-    result = _format_json_message(_FakeMsg())
+    result = _format_json_message(_FakeMsg(), {"bob": "Bob"})
     assert result["turn"] == 1
     assert result["type"] == "ai"
     assert result["content"] == "Response text"
+    assert result["speaker_display_name"] == "Bob"
+    assert result["speaker"] == "bob"
 
 
 def test_app_routes_registered() -> None:
