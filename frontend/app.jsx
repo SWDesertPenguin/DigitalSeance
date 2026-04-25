@@ -2087,6 +2087,16 @@ function AddParticipantDialog({ onClose, onAdd, aiOnly = false }) {
   );
 }
 
+function _swapValue(formValue, currentValue) {
+  // Returns the next swap field value: null when blank or unchanged
+  // (= "keep current"), otherwise the trimmed new value. Prevents the
+  // dialog from silently clearing model/provider/endpoint when the
+  // operator leaves a field empty (Phase 2 reset-empty-model bug).
+  if (!formValue) return null;
+  if (formValue === currentValue) return null;
+  return formValue;
+}
+
 function ResetAICredentialsDialog({ participant, onClose, onSubmit }) {
   // Smaller cousin of AddParticipantDialog — the AI already exists, the
   // only required field is a fresh API key. Provider/model/endpoint are
@@ -2110,11 +2120,13 @@ function ResetAICredentialsDialog({ participant, onClose, onSubmit }) {
       await onSubmit({
         participant_id: participant.id,
         api_key: form.api_key.trim(),
-        provider: form.provider !== participant.provider ? form.provider : null,
-        model: form.model !== participant.model ? form.model.trim() : null,
-        api_endpoint: form.api_endpoint !== (participant.api_endpoint || "")
-          ? (form.api_endpoint || null)
-          : null,
+        // Send null (= "keep current") when the swap field is blank or
+        // unchanged. Sending an empty string would otherwise overwrite
+        // the existing model/provider with "" via COALESCE on the server,
+        // leaving the AI un-dispatchable until manually re-edited.
+        provider: _swapValue(form.provider, participant.provider),
+        model: _swapValue(form.model.trim(), participant.model),
+        api_endpoint: _swapValue(form.api_endpoint.trim(), participant.api_endpoint || ""),
       });
       onClose();
     } catch (e) {
