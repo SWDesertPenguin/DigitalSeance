@@ -79,6 +79,15 @@ code {
 .warn { color: var(--warning); }
 .error { color: var(--danger); margin-top: 0.5em; }
 
+.key-warning {
+  font-size: 0.85em;
+  margin-top: 0.3em;
+  padding: 0.3em 0.5em;
+  background: rgba(255, 209, 102, 0.12);
+  border-left: 3px solid var(--warning);
+  border-radius: 3px;
+}
+
 /* ========== Auth gate ========== */
 
 main.auth-gate {
