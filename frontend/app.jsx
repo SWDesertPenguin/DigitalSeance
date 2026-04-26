@@ -1971,7 +1971,7 @@ function MessageInput({ onSend, disabled }) {
   const counterClass = remaining <= 100 ? "char-counter danger"
     : remaining <= 500 ? "char-counter warn"
     : "char-counter dim";
-  const atLimit = text.length >= MAX_MSG_CHARS;
+  const atLimit = text.length > MAX_MSG_CHARS;
 
   const send = async () => {
     const trimmed = text.trim();
