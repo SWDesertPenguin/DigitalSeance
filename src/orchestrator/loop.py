@@ -424,8 +424,13 @@ async def _record_failure_and_announce(
     breaker: CircuitBreaker,
     speaker: object,
 ) -> None:
-    """Increment breaker; if newly open, post a transcript notice."""
+    """Increment breaker; broadcast updated health state; if newly open, announce."""
     just_opened = await breaker.record_failure(speaker.id)
+    from src.repositories.participant_repo import ParticipantRepository
+    from src.web_ui.events import broadcast_participant_update
+
+    repo = ParticipantRepository(ctx.pool, encryption_key=ctx.encryption_key)
+    await broadcast_participant_update(ctx.session_id, speaker.id, repo, ctx.log_repo)
     if not just_opened:
         return
     from src.orchestrator.announcements import announce_departure
