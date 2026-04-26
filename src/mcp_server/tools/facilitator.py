@@ -76,6 +76,18 @@ async def add_participant(
         p_repo,
         request.app.state.log_repo,
     )
+    from src.mcp_server.tools.session import is_loop_running
+    from src.orchestrator.announcements import announce_arrival
+
+    if is_loop_running(participant.session_id):
+        await announce_arrival(
+            pool=request.app.state.pool,
+            msg_repo=request.app.state.message_repo,
+            session_id=participant.session_id,
+            speaker_id=new_p.id,
+            joining_name=new_p.display_name,
+            kind="joined the session",
+        )
     return {"participant_id": new_p.id, "auth_token": auth_token, "role": new_p.role}
 
 
@@ -164,6 +176,18 @@ async def approve_participant(
         participant_id=participant_id,
     )
     await _push_participant_update(request, participant.session_id, participant_id)
+    from src.mcp_server.tools.session import is_loop_running
+    from src.orchestrator.announcements import announce_arrival
+
+    if is_loop_running(participant.session_id):
+        await announce_arrival(
+            pool=request.app.state.pool,
+            msg_repo=request.app.state.message_repo,
+            session_id=participant.session_id,
+            speaker_id=result.id,
+            joining_name=result.display_name,
+            kind="was admitted to the session",
+        )
     return {"status": "approved", "participant_id": result.id}
 
 
