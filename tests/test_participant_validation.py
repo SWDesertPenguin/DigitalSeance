@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from src.mcp_server.tools.facilitator import _AddParticipantBody, _EditDraftBody
+from src.mcp_server.tools.facilitator import (
+    _MAX_FACILITATOR_EDIT_CHARS,
+    _AddParticipantBody,
+    _EditDraftBody,
+)
 from src.mcp_server.tools.participant import (
     MAX_MESSAGE_CONTENT_CHARS,
     _AddAIBody,
@@ -86,8 +90,32 @@ def test_edit_draft_rejects_over_cap():
     with pytest.raises(ValidationError):
         _EditDraftBody(
             draft_id="d1",
-            edited_content="A" * (MAX_MESSAGE_CONTENT_CHARS + 1),
+            edited_content="A" * (_MAX_FACILITATOR_EDIT_CHARS + 1),
         )
+
+
+def test_edit_draft_accepts_above_inject_cap():
+    """Facilitator edit cap is decoupled from inject_message cap so the
+    facilitator can wholesale-rewrite a long AI draft."""
+    _EditDraftBody(
+        draft_id="d1",
+        edited_content="A" * (MAX_MESSAGE_CONTENT_CHARS + 1),
+    )
+
+
+def test_set_routing_body_accepts_optional_reason():
+    """The Honor-exit button passes reason='honored_exit' so the backend can
+    decide whether to post a transcript notice."""
+    from src.mcp_server.tools.facilitator import _SetRoutingBody
+
+    body_no_reason = _SetRoutingBody(participant_id="p1", preference="observer")
+    assert body_no_reason.reason is None
+    body_with_reason = _SetRoutingBody(
+        participant_id="p1",
+        preference="observer",
+        reason="honored_exit",
+    )
+    assert body_with_reason.reason == "honored_exit"
 
 
 # --- Sponsor add_ai provider whitelist ----------------------------------------
