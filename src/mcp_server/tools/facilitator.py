@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from src.mcp_server.middleware import get_current_participant
-from src.mcp_server.tools.participant import MAX_MESSAGE_CONTENT_CHARS
 from src.models.participant import Participant
 from src.orchestrator.branch import get_main_branch_id
 
@@ -16,6 +15,10 @@ router = APIRouter(prefix="/tools/facilitator", tags=["facilitator"])
 
 _SWAGGER_PLACEHOLDER = "string"
 _MAX_REJECT_REASON_CHARS = 2_000
+# Facilitator review-gate edits can rewrite a full AI draft. Typical Haiku
+# / gpt-4o-mini drafts run 1500-2500 chars at 300-500 output tokens; 8 KB is
+# a 4x cushion over that without re-introducing the 64 KB attack surface.
+_MAX_FACILITATOR_EDIT_CHARS = 8_000
 
 
 class _AddParticipantBody(BaseModel):
@@ -199,6 +202,8 @@ async def remove_participant(
     sponsor leaves (Test06-Web07). Humans removed by the facilitator
     still drag their sponsored AIs with them.
     """
+    p_repo = request.app.state.participant_repo
+    target = await p_repo.get_participant(participant_id)
     auth = request.app.state.auth_service
     await auth.remove_participant(
         facilitator_id=participant.id,
@@ -208,8 +213,26 @@ async def remove_participant(
     )
     await _close_ws_for_participant(participant.session_id, participant_id)
     await _push_participant_update(request, participant.session_id, participant_id)
+    if target is not None:
+        await _announce_removed(request, participant, target)
     await _cascade_remove_sponsored_ais(request, participant, participant_id, reason)
     return {"status": "removed"}
+
+
+async def _announce_removed(request: Request, caller: Participant, target: Participant) -> None:
+    """System message when an AI is removed by the facilitator."""
+    if target.provider == "human":
+        return
+    from src.orchestrator.announcements import announce_departure
+
+    await announce_departure(
+        pool=request.app.state.pool,
+        msg_repo=request.app.state.message_repo,
+        session_id=caller.session_id,
+        speaker_id=caller.id,
+        departing_name=target.display_name,
+        kind="was removed by the facilitator",
+    )
 
 
 async def _cascade_remove_sponsored_ais(
@@ -236,6 +259,7 @@ async def _cascade_remove_sponsored_ais(
         )
         await _close_ws_for_participant(caller.session_id, ai.id)
         await _push_participant_update(request, caller.session_id, ai.id)
+        await _announce_removed(request, caller, ai)
 
 
 async def _push_participant_update(
@@ -341,6 +365,16 @@ async def release_ai_slot(
     await _close_ws_for_participant(participant.session_id, body.participant_id)
     await _audit_release(request, participant, target, body.reason)
     await _push_participant_update(request, participant.session_id, body.participant_id)
+    from src.orchestrator.announcements import announce_departure
+
+    await announce_departure(
+        pool=request.app.state.pool,
+        msg_repo=request.app.state.message_repo,
+        session_id=participant.session_id,
+        speaker_id=participant.id,
+        departing_name=target.display_name,
+        kind="was released",
+    )
     return {"status": "released", "participant_id": body.participant_id}
 
 
@@ -524,6 +558,10 @@ class _SetRoutingBody(BaseModel):
 
     participant_id: str
     preference: _RoutingPreference
+    # When the frontend Honor-exit button flips an AI to observer, it sends
+    # reason="honored_exit" so the backend can post a transcript notice. Plain
+    # routing changes leave reason=None and stay silent.
+    reason: str | None = None
 
 
 @router.post("/set_routing_preference")
@@ -548,11 +586,33 @@ async def set_routing_preference(
         p_repo,
         request.app.state.log_repo,
     )
+    await _maybe_announce_honored_exit(request, participant, target, body)
     return {
         "status": "updated",
         "participant_id": body.participant_id,
         "preference": body.preference,
     }
+
+
+async def _maybe_announce_honored_exit(
+    request: Request,
+    caller: Participant,
+    target: Participant,
+    body: _SetRoutingBody,
+) -> None:
+    """Post a transcript notice when the Honor-exit button flipped to observer."""
+    if body.reason != "honored_exit" or body.preference != "observer":
+        return
+    from src.orchestrator.announcements import announce_departure
+
+    await announce_departure(
+        pool=request.app.state.pool,
+        msg_repo=request.app.state.message_repo,
+        session_id=caller.session_id,
+        speaker_id=caller.id,
+        departing_name=target.display_name,
+        kind="stepped back to observer",
+    )
 
 
 def _capture_prior_if_gating(request: Request, target: Participant, new_pref: str) -> None:
@@ -1057,7 +1117,7 @@ class _EditDraftBody(BaseModel):
     """Request body for editing a draft before approval."""
 
     draft_id: str
-    edited_content: str = Field(..., min_length=1, max_length=MAX_MESSAGE_CONTENT_CHARS)
+    edited_content: str = Field(..., min_length=1, max_length=_MAX_FACILITATOR_EDIT_CHARS)
 
 
 @router.post("/approve_draft")
