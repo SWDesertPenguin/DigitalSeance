@@ -1610,13 +1610,21 @@ function ReviewGateQueue({ drafts, participants, pauseScope, isFacilitator, onAp
   );
 }
 
+const MAX_EDIT_CHARS = 8_000; // mirrors server-side _MAX_FACILITATOR_EDIT_CHARS
+
 function ReviewGateEditor({ draft, onSave, onClose }) {
   const [text, setText] = useState(draft.draft_content);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
+  const remaining = MAX_EDIT_CHARS - text.length;
+  const counterClass = remaining <= 100 ? "char-counter danger"
+    : remaining <= 500 ? "char-counter warn"
+    : "char-counter dim";
+  const atLimit = text.length > MAX_EDIT_CHARS;
+
   const submit = async () => {
-    if (!text.trim()) return;
+    if (!text.trim() || atLimit) return;
     setBusy(true);
     setError(null);
     try {
@@ -1638,11 +1646,13 @@ function ReviewGateEditor({ draft, onSave, onClose }) {
           value={text}
           onChange={(ev) => setText(ev.target.value)}
           disabled={busy}
+          maxLength={MAX_EDIT_CHARS}
         />
         {error && <div className="error">{error}</div>}
         <div className="modal-actions">
+          <span className={counterClass}>{remaining.toLocaleString()} / {MAX_EDIT_CHARS.toLocaleString()}</span>
           <button type="button" onClick={onClose}>Cancel</button>
-          <button onClick={submit} disabled={busy || !text.trim()}>
+          <button onClick={submit} disabled={busy || !text.trim() || atLimit}>
             {busy ? "Saving…" : "Save + approve"}
           </button>
         </div>
