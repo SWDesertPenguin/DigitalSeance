@@ -217,6 +217,18 @@ async def add_ai_participant(
         new_p.id,
         p_repo,
     )
+    from src.mcp_server.tools.session import is_loop_running
+    from src.orchestrator.announcements import announce_arrival
+
+    if is_loop_running(participant.session_id):
+        await announce_arrival(
+            pool=request.app.state.pool,
+            msg_repo=request.app.state.message_repo,
+            session_id=participant.session_id,
+            speaker_id=new_p.id,
+            joining_name=new_p.display_name,
+            kind="joined as a sponsored AI",
+        )
     return {"participant_id": new_p.id, "auth_token": auth_token, "role": new_p.role}
 
 
