@@ -607,6 +607,7 @@ function SignInForm({ onLogin, onBack }) {
 
 function CreateSessionForm({ onLogin, onBack }) {
   const [name, setName] = useState("");
+  const [sessionName, setSessionName] = useState("");
   const [reveal, setReveal] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -617,7 +618,10 @@ function CreateSessionForm({ onLogin, onBack }) {
     try {
       const result = await mcpCall("/tools/session/create", null, {
         method: "POST",
-        body: { display_name: `Facilitator-${name.trim()}` },
+        body: {
+          display_name: `Facilitator-${name.trim()}`,
+          name: sessionName.trim(),
+        },
       });
       setReveal(result);
     } catch (e) { setError(e.message || "Create failed"); }
@@ -634,6 +638,9 @@ function CreateSessionForm({ onLogin, onBack }) {
       <p className="dim">Your name (we'll prefix it with "Facilitator-").</p>
       <input type="text" placeholder="your name" value={name}
         onChange={(ev) => setName(ev.target.value)} autoFocus maxLength={64} />
+      <p className="dim">Session name (optional — auto-generated if blank).</p>
+      <input type="text" placeholder='e.g. "Round08-quantum"' value={sessionName}
+        onChange={(ev) => setSessionName(ev.target.value)} maxLength={120} />
       <div className="auth-actions">
         <button type="button" className="link-btn" onClick={onBack}>← back</button>
         <button type="submit" className={busy ? "busy" : ""} disabled={busy || !name.trim()}>
@@ -655,6 +662,7 @@ function TokenRevealModal({ result, onProceed }) {
       </p>
       <CopyableToken token={result.auth_token} />
       <div className="dim token-meta">
+        {result.name && <div>Session: <code>{result.name}</code></div>}
         <div>Session ID: <code>{result.session_id}</code></div>
         <div>Facilitator ID: <code>{result.facilitator_id}</code></div>
       </div>
