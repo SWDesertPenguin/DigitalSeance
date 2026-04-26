@@ -2121,7 +2121,7 @@ function _validateAddParticipant(form) {
   return null;
 }
 
-function AddParticipantDialog({ onClose, onAdd, aiOnly = false }) {
+function AddParticipantDialog({ onClose, onAdd, onFetchModels, aiOnly = false }) {
   const initial = aiOnly
     ? _applyProviderDefaults({ display_name: "", api_key: "" }, "anthropic")
     : { display_name: "", provider: "human", model: "human",
@@ -2210,6 +2210,15 @@ function AddParticipantDialog({ onClose, onAdd, aiOnly = false }) {
                   )}
                 </label>
               )}
+              {onFetchModels && (
+                <ProviderModelPicker
+                  provider={form.provider}
+                  apiKey={form.api_key}
+                  apiEndpoint={form.api_endpoint || ""}
+                  onFetch={onFetchModels}
+                  onPick={(picked) => setForm({ ...form, model: picked })}
+                />
+              )}
             </>
           )}
           {error && <div className="error">{error}</div>}
@@ -2261,7 +2270,7 @@ function _swapValue(formValue, currentValue) {
   return formValue;
 }
 
-function ResetAICredentialsDialog({ participant, onClose, onSubmit }) {
+function ResetAICredentialsDialog({ participant, onClose, onSubmit, onFetchModels }) {
   // Smaller cousin of AddParticipantDialog — the AI already exists, the
   // only required field is a fresh API key. Provider/model/endpoint are
   // optional swaps for the "rotated to a different key AND upgraded the
@@ -2333,6 +2342,15 @@ function ResetAICredentialsDialog({ participant, onClose, onSubmit }) {
           <label>API endpoint (optional, for Ollama/custom)
             <input value={form.api_endpoint} onChange={update("api_endpoint")} />
           </label>
+          {onFetchModels && (
+            <ProviderModelPicker
+              provider={form.provider}
+              apiKey={form.api_key}
+              apiEndpoint={form.api_endpoint}
+              onFetch={onFetchModels}
+              onPick={(picked) => setForm({ ...form, model: picked })}
+            />
+          )}
           {error && <div className="error">{error}</div>}
           <div className="modal-actions">
             <button type="button" onClick={onClose}>Cancel</button>
@@ -2530,6 +2548,14 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
       throw new Error("Only the facilitator can add human participants");
     }
     await onAddMyAI(form);
+  };
+
+  const fetchProviderModels = async ({ provider, api_key, api_endpoint }) => {
+    const result = await mcpCall("/tools/provider/list_models", auth.token, {
+      method: "POST",
+      body: { provider, api_key, api_endpoint: api_endpoint || null },
+    });
+    return result.models || [];
   };
 
   const onRenameSession = async (newName) => {
@@ -2878,6 +2904,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
         <AddParticipantDialog
           onClose={() => setShowAddDialog(false)}
           onAdd={addParticipant}
+          onFetchModels={fetchProviderModels}
           aiOnly={!isFacilitator}
         />
       )}
@@ -2899,9 +2926,59 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
           participant={resetTarget}
           onClose={() => setResetTarget(null)}
           onSubmit={onSubmitResetAI}
+          onFetchModels={fetchProviderModels}
         />
       )}
     </div>
+  );
+}
+
+// Shared "Fetch models" affordance for AddParticipantDialog and
+// ResetAICredentialsDialog. Renders a button next to the API key field
+// and, after a successful fetch, a quick-pick <select> below it. The
+// existing free-text model input stays — picking from the dropdown
+// just writes back into it. Operators can still type exotic model names.
+function ProviderModelPicker({ provider, apiKey, apiEndpoint, onPick, onFetch }) {
+  const [models, setModels] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const needsKey = PROVIDER_DEFAULTS[provider]?.needsKey;
+  const needsEndpoint = provider === "ollama";
+  const canFetch = (!needsKey || apiKey.trim()) && (!needsEndpoint || apiEndpoint.trim());
+
+  const fetch = async () => {
+    setBusy(true); setError(null);
+    try {
+      const list = await onFetch({ provider, api_key: apiKey, api_endpoint: apiEndpoint });
+      setModels(list);
+      if (list.length === 0) setError(`No models returned for ${provider}.`);
+    } catch (e) {
+      setError(e.message || "Fetch failed");
+      setModels(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <button type="button" onClick={fetch} disabled={busy || !canFetch}
+        className={"fetch-models-btn" + (busy ? " busy" : "")}>
+        {busy ? "Fetching…" : "Fetch models"}
+      </button>
+      {error && <div className="warn key-warning">{error}</div>}
+      {models && models.length > 0 && (
+        <label>Pick a model
+          <select value="" onChange={(ev) => ev.target.value && onPick(ev.target.value)}>
+            <option value="">— pick from {models.length} fetched —</option>
+            {models.map((m) => (
+              <option key={m.model} value={m.model}>{m.display}</option>
+            ))}
+          </select>
+        </label>
+      )}
+    </>
   );
 }
 
