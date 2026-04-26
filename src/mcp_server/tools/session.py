@@ -650,6 +650,35 @@ def _format_summary_row(s: object) -> dict:
     }
 
 
+@router.get("/list_review_gates")
+async def list_review_gates(
+    request: Request,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Return review-gate audit history (approve / reject / edit) for the session.
+
+    Sourced from admin_audit_log; the panel renders it next to summary
+    checkpoints so operators can scroll back through what was edited or
+    rejected. Newest first.
+    """
+    log_repo = request.app.state.log_repo
+    rows = await log_repo.get_audit_log(participant.session_id)
+    gates = [_format_gate_row(r) for r in rows if r.action.startswith("review_gate_")]
+    gates.reverse()
+    return {"review_gates": gates}
+
+
+def _format_gate_row(r: object) -> dict:
+    """Shape an admin_audit_log row for the list_review_gates response."""
+    return {
+        "action": r.action,
+        "draft_id": r.target_id,
+        "facilitator_id": r.facilitator_id,
+        "reason": r.new_value,
+        "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+    }
+
+
 @router.get("/export_summaries")
 async def export_summaries(
     request: Request,

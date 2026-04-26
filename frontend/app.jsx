@@ -1127,13 +1127,19 @@ function Transcript({ messages, participants }) {
         const speaker = byId[m.speaker_id];
         const html = renderMarkdown(m.content || "");
         const hiddenCount = countInvisibles(m.content || "");
+        // For speaker_type="system" the row isn't FROM a participant — it's
+        // an automated lifecycle notice (departure, etc.). Use a generic
+        // label so the facilitator's name doesn't appear as the speaker.
+        const speakerLabel = m.speaker_type === "system"
+          ? "System"
+          : (speaker?.display_name || m.speaker_id);
         return (
           <article
             key={`${m.turn_number}-${m.speaker_id}`}
             className={`msg msg-${m.speaker_type}`}
           >
             <header>
-              <strong>{speaker?.display_name || m.speaker_id}</strong>
+              <strong>{speakerLabel}</strong>
               <span className="msg-type">{m.speaker_type}</span>
               {hiddenCount > 0 && (
                 <span
@@ -1385,15 +1391,18 @@ function ConvergencePanel({ scores, threshold = 0.85 }) {
   );
 }
 
-function SummaryPanel({ summary, onLoadHistory, onExport }) {
-  // US9 T130–T133. Now with chronological history (lazy-loaded on first
-  // expand) + markdown/JSON export buttons. The latest summary stays at
-  // the top; earlier checkpoints render in a collapsed details element
-  // so the sidebar doesn't grow without bound on long sessions.
+function SummaryPanel({ summary, onLoadHistory, onLoadReviewGates, onExport }) {
+  // US9 T130–T133. Latest summary at top, plus two collapsed details blocks
+  // for earlier summary checkpoints and review-gate history. Both refetch on
+  // every open click — the original first-fetch-only cache went stale as
+  // soon as a new summary or review-gate event landed.
   const [open, setOpen] = useState(true);
   const [history, setHistory] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [gates, setGates] = useState(null);
+  const [gatesOpen, setGatesOpen] = useState(false);
+  const [gatesBusy, setGatesBusy] = useState(false);
 
   if (!summary) {
     return (
@@ -1407,17 +1416,32 @@ function SummaryPanel({ summary, onLoadHistory, onExport }) {
   const toggleHistory = async () => {
     const next = !historyOpen;
     setHistoryOpen(next);
-    if (next && history === null && onLoadHistory) {
-      setBusy(true);
-      try {
-        const rows = await onLoadHistory();
-        setHistory(rows || []);
-      } catch (e) {
-        setHistory([]);
-        alert(`Load history failed: ${e.message}`);
-      } finally {
-        setBusy(false);
-      }
+    if (!next || !onLoadHistory) return;
+    setHistoryBusy(true);
+    try {
+      const rows = await onLoadHistory();
+      setHistory(rows || []);
+    } catch (e) {
+      setHistory([]);
+      alert(`Load history failed: ${e.message}`);
+    } finally {
+      setHistoryBusy(false);
+    }
+  };
+
+  const toggleGates = async () => {
+    const next = !gatesOpen;
+    setGatesOpen(next);
+    if (!next || !onLoadReviewGates) return;
+    setGatesBusy(true);
+    try {
+      const rows = await onLoadReviewGates();
+      setGates(rows || []);
+    } catch (e) {
+      setGates([]);
+      alert(`Load review gates failed: ${e.message}`);
+    } finally {
+      setGatesBusy(false);
     }
   };
 
@@ -1458,14 +1482,33 @@ function SummaryPanel({ summary, onLoadHistory, onExport }) {
             <summary onClick={(ev) => { ev.preventDefault(); toggleHistory(); }}>
               Earlier checkpoints {history ? `(${Math.max(0, history.length - 1)})` : ""}
             </summary>
-            {busy && <p className="dim">Loading…</p>}
-            {history && history.length <= 1 && !busy && (
+            {historyBusy && <p className="dim">Loading…</p>}
+            {history && history.length <= 1 && !historyBusy && (
               <p className="dim">No earlier checkpoints.</p>
             )}
             {history && history.length > 1 && history.slice(0, -1).reverse().map((row) => (
               <div key={row.turn_number} className="summary-history-entry">
                 <h4>Turn {row.turn_number}</h4>
                 <SummaryBody summary={row.summary} />
+              </div>
+            ))}
+          </details>
+          <details className="summary-history" open={gatesOpen}>
+            <summary onClick={(ev) => { ev.preventDefault(); toggleGates(); }}>
+              Review gate history {gates ? `(${gates.length})` : ""}
+            </summary>
+            {gatesBusy && <p className="dim">Loading…</p>}
+            {gates && gates.length === 0 && !gatesBusy && (
+              <p className="dim">No review-gate events yet.</p>
+            )}
+            {gates && gates.length > 0 && gates.map((g) => (
+              <div key={`${g.timestamp}-${g.draft_id}`} className="gate-history-entry">
+                <span className={`pill pill-${g.action.replace("review_gate_", "")}`}>
+                  {g.action.replace("review_gate_", "")}
+                </span>
+                <span className="dim"> draft {g.draft_id?.slice(0, 8)}</span>
+                {g.reason && <div className="gate-reason">{g.reason}</div>}
+                <div className="dim small">{g.timestamp}</div>
               </div>
             ))}
           </details>
@@ -1918,15 +1961,15 @@ function ProposalCreator({ onClose, onCreate }) {
   );
 }
 
-const MAX_MSG_CHARS = 65_536; // mirrors server-side MAX_MESSAGE_CONTENT_CHARS
+const MAX_MSG_CHARS = 2_000; // mirrors server-side MAX_MESSAGE_CONTENT_CHARS
 
 function MessageInput({ onSend, disabled }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
 
   const remaining = MAX_MSG_CHARS - text.length;
-  const counterClass = remaining <= 200 ? "char-counter danger"
-    : remaining <= 2000 ? "char-counter warn"
+  const counterClass = remaining <= 100 ? "char-counter danger"
+    : remaining <= 500 ? "char-counter warn"
     : "char-counter dim";
   const atLimit = text.length >= MAX_MSG_CHARS;
 
@@ -2429,6 +2472,11 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     return result.summaries || [];
   };
 
+  const onLoadReviewGates = async () => {
+    const result = await mcpCall("/tools/session/list_review_gates", auth.token);
+    return result.review_gates || [];
+  };
+
   const onExportSummaries = async (fmt) => {
     return await mcpCall(
       `/tools/session/export_summaries?fmt=${encodeURIComponent(fmt)}`,
@@ -2545,7 +2593,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     try {
       await mcpCall("/tools/facilitator/set_routing_preference", auth.token, {
         method: "POST",
-        body: { participant_id: p.id, preference: "observer" },
+        body: { participant_id: p.id, preference: "observer", reason: "honored_exit" },
       });
       dispatch({ type: "ai_exit_dismissed", participant_id: p.id });
     } catch (e) {
@@ -2794,6 +2842,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
           <SummaryPanel
             summary={state.latestSummary}
             onLoadHistory={onLoadSummaryHistory}
+            onLoadReviewGates={onLoadReviewGates}
             onExport={onExportSummaries}
           />
           <ProposalTracker

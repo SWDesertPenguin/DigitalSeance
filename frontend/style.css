@@ -359,6 +359,12 @@ main.scaffold {
 .msg.msg-human { border-left: 3px solid var(--accent); }
 .msg.msg-ai { border-left: 3px solid var(--ok); }
 .msg.msg-summary { border-left: 3px solid var(--warning); background: var(--panel-alt); }
+.msg.msg-system {
+  border-left: 3px solid var(--muted);
+  background: var(--panel-alt);
+  font-style: italic;
+  opacity: 0.85;
+}
 
 .msg header {
   display: flex;
