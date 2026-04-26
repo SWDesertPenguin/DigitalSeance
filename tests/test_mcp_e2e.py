@@ -89,6 +89,28 @@ async def test_create_session(client):
     assert "auth_token" in data
 
 
+async def test_create_session_with_explicit_name_persists(client):
+    """An explicit ``name`` in the body is stored verbatim and echoed back."""
+    c, _ = client
+    body = {**_SESSION_BODY, "name": "Round08-quantum"}
+    resp = await c.post("/tools/session/create", json=body)
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Round08-quantum"
+
+
+async def test_create_session_with_blank_name_auto_generates(client):
+    """A blank ``name`` falls through to the adjective-animal-hex slug."""
+    c, _ = client
+    body = {**_SESSION_BODY, "name": ""}
+    resp = await c.post("/tools/session/create", json=body)
+    assert resp.status_code == 200
+    name = resp.json()["name"]
+    assert name and name != ""
+    parts = name.split("-")
+    assert len(parts) == 3
+    assert all(parts), "auto-generated slug should have three non-empty segments"
+
+
 async def test_add_participant_with_auth(client):
     """POST /tools/facilitator/add_participant requires auth."""
     c, _ = client

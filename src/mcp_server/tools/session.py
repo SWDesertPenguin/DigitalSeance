@@ -882,6 +882,7 @@ def _format_created(
     """Format session creation response."""
     return {
         "session_id": session.id,
+        "name": session.name,
         "facilitator_id": facilitator.id,
         "branch_id": branch.id,
         "status": session.status,
