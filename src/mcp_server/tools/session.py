@@ -282,6 +282,17 @@ async def redeem_invite(request: Request, body: _RedeemInviteBody) -> dict:
     await _reject_duplicate_human_name(p_repo, invite.session_id, body.display_name)
     new_p = await _persist_invite_redeemer(p_repo, invite, body.display_name)
     auth_token = await _issue_and_broadcast(request, invite.session_id, new_p.id, p_repo)
+    if is_loop_running(invite.session_id):
+        from src.orchestrator.announcements import announce_arrival
+
+        await announce_arrival(
+            pool=request.app.state.pool,
+            msg_repo=request.app.state.message_repo,
+            session_id=invite.session_id,
+            speaker_id=new_p.id,
+            joining_name=new_p.display_name,
+            kind="joined the session",
+        )
     return {
         "participant_id": new_p.id,
         "session_id": invite.session_id,
