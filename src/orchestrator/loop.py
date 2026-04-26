@@ -414,9 +414,30 @@ async def _assemble_and_dispatch(
         return await _dispatch_to_provider(speaker, messages, ctx.encryption_key), None
     except ProviderDispatchError as e:
         log.warning("Provider dispatch failed for %s: %s", speaker.id, e)
-        await breaker.record_failure(speaker.id)
+        await _record_failure_and_announce(ctx, breaker, speaker)
         await _broadcast_provider_error(ctx.session_id, speaker, e)
         return None, "provider_error"
+
+
+async def _record_failure_and_announce(
+    ctx: _TurnContext,
+    breaker: CircuitBreaker,
+    speaker: object,
+) -> None:
+    """Increment breaker; if newly open, post a transcript notice."""
+    just_opened = await breaker.record_failure(speaker.id)
+    if not just_opened:
+        return
+    from src.orchestrator.announcements import announce_departure
+
+    await announce_departure(
+        pool=ctx.pool,
+        msg_repo=ctx.msg_repo,
+        session_id=ctx.session_id,
+        speaker_id=speaker.id,
+        departing_name=speaker.display_name,
+        kind="paused — provider unreachable (circuit breaker open)",
+    )
 
 
 async def _broadcast_provider_error(session_id: str, speaker: object, err: Exception) -> None:
@@ -461,11 +482,11 @@ async def _validate_and_persist(
     cleaned, _ = filter_exfiltration(response.content)
     if not cleaned.strip():
         log.warning("Skipped empty response from %s", speaker.id)
-        await breaker.record_failure(speaker.id)
+        await _record_failure_and_announce(ctx, breaker, speaker)
         return _skip_result(ctx.session_id, speaker.id, "empty_response")
     if _is_degenerate(cleaned):
         log.warning("Skipped degenerate response from %s", speaker.id)
-        await breaker.record_failure(speaker.id)
+        await _record_failure_and_announce(ctx, breaker, speaker)
         return _skip_result(ctx.session_id, speaker.id, "degenerate_output")
     await breaker.record_success(speaker.id)
     safe = _with_cleaned_content(response, cleaned)
