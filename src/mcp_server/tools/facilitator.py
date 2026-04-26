@@ -244,9 +244,7 @@ async def remove_participant(
 
 
 async def _announce_removed(request: Request, caller: Participant, target: Participant) -> None:
-    """System message when an AI is removed by the facilitator."""
-    if target.provider == "human":
-        return
+    """System message when a participant is removed by the facilitator."""
     from src.orchestrator.announcements import announce_departure
 
     await announce_departure(
