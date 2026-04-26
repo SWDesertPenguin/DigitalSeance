@@ -15,9 +15,12 @@ from src.repositories.errors import SessionNotActiveError
 router = APIRouter(prefix="/tools/participant", tags=["participant"])
 
 # Per red-team runbook 3.1: oversized message bodies must be rejected before
-# reaching the provider. 64 KB ≈ 16K tokens — comfortably above any realistic
-# human interjection, well below the 1 MB runbook trigger.
-MAX_MESSAGE_CONTENT_CHARS = 65_536
+# reaching the provider. 2 KB matches Discord's per-message limit and fits any
+# realistic facilitator directive (Round04's longest input was ~250 chars). The
+# original 64 KB cap let one message blow the context-assembly budget on its
+# own; smaller cap forces operators to break long thoughts into turns the AIs
+# can actually digest.
+MAX_MESSAGE_CONTENT_CHARS = 2_000
 
 
 class _InjectMessageBody(BaseModel):
