@@ -1,10 +1,12 @@
 # SACP Red Team Runbook
 
+> **Defensive QA artifact.** This file is a regression-test catalog for the SACP 7-layer security pipeline (`src/security/`). Every payload below exists so the corresponding detector / sanitizer / scrubber can be measurably verified against it. The pipeline IS the product; this runbook is how we keep it honest. Equivalent in purpose to an antivirus vendor's malware-sample directory or a web framework's XSS test suite.
+>
+> **Scope**: localhost-only, against the operator's own Docker stack on `:8750` / `:8751`, using the operator's own AI accounts. No production targets, no third-party systems, no shared infrastructure.
+
 **Audience**: SACP operators running offensive-style shakedown against their own deployment.
 **Purpose**: exercise every layer of the 7-layer security pipeline plus orchestrator, auth, and UI hardening in one sitting.
 **Output**: a pass/fail verdict per attack with pointers to what log/table to check.
-
-> This runbook targets a system you own and are authorized to test. It is an internal QA tool, not a guide for attacking third parties.
 
 ---
 
