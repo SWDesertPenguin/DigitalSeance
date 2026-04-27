@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import asyncpg
 
-from src.repositories.errors import NotFacilitatorError
+from src.repositories.errors import (
+    NotFacilitatorError,
+    ParticipantNotInSessionError,
+)
 
 
 async def require_facilitator(
@@ -65,3 +68,26 @@ def require_not_self(caller_id: str, target_id: str) -> None:
     if caller_id == target_id:
         msg = "Cannot perform this action on yourself"
         raise ValueError(msg)
+
+
+async def require_target_in_session(
+    pool: asyncpg.Pool,
+    participant_id: str,
+    session_id: str,
+) -> None:
+    """Raise ParticipantNotInSessionError if target is not in this session.
+
+    Defends against cross-session IDOR: an authenticated facilitator of
+    session A must not be able to act on a participant_id that lives in
+    session B. The 404 response intentionally hides existence to avoid
+    confirming whether the id is valid in some other session.
+    """
+    async with pool.acquire() as conn:
+        target_session = await conn.fetchval(
+            "SELECT session_id FROM participants WHERE id = $1",
+            participant_id,
+        )
+    if target_session != session_id:
+        raise ParticipantNotInSessionError(
+            f"Participant {participant_id} not found in session",
+        )
