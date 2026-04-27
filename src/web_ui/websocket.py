@@ -51,6 +51,9 @@ class WebSocketManager:
         self._subs: dict[str, set[WebSocket]] = {}
         # Per-ws participant tag so revoke/remove can target a specific user.
         self._ws_pid: dict[int, str] = {}
+        # Per-ws role tag so audit_entry / future facilitator-only events can
+        # filter recipients without re-querying the DB on every broadcast.
+        self._ws_role: dict[int, str] = {}
         self._lock = asyncio.Lock()
 
     async def register(
@@ -58,12 +61,15 @@ class WebSocketManager:
         session_id: str,
         ws: WebSocket,
         participant_id: str | None = None,
+        role: str | None = None,
     ) -> None:
-        """Add a subscriber, optionally tagged with its participant id."""
+        """Add a subscriber, tagged with its participant id and role."""
         async with self._lock:
             self._subs.setdefault(session_id, set()).add(ws)
             if participant_id:
                 self._ws_pid[id(ws)] = participant_id
+            if role:
+                self._ws_role[id(ws)] = role
         log.info(
             "WS subscriber added for session %s (%d total)",
             session_id,
@@ -79,6 +85,7 @@ class WebSocketManager:
                 if not bucket:
                     del self._subs[session_id]
             self._ws_pid.pop(id(ws), None)
+            self._ws_role.pop(id(ws), None)
         log.info("WS subscriber removed for session %s", session_id)
 
     def count(self, session_id: str) -> int:
@@ -95,6 +102,33 @@ class WebSocketManager:
             try:
                 await ws.send_text(payload)
             except Exception:  # noqa: BLE001 — drop dead socket, don't block others
+                log.debug("WS send failed for session %s; scheduling unregister", session_id)
+                await self.unregister(session_id, ws)
+
+    async def broadcast_to_roles(
+        self,
+        session_id: str,
+        event: dict[str, Any],
+        *,
+        allow_roles: frozenset[str],
+    ) -> None:
+        """Push an event only to subscribers whose role is in ``allow_roles``.
+
+        Used for events whose payload would leak facilitator-only context
+        (e.g. ``audit_entry`` carries full review-gate edit bodies and
+        budget caps). Subscribers whose role isn't tagged or doesn't match
+        are silently skipped — they don't even see that an event fired.
+        """
+        targets = list(self._subs.get(session_id, set()))
+        if not targets:
+            return
+        payload = json.dumps(event)
+        for ws in targets:
+            if self._ws_role.get(id(ws)) not in allow_roles:
+                continue
+            try:
+                await ws.send_text(payload)
+            except Exception:  # noqa: BLE001
                 log.debug("WS send failed for session %s; scheduling unregister", session_id)
                 await self.unregister(session_id, ws)
 
@@ -132,6 +166,16 @@ async def broadcast_to_session(session_id: str, event: dict[str, Any]) -> None:
     await _MANAGER.broadcast(session_id, event)
 
 
+async def broadcast_to_session_roles(
+    session_id: str,
+    event: dict[str, Any],
+    *,
+    allow_roles: frozenset[str],
+) -> None:
+    """Convenience wrapper for role-filtered broadcasts."""
+    await _MANAGER.broadcast_to_roles(session_id, event, allow_roles=allow_roles)
+
+
 @router.websocket("/ws/{session_id}")
 async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
     """Per-session push-only WebSocket."""
@@ -140,7 +184,12 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
         return
     await websocket.accept()
     await _send_initial_snapshot(websocket, session_id, participant)
-    await _MANAGER.register(session_id, websocket, participant.get("pid"))
+    await _MANAGER.register(
+        session_id,
+        websocket,
+        participant.get("pid"),
+        participant.get("role"),
+    )
     try:
         await _pump_client_frames(websocket)
     finally:
@@ -175,30 +224,33 @@ async def _authenticate_ws(websocket: WebSocket, session_id: str) -> dict[str, A
     if payload.get("sid") != session_id:
         await websocket.close(code=CLOSE_FORBIDDEN, reason="wrong session")
         return None
-    if not await _ws_revalidate_bearer(websocket, payload.get("tok", "")):
+    participant = await _ws_revalidate_bearer(websocket, payload.get("tok", ""))
+    if participant is None:
         return None
+    payload["role"] = participant.role
+    payload["status"] = participant.status
     return payload
 
 
-async def _ws_revalidate_bearer(websocket: WebSocket, token: str) -> bool:
-    """Confirm the bearer is still live + the participant is still active."""
+async def _ws_revalidate_bearer(websocket: WebSocket, token: str):
+    """Confirm bearer + status; return Participant or None on close."""
     auth_service = getattr(websocket.app.state, "auth_service", None)
     if auth_service is None:
         await websocket.close(code=CLOSE_UNAUTHENTICATED, reason="auth unavailable")
-        return False
+        return None
     client_ip = websocket.client.host if websocket.client else "unknown"
     try:
         participant = await auth_service.authenticate(token, client_ip)
     except (AuthRequiredError, TokenInvalidError, TokenExpiredError):
         await websocket.close(code=CLOSE_UNAUTHENTICATED, reason="token invalid")
-        return False
+        return None
     except IPBindingMismatchError:
         await websocket.close(code=CLOSE_FORBIDDEN, reason="ip binding mismatch")
-        return False
+        return None
     if participant.status in _INACTIVE_STATUSES:
         await websocket.close(code=CLOSE_FORBIDDEN, reason="participant inactive")
-        return False
-    return True
+        return None
+    return participant
 
 
 def _origin_allowed(websocket: WebSocket) -> bool:
