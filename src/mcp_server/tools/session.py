@@ -679,7 +679,14 @@ async def list_review_gates(
     Sourced from admin_audit_log; the panel renders it next to summary
     checkpoints so operators can scroll back through what was edited or
     rejected. Newest first.
+
+    Facilitator-only — `review_gate_edit` rows carry the full edited
+    draft body in ``new_value`` and the original draft in
+    ``previous_value``, which non-facilitator participants should not
+    see retroactively even if they were active when the edit happened.
     """
+    if participant.role != "facilitator":
+        raise HTTPException(403, "Only the facilitator can read the review-gate history")
     log_repo = request.app.state.log_repo
     rows = await log_repo.get_audit_log(participant.session_id)
     gates = [_format_gate_row(r) for r in rows if r.action.startswith("review_gate_")]
