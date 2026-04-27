@@ -2123,9 +2123,10 @@ function _validateAddParticipant(form) {
 
 function AddParticipantDialog({ onClose, onAdd, onFetchModels, aiOnly = false }) {
   const initial = aiOnly
-    ? _applyProviderDefaults({ display_name: "", api_key: "" }, "anthropic")
+    ? _applyProviderDefaults({ display_name: "", api_key: "", api_endpoint: "" }, "anthropic")
     : { display_name: "", provider: "human", model: "human",
-        model_tier: "n/a", model_family: "human", context_window: 0, api_key: "" };
+        model_tier: "n/a", model_family: "human", context_window: 0,
+        api_key: "", api_endpoint: "" };
   const [form, setForm] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -2210,6 +2211,9 @@ function AddParticipantDialog({ onClose, onAdd, onFetchModels, aiOnly = false })
                   )}
                 </label>
               )}
+              <label>API endpoint (optional, for Ollama/custom)
+                <input value={form.api_endpoint || ""} onChange={update("api_endpoint")} />
+              </label>
               {onFetchModels && (
                 <ProviderModelPicker
                   provider={form.provider}
