@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -51,8 +53,25 @@ async def get_current_participant(
 
 
 def _get_client_ip(request: Request) -> str:
-    """Extract client IP from request, respecting X-Forwarded-For."""
+    """Extract client IP, optionally honoring X-Forwarded-For.
+
+    Trusting X-Forwarded-For unconditionally lets any direct attacker
+    bypass IP binding by claiming the legitimate user's IP in the
+    header. The IP-binding feature in AuthService exists specifically
+    to defend against bearer-token theft on shared networks; an
+    attacker-controllable header trivially nullifies that defense.
+
+    By default we use ``request.client.host``. Operators who run SACP
+    behind a reverse proxy that overwrites XFF can opt in by setting
+    ``SACP_TRUST_PROXY=1``; we then take the *rightmost* XFF value
+    (the proxy's view of the immediate client) since proxies append
+    to the header rather than prepend.
+    """
+    direct = request.client.host if request.client else "unknown"
+    if os.environ.get("SACP_TRUST_PROXY", "0") != "1":
+        return direct
     forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    if not forwarded:
+        return direct
+    parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+    return parts[-1] if parts else direct
