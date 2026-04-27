@@ -21,7 +21,13 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
-from src.web_ui.auth import _parse_cookie_value
+from src.repositories.errors import (
+    AuthRequiredError,
+    IPBindingMismatchError,
+    TokenExpiredError,
+    TokenInvalidError,
+)
+from src.web_ui.auth import _INACTIVE_STATUSES, _parse_cookie_value
 from src.web_ui.events import pong_event, state_snapshot_event
 from src.web_ui.snapshot import build_state_snapshot
 
@@ -148,6 +154,11 @@ async def _authenticate_ws(websocket: WebSocket, session_id: str) -> dict[str, A
     upgrade to prevent cross-site WebSocket hijacking. We reject upgrades
     whose Origin does not match the UI's own origin or an explicit
     env-configured allowlist.
+
+    Also re-validates the embedded bearer via AuthService so a cookie
+    whose signature is still inside its 8-hour TTL but whose backing
+    token was rotated/revoked (or whose participant was removed) fails
+    closed.
     """
     if not _origin_allowed(websocket):
         await websocket.close(code=CLOSE_FORBIDDEN, reason="origin not allowed")
@@ -164,7 +175,30 @@ async def _authenticate_ws(websocket: WebSocket, session_id: str) -> dict[str, A
     if payload.get("sid") != session_id:
         await websocket.close(code=CLOSE_FORBIDDEN, reason="wrong session")
         return None
+    if not await _ws_revalidate_bearer(websocket, payload.get("tok", "")):
+        return None
     return payload
+
+
+async def _ws_revalidate_bearer(websocket: WebSocket, token: str) -> bool:
+    """Confirm the bearer is still live + the participant is still active."""
+    auth_service = getattr(websocket.app.state, "auth_service", None)
+    if auth_service is None:
+        await websocket.close(code=CLOSE_UNAUTHENTICATED, reason="auth unavailable")
+        return False
+    client_ip = websocket.client.host if websocket.client else "unknown"
+    try:
+        participant = await auth_service.authenticate(token, client_ip)
+    except (AuthRequiredError, TokenInvalidError, TokenExpiredError):
+        await websocket.close(code=CLOSE_UNAUTHENTICATED, reason="token invalid")
+        return False
+    except IPBindingMismatchError:
+        await websocket.close(code=CLOSE_FORBIDDEN, reason="ip binding mismatch")
+        return False
+    if participant.status in _INACTIVE_STATUSES:
+        await websocket.close(code=CLOSE_FORBIDDEN, reason="participant inactive")
+        return False
+    return True
 
 
 def _origin_allowed(websocket: WebSocket) -> bool:
