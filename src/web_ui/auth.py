@@ -155,20 +155,32 @@ async def logout(response: Response) -> dict:
     return {"status": "logged_out"}
 
 
+_INACTIVE_STATUSES = frozenset({"removed", "offline", "reset"})
+
+
 async def get_current_ui_participant(
     request: Request,
     sacp_ui_token: Annotated[str | None, Cookie()] = None,
 ) -> Participant:
-    """FastAPI dependency: resolve the cookie to a Participant row."""
+    """FastAPI dependency: resolve the cookie to a Participant row.
+
+    Re-validates the embedded bearer + IP binding on every request. A
+    cookie's signature can stay valid for up to 8 hours, but a token
+    rotated via ``rotate_token``, revoked via ``revoke_token``, or whose
+    participant was removed must fail closed immediately rather than
+    grant access until cookie TTL elapses.
+    """
     if not sacp_ui_token:
         raise HTTPException(401, "Not authenticated")
     payload = _parse_cookie_value(sacp_ui_token)
-    participant_repo = getattr(request.app.state, "participant_repo", None)
-    if participant_repo is None:
-        raise HTTPException(503, "Participant repository not available")
-    participant = await participant_repo.get_participant(payload["pid"])
-    if participant is None or participant.session_id != payload["sid"]:
+    auth_service = getattr(request.app.state, "auth_service", None)
+    if auth_service is None:
+        raise HTTPException(503, "Auth service not available")
+    participant = await _authenticate_or_raise(auth_service, payload["tok"], request)
+    if participant.session_id != payload["sid"]:
         raise HTTPException(401, "Cookie does not match a current participant")
+    if participant.status in _INACTIVE_STATUSES:
+        raise HTTPException(401, "Participant is no longer active")
     return participant
 
 
