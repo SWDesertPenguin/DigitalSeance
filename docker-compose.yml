@@ -1,6 +1,9 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # Pinned to a specific minor so a `docker compose pull` doesn't
+    # silently swap the database engine under a running deployment.
+    # Bump quarterly to pick up Postgres patch releases.
+    image: postgres:16.6-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-sacp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}

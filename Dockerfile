@@ -1,5 +1,8 @@
 # ---- Builder stage: install deps with build toolchain available ----
-FROM python:3.11-slim AS builder
+# Pinned to a specific Python minor + Debian release. Bookworm = Debian 12,
+# glibc — keeps wheels (torch, numpy, sentence-transformers) ABI-compatible
+# without forcing source builds. Bump quarterly when Python patches release.
+FROM python:3.14.4-slim-bookworm AS builder
 
 WORKDIR /build
 
@@ -13,12 +16,12 @@ COPY pyproject.toml ./
 RUN pip install --no-cache-dir --prefix=/install .
 
 # ---- Runtime stage: slim base, no build tools ----
-FROM python:3.11-slim
+FROM python:3.14.4-slim-bookworm
 
 WORKDIR /app
 
 # Copy the installed site-packages + console scripts from the builder.
-# /install/lib/python3.11/site-packages -> /usr/local/lib/python3.11/site-packages
+# /install/lib/python3.14/site-packages -> /usr/local/lib/python3.14/site-packages
 # /install/bin/uvicorn etc. -> /usr/local/bin/
 COPY --from=builder /install /usr/local
 
