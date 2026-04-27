@@ -74,8 +74,11 @@ async def vote_on_proposal(
     body: _VoteBody,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Cast a vote on an open proposal."""
+    """Cast a vote on an open proposal in the caller's session."""
     repo = ProposalRepository(request.app.state.pool)
+    proposal = await repo.get_proposal(body.proposal_id)
+    if proposal is None or proposal.session_id != participant.session_id:
+        raise HTTPException(404, "proposal not found in session")
     try:
         vote = await repo.cast_vote(
             proposal_id=body.proposal_id,
@@ -103,9 +106,12 @@ async def resolve_proposal(
     body: _ResolveBody,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Resolve a proposal (facilitator only)."""
+    """Resolve a proposal in the caller's session (facilitator only)."""
     await require_facilitator(request.app.state.pool, participant.session_id, participant.id)
     repo = ProposalRepository(request.app.state.pool)
+    existing = await repo.get_proposal(body.proposal_id)
+    if existing is None or existing.session_id != participant.session_id:
+        raise HTTPException(404, "proposal not found in session")
     proposal = await repo.resolve_proposal(body.proposal_id, body.status)
     tally = await _tally(repo, proposal.id)
     await _broadcast(
