@@ -422,7 +422,9 @@ async def pause_session(
     request: Request,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Pause the session."""
+    """Pause the session. Facilitator only."""
+    if participant.role != "facilitator":
+        raise HTTPException(403, "Only the facilitator can pause the session")
     session_repo = request.app.state.session_repo
     current = await session_repo.get_session(participant.session_id)
     prior = current.status if current else "unknown"
@@ -437,7 +439,9 @@ async def resume_session(
     request: Request,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Resume a paused session. Idempotent if already active."""
+    """Resume a paused session. Idempotent if already active. Facilitator only."""
+    if participant.role != "facilitator":
+        raise HTTPException(403, "Only the facilitator can resume the session")
     session_repo = request.app.state.session_repo
     current = await session_repo.get_session(participant.session_id)
     if current and current.status == "active":
@@ -544,12 +548,14 @@ async def start_loop(
     request: Request,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Start the conversation loop for this session.
+    """Start the conversation loop for this session. Facilitator only.
 
     Refuses to start when no human message exists yet so the first turn
     can't be an AI hallucinating a welcome ("Understood! I look forward
     to…"). The facilitator must send an opening message first.
     """
+    if participant.role != "facilitator":
+        raise HTTPException(403, "Only the facilitator can start the loop")
     sid = participant.session_id
     if sid in _loop_tasks and not _loop_tasks[sid].done():
         return {"status": "already_running"}
@@ -585,7 +591,9 @@ async def stop_loop(
     request: Request,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Stop the conversation loop for this session."""
+    """Stop the conversation loop for this session. Facilitator only."""
+    if participant.role != "facilitator":
+        raise HTTPException(403, "Only the facilitator can stop the loop")
     sid = participant.session_id
     was_running = sid in _loop_tasks and not _loop_tasks[sid].done()
     task = _loop_tasks.pop(sid, None)
