@@ -1,5 +1,7 @@
 # Tasks: Phase 2 Web UI
 
+> **Status: SHIPPED 2026-04-20 as part of Phase 2.** Task list is historical; outstanding checkboxes were not all carried out as written (scope evolved through PR review). Round02-10 follow-ups continued through 2026-04-28.
+
 **Branch**: `011-web-ui` | **Spec**: [spec.md](./spec.md) | **Plan**: [plan.md](./plan.md)
 **Generated**: 2026-04-20
 
