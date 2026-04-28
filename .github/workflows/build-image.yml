@@ -41,6 +41,19 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+      # GHCR requires the path component of an image reference to be
+      # all-lowercase. ${{ github.repository }} preserves the original
+      # repo case (e.g. SWDesertPenguin/DigitalSeance) — docker/metadata-
+      # action handles this internally for `tags`, but the Trivy step
+      # builds the reference manually from env.IMAGE_NAME, so we have
+      # to lowercase explicitly here.
+      - name: Compute lowercase image path
+        id: lower
+        shell: bash
+        run: echo "image=${IMG,,}" >> "$GITHUB_OUTPUT"
+        env:
+          IMG: ${{ github.repository }}
+
       # Scan the just-pushed image for HIGH/CRITICAL CVEs in OS packages
       # and Python deps. Fails the workflow on any finding so a vulnerable
       # image can't sit on `:latest`. `vuln-type: os,library` covers both
@@ -48,7 +61,7 @@ jobs:
       - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          image-ref: ${{ env.REGISTRY }}/${{ steps.lower.outputs.image }}@${{ steps.build.outputs.digest }}
           format: table
           exit-code: "1"
           severity: HIGH,CRITICAL
