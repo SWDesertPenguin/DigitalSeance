@@ -297,7 +297,7 @@ Every feature spec must pass these checks. Failure requires revision before impl
 | Document | Role | Scope |
 |---|---|---|
 | `docs/AI_attack_surface_analysis_for_SACP_orchestrator.md` | AI security analysis | 13 attack vectors, severity ratings, mitigations, code patterns, standards mappings, six-layer defense framework |
-| `docs/Building_a_Multi-LLM_Orchestrator__Eight_Hard_Problems_and_How_to_Solve_Them.md` | Research report | Cross-provider engineering challenges, informs patterns, does not override design doc |
+| `docs/eight-hard-problems.md` | Research report | Cross-provider engineering challenges, informs patterns, does not override design doc |
 
 ### Development & Operations
 
