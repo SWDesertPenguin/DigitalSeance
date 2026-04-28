@@ -60,3 +60,20 @@ Thumbs.db
 *.swo
 *~
 .claude/worktrees/
+
+# === Coverage and test artifacts ===
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+
+# === Build artifacts ===
+build/
+dist/
+*.whl
+
+# === Backup files ===
+*.bak
+*.orig
+*.rej
