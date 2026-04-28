@@ -20,15 +20,24 @@ FROM python:3.14.4-slim-bookworm
 
 WORKDIR /app
 
+# Create unprivileged user before copying app files so chown applies cleanly.
+# Numeric uid/gid (10001) is portable across hosts and avoids name lookups.
+# --no-create-home: nothing in $HOME is needed at runtime.
+RUN groupadd --system --gid 10001 sacp && \
+    useradd --system --uid 10001 --gid sacp --no-create-home --shell /usr/sbin/nologin sacp
+
 # Copy the installed site-packages + console scripts from the builder.
 # /install/lib/python3.14/site-packages -> /usr/local/lib/python3.14/site-packages
 # /install/bin/uvicorn etc. -> /usr/local/bin/
 COPY --from=builder /install /usr/local
 
-COPY src/ src/
-COPY frontend/ frontend/
-COPY alembic/ alembic/
-COPY alembic/alembic.ini alembic.ini
+COPY --chown=sacp:sacp src/ src/
+COPY --chown=sacp:sacp frontend/ frontend/
+COPY --chown=sacp:sacp alembic/ alembic/
+COPY --chown=sacp:sacp alembic/alembic.ini alembic.ini
+
+# Drop root before exposing ports / running the app.
+USER 10001:10001
 
 EXPOSE 8750 8751
 
