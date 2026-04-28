@@ -46,6 +46,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # host-gateway makes ``host.docker.internal`` resolve to the Docker
+    # bridge gateway from inside the sacp container. Required so operators
+    # can point an Ollama participant at an Ollama daemon running on the
+    # host (Add participant → provider=ollama → http://host.docker.internal:11434).
+    # No-op on Docker Desktop (it injects the same mapping itself); fixes
+    # Linux/WSL2-without-Desktop where the alias would otherwise NXDOMAIN.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
