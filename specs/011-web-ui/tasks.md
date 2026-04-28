@@ -210,7 +210,7 @@ Execution order below is the recommended sequence. User-story phases are indepen
 - [ ] T203 [P] Accessibility pass: tab order, ARIA roles on panels, keyboard shortcut hints. Track blockers in `docs/accessibility-phase2.md`.
 - [ ] T204 [P] Add SRI hash generation script at `scripts/generate_sri_hashes.sh` that fetches pinned CDN assets and outputs `integrity` attribute values.
 - [ ] T205 [P] Manual security checklist from `quickstart.md` run through once; log results in PR description.
-- [ ] T210 Update `SYSREP.md`: bump endpoint count (+1 for `/login`, +1 for WS), add a "Phase 2 Web UI" section with status, add the 011 feature to the post-deployment-fix table.
+- [x] ~~T210 Update `SYSREP.md`~~ — Obsolete: SYSREP.md was retired in chore/doc-cleanup; CLAUDE.md "Recent Changes" supersedes it.
 - [ ] T211 Update `CLAUDE.md` (already stubbed in `/speckit.plan`; verify it reflects the final tech list after implementation).
 - [ ] T212 Bump Docker image, deploy to staging, run full manual checklist, open PR for merge to `main`.
 
