@@ -13,6 +13,9 @@
 .claude/auth*
 .claude/*.key
 .claude/*.token
+CLAUDE.md
+CLAUDE.local.md
+.claude/CLAUDE.md
 
 # === Python ===
 __pycache__/
