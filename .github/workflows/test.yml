@@ -35,7 +35,11 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          # Match the Python minor the production image uses
+          # (Dockerfile: python:3.14.4-slim-bookworm). Floor in
+          # pyproject.toml stays at >=3.11 so contributors can install
+          # on older interpreters; CI just tests against prod's Python.
+          python-version: "3.14"
 
       - name: Install dependencies
         run: |
