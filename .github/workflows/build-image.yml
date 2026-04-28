@@ -34,8 +34,23 @@ jobs:
             type=raw,value=latest
 
       - uses: docker/build-push-action@v6
+        id: build
         with:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      # Scan the just-pushed image for HIGH/CRITICAL CVEs in OS packages
+      # and Python deps. Fails the workflow on any finding so a vulnerable
+      # image can't sit on `:latest`. `vuln-type: os,library` covers both
+      # the Debian base and the installed wheels.
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          severity: HIGH,CRITICAL
+          vuln-type: os,library
+          ignore-unfixed: true
