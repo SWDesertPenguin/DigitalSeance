@@ -136,6 +136,13 @@ async def _list_openai(
     return out
 
 
+# Free-tier quota for the 2.0-flash family was zeroed on 2026-04-25; Google
+# routes 2.0-flash-lite-001 calls into the same bucket, so any 2.0-* dispatch
+# 429s on a fresh key. Hide the family from the picker so operators don't
+# pick a model that fails on first turn.
+_GEMINI_BLOCKED_PREFIXES = ("gemini-2.0-",)
+
+
 async def _list_gemini(
     client: httpx.AsyncClient,
     api_key: str,
@@ -154,8 +161,11 @@ async def _list_gemini(
         # name field is "models/gemini-2.5-flash-lite" — strip the prefix.
         raw = m.get("name", "")
         bare = raw.removeprefix("models/")
-        if bare:
-            out.append(ModelInfo(model=f"gemini/{bare}", display=bare))
+        if not bare:
+            continue
+        if bare.startswith(_GEMINI_BLOCKED_PREFIXES):
+            continue
+        out.append(ModelInfo(model=f"gemini/{bare}", display=bare))
     return out
 
 

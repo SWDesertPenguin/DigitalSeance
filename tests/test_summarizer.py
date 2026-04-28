@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import asyncpg
 import pytest
 from cryptography.fernet import Fernet
 
+from src.orchestrator import summarizer as summarizer_mod
 from src.orchestrator.summarizer import (
     SummarizationManager,
     _fetch_turns_since,
+    _generate_summary,
     _narrative_fallback,
     _normalize_summary,
     _validate_summary_json,
 )
+from src.repositories.errors import ProviderDispatchError
 from src.repositories.message_repo import MessageRepository
 from src.repositories.session_repo import SessionRepository
 
@@ -116,6 +120,47 @@ async def _summary_session(pool: asyncpg.Pool) -> tuple[str, str, str]:
         facilitator_context_window=200000,
     )
     return session.id, participant.id, branch.id
+
+
+def _stub_participant(model: str) -> SimpleNamespace:
+    return SimpleNamespace(model=model, api_key_encrypted=None, api_endpoint=None)
+
+
+_VALID_SUMMARY_JSON = json.dumps(
+    {"decisions": [], "open_questions": [], "key_positions": [], "narrative": "ok"}
+)
+
+
+@pytest.mark.asyncio
+async def test_generate_summary_falls_back_to_next_cheapest(monkeypatch) -> None:
+    """Round09: cheapest AI on dead quota → use next-cheapest, no 500."""
+    calls: list[str] = []
+
+    async def fake_dispatch(*, model, **kwargs):
+        calls.append(model)
+        if model == "gemini/gemini-2.0-flash-lite-001":
+            raise ProviderDispatchError("simulated 429")
+        return SimpleNamespace(content=_VALID_SUMMARY_JSON)
+
+    monkeypatch.setattr(summarizer_mod, "dispatch_with_retry", fake_dispatch)
+    cheapest = _stub_participant("gemini/gemini-2.0-flash-lite-001")
+    fallback = _stub_participant("anthropic/claude-haiku-4-5-20251001")
+    out = await _generate_summary(turns=[], candidates=[cheapest, fallback], encryption_key="k")
+    assert calls == [cheapest.model, fallback.model]
+    assert json.loads(out)["narrative"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_generate_summary_raises_when_all_candidates_fail(monkeypatch) -> None:
+    """Every candidate dies → re-raise so the 500 path still fires."""
+
+    async def fake_dispatch(*, model, **kwargs):
+        raise ProviderDispatchError(f"down: {model}")
+
+    monkeypatch.setattr(summarizer_mod, "dispatch_with_retry", fake_dispatch)
+    candidates = [_stub_participant("m1"), _stub_participant("m2")]
+    with pytest.raises(ProviderDispatchError):
+        await _generate_summary(turns=[], candidates=candidates, encryption_key="k")
 
 
 async def test_fetch_turns_since_excludes_prior_summaries(
