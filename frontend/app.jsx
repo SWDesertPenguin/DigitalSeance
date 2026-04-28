@@ -639,7 +639,7 @@ function CreateSessionForm({ onLogin, onBack }) {
       <input type="text" placeholder="your name" value={name}
         onChange={(ev) => setName(ev.target.value)} autoFocus maxLength={64} />
       <p className="dim">Session name (optional — auto-generated if blank).</p>
-      <input type="text" placeholder='e.g. "Round08-quantum"' value={sessionName}
+      <input type="text" placeholder="(optional — auto-generated if blank)" value={sessionName}
         onChange={(ev) => setSessionName(ev.target.value)} maxLength={120} />
       <div className="auth-actions">
         <button type="button" className="link-btn" onClick={onBack}>← back</button>
