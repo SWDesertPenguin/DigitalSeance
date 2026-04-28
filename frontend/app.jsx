@@ -639,7 +639,7 @@ function CreateSessionForm({ onLogin, onBack }) {
       <input type="text" placeholder="your name" value={name}
         onChange={(ev) => setName(ev.target.value)} autoFocus maxLength={64} />
       <p className="dim">Session name (optional — auto-generated if blank).</p>
-      <input type="text" placeholder='e.g. "Round08-quantum"' value={sessionName}
+      <input type="text" placeholder="(optional — auto-generated if blank)" value={sessionName}
         onChange={(ev) => setSessionName(ev.target.value)} maxLength={120} />
       <div className="auth-actions">
         <button type="button" className="link-btn" onClick={onBack}>← back</button>
@@ -2108,6 +2108,33 @@ function _applyProviderDefaults(form, provider) {
   };
 }
 
+// Round10 surfaced a participant with provider="anthropic" + model="ollama_chat/...":
+// the picker only set `model` and the validator never cross-checked. This helper
+// gives both surfaces a single source of truth for "which provider owns this model
+// string." Returns null for self-hosted gateway / exotic models so hand-tuned
+// strings still work.
+function _providerFromModel(model) {
+  if (!model) return null;
+  if (model.startsWith("anthropic/")) return "anthropic";
+  if (model.startsWith("gemini/")) return "gemini";
+  if (model.startsWith("groq/")) return "groq";
+  if (model.startsWith("ollama_chat/") || model.startsWith("ollama/")) return "ollama";
+  if (/^(gpt-|o1-|o3-|chatgpt-)/.test(model)) return "openai";
+  return null;
+}
+
+// _applyProviderDefaults overwrites model with the provider's default. When the
+// picker hands back a specific model whose prefix implies a different provider,
+// re-apply provider defaults (so family/tier/context align) and put the picked
+// model back. No-op when model already matches the current provider.
+function _applyPickedModel(form, model) {
+  const derived = _providerFromModel(model);
+  if (derived && derived !== form.provider) {
+    return { ..._applyProviderDefaults(form, derived), model };
+  }
+  return { ...form, model };
+}
+
 function _validateAddParticipant(form) {
   if (!form.display_name.trim()) return "Display name is required";
   if (form.provider === "human") return null;
@@ -2117,6 +2144,10 @@ function _validateAddParticipant(form) {
   if (form.model === "human") return "Model cannot be 'human' for an AI participant";
   if (PROVIDER_DEFAULTS[form.provider]?.needsKey && !form.api_key.trim()) {
     return `API key is required for ${form.provider}`;
+  }
+  const derived = _providerFromModel(form.model);
+  if (derived && derived !== form.provider) {
+    return `Model "${form.model}" looks like a ${derived} model — switch provider to "${derived}" or pick a different model.`;
   }
   return null;
 }
@@ -2224,7 +2255,7 @@ function AddParticipantDialog({ onClose, onAdd, onFetchModels, aiOnly = false })
                   apiKey={form.api_key}
                   apiEndpoint={form.api_endpoint || ""}
                   onFetch={onFetchModels}
-                  onPick={(picked) => setForm({ ...form, model: picked })}
+                  onPick={(picked) => setForm((f) => _applyPickedModel(f, picked))}
                 />
               )}
             </>
@@ -2275,7 +2306,7 @@ function _keyPrefixWarning(provider, apiKey) {
 // SACP-in-Docker case below resolves cleanly.
 function _endpointPlaceholder(provider) {
   if (provider === "ollama") {
-    return "http://host.docker.internal:11434  (or http://localhost:11434 if SACP isn't in Docker)";
+    return "http://<host-LAN-IP>:11434  (host.docker.internal works on Docker Desktop only; needs OLLAMA_HOST=0.0.0.0)";
   }
   return "https://your-gateway.example  (LiteLLM proxy / OpenRouter / self-hosted)";
 }
@@ -2372,7 +2403,7 @@ function ResetAICredentialsDialog({ participant, onClose, onSubmit, onFetchModel
               apiKey={form.api_key}
               apiEndpoint={form.api_endpoint}
               onFetch={onFetchModels}
-              onPick={(picked) => setForm({ ...form, model: picked })}
+              onPick={(picked) => setForm((f) => _applyPickedModel(f, picked))}
             />
           )}
           {error && <div className="error">{error}</div>}
