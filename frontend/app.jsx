@@ -2306,7 +2306,7 @@ function _keyPrefixWarning(provider, apiKey) {
 // SACP-in-Docker case below resolves cleanly.
 function _endpointPlaceholder(provider) {
   if (provider === "ollama") {
-    return "http://host.docker.internal:11434  (or http://localhost:11434 if SACP isn't in Docker)";
+    return "http://<host-LAN-IP>:11434  (host.docker.internal works on Docker Desktop only; needs OLLAMA_HOST=0.0.0.0)";
   }
   return "https://your-gateway.example  (LiteLLM proxy / OpenRouter / self-hosted)";
 }
