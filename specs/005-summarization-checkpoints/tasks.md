@@ -1,5 +1,7 @@
 # Tasks: Summarization Checkpoints
 
+> **Status: SHIPPED 2026-04-20 as part of Phase 1.** Task list is historical; outstanding checkboxes were not all carried out as written (scope evolved through PR review).
+
 **Input**: Design documents from `/specs/005-summarization-checkpoints/`
 
 ## Format: `[ID] [P?] [Story] Description`
