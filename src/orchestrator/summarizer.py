@@ -12,6 +12,7 @@ from src.api_bridge.provider import dispatch_with_retry
 from src.models.participant import Participant
 from src.orchestrator.branch import get_main_branch_id
 from src.orchestrator.types import ContextMessage
+from src.repositories.errors import ProviderDispatchError
 from src.repositories.message_repo import MessageRepository
 from src.repositories.participant_repo import ParticipantRepository
 from src.repositories.session_repo import SessionRepository
@@ -73,20 +74,20 @@ class SummarizationManager:
         session = await self._session_repo.get_session(session_id)
         if session is None:
             return
-        cheapest = await _find_cheapest_model(
+        candidates = await _cost_sorted_ai(
             self._participant_repo,
             session_id,
         )
-        if cheapest is None:
+        if not candidates:
             log.warning("No participants available for summarization")
             return
-        await self._generate_and_store(session_id, session, cheapest)
+        await self._generate_and_store(session_id, session, candidates)
 
     async def _generate_and_store(
         self,
         session_id: str,
         session: object,
-        cheapest: Participant,
+        candidates: list[Participant],
     ) -> None:
         """Fetch turns, generate summary, persist result.
 
@@ -101,7 +102,7 @@ class SummarizationManager:
         if not turns:
             return
         watermark = max(t.source_turn for t in turns)
-        summary_json = await _generate_summary(turns, cheapest, self._encryption_key)
+        summary_json = await _generate_summary(turns, candidates, self._encryption_key)
         await _store_summary(
             self._msg_repo,
             self._pool,
@@ -114,25 +115,24 @@ class SummarizationManager:
         await _emit_summary_created(session_id, summary_json, watermark)
 
 
-async def _find_cheapest_model(
+async def _cost_sorted_ai(
     repo: ParticipantRepository,
     session_id: str,
-) -> Participant | None:
-    """Find the active AI participant with the lowest input token cost.
+) -> list[Participant]:
+    """Active AI participants ordered cheapest-first.
 
-    Why: humans have cost_per_input_token=None which min() sees as 0,
-    so the facilitator was always "cheapest" and LiteLLM got model=human.
-    Filter to AI providers only, treat missing cost as +inf so seeded
-    participants don't outrank ones with real pricing.
+    Humans have cost_per_input_token=None; missing cost is treated as +inf
+    so unpriced rows don't outrank ones with real pricing. The summarizer
+    walks this list head-first and falls through to the next entry on a
+    ProviderDispatchError (Round09: a single participant with a dead key
+    or zeroed-quota model used to 500 the whole checkpoint).
     """
     participants = await repo.list_participants(
         session_id,
         status_filter="active",
     )
     ai = [p for p in participants if p.provider != "human"]
-    if not ai:
-        return None
-    return min(ai, key=_cost_key)
+    return sorted(ai, key=_cost_key)
 
 
 def _cost_key(p: Participant) -> float:
@@ -171,23 +171,53 @@ async def _fetch_turns_since(
 
 async def _generate_summary(
     turns: list[ContextMessage],
-    cheapest: Participant,
+    candidates: list[Participant],
     encryption_key: str,
 ) -> str:
-    """Generate summary via cheapest model with JSON retry."""
+    """Generate summary; walk cost-sorted AIs, fall through on dispatch failure.
+
+    The inner per-model JSON-validity loop is kept (handles model-side
+    JSON sloppiness on a working dispatch path). When ``dispatch_with_retry``
+    itself fails after its own 3 rate-limit retries, we move to the
+    next-cheapest participant — preserves the cost optimization while
+    turning a single dead key/quota into a graceful degradation rather
+    than a 500 on the whole checkpoint.
+    """
     messages = to_provider_messages(
         [
             ContextMessage("system", SUMMARIZATION_PROMPT, None),
             *turns,
         ]
     )
+    last_error: Exception | None = None
+    for participant in candidates:
+        try:
+            return await _summarize_with(participant, messages, encryption_key)
+        except ProviderDispatchError as exc:
+            log.warning(
+                "Summarizer dispatch failed on %s; trying next-cheapest",
+                participant.model,
+            )
+            last_error = exc
+    if last_error is not None:
+        raise last_error
+    raise ProviderDispatchError("Summarizer found no usable AI participant")
+
+
+async def _summarize_with(
+    participant: Participant,
+    messages: list[dict[str, str]],
+    encryption_key: str,
+) -> str:
+    """Single-model summary attempt with JSON-validity retry."""
+    response = None
     for attempt in range(3):
         response = await dispatch_with_retry(
-            model=cheapest.model,
+            model=participant.model,
             messages=messages,
-            api_key_encrypted=cheapest.api_key_encrypted,
+            api_key_encrypted=participant.api_key_encrypted,
             encryption_key=encryption_key,
-            api_base=cheapest.api_endpoint,
+            api_base=participant.api_endpoint,
             timeout=120,
         )
         parsed = _validate_summary_json(response.content)
@@ -196,7 +226,7 @@ async def _generate_summary(
         log.warning("Invalid JSON on attempt %d", attempt + 1)
 
     log.warning("Falling back to narrative-only summary")
-    return _narrative_fallback(response.content)
+    return _narrative_fallback(response.content if response else "")
 
 
 def _validate_summary_json(content: str) -> dict | None:
