@@ -43,6 +43,10 @@ class NotFacilitatorError(PermissionError):
     """Caller lacks facilitator role for this operation."""
 
 
+class ParticipantNotInSessionError(LookupError):
+    """Target participant id does not belong to the session."""
+
+
 class IPBindingMismatchError(ValueError):
     """Token valid but client IP does not match bound IP."""
 

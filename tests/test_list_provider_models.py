@@ -141,10 +141,12 @@ async def test_list_groq_returns_prefixed_models():
 
 @pytest.mark.asyncio
 async def test_list_ollama_uses_endpoint():
-    """Ollama hits {endpoint}/api/tags; no key required."""
+    """Ollama hits {endpoint}/api/tags; loopback literal passes through."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert str(request.url) == "http://my-ollama:11434/api/tags"
+        # 127.0.0.1 is a literal IP — validator confirms it's loopback
+        # and uses it as-is. URL rewrite only happens for hostnames.
+        assert str(request.url) == "http://127.0.0.1:11434/api/tags"
         return httpx.Response(
             200,
             json={
@@ -159,7 +161,7 @@ async def test_list_ollama_uses_endpoint():
         result = await list_provider_models(
             provider="ollama",
             api_key="",
-            api_endpoint="http://my-ollama:11434",
+            api_endpoint="http://127.0.0.1:11434",
         )
 
     assert [m.model for m in result] == ["ollama_chat/llama3.2:3b", "ollama_chat/qwen2.5:7b"]
@@ -172,6 +174,64 @@ async def test_list_ollama_rejects_blank_endpoint():
         await list_provider_models(provider="ollama", api_key="", api_endpoint=None)
     assert exc.value.status == 400
     assert "endpoint" in exc.value.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_list_ollama_rejects_link_local():
+    """169.254.* (IMDS) is in the link-local range and must be blocked."""
+    with pytest.raises(ListModelsError) as exc:
+        await list_provider_models(
+            provider="ollama",
+            api_key="",
+            api_endpoint="http://169.254.169.254:80",
+        )
+    assert exc.value.status == 400
+    assert "link-local" in exc.value.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_list_ollama_rejects_public_ip():
+    """Public IPs are rejected — Ollama is local-by-design."""
+    with pytest.raises(ListModelsError) as exc:
+        await list_provider_models(
+            provider="ollama",
+            api_key="",
+            api_endpoint="http://8.8.8.8:11434",
+        )
+    assert exc.value.status == 400
+    assert "public" in exc.value.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_list_ollama_rejects_unsupported_scheme():
+    """ftp://, file://, gopher:// etc. are blocked at scheme level."""
+    with pytest.raises(ListModelsError) as exc:
+        await list_provider_models(
+            provider="ollama",
+            api_key="",
+            api_endpoint="file:///etc/passwd",
+        )
+    assert exc.value.status == 400
+    assert "scheme" in exc.value.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_list_ollama_accepts_rfc1918_private():
+    """RFC1918 private ranges (10.*, 172.16-31.*, 192.168.*) are allowed."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # Already a literal IP — passes through unchanged.
+        assert str(request.url) == "http://10.0.0.5:11434/api/tags"
+        return httpx.Response(200, json={"models": [{"name": "llama3.2:3b"}]})
+
+    with _patched_client(_mock_transport(handler)):
+        result = await list_provider_models(
+            provider="ollama",
+            api_key="",
+            api_endpoint="http://10.0.0.5:11434",
+        )
+
+    assert [m.model for m in result] == ["ollama_chat/llama3.2:3b"]
 
 
 @pytest.mark.asyncio
