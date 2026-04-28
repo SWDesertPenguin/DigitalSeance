@@ -25,7 +25,6 @@ tests/
 specs/
 docs/
 test-plan-*.md
-SYSREP.md
 
 # IDE / editor
 .vscode/
