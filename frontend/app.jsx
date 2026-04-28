@@ -2212,7 +2212,11 @@ function AddParticipantDialog({ onClose, onAdd, onFetchModels, aiOnly = false })
                 </label>
               )}
               <label>API endpoint (optional, for Ollama/custom)
-                <input value={form.api_endpoint || ""} onChange={update("api_endpoint")} />
+                <input
+                  value={form.api_endpoint || ""}
+                  onChange={update("api_endpoint")}
+                  placeholder={_endpointPlaceholder(form.provider)}
+                />
               </label>
               {onFetchModels && (
                 <ProviderModelPicker
@@ -2262,6 +2266,18 @@ function _keyPrefixWarning(provider, apiKey) {
   if (!rule) return null;
   if (rule.matches(apiKey.trim())) return null;
   return `Heads up: this doesn't look like a ${provider} key. ${rule.hint}`;
+}
+
+// Hint shown under the API endpoint field. Ollama gets a concrete URL
+// since "what do I type?" is the most-asked question for that provider
+// (Round09 #16); other providers see a generic LiteLLM-proxy example.
+// docker-compose.yml maps host.docker.internal:host-gateway so the
+// SACP-in-Docker case below resolves cleanly.
+function _endpointPlaceholder(provider) {
+  if (provider === "ollama") {
+    return "http://host.docker.internal:11434  (or http://localhost:11434 if SACP isn't in Docker)";
+  }
+  return "https://your-gateway.example  (LiteLLM proxy / OpenRouter / self-hosted)";
 }
 
 function _swapValue(formValue, currentValue) {
@@ -2344,7 +2360,11 @@ function ResetAICredentialsDialog({ participant, onClose, onSubmit, onFetchModel
             <input value={form.model} onChange={update("model")} />
           </label>
           <label>API endpoint (optional, for Ollama/custom)
-            <input value={form.api_endpoint} onChange={update("api_endpoint")} />
+            <input
+              value={form.api_endpoint}
+              onChange={update("api_endpoint")}
+              placeholder={_endpointPlaceholder(form.provider)}
+            />
           </label>
           {onFetchModels && (
             <ProviderModelPicker
