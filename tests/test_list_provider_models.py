@@ -95,13 +95,22 @@ _GEMINI_RESPONSE = {
         },
         {"name": "models/embedding-001", "supportedGenerationMethods": ["embedContent"]},
         {"name": "models/gemini-2.0-flash", "supportedGenerationMethods": ["generateContent"]},
+        {
+            "name": "models/gemini-2.0-flash-lite-001",
+            "supportedGenerationMethods": ["generateContent"],
+        },
     ]
 }
 
 
 @pytest.mark.asyncio
 async def test_list_gemini_filters_to_generate_content_capable():
-    """Gemini models without 'generateContent' are dropped (e.g. embedding-only)."""
+    """Embedding-only models drop, and 2.0-family entries are blocked.
+
+    Google zeroed free-tier quota on the 2.0 family on 2026-04-25 and routes
+    2.0-flash-lite-001 into the same bucket — both should be hidden from the
+    picker so fresh keys don't pick a 429-on-arrival model.
+    """
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.params.get("key") == "AIzaTest"
@@ -110,10 +119,7 @@ async def test_list_gemini_filters_to_generate_content_capable():
     with _patched_client(_mock_transport(handler)):
         result = await list_provider_models(provider="gemini", api_key="AIzaTest")
 
-    assert [m.model for m in result] == [
-        "gemini/gemini-2.5-flash-lite",
-        "gemini/gemini-2.0-flash",
-    ]
+    assert [m.model for m in result] == ["gemini/gemini-2.5-flash-lite"]
 
 
 @pytest.mark.asyncio
