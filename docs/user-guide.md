@@ -128,8 +128,20 @@ Click **+ Add participant** in the left sidebar.
   - `anthropic` → `claude-haiku-4-5-20251001`
   - `openai` → `gpt-4o-mini`
   - `ollama` → `ollama_chat/llama3.2:3b`
-- Paste an API key for Anthropic/OpenAI. Ollama runs locally so it doesn't need one — but the container must be able to reach the Ollama host (set `SACP_OLLAMA_BASE_URL` env or equivalent).
-- Dedup: you can't add two AIs with the same `provider + model` — remove the first if you want to replace it.
+- Paste an API key for Anthropic / OpenAI / Gemini / Groq. Ollama runs locally so it doesn't need a key — but the SACP container must be able to reach the Ollama host (see §3.1.1).
+- Dedup: a session can't have two AIs with the same display name. Two AIs with the same `provider + model` under different keys are allowed (PR #121).
+
+### 3.1.1 Adding an Ollama participant
+
+Ollama runs on the host (or LAN), not inside the SACP container. Two prerequisites:
+
+**1. Bind Ollama to all interfaces** — set `OLLAMA_HOST=0.0.0.0:11434` before `ollama serve` (or `Environment="OLLAMA_HOST=0.0.0.0:11434"` in the systemd unit). Default `127.0.0.1` only accepts loopback connections.
+
+**2. Use the host's LAN IP in the API endpoint field** — find it with `hostname -I` (Linux) or `ipconfig` (Windows), enter `http://<that-IP>:11434`. The placeholder text suggests this format.
+
+`http://host.docker.internal:11434` works on Docker Desktop (Mac / Windows) where the alias is auto-injected, but is unreliable on Linux Docker and TrueNAS even with the `extra_hosts: ["host.docker.internal:host-gateway"]` mapping in [docker-compose.yml](../docker-compose.yml). Prefer the LAN IP form.
+
+After both: AddParticipant → `provider=ollama` → fill in the API endpoint → click **Fetch models** to populate the dropdown from your installed tags.
 
 ### 3.2 Send the opening message
 
