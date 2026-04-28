@@ -41,8 +41,16 @@ async def list_models(
     body: _ListModelsBody,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Return the current chat-model catalog for ``provider`` + ``api_key``."""
-    del request, participant  # auth dependency only
+    """Return the current chat-model catalog for ``provider`` + ``api_key``.
+
+    Pending participants (auto-issued bearer before facilitator approval)
+    are blocked because the Ollama branch issues server-side outbound
+    requests to operator-controlled hosts — that's not a flow that
+    should be reachable before approval.
+    """
+    del request  # auth dependency only
+    if participant.role == "pending":
+        raise HTTPException(403, "Pending participants cannot list provider models")
     try:
         models = await list_provider_models(
             provider=body.provider,

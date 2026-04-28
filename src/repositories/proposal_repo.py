@@ -75,6 +75,14 @@ class ProposalRepository(BaseRepository):
         )
         return Proposal.from_record(record)
 
+    async def get_proposal(self, proposal_id: str) -> Proposal | None:
+        """Fetch a proposal by id (cross-session lookup)."""
+        record = await self._fetch_one(
+            "SELECT * FROM proposals WHERE id = $1",
+            proposal_id,
+        )
+        return Proposal.from_record(record) if record else None
+
     async def cast_vote(
         self,
         *,

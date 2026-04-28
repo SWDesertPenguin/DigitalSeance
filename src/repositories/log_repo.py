@@ -172,13 +172,21 @@ class LogRepository(BaseRepository):
 
 
 async def _broadcast_audit_entry(entry: AdminAuditLog) -> None:
-    """Push an audit_entry WS event (Phase 2 Web UI T252).
+    """Push an audit_entry WS event to facilitators only.
+
+    Audit-entry payloads carry full ``previous_value`` / ``new_value``
+    bodies — for ``review_gate_edit`` that's the entire edited draft;
+    for ``set_budget`` it's currency caps; for ``reject_participant``
+    it's the rejection reason. Non-facilitators (including pending
+    joiners and observers) have no business seeing those, so we
+    filter the broadcast at send time. Facilitator-side AdminPanel
+    UIs continue to see every entry.
 
     Late-imported so repositories stay decoupled from the web_ui layer
     at import time — call is a no-op when nothing is subscribed.
     """
     from src.web_ui.events import audit_entry_event
-    from src.web_ui.websocket import broadcast_to_session
+    from src.web_ui.websocket import broadcast_to_session_roles
 
     payload = {
         "id": entry.id,
@@ -189,7 +197,11 @@ async def _broadcast_audit_entry(entry: AdminAuditLog) -> None:
         "new_value": entry.new_value,
         "timestamp": entry.timestamp.isoformat() if entry.timestamp else None,
     }
-    await broadcast_to_session(entry.session_id, audit_entry_event(payload))
+    await broadcast_to_session_roles(
+        entry.session_id,
+        audit_entry_event(payload),
+        allow_roles=frozenset({"facilitator"}),
+    )
 
 
 # --- SQL Constants ---

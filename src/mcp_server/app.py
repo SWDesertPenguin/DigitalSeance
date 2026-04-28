@@ -21,7 +21,10 @@ from src.mcp_server.tools.participant import router as participant_router
 from src.mcp_server.tools.proposal import router as proposal_router
 from src.mcp_server.tools.provider import router as provider_router
 from src.mcp_server.tools.session import router as session_router
-from src.repositories.errors import NotFacilitatorError
+from src.repositories.errors import (
+    NotFacilitatorError,
+    ParticipantNotInSessionError,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
 
@@ -59,8 +62,12 @@ def _add_exception_handlers(app: FastAPI) -> None:
     async def not_facilitator(_: Request, exc: NotFacilitatorError) -> JSONResponse:
         return JSONResponse(status_code=403, content={"detail": str(exc)})
 
+    async def not_in_session(_: Request, exc: ParticipantNotInSessionError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
     app.add_exception_handler(ValueError, value_error)
     app.add_exception_handler(NotFacilitatorError, not_facilitator)
+    app.add_exception_handler(ParticipantNotInSessionError, not_in_session)
 
 
 def _add_middleware(app: FastAPI) -> None:

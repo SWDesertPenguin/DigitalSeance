@@ -32,18 +32,40 @@ _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 # block. Trade-off documented in spec SR-001; SRI integrity attributes
 # (task T204) are the primary CDN-compromise defense once populated.
 #
-# connect-src: self + explicit MCP origin (env) + ws/wss scheme for the
-# Web UI's own WebSocket. Env default covers the standard localhost
-# dev pair; production operators set SACP_WEB_UI_MCP_ORIGIN to the
-# deployment's MCP host.
+# connect-src: 'self' + the explicit MCP origin (and its ws/wss
+# equivalents) + an explicit Web UI WebSocket origin list. The previous
+# scheme-only `ws: wss:` allowed *any* host, which provided a turnkey
+# exfiltration channel if any future XSS regression slipped past
+# DOMPurify. Both env vars below are space-separated origin lists.
+#
+# LAN dev operators who set SACP_WEB_UI_MCP_ORIGIN to a LAN address
+# should likewise set SACP_WEB_UI_WS_ORIGIN to the matching ws:// for
+# the Web UI's own WebSocket — defaults cover loopback only.
 _MCP_ORIGIN = os.environ.get(
     "SACP_WEB_UI_MCP_ORIGIN",
     "http://localhost:8750 http://127.0.0.1:8750",
 )
+_WEB_UI_WS_ORIGIN = os.environ.get(
+    "SACP_WEB_UI_WS_ORIGIN",
+    "ws://localhost:8751 wss://localhost:8751 ws://127.0.0.1:8751 wss://127.0.0.1:8751",
+)
+
+
+def _http_to_ws(origins: str) -> str:
+    """Convert space-separated http(s):// origins to their ws(s):// counterparts."""
+    out = []
+    for o in origins.split():
+        if o.startswith("https://"):
+            out.append("wss://" + o[len("https://") :])
+        elif o.startswith("http://"):
+            out.append("ws://" + o[len("http://") :])
+    return " ".join(out)
 
 
 def _build_csp() -> str:
-    connect = f"'self' ws: wss: {_MCP_ORIGIN}".strip()
+    mcp_ws = _http_to_ws(_MCP_ORIGIN)
+    connect_parts = ["'self'", _MCP_ORIGIN, mcp_ws, _WEB_UI_WS_ORIGIN]
+    connect = " ".join(p for p in connect_parts if p)
     return (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-eval' 'unsafe-inline' "

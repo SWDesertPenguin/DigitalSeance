@@ -8,7 +8,12 @@ from datetime import datetime, timedelta
 import asyncpg
 import bcrypt
 
-from src.auth.guards import require_facilitator, require_not_self, require_role
+from src.auth.guards import (
+    require_facilitator,
+    require_not_self,
+    require_role,
+    require_target_in_session,
+)
 from src.models.participant import Participant
 from src.repositories.errors import (
     AuthRequiredError,
@@ -62,6 +67,7 @@ class AuthService:
     ) -> Participant:
         """Approve a pending participant (facilitator only)."""
         await require_facilitator(self._pool, session_id, facilitator_id)
+        await require_target_in_session(self._pool, participant_id, session_id)
         await require_role(self._pool, participant_id, expected="pending")
         result = await self._participant_repo.approve(participant_id)
         await self._log_repo.log_admin_action(
@@ -84,6 +90,7 @@ class AuthService:
     ) -> None:
         """Reject and remove a pending participant (facilitator only)."""
         await require_facilitator(self._pool, session_id, facilitator_id)
+        await require_target_in_session(self._pool, participant_id, session_id)
         await require_role(self._pool, participant_id, expected="pending")
         await self._participant_repo.delete_participant(participant_id)
         await self._log_repo.log_admin_action(
@@ -121,6 +128,7 @@ class AuthService:
     ) -> None:
         """Force-revoke a participant's token (facilitator only)."""
         await require_facilitator(self._pool, session_id, facilitator_id)
+        await require_target_in_session(self._pool, participant_id, session_id)
         random_hash = bcrypt.hashpw(
             secrets.token_bytes(32),
             bcrypt.gensalt(),
@@ -147,6 +155,7 @@ class AuthService:
     ) -> None:
         """Remove a participant (facilitator only, not self)."""
         await require_facilitator(self._pool, session_id, facilitator_id)
+        await require_target_in_session(self._pool, participant_id, session_id)
         require_not_self(facilitator_id, participant_id)
         await self._participant_repo.depart_participant(participant_id)
         await self._log_repo.log_admin_action(
@@ -166,6 +175,7 @@ class AuthService:
     ) -> None:
         """Transfer facilitator role to another active participant."""
         await require_facilitator(self._pool, session_id, facilitator_id)
+        await require_target_in_session(self._pool, target_id, session_id)
         await require_role(self._pool, target_id, expected="participant")
         async with self._pool.acquire() as conn, conn.transaction():
             await _do_transfer(conn, facilitator_id, target_id, session_id)
