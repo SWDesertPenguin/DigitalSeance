@@ -4,9 +4,9 @@ Drop raw shakedown output here when you want Claude to analyze it. Everything in
 
 ## Why this exists
 
-Pasting a red-team transcript directly into chat puts literal jailbreak / exfiltration / prompt-injection strings into the *user-message* surface, which is classified independently of the project context in [CLAUDE.md](../../CLAUDE.md). That is a frequent source of false-positive Usage Policy refusals.
+Pasting a red-team transcript directly into chat puts literal jailbreak / exfiltration / prompt-injection strings into the *user-message* surface, which is classified independently of any project-level instructions. That is a frequent source of false-positive Usage Policy refusals.
 
-When the same bytes arrive via a `Read` tool result, the defensive frame from CLAUDE.md is already established, the user's own message stays short and benign, and the classifier sees the content in the context of the file that holds it. Empirically this trips far less.
+When the same bytes arrive via a `Read` tool result, the defensive framing from project-level instructions is already established, the user's own message stays short and benign, and the classifier sees the content in the context of the file that holds it. Empirically this trips far less.
 
 ## Convention
 
