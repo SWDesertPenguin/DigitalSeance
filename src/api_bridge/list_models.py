@@ -10,15 +10,34 @@ Each helper hits the provider's REST API directly via httpx (LiteLLM
 has no introspection helper). Keys are passed in headers / query
 params per provider convention. Returned strings are LiteLLM-prefixed
 so the UI can drop them straight into the existing model field.
+
+The Ollama branch is the SSRF-sensitive one: ``api_endpoint`` is
+operator-supplied, the call is server-side, and the response body
+flows back to the caller. We allowlist host categories (loopback +
+RFC1918 private), block link-local / IMDS / public, and pin the
+connection to the validated IP so DNS rebinding can't swap the host
+between validation and connect.
 """
 
 from __future__ import annotations
 
+import asyncio
+import ipaddress
+import socket
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import httpx
 
 _TIMEOUT_S = 10.0
+
+# Ollama endpoint allowlist — by user policy (option A): loopback +
+# RFC1918 private (covers host.docker.internal which resolves into
+# the Docker bridge LAN). Block link-local (kills IMDS at 169.254.*),
+# multicast, reserved, unspecified, and public IPs. Public reachability
+# would let an authenticated participant pivot SACP into internal-network
+# scanning or exfiltration.
+_ALLOWED_OLLAMA_SCHEMES = ("http", "https")
 
 
 @dataclass(frozen=True)
@@ -161,13 +180,75 @@ async def _list_ollama(
     _api_key: str,
     api_endpoint: str | None,
 ) -> list[ModelInfo]:
-    """Fetch local Ollama tags. Endpoint required, key ignored."""
+    """Fetch local Ollama tags. Endpoint required, key ignored, host allowlisted."""
     if not api_endpoint:
         raise ListModelsError(400, "api_endpoint required for ollama (e.g. http://localhost:11434)")
-    base = api_endpoint.rstrip("/")
-    resp = await client.get(f"{base}/api/tags")
+    safe_base = await _validate_and_pin_ollama_endpoint(api_endpoint)
+    resp = await client.get(f"{safe_base}/api/tags")
     _raise_for_status("ollama", resp)
     return [
         ModelInfo(model=f"ollama_chat/{m['name']}", display=m["name"])
         for m in resp.json().get("models", [])
     ]
+
+
+async def _validate_and_pin_ollama_endpoint(api_endpoint: str) -> str:
+    """Allowlist scheme + host category, return URL pinned to validated IP."""
+    parsed = urlparse(api_endpoint)
+    if parsed.scheme not in _ALLOWED_OLLAMA_SCHEMES:
+        raise ListModelsError(400, f"Unsupported scheme '{parsed.scheme}' (http/https only)")
+    host = parsed.hostname
+    if not host:
+        raise ListModelsError(400, "api_endpoint missing host")
+    ip = await _resolve_and_validate_host(host)
+    host_str = f"[{ip}]" if isinstance(ip, ipaddress.IPv6Address) else str(ip)
+    port_str = f":{parsed.port}" if parsed.port else ""
+    return f"{parsed.scheme}://{host_str}{port_str}".rstrip("/")
+
+
+async def _resolve_and_validate_host(
+    host: str,
+) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    """Resolve hostname; reject if any answer is in a blocked range."""
+    loop = asyncio.get_event_loop()
+    try:
+        infos = await loop.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ListModelsError(502, f"Could not resolve '{host}': {exc}") from exc
+    if not infos:
+        raise ListModelsError(502, f"No address records for '{host}'")
+    addrs = [_strip_zone(info[4][0]) for info in infos]
+    parsed_ips = [ipaddress.ip_address(a) for a in addrs]
+    for ip in parsed_ips:
+        _reject_blocked_ip(host, ip)
+    return parsed_ips[0]
+
+
+def _strip_zone(addr: str) -> str:
+    """Drop IPv6 zone identifier ('fe80::1%eth0' -> 'fe80::1')."""
+    return addr.split("%", 1)[0]
+
+
+def _reject_blocked_ip(host: str, ip: ipaddress._BaseAddress) -> None:
+    """Raise if an IP is in a category we refuse to reach.
+
+    Order matters at two points:
+
+    1. ``is_link_local`` is checked BEFORE ``is_private``. Python's
+       ``is_private`` follows IANA's special-purpose registry, which
+       *includes* 169.254.0.0/16 — a naive ``is_private`` allow would
+       let IMDS through on cloud deployments.
+    2. The loopback / private allow comes BEFORE the
+       ``is_reserved`` reject. Python marks IPv6 loopback (``::1``) as
+       *both* ``is_loopback=True`` and ``is_reserved=True`` (per
+       IANA's ``::/8`` allocation), so a naive ``is_reserved`` reject
+       would block local Ollama on IPv6.
+    """
+    if ip.is_link_local:
+        # 169.254.0.0/16 — IMDS lives here on AWS, GCP, Azure.
+        raise ListModelsError(400, f"link-local address blocked for '{host}'")
+    if ip.is_loopback or ip.is_private:
+        return
+    if ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+        raise ListModelsError(400, f"blocked address category for '{host}'")
+    raise ListModelsError(400, f"public address not allowed for '{host}'")
