@@ -163,6 +163,9 @@ When a participant authenticates, the system captures their client IP address an
 - What happens when a facilitator transfer targets a participant who has been removed between the request and execution? The transfer is rejected because the target is offline, not active.
 - What happens when two concurrent token rotations are requested? One succeeds and the other fails because the old hash no longer matches. The participant retries with the new token.
 - What happens when a token is revoked during an active turn? The current turn completes (AI response already in flight), but the next turn skips the revoked participant.
+- What happens when a participant's IP changes mid-session (mobile network handoff, VPN flip)? Per FR-017 the next request from the new IP is rejected with `IPBindingMismatchError`. Recovery is to rotate the token (FR-018 resets the binding). There is no automatic grace period — any change is treated as potential token theft until proven otherwise by token rotation.
+- What happens when the `Authorization` header is malformed (missing `Bearer` prefix, multiple credentials, base64 garbage)? FastAPI's `HTTPBearer()` rejects with HTTP 403 before the auth service is invoked. This is structurally distinct from FR-002 (expired) / FR-003 (missing) / FR-017 (IP mismatch) error codes — clients can rely on the status code to disambiguate.
+- What happens when a revoked participant has remaining rate-limit bucket state? The bucket is cleared on revocation via `RateLimiter.forget()` so the same `participant_id` reused later (after re-issue) starts fresh. Stale buckets are also lazy-evicted when the bucket map exceeds `DEFAULT_MAX_BUCKETS` (009 §FR-007).
 
 ## Requirements *(mandatory)*
 
@@ -187,7 +190,12 @@ When a participant authenticates, the system captures their client IP address an
 - **FR-017**: System MUST reject requests where the token is valid but the client IP does not match the bound IP, with a distinct error.
 - **FR-018**: System MUST reset the IP binding when a token is rotated, allowing the new token to bind to a new IP.
 - **FR-019**: System MUST prevent the facilitator from removing themselves (must transfer role first).
-- **FR-020**: Pending participant access scope MUST be configurable per session by the facilitator. The facilitator chooses what pending participants can observe (transcript only, transcript + participant list, full live observer, or minimal pre-join view).
+- **FR-020**: Pending participant access scope MUST be configurable per session by the facilitator. The facilitator chooses what pending participants can observe (transcript only, transcript + participant list, full live observer, or minimal pre-join view). The scope governs what fields appear in `_participant_payload` / `_participant_dict` serializers when the requester is pending. Phase 1 ships a single default ("transcript-only" semantics enforced by FR-015 / SC-005); per-session override of the visibility tier is deferred to Phase 3 — until then, pending participants receive the same payload as approved participants but cannot inject or sponsor.
+- **FR-021**: Pending participants MUST be rejected at the endpoint boundary on `/tools/participant/inject_message` and `/tools/participant/add_ai` (HTTP 403) — not only at downstream filters in the turn loop. This is the explicit "zero ability" enforcement promised by SC-005.
+- **FR-022**: The token bearer scheme MUST require the credential in the `Authorization: Bearer <token>` request header. Tokens MUST NOT be accepted in URL paths, query strings, request bodies, or cookies (cookies are used for the front-end session indicator only, not as an auth credential to MCP tools). The FastAPI `HTTPBearer()` scheme is the canonical enforcement point.
+- **FR-023**: The client-IP source for FR-016 binding is the immediate `request.client.host` by default. Operators behind a reverse proxy that overwrites `X-Forwarded-For` opt in by setting `SACP_TRUST_PROXY=1`, in which case the rightmost `X-Forwarded-For` value (the proxy's view of the immediate client) is used. Trusting the entire `X-Forwarded-For` chain is NEVER supported because any direct attacker can spoof the leftmost entries.
+- **FR-024**: Brute-force / repeated-failed-auth protection (lockout, exponential backoff, alerting on N failures per IP/token-prefix) is explicitly OUT OF SCOPE for Phase 1. Defense relies on the 60-bit-plus token entropy (FR-A1 below) plus 9 §FR-002 rate limiting on the post-auth path. Adding a pre-auth rate-limiter is a Phase 3 candidate; trigger: any observed brute-force attempt in production logs OR a token-entropy reduction.
+- **FR-A1** (token format reference): tokens are 32-byte URL-safe base64 strings (`secrets.token_urlsafe(32)`, ~256 bits entropy) hashed with bcrypt cost factor 12 before storage. Re-evaluate the cost factor when a single bcrypt verify exceeds 100ms on production hardware OR every 24 months, whichever comes first.
 
 ### Key Entities
 
@@ -217,6 +225,37 @@ When a participant authenticates, the system captures their client IP address an
 - The facilitator's token is generated at session creation time. If it expires, recovery is handled via a dedicated CLI tool (`sacp-admin regenerate-token <session-id>`) which generates a new token, updates the hash, and emits an admin audit log entry. Direct database operations are discouraged because they bypass the audit trail.
 - Token rotation generates a new random token using cryptographically secure random bytes, not a derivation of the old token.
 - Bcrypt cost factor 12 (default) is used for all token hashing. This is not configurable in Phase 1.
+
+## Threat model traceability
+
+This spec's auth controls map to standard catalogs (OWASP ASVS L2 v4.0.3, NIST SP 800-63B, NIST SP 800-53):
+
+| FR | Defends against | OWASP ASVS | NIST SP 800-63B / SP 800-53 |
+|----|-----------------|------------|------------------------------|
+| FR-001, FR-A1 (bearer + bcrypt) | Forged credentials | V2.1.1, V2.4.1 | 800-63B §5.1.1, SP 800-53 IA-5 |
+| FR-002, FR-003 (expiry / missing distinction) | Indefinite credential lifetime, ambiguous error handling | V2.1.6 | 800-63B §5.2.1 |
+| FR-004, FR-022 (no plaintext in logs / URLs) | Credential leakage via logs, referrer headers, browser history | V7.1.1, V7.1.2 | SP 800-53 IA-5(7), AU-9 |
+| FR-005, FR-006, FR-007, FR-015, FR-021 (approval flow + pending guard) | Unauthorized session participation | V4.1.3 | SP 800-53 AC-2, AC-3 |
+| FR-008, FR-013 (rotation + expiry reset) | Compromised credential persistence | V2.1.4 | 800-63B §5.1.1.2 |
+| FR-009, FR-014 (revoke + audit log) | Defense erosion via silent revocation; tamper of admin actions | V2.1.5, V7.4.2 | SP 800-53 AU-2, AU-3, AU-12, IA-5 |
+| FR-010, FR-019, FR-021 (role enforcement) | Privilege escalation | V4.1.1, V4.1.2 | SP 800-53 AC-3, AC-6 |
+| FR-011 (facilitator transfer) | Single-point-of-failure on facilitator | — | SP 800-53 AC-5 |
+| FR-012 (expiry enforcement) | Credential lifetime sprawl | V2.1.7 | 800-63B §5.1.1.2 |
+| FR-016, FR-017, FR-018, FR-023 (IP binding) | Token-theft replay from a different network | V3.7.1 | SP 800-53 IA-2, SC-23 |
+| FR-020 (pending scope) | Pre-approval information disclosure | V4.2.1 | SP 800-53 AC-3, AC-21 |
+| FR-024 (brute-force OOS) | (deferred to Phase 3) | V2.2.1 | SP 800-53 AC-7 |
+
+Sister cross-references: log scrubbing for tokens (FR-004) is enforced by the same root-logger ScrubFilter mandated by 007 §FR-012; rate limiting on post-auth tool calls (back-pressure for repeated probing) is 009 §FR-002.
+
+## Audit closeout (2026-04-29)
+
+The security-requirements quality audit (`checklists/security.md`) raised 45 findings; resolution split:
+
+**Code changes**: CHK013 / CHK030 / SC-005 (pending guard added to `/tools/participant/inject_message` and `/tools/participant/add_ai` endpoints — pre-fix, FR-015 was only filtered at the turn-loop downstream of message persistence, leaving the interrupt queue spammable).
+
+**Spec amendments (this commit)**: CHK001 / CHK003 / CHK043 (FR-A1 token format + entropy + cost re-eval), CHK002 (FR-A1 bcrypt re-eval triggers), CHK004 (rotation race already covered in Edge Cases — confirmed), CHK005 / CHK006 (cross-session reuse / session-end token handling — clarified via FR-022's session-bound bearer), CHK008 / CHK009 / CHK010 / CHK011 (FR-023 X-Forwarded-For trust mechanism), CHK013 / CHK020 (FR-021 endpoint guard, FR-022 tokens-in-URLs forbidden), CHK016 / CHK024 / CHK034 / CHK043 (FR-024 brute-force OOS with re-eval trigger), CHK038 (Edge case for mid-session IP change), CHK040 (Edge case for malformed Authorization header), CHK041 (Threat-model traceability table), CHK042 (FR-014 audit log already covers all FR-010 actions — confirmed), CHK044 (Assumptions OAuth migration trigger).
+
+**Closed as cross-reference / accepted residual** (point to authoritative spec elsewhere): CHK007 (rotation response idempotency — covered by Edge Case "two concurrent rotations"), CHK012 (TOCTOU for role checks — endpoint-time check is sufficient given single-process), CHK014 (concurrent facilitator actions — single facilitator per session by design), CHK015 (WebSocket auth — token validated on handshake, then trusted for connection lifetime; revocation triggers `_close_ws_for_participant` via 4401 close code), CHK017 (anomaly detection — Phase 3+ deferred), CHK018 (CSRF — bearer-only auth makes traditional CSRF infeasible; cookie is indicator-only), CHK019 (session quarantine — facilitator can revoke all tokens via repeated `/revoke_token` calls; mass-revoke API deferred), CHK021 (1-second SC-001 — load profile is "single concurrent participant" given Phase 1 typical session size of 2-6), CHK022 / CHK025 / CHK027 (error shape uniformity — FastAPI HTTPException returns consistent JSON shape; `detail` field disambiguates), CHK023 (config knob — `SACP_TOKEN_EXPIRY_DAYS` env var, default 30), CHK026 (ScrubFilter alignment — same root-logger ScrubFilter from 007 §FR-012 covers token plaintext via the generic `(api_key|token|secret)` pattern), CHK028 / CHK036 (token-invalidation single source of truth — auth service's `update_auth_token`; idempotent revocation), CHK029 (transfer-then-leave is the documented escape hatch — FR-019 + FR-011), CHK031 (per-endpoint testability — covered by `tests/test_mcp_e2e.py::test_debug_export_rejects_non_facilitator` pattern), CHK032 / CHK033 (latency budgets / IP binding SC — observational, not enforced), CHK035 (concurrent removal — single facilitator constraint), CHK037 (token expiry mid-turn — covered in Edge Cases), CHK039 (forward-compat hash format — bcrypt's `$2b$12$...` self-describes the cost factor, allowing rolling upgrades), CHK045 (MCP-server forced disconnect — `_close_ws_for_participant` with 4401 close code is the contract, wired in revoke_token / remove_participant).
 
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 
