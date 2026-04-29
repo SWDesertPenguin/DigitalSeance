@@ -148,7 +148,7 @@ All log output is scrubbed for credential patterns before emission. API keys, au
 - **FR-004**: System MUST validate every AI response against injection pattern checks before persistence.
 - **FR-005**: System MUST hold responses with high risk scores for facilitator review instead of persisting them.
 - **FR-006**: System MUST strip markdown image syntax and HTML src attributes from AI responses.
-- **FR-007**: System MUST flag URLs with data-embedding query parameters in AI responses.
+- **FR-007**: System MUST flag URLs with data-embedding query parameters in AI responses. Currently matched parameter names: `data`, `token`, `secret`, `key`, `password`. Canonical regex in `src/security/exfiltration.py`. Extend the list as new exfiltration vectors surface.
 - **FR-008**: System MUST detect and redact credential patterns in AI responses. Coverage: OpenAI (`sk-...`), Anthropic (`sk-ant-...`), Gemini (`AIza...`), Groq (`gsk_...`), JWTs (`eyJ...`), and Fernet tokens (`gAAAAA...`). New supported providers MUST add their key prefix here.
 - **FR-009**: System MUST monitor responses for behavioral drift indicators and flag anomalies. Current heuristics: response length >3x the participant's rolling average (LENGTH_DEVIATION_FACTOR), and known jailbreak-phrase matches (`DAN mode`, `developer mode`, `unrestricted mode`, `jailbreak(ed)`, `as an AI language model without`, etc. — canonical list in `src/security/jailbreak.py`).
 - **FR-010**: System MUST embed three random 16-char base32 canary tokens in system prompts and scan responses for leakage. Multi-canary (vs single) is required per constitution §8 amendment — single-canary is insufficient because a single match disclosure reveals the canary structure, while three independent canaries make pattern-leak triangulation harder.
@@ -175,6 +175,20 @@ All log output is scrubbed for credential patterns before emission. API keys, au
 - Log scrubbing applies to Python logging output. Traceback scrubbing (excepthook override) is included.
 - The security pipeline runs synchronously in the turn loop — it must complete before persistence. Performance target: <50ms for the full pipeline excluding LLM-as-judge.
 - Jailbreak detection uses simple heuristics (length deviation, phrase matching). ML-based detection is a future enhancement.
+
+## Known gaps (open from 2026-04-29 audit)
+
+These were surfaced by the security-requirements quality audit (`checklists/security.md`) and are intentionally left open for a future iteration. They are not blockers for the shipped Phase 1+2 pipeline but should be addressed before Phase 3 high-stakes use cases:
+
+- **Operator notification path** (CHK005): no requirement defines how a facilitator is told a response was held. Phase 2 review-gate UI surfaces it as a side effect of routing-mode changes. Codify a notification-channel requirement.
+- **Pattern-list maintenance** (CHK006): patterns are hardcoded constants. No process for adding patterns without a release. New attack patterns (e.g., Cyrillic homoglyphs from Round02) have no documented intake.
+- **Incident response** (CHK007): no escalation requirement for confirmed attacks. FR-013 forbids auto-block. Decide if repeat-offender tightening is in scope.
+- **Audit observability** (CHK008): per-layer flags/findings/reasons live in transient ValidationResult/DriftResult objects. No persistence to an audit table — past attacks can't be reviewed without re-running.
+- **False-positive rate targets** (CHK023): none specified per layer. Drift detector (3x avg) is known-noisy in shakedowns; no numeric bound.
+- **Threat-model traceability** (CHK033): no mapping from this pipeline back to a named threat model (OWASP LLM Top 10, MITRE ATLAS, internal). `docs/AI_attack_surface_analysis_for_SACP_orchestrator.md` exists but isn't cross-referenced.
+- **Re-evaluation triggers** (CHK037, CHK038): assumptions "pattern matching is sufficient for Phase 1" and "jailbreak heuristics are sufficient" lack measurable triggers (e.g., revisit after N escapes, when LLM-as-judge cost drops below X).
+- **LLM-as-judge interface contract** (CHK039): deferred without an interface stub. Adding it later will likely require requirement rework that sketching the contract now would avoid.
+- **Cyrillic / homoglyph injection** (CHK026): documented in `docs/red-team-runbook.md` from Round02; sanitizer's invisible-Unicode pattern catches RTL/LTR overrides but not homoglyph-substituted Latin (e.g., Cyrillic `а` U+0430). NFKC + mixed-script confusables fold is the candidate fix.
 
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 
