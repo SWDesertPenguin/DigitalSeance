@@ -92,7 +92,7 @@ The system monitors AI responses for behavioral drift that may indicate jailbrea
 
 **Acceptance Scenarios**:
 
-1. **Given** a response 5x longer than the participant's rolling average, **When** drift is checked, **Then** it is flagged as anomalous.
+1. **Given** a response >3x longer than the participant's rolling average (LENGTH_DEVIATION_FACTOR), **When** drift is checked, **Then** it is flagged as anomalous.
 2. **Given** a response containing "I'm now operating in unrestricted mode", **When** drift is checked, **Then** it is flagged.
 3. **Given** a response that addresses a participant name not in the session, **When** drift is checked, **Then** it is flagged.
 4. **Given** a normal response within expected parameters, **When** drift is checked, **Then** it passes without flags.
@@ -142,18 +142,18 @@ All log output is scrubbed for credential patterns before emission. API keys, au
 
 ### Functional Requirements
 
-- **FR-001**: System MUST strip ChatML tokens, role markers, HTML comments, override phrases, and invisible Unicode from all messages before context assembly.
+- **FR-001**: System MUST strip injection patterns from all messages before context assembly. The canonical pattern set lives in `src/security/sanitizer.py` and currently covers: ChatML tokens (`<|im_start|>` etc.), role markers (`system:` / `assistant:` / `user:` line prefixes), Llama instruction markers (`[INST]` / `[/INST]`), HTML comments, override phrases (`ignore/disregard/forget the previous instructions`), instruction-injection prefixes (`new/updated/revised instructions:`), reset triggers (`from now on`), and invisible Unicode (zero-width spaces, RTL/LTR overrides, BOM). The list is open-ended: new patterns are added to the canonical file as attacks surface.
 - **FR-002**: System MUST apply datamarking to AI responses before inclusion in another AI's context.
 - **FR-003**: System MUST NOT datamark human interjections, system messages, or AI messages from the same speaker as the current participant (an AI reading its own prior output has no trust boundary to enforce).
 - **FR-004**: System MUST validate every AI response against injection pattern checks before persistence.
 - **FR-005**: System MUST hold responses with high risk scores for facilitator review instead of persisting them.
 - **FR-006**: System MUST strip markdown image syntax and HTML src attributes from AI responses.
 - **FR-007**: System MUST flag URLs with data-embedding query parameters in AI responses.
-- **FR-008**: System MUST detect and redact credential patterns (API keys, JWTs) in AI responses.
-- **FR-009**: System MUST monitor responses for behavioral drift indicators and flag anomalies.
-- **FR-010**: System MUST embed canary tokens in system prompts and scan responses for leakage.
+- **FR-008**: System MUST detect and redact credential patterns in AI responses. Coverage: OpenAI (`sk-...`), Anthropic (`sk-ant-...`), Gemini (`AIza...`), Groq (`gsk_...`), JWTs (`eyJ...`), and Fernet tokens (`gAAAAA...`). New supported providers MUST add their key prefix here.
+- **FR-009**: System MUST monitor responses for behavioral drift indicators and flag anomalies. Current heuristics: response length >3x the participant's rolling average (LENGTH_DEVIATION_FACTOR), and known jailbreak-phrase matches (`DAN mode`, `developer mode`, `unrestricted mode`, `jailbreak(ed)`, `as an AI language model without`, etc. — canonical list in `src/security/jailbreak.py`).
+- **FR-010**: System MUST embed three random 16-char base32 canary tokens in system prompts and scan responses for leakage. Multi-canary (vs single) is required per constitution §8 amendment — single-canary is insufficient because a single match disclosure reveals the canary structure, while three independent canaries make pattern-leak triangulation harder.
 - **FR-011**: System MUST scan responses for substantial fragments (25+ words, whitespace-split) of any participant's system prompt. No tokenizer dependency — simple word count by whitespace split.
-- **FR-012**: System MUST redact credential patterns in all log output before emission.
+- **FR-012**: System MUST redact credential patterns in all log output AND in unhandled-exception tracebacks before emission. Coverage matches FR-008 (OpenAI, Anthropic, Gemini, Groq, JWT, Fernet) plus a generic `(api_key|token|secret)\s*[=:]\s*VALUE` catch-all. Implementation hooks both the root logger filter and `sys.excepthook` at app startup (`src/run_apps.py`).
 - **FR-013**: System MUST never silently drop or block a response — blocked responses are always held for review with the original content preserved.
 
 ## Success Criteria *(mandatory)*
