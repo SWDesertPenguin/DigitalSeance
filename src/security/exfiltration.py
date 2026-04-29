@@ -12,10 +12,19 @@ _DATA_URLS = re.compile(
 )
 _API_KEYS = re.compile(r"sk-[a-zA-Z0-9_-]{20,}")
 _ANTHROPIC_KEYS = re.compile(r"sk-ant-[a-zA-Z0-9_-]{20,}")
+_GEMINI_KEYS = re.compile(r"AIza[a-zA-Z0-9_-]{35}")
+_GROQ_KEYS = re.compile(r"gsk_[a-zA-Z0-9_-]{20,}")
 _JWT_TOKENS = re.compile(r"eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+")
 _FERNET_TOKENS = re.compile(r"gAAAAA[a-zA-Z0-9_-]{40,}")
 
-_CREDENTIAL_PATTERNS = [_API_KEYS, _ANTHROPIC_KEYS, _JWT_TOKENS, _FERNET_TOKENS]
+_CREDENTIAL_PATTERNS = [
+    _API_KEYS,
+    _ANTHROPIC_KEYS,
+    _GEMINI_KEYS,
+    _GROQ_KEYS,
+    _JWT_TOKENS,
+    _FERNET_TOKENS,
+]
 
 # Context assembly markers that must not leak into stored messages
 _SPOTLIGHT_MARKER = re.compile(r"\^[0-9a-f_]{5,8}\^")
