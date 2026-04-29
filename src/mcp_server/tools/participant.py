@@ -41,7 +41,14 @@ async def inject_message(
     The transcript write captures arrival-time ordering (so interjections
     sort correctly relative to concurrent AI turns). The interrupt queue
     entry still drives routing/cadence signals in the turn loop.
+
+    Pending participants are rejected per spec 002 §FR-015 / §SC-005: pre-approval
+    they have read-only transcript access at most. Without this guard the turn
+    loop's downstream filter is the only barrier, which is a defense-in-depth
+    weak spot — a malicious pending could spam the interrupt queue.
     """
+    if participant.role == "pending":
+        raise HTTPException(403, "Pending participants cannot inject messages")
     int_repo = request.app.state.interrupt_repo
     persisted = await _try_persist_injection(request, participant, body)
     entry = await int_repo.enqueue(
@@ -206,7 +213,15 @@ async def add_ai_participant(
     body: _AddAIBody,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Let a non-facilitator human sponsor an AI (auto-approved, tagged invited_by)."""
+    """Let a non-facilitator human sponsor an AI (auto-approved, tagged invited_by).
+
+    Pending sponsors are rejected per spec 002 §FR-015: a pending participant
+    cannot have their AI in the loop. Allowing a pending sponsor to bring in
+    an auto-approved AI is the same risk class as letting pending participants
+    join the loop directly.
+    """
+    if participant.role == "pending":
+        raise HTTPException(403, "Pending participants cannot sponsor an AI")
     if participant.provider != "human":
         raise HTTPException(403, "Only human participants may sponsor an AI")
     p_repo = request.app.state.participant_repo
