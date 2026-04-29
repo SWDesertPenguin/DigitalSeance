@@ -196,11 +196,15 @@ When a participant uses review_gate mode, their AI's response is staged as a dra
 ### Edge Cases
 
 - What happens when all participants are skipped (budget, paused, circuit-broken)? The loop pauses the session and notifies connected humans.
-- What happens when a provider returns a response after the timeout? The response is dropped — once a turn times out, the request is cancelled and any late reply is discarded. No grace window, no [LATE] tagging.
-- What happens when the API key decryption fails at dispatch time? The turn is skipped with an error log; the participant is not auto-paused (encryption failure is an infrastructure problem, not a provider problem).
+- What happens when a provider returns a response after the timeout? The response is dropped — once a turn times out, the request is cancelled and any late reply is discarded. No grace window, no [LATE] tagging. This is NOT a "silent drop" per 007 §FR-013 because the turn never persisted; it's an aborted dispatch with a logged skip reason.
+- What happens when the API key decryption fails at dispatch time? The turn is skipped with an error log; the participant is not auto-paused (encryption failure is an infrastructure problem, not a provider problem). The decryption traceback is scrubbed via the root-logger ScrubFilter (007 §FR-012) so the failed-to-decrypt ciphertext bytes don't leak.
 - What happens when a burst participant's interval is reached but no turns have occurred? The burst fires with whatever history is available.
 - What happens when an observer chooses not to respond? The observation is logged as 'observer_read' (not 'observer_inject') and consumes zero output tokens.
-- What happens when delegate_low tries to delegate but no cheaper model is active? The turn proceeds with the original participant's model.
+- What happens when delegate_low tries to delegate but no cheaper model is active? Phase 1 always proceeds with the original participant's model regardless of cheaper-model availability — see FR-026. Phase 3 actual delegation will need to address this case.
+- What happens when an LLM dispatch hangs past the turn timeout (FR-019)? The 180s timeout cancels the asyncio task; the cancellation propagates to LiteLLM's `acompletion`, which closes its HTTP connection. The decrypted API key falls out of scope when the cancelled coroutine unwinds. No persistent leak.
+- What happens during a rate-limit retry (FR-020)? Each retry calls the dispatch helper fresh, which decrypts the key per attempt and dereferences after each call. Plaintext does not persist across retries — it's re-decrypted each time.
+- What happens when adversarial rotation (deferred to feature 004) targets a budget-exceeded participant? The rotation logic skips to the next eligible participant; budget enforcement (FR-014) wins over adversarial-rotation insistence.
+- What happens during pipeline-internal failure (regex bug, unicode error)? Per FR-023, the turn skips with `reason='security_pipeline_error'`; circuit breaker is NOT incremented; a `security_events` row with `layer='pipeline_error'` is written.
 
 ## Requirements *(mandatory)*
 
@@ -227,6 +231,14 @@ When a participant uses review_gate mode, their AI's response is staged as a dra
 - **FR-019**: System MUST respect per-turn timeouts (configurable per participant, default 180 seconds as of migration 003) and skip the turn on timeout.
 - **FR-020**: System MUST retry provider calls on rate-limit responses with exponential backoff respecting Retry-After headers.
 - **FR-021**: System MUST never halt the session due to a single participant's provider failure — the loop skips and continues.
+- **FR-022**: Concurrent turn writes MUST be serialized at the branch level via a transaction-scoped PostgreSQL advisory lock on `pg_advisory_xact_lock(hashtext(branch_id))` taken inside `MessageRepository.append_message`. The lock prevents `turn_number` collisions when an inject and an AI-turn persist race within the same branch (clarified 2026-04-15). The lock has no application-level timeout; lock contention blocks indefinitely until the holding transaction commits or aborts. Concurrent contention is bounded in practice because each transaction is short and the loop is single-threaded per session.
+- **FR-023**: Pipeline-internal failures during output validation, exfiltration filtering, or any future pipeline layer MUST fail closed: the turn is skipped with `reason='security_pipeline_error'`, a `security_events` row with `layer='pipeline_error'` is written (per 007 §FR-013, §FR-015), and the participant's circuit-breaker counter is NOT incremented (the failure is the system's, not the participant's). The dispatched LLM response is discarded; no partial transcript write occurs.
+- **FR-024**: Plaintext API-key memory residency is bounded by Python's reference lifetime — the key is decrypted into a local variable, passed to LiteLLM's `acompletion`, and dereferenced via re-binding to `None` at the end of the dispatch call. Memory zeroing (e.g., `ctypes.memset` on the underlying buffer) is NOT implemented in Phase 1 because Python strings are immutable and refcounted; a heap-trace attacker can recover plaintext until garbage collection runs. This is accepted residual risk: the trust boundary is "process-memory access by the orchestrator owner is equivalent to encryption-key access" — both are operator-controlled. Re-evaluation trigger: any deployment where the orchestrator's process memory is accessible to lower-trust users (e.g., shared multi-tenant container).
+- **FR-025**: Routing-mode tampering during an in-flight turn is bounded by snapshot-at-route-time semantics: the routing decision (next speaker, mode, complexity, domain) is computed at the start of each turn from the participants table snapshot. Mid-turn changes to `routing_preference` apply on the *next* turn, not the current one. There is no race window because the dispatch happens within the same coroutine that read the routing snapshot.
+- **FR-026**: The `delegate_low` routing mode in Phase 1 RECORDS the routing decision (`action='delegated'`) in the routing log for audit purposes but does NOT actually delegate response generation to a cheaper model. The original participant's model still produces the response; the `delegated_from` message field is unused in Phase 1. Actual cost-aware delegation is deferred to Phase 3 — trigger: a deployment with a documented per-turn cost reduction target.
+- **FR-027**: Exactly one orchestrator process MUST run the turn loop per session at any moment. Phase 1 enforces this implicitly via single-deployment topology (one orchestrator container per database). Multi-process deployments would race on the advisory lock (FR-022) but also produce duplicate dispatches; explicit single-loop-per-session coordination (e.g., via a session lease) is deferred to Phase 3 multi-instance deployment.
+- **FR-028**: Budget enforcement uses POST-CALL accounting via the usage_log table. Before each turn dispatch, the system queries `SUM(cost_usd)` over a TRAILING window (`NOW() - INTERVAL '1 hour'` for hourly, `NOW() - INTERVAL '1 day'` for daily — not calendar-aligned). The check compares accumulated cost against the participant's ceiling; if the sum already exceeds the ceiling, the turn is skipped with `reason='budget_exceeded'`. Pre-call cost estimation is NOT used; LiteLLM's post-call cost is the source of truth. A single turn that pushes total over the ceiling is allowed to complete (the over-spend is bounded by one turn's max cost).
+- **FR-029**: When a participant's `context_window - max_tokens_per_turn - prompt_estimate <= 0`, the participant fails the MVC floor check and MUST be marked too-small for active dispatch (no turn is attempted). This is checked at participant configuration time (FR-004 budget calculation) and on every turn (the budget-too-small condition skips with `reason='context_too_small'`). The MVC floor is `MVC_FLOOR_TURNS=3` system + 3 history messages by default.
 
 ### Key Entities
 
@@ -260,6 +272,40 @@ When a participant uses review_gate mode, their AI's response is staged as a dra
 - The MCP server (feature 006) will expose the loop's start/stop controls. This feature provides the engine; the interface comes later.
 - The system prompt tier content is a separate deliverable. This feature assembles whatever prompt text is configured on the participant record.
 - Late responses are dropped — once the turn timeout expires, the request is cancelled and no response is accepted from that dispatch.
+
+## Threat model traceability
+
+| FR | Defends against | OWASP LLM / API | NIST AI 100-2 / SP 800-53 |
+|----|-----------------|------------------|---------------------------|
+| FR-001 (serialized loop) | Concurrent-dispatch races | API4 | SC-5 |
+| FR-002 (round-robin skip) | Forced participation despite paused/budget | — | AC-3 |
+| FR-003, FR-005 (context priority + truncation) | Context-budget overflow → provider error | — | SC-5 |
+| FR-007, FR-024 (key decrypt at dispatch + bounded residency) | API-key exposure via memory or logs | LLM02 | SC-12, SC-28, AU-9 |
+| FR-010, FR-011 (immutable persistence + routing log) | Transcript/audit tampering | — | AU-2, AU-3, AU-12, SI-7 |
+| FR-013 (interrupt queue) | Silent loss of human inputs | — | AC-3 |
+| FR-014, FR-028 (budget enforcement) | Runaway provider cost / DoS | API4, LLM04 | SC-5(2) |
+| FR-015 (circuit breaker) | Cascading provider failure halts session | — | SI-13 |
+| FR-016 (degenerate-output retry+skip) | Garbage transcript pollution | — | SI-10 |
+| FR-018, FR-026 (review_gate + delegate_low scope) | Direct-output bypass / unaudited delegation | LLM05 | AC-3 |
+| FR-019, FR-020 (timeout + rate-limit retry) | DoS via hung provider; hot-loop rate-limit thrash | API4 | SC-5 |
+| FR-021 (no halt on single failure) | Single point of failure halts session | — | SI-13 |
+| FR-022 (advisory lock) | turn_number collision | — | SI-7 |
+| FR-023 (fail-closed pipeline error) | Defense erosion via uncaught exception | LLM05 | SI-4 |
+| FR-025 (snapshot routing) | Mid-flight tampering race | — | AC-3 |
+| FR-027 (single loop per session) | Duplicate dispatch / cost double-charge | API4 | CM-2 |
+| FR-029 (MVC floor) | Context-too-small dispatch error | — | SC-5 |
+
+Sister cross-references: log scrubbing (007 §FR-012) covers any traceback emitted by `_validate_and_persist` because exception logs go through the root-logger ScrubFilter; pipeline ordering (007 §FR-014) is the layer-precedence rule used inside `_run_pipeline`; per-layer detection persistence (007 §FR-015) is the schema FR-023 writes into on pipeline error.
+
+## Audit closeout (2026-04-29)
+
+The security-requirements quality audit (`checklists/security.md`) raised 40 findings; resolution split:
+
+**Code changes**: NONE. The audit found one apparent drift (CHK015 `delegate_low` doesn't actually delegate) which is resolved as a Phase 1 scope decision via FR-026 rather than a code change — Phase 1 records the routing decision but defers actual cost-aware delegation to Phase 3. All other findings are either spec-level gaps or accepted residual.
+
+**Spec amendments (this commit)**: CHK001 / CHK002 / CHK024 (FR-024 plaintext memory residency + accepted residual + re-eval trigger), CHK003 (Edge Case + threat-model row codifying ScrubFilter coverage of dispatch tracebacks), CHK006 / CHK023 (FR-023 restates 007 §FR-013 fail-closed), CHK007 / CHK022 (FR-022 promotes advisory lock from Clarification to FR; CHK022 confirmed already-tested by tests/test_scrubber.py), CHK010 / CHK011 / CHK028 (FR-028 codifies post-call accounting + trailing-window semantics), CHK013 / CHK025 (FR-025 snapshot-at-route-time), CHK015 / CHK026 (FR-026 delegate_low Phase 1 records-but-doesn't-delegate; Phase 3 trigger), CHK026 / CHK027 (FR-027 single-loop-per-session deployment requirement), CHK029 (Edge Case adversarial+budget interaction), CHK030 / CHK029 (FR-029 MVC floor + Edge Case), CHK032 (Threat-model traceability table), CHK038 (Edge Case key-per-retry confirmed in spec), CHK040 (Edge Case timeout-vs-007-FR-013 distinction documented).
+
+**Closed as cross-reference / accepted residual / out-of-scope**: CHK004 (provider-response trust — handled by 007 pipeline running inside `_validate_and_persist`), CHK005 (pipeline order — 007 §FR-014 is authoritative), CHK008 (advisory-lock timeout — accepted residual; bounded in practice by short transactions), CHK009 (concurrent inject + loop iteration in multi-machine deployment — Phase 3 concern; FR-027 single-loop), CHK012 (post-call cost mismatch via LiteLLM — accepted; LiteLLM is source of truth), CHK014 (routing log audit-grade — already FR-011 + 001 §FR-008 append-only), CHK016 (key-discard wording — FR-024 settles), CHK017 (consecutive-failure threshold config — env var `SACP_BREAKER_THRESHOLD` default 3), CHK018 (turn timeout vs cadence — FR-019 + 004 §FR-009 cadence ceilings ensure timeout < cadence cycle), CHK019 (retry skip + audit log — FR-016 retry counter + FR-011 routing log), CHK020 (FR-021 vs 007 §FR-013 — both consistent: session continues, fail-closed turn is a logged skip), CHK021 (review_gate cross-ref — FR-018 + 007 §FR-016 + 008 §FR-008), CHK022 (API-key log scrubbing already tested via tests/test_scrubber.py), CHK023 (SC-009 testable via fault injection — out-of-scope automated harness for Phase 1), CHK024 (no SC for budget skip precision — FR-014 + FR-028 wording sufficient), CHK025 (advisory-lock timeout recovery — accepted residual; healthcheck on Postgres detects deadlocks), CHK027 (provider returning malicious responses repeatedly — handled by 007 pipeline + circuit breaker), CHK031 (cancelled-task connection cleanup — LiteLLM's `acompletion` honors asyncio cancellation), CHK033 (loop iteration overhead — observational only; FR-019 timeout dominates), CHK034 (per-event observability — FR-011 routing log covers all skip categories), CHK035 (tiktoken vs LiteLLM token estimation — accepted; LiteLLM is the canonical source), CHK036 (relevance-based rotation security risk — Phase 3 concern), CHK037 (advisory-lock dependency on Postgres — out-of-scope deployment requirement), CHK039 ("moment of provider dispatch" precision — defined as the LiteLLM `acompletion` call site), CHK040 (cancellation-vs-silent-drop semantic distinction confirmed in Edge Case).
 
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 
