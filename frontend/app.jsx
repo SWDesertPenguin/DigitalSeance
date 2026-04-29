@@ -67,7 +67,18 @@ function fmtDollars(n) {
 // ---------------------------------------------------------------------------
 
 async function _fetchJson(url, opts = {}) {
-  const res = await fetch(url, opts);
+  let res;
+  try {
+    res = await fetch(url, opts);
+  } catch (e) {
+    // Browser fetch rejects with TypeError on connection failures (DNS, offline,
+    // server down). Default messages are unhelpful ("NetworkError when attempting
+    // to fetch resource" / "Failed to fetch"). Rephrase before bubbling.
+    if (e instanceof TypeError) {
+      throw new Error("Network unavailable — check your connection or that the SACP server is reachable.");
+    }
+    throw e;
+  }
   const contentType = res.headers.get("content-type") || "";
   const body = contentType.includes("application/json") ? await res.json() : await res.text();
   if (!res.ok) {
@@ -2149,6 +2160,12 @@ function _validateAddParticipant(form) {
   if (derived && derived !== form.provider) {
     return `Model "${form.model}" looks like a ${derived} model — switch provider to "${derived}" or pick a different model.`;
   }
+  // Round11: Llama 3 was created with the placeholder string itself as the
+  // api_endpoint value (operator pasted the hint). Reject anything containing
+  // angle brackets — never legitimate in a real URL, always a placeholder leak.
+  if (form.api_endpoint && /[<>]/.test(form.api_endpoint)) {
+    return `API endpoint "${form.api_endpoint}" contains placeholder characters (< or >) — replace with a real URL.`;
+  }
   return null;
 }
 
@@ -2249,6 +2266,9 @@ function AddParticipantDialog({ onClose, onAdd, onFetchModels, aiOnly = false })
                   placeholder={_endpointPlaceholder(form.provider)}
                 />
               </label>
+              {_endpointHint(form.provider) && (
+                <small className="dim">{_endpointHint(form.provider)}</small>
+              )}
               {onFetchModels && (
                 <ProviderModelPicker
                   provider={form.provider}
@@ -2306,9 +2326,16 @@ function _keyPrefixWarning(provider, apiKey) {
 // SACP-in-Docker case below resolves cleanly.
 function _endpointPlaceholder(provider) {
   if (provider === "ollama") {
-    return "http://<host-LAN-IP>:11434  (host.docker.internal works on Docker Desktop only; needs OLLAMA_HOST=0.0.0.0)";
+    return "http://192.168.1.10:11434";
   }
-  return "https://your-gateway.example  (LiteLLM proxy / OpenRouter / self-hosted)";
+  return "https://your-gateway.example";
+}
+
+function _endpointHint(provider) {
+  if (provider === "ollama") {
+    return "Use the host's LAN IP (run `hostname -I` or `ipconfig`). Ollama needs OLLAMA_HOST=0.0.0.0; host.docker.internal is Docker Desktop only. See user guide §3.1.1.";
+  }
+  return null;
 }
 
 function _swapValue(formValue, currentValue) {
@@ -2397,6 +2424,9 @@ function ResetAICredentialsDialog({ participant, onClose, onSubmit, onFetchModel
               placeholder={_endpointPlaceholder(form.provider)}
             />
           </label>
+          {_endpointHint(form.provider) && (
+            <small className="dim">{_endpointHint(form.provider)}</small>
+          )}
           {onFetchModels && (
             <ProviderModelPicker
               provider={form.provider}
