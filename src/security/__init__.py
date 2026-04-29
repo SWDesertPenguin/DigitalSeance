@@ -2,6 +2,7 @@
 
 from src.security.exfiltration import filter_exfiltration
 from src.security.jailbreak import check_jailbreak
+from src.security.llm_judge import JudgeVerdict, LLMJudge, NoOpJudge
 from src.security.output_validator import validate
 from src.security.prompt_protector import PromptProtector
 from src.security.sanitizer import sanitize
@@ -9,6 +10,9 @@ from src.security.scrubber import install_scrub_excepthook, install_scrub_filter
 from src.security.spotlighting import should_spotlight, spotlight
 
 __all__ = [
+    "JudgeVerdict",
+    "LLMJudge",
+    "NoOpJudge",
     "PromptProtector",
     "check_jailbreak",
     "filter_exfiltration",
