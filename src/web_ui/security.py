@@ -63,6 +63,10 @@ def _http_to_ws(origins: str) -> str:
 
 
 def _build_csp() -> str:
+    """CSP includes a report-uri so violations land in the server log
+    instead of being silent (011 §SR-001 / CHK003). The endpoint
+    /csp-report (POST) is a stub that 204s the request after logging.
+    """
     mcp_ws = _http_to_ws(_MCP_ORIGIN)
     connect_parts = ["'self'", _MCP_ORIGIN, mcp_ws, _WEB_UI_WS_ORIGIN]
     connect = " ".join(p for p in connect_parts if p)
@@ -77,7 +81,8 @@ def _build_csp() -> str:
         "object-src 'none'; "
         "frame-ancestors 'none'; "
         "base-uri 'self'; "
-        "form-action 'self'"
+        "form-action 'self'; "
+        "report-uri /csp-report"
     )
 
 
@@ -104,6 +109,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+# CSRF-exempt paths: browsers POST CSP violation reports without our custom
+# header (they can't be told to add it), so we exempt the report sink.
+_CSRF_EXEMPT_PATHS = frozenset({"/csp-report"})
+
+
 class CSRFHeaderMiddleware(BaseHTTPMiddleware):
     """Reject mutations missing the custom double-submit CSRF header.
 
@@ -114,7 +124,11 @@ class CSRFHeaderMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next: _NextCall) -> Response:
-        if request.method in _MUTATING_METHODS and request.headers.get(CSRF_HEADER) != CSRF_VALUE:
+        if (
+            request.method in _MUTATING_METHODS
+            and request.url.path not in _CSRF_EXEMPT_PATHS
+            and request.headers.get(CSRF_HEADER) != CSRF_VALUE
+        ):
             return JSONResponse(
                 status_code=403,
                 content={"detail": f"Missing {CSRF_HEADER} header"},
