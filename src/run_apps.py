@@ -14,10 +14,16 @@ import logging
 import uvicorn
 
 from src.mcp_server.app import create_app as create_mcp_app
+from src.security import install_scrub_excepthook, install_scrub_filter
 from src.web_ui.app import create_web_app
 from src.web_ui.shared import prime_from_mcp_app
 
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
+# Install credential-scrubbing on the root logger AND sys.excepthook before any
+# real work runs. Without this, the spec §FR-012 log scrubber and the §Assumptions
+# traceback scrubber are dead code (the functions exist but never get installed).
+install_scrub_filter()
+install_scrub_excepthook()
 log = logging.getLogger("sacp.run_apps")
 
 
