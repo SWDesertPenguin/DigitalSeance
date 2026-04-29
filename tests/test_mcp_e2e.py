@@ -382,6 +382,49 @@ async def test_reset_ai_credentials_rotates_key_in_place(client):
     assert resp.json()["status"] == "reset"
 
 
+async def test_reset_ai_credentials_no_key_required_for_ollama(client):
+    """Ollama doesn't auth — reset must accept a missing api_key."""
+    c, _ = client
+    session = await _create_session(c)
+    add_resp = await c.post(
+        "/tools/facilitator/add_participant",
+        json={
+            "display_name": "Llama Local",
+            "provider": "ollama",
+            "model": "ollama_chat/llama3.2:3b",
+            "model_tier": "low",
+            "model_family": "llama",
+            "context_window": 4096,
+            "api_key": "",
+            "api_endpoint": "http://192.168.1.10:11434",
+        },
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert add_resp.status_code == 200
+    pid = add_resp.json()["participant_id"]
+    resp = await c.post(
+        "/tools/facilitator/reset_ai_credentials",
+        json={"participant_id": pid, "api_endpoint": "http://192.168.1.20:11434"},
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "reset"
+
+
+async def test_reset_ai_credentials_requires_key_for_non_ollama(client):
+    """Non-ollama providers still require an api_key — 422 when omitted."""
+    c, _ = client
+    session = await _create_session(c)
+    ai = await _add_participant(c, session["auth_token"])
+    resp = await c.post(
+        "/tools/facilitator/reset_ai_credentials",
+        json={"participant_id": ai["participant_id"]},
+        headers={"Authorization": f"Bearer {session['auth_token']}"},
+    )
+    assert resp.status_code == 422
+    assert "api_key" in resp.text.lower()
+
+
 async def test_reset_ai_credentials_rejects_human_target(client):
     """Humans have no credentials — reset must 400."""
     c, _ = client
