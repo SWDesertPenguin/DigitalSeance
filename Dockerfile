@@ -13,7 +13,16 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir --prefix=/install .
+# Install torch from PyTorch's CPU-only index BEFORE the project install so
+# sentence-transformers picks up the CPU build instead of the default CUDA
+# wheels. CUDA wheels pull in ~4GB of nvidia-* libraries we never use
+# (SACP runs inference on CPU per spec 004 SC-001 "~80ms on CPU"); the bloat
+# blew the GHCR push past the 5GB layer threshold and triggered "unknown blob"
+# errors. The subsequent `pip install .` sees the torch requirement already
+# satisfied and skips it.
+RUN pip install --no-cache-dir --prefix=/install \
+        --index-url https://download.pytorch.org/whl/cpu torch && \
+    pip install --no-cache-dir --prefix=/install .
 
 # ---- Runtime stage: slim base, no build tools ----
 FROM python:3.14.4-slim-bookworm
