@@ -2365,12 +2365,13 @@ function ResetAICredentialsDialog({ participant, onClose, onSubmit, onFetchModel
 
   const submit = async (ev) => {
     ev.preventDefault();
-    if (!form.api_key.trim()) { setError("API key is required"); return; }
+    const needsKey = PROVIDER_DEFAULTS[form.provider]?.needsKey;
+    if (needsKey && !form.api_key.trim()) { setError("API key is required"); return; }
     setBusy(true); setError(null);
     try {
       await onSubmit({
         participant_id: participant.id,
-        api_key: form.api_key.trim(),
+        api_key: form.api_key.trim() || null,
         // Send null (= "keep current") when the swap field is blank or
         // unchanged. Sending an empty string would otherwise overwrite
         // the existing model/provider with "" via COALESCE on the server,
@@ -2396,9 +2397,11 @@ function ResetAICredentialsDialog({ participant, onClose, onSubmit, onFetchModel
           to this participant; the next dispatch uses the new key.
         </p>
         <form onSubmit={submit}>
-          <label>New API key
+          <label>New API key{!PROVIDER_DEFAULTS[form.provider]?.needsKey && " (optional for ollama)"}
             <input type="password" value={form.api_key}
-              onChange={update("api_key")} required autoFocus />
+              onChange={update("api_key")}
+              required={PROVIDER_DEFAULTS[form.provider]?.needsKey}
+              autoFocus />
             {_keyPrefixWarning(form.provider, form.api_key) && (
               <div className="warn key-warning">
                 {_keyPrefixWarning(form.provider, form.api_key)}
