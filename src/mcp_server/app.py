@@ -41,11 +41,20 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 def create_app() -> FastAPI:
-    """Build and configure the FastAPI application."""
+    """Build and configure the FastAPI application.
+
+    OpenAPI / Swagger UI is gated behind SACP_ENABLE_DOCS=1 (006 CHK014).
+    Production deployments leave it off so the schema isn't a free
+    reconnaissance surface; dev / on-host troubleshooting opts in.
+    """
+    docs_enabled = os.environ.get("SACP_ENABLE_DOCS", "0") == "1"
     app = FastAPI(
         title="SACP MCP Server",
         version="0.1.0",
         lifespan=_lifespan,
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if docs_enabled else None,
     )
     _add_middleware(app)
     _include_routers(app)
@@ -53,21 +62,33 @@ def create_app() -> FastAPI:
     return app
 
 
+async def _handle_value_error(_: Request, exc: ValueError) -> JSONResponse:
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+async def _handle_not_facilitator(_: Request, exc: NotFacilitatorError) -> JSONResponse:
+    return JSONResponse(status_code=403, content={"detail": str(exc)})
+
+
+async def _handle_not_in_session(_: Request, exc: ParticipantNotInSessionError) -> JSONResponse:
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+
+async def _handle_unhandled(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all 500 handler: generic body, traceback via root logger (006 CHK010)."""
+    del exc  # logged via .exception() below from the active context
+    logging.getLogger(__name__).exception(
+        "Unhandled error on %s %s", request.method, request.url.path
+    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
 def _add_exception_handlers(app: FastAPI) -> None:
-    """Convert auth/guard errors into clean 4xx responses."""
-
-    async def value_error(_: Request, exc: ValueError) -> JSONResponse:
-        return JSONResponse(status_code=400, content={"detail": str(exc)})
-
-    async def not_facilitator(_: Request, exc: NotFacilitatorError) -> JSONResponse:
-        return JSONResponse(status_code=403, content={"detail": str(exc)})
-
-    async def not_in_session(_: Request, exc: ParticipantNotInSessionError) -> JSONResponse:
-        return JSONResponse(status_code=404, content={"detail": str(exc)})
-
-    app.add_exception_handler(ValueError, value_error)
-    app.add_exception_handler(NotFacilitatorError, not_facilitator)
-    app.add_exception_handler(ParticipantNotInSessionError, not_in_session)
+    """Convert auth/guard errors into clean 4xx responses + scrub 500s."""
+    app.add_exception_handler(ValueError, _handle_value_error)
+    app.add_exception_handler(NotFacilitatorError, _handle_not_facilitator)
+    app.add_exception_handler(ParticipantNotInSessionError, _handle_not_in_session)
+    app.add_exception_handler(Exception, _handle_unhandled)
 
 
 def _add_middleware(app: FastAPI) -> None:
@@ -86,7 +107,13 @@ def _add_middleware(app: FastAPI) -> None:
 
 
 def _add_lan_cors(app: FastAPI) -> None:
-    """Add CORS with RFC-1918 LAN regex defaults."""
+    """Add CORS with RFC-1918 LAN regex defaults.
+
+    Octet patterns are 0-255 only (006 CHK002): pre-fix the regex matched
+    192.168.999.999 and similar invalid octets. The `_OCTET` group below
+    accepts 0-255 in a non-capturing alternative.
+    """
+    octet = r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -96,9 +123,9 @@ def _add_lan_cors(app: FastAPI) -> None:
             "http://127.0.0.1:8750",
         ],
         allow_origin_regex=(
-            r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
-            r"|http://192\.168\.\d+\.\d+(:\d+)?"
-            r"|http://10\.\d+\.\d+\.\d+(:\d+)?"
+            rf"https?://(localhost|127\.0\.0\.1)(:\d+)?"
+            rf"|http://192\.168\.{octet}\.{octet}(:\d+)?"
+            rf"|http://10\.{octet}\.{octet}\.{octet}(:\d+)?"
         ),
         allow_methods=["*"],
         allow_headers=["*"],
