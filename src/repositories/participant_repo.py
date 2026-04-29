@@ -122,7 +122,7 @@ class ParticipantRepository(BaseRepository):
         self,
         participant_id: str,
         *,
-        api_key: str,
+        api_key: str | None,
         provider: str | None = None,
         model: str | None = None,
         api_endpoint: str | None = None,
@@ -132,14 +132,22 @@ class ParticipantRepository(BaseRepository):
         Keeps the participant row so prior messages stay attributed and the
         turn-loop can dispatch the AI again on the next turn. Clears the
         timeout counter so the circuit breaker doesn't keep skipping the
-        AI after a bad-key episode; nulls the old auth_token_hash so any
-        client still holding the AI's bearer is forced to re-mint.
+        AI after a bad-key episode; nulls the old auth_token_hash when the
+        key actually rotated so any client still holding the AI's bearer is
+        forced to re-mint.
+
+        ``api_key`` may be None — only valid for ollama, which doesn't auth.
+        Caller (the MCP handler) enforces "ollama only" for the None case.
+        When None, api_key_encrypted stays as-is and auth_token_hash is
+        preserved (no rotation = no forced re-mint).
         """
-        new_encrypted = _encrypt_api_key(api_key, self._encryption_key)
+        new_encrypted = (
+            _encrypt_api_key(api_key, self._encryption_key) if api_key is not None else None
+        )
         await self._execute(
             """UPDATE participants
-               SET api_key_encrypted = $1,
-                   auth_token_hash = NULL,
+               SET api_key_encrypted = COALESCE($1, api_key_encrypted),
+                   auth_token_hash = CASE WHEN $1 IS NOT NULL THEN NULL ELSE auth_token_hash END,
                    consecutive_timeouts = 0,
                    provider = COALESCE($2, provider),
                    model = COALESCE($3, model),
