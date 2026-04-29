@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import Counter
 from dataclasses import dataclass
@@ -472,16 +473,39 @@ def _has_new_input(context: list) -> bool:
     return True
 
 
-def _run_pipeline(content: str) -> tuple[object, str]:
-    """Run validate + exfiltration. Raises if either layer crashes.
-
-    Wrapping both layers in a single helper lets the caller fail-closed on
-    any pipeline-internal exception (regex bug, unicode error, etc.) without
-    knowing which layer broke.
-    """
+def _run_pipeline(content: str) -> tuple[object, str, list[str]]:
+    """Run validate + exfiltration. Raises if either layer crashes."""
     validation = validate_output(content)
-    cleaned, _ = filter_exfiltration(content)
-    return validation, cleaned
+    cleaned, exfil_flags = filter_exfiltration(content)
+    return validation, cleaned, exfil_flags
+
+
+async def _log_security_events(
+    ctx: _TurnContext,
+    speaker_id: str,
+    validation: object,
+    exfil_flags: list[str],
+) -> None:
+    """Persist per-layer findings to security_events for post-hoc review (CHK008)."""
+    if validation.findings or validation.blocked:
+        await ctx.log_repo.log_security_event(
+            session_id=ctx.session_id,
+            speaker_id=speaker_id,
+            turn_number=-1,
+            layer="output_validator",
+            findings=json.dumps(list(validation.findings)),
+            risk_score=validation.risk_score,
+            blocked=validation.blocked,
+        )
+    if exfil_flags:
+        await ctx.log_repo.log_security_event(
+            session_id=ctx.session_id,
+            speaker_id=speaker_id,
+            turn_number=-1,
+            layer="exfiltration",
+            findings=json.dumps(exfil_flags),
+            blocked=False,
+        )
 
 
 async def _validate_and_persist(
@@ -498,10 +522,19 @@ async def _validate_and_persist(
     breaker failure — the bug is ours, not the participant's.
     """
     try:
-        validation, cleaned = _run_pipeline(response.content)
+        validation, cleaned, exfil_flags = _run_pipeline(response.content)
     except Exception:  # noqa: BLE001 — fail-closed on any pipeline error
         log.exception("Security pipeline crashed for %s; failing closed", speaker.id)
+        await ctx.log_repo.log_security_event(
+            session_id=ctx.session_id,
+            speaker_id=speaker.id,
+            turn_number=-1,
+            layer="pipeline_error",
+            findings=json.dumps(["pipeline_exception"]),
+            blocked=True,
+        )
         return _skip_result(ctx.session_id, speaker.id, "security_pipeline_error")
+    await _log_security_events(ctx, speaker.id, validation, exfil_flags)
     if validation.blocked:
         log.warning("Blocked %s: %s", speaker.id, validation.findings)
         return await _stage_for_review(ctx, speaker, decision, response)

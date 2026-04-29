@@ -5,7 +5,7 @@ No update or delete methods. Append-only enforced by interface.
 
 from __future__ import annotations
 
-from src.models.logs import AdminAuditLog, ConvergenceLog, RoutingLog, UsageLog
+from src.models.logs import AdminAuditLog, ConvergenceLog, RoutingLog, SecurityEvent, UsageLog
 from src.repositories.base import BaseRepository
 
 
@@ -170,6 +170,40 @@ class LogRepository(BaseRepository):
         )
         return [AdminAuditLog.from_record(r) for r in rows]
 
+    # --- Security Events ---
+
+    async def log_security_event(
+        self,
+        *,
+        session_id: str,
+        speaker_id: str,
+        turn_number: int,
+        layer: str,
+        findings: str,
+        risk_score: float | None = None,
+        blocked: bool = False,
+    ) -> SecurityEvent:
+        """Append a security pipeline detection record (CHK008)."""
+        record = await self._fetch_one(
+            _INSERT_SECURITY_EVENT_SQL,
+            session_id,
+            speaker_id,
+            turn_number,
+            layer,
+            risk_score,
+            findings,
+            blocked,
+        )
+        return SecurityEvent.from_record(record)
+
+    async def get_security_events(
+        self,
+        session_id: str,
+    ) -> list[SecurityEvent]:
+        """Fetch all security events for a session in chronological order."""
+        rows = await self._fetch_all(_SECURITY_EVENTS_SQL, session_id)
+        return [SecurityEvent.from_record(r) for r in rows]
+
 
 async def _broadcast_audit_entry(entry: AdminAuditLog) -> None:
     """Push an audit_entry WS event to facilitators only.
@@ -272,6 +306,19 @@ _INSERT_AUDIT_SQL = """
 
 _AUDIT_LOG_SQL = """
     SELECT * FROM admin_audit_log
+    WHERE session_id = $1
+    ORDER BY timestamp
+"""
+
+_INSERT_SECURITY_EVENT_SQL = """
+    INSERT INTO security_events
+        (session_id, speaker_id, turn_number, layer, risk_score, findings, blocked)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    RETURNING *
+"""
+
+_SECURITY_EVENTS_SQL = """
+    SELECT * FROM security_events
     WHERE session_id = $1
     ORDER BY timestamp
 """
