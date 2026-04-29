@@ -353,14 +353,16 @@ async def _delete_participants_and_session(
     conn: asyncpg.Connection,
     session_id: str,
 ) -> None:
-    """Remove participants and the session record itself."""
+    """Remove participants and the session record itself.
+
+    The admin_audit_log rows are preserved per 001 FR-019 + US5 §4. Migration
+    007 dropped the FK constraints from admin_audit_log.session_id and
+    admin_audit_log.facilitator_id so the rows survive as denormalized
+    snapshots — including the `delete_session` action just written by
+    `_log_deletion`.
+    """
     await conn.execute(
         "UPDATE sessions SET facilitator_id = NULL WHERE id = $1",
-        session_id,
-    )
-    # Remove audit log entries to allow participant deletion
-    await conn.execute(
-        "DELETE FROM admin_audit_log WHERE session_id = $1",
         session_id,
     )
     await conn.execute(
