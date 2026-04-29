@@ -100,34 +100,31 @@ async def _fetch_all_interrupts(pool: Any, session_id: str) -> list:
     return [dict(r) for r in rows]
 
 
+_LOG_QUERIES = {
+    "routing": "SELECT * FROM routing_log WHERE session_id = $1 ORDER BY turn_number",
+    "convergence": (
+        "SELECT turn_number, session_id, similarity_score, "
+        "divergence_prompted, escalated_to_human "
+        "FROM convergence_log WHERE session_id = $1 ORDER BY turn_number"
+    ),
+    "audit": "SELECT * FROM admin_audit_log WHERE session_id = $1 ORDER BY timestamp",
+    "security_events": "SELECT * FROM security_events WHERE session_id = $1 ORDER BY timestamp",
+}
+
+
 async def _fetch_logs(
     pool: Any,
     session_id: str,
     participants: list,
 ) -> dict:
-    """Dump routing, usage, convergence, audit logs for the session."""
+    """Dump routing, usage, convergence, audit, security logs for the session."""
     async with pool.acquire() as conn:
-        routing = await conn.fetch(
-            "SELECT * FROM routing_log WHERE session_id = $1 ORDER BY turn_number",
-            session_id,
-        )
-        convergence = await conn.fetch(
-            "SELECT turn_number, session_id, similarity_score, "
-            "divergence_prompted, escalated_to_human "
-            "FROM convergence_log WHERE session_id = $1 ORDER BY turn_number",
-            session_id,
-        )
-        audit = await conn.fetch(
-            "SELECT * FROM admin_audit_log WHERE session_id = $1 ORDER BY timestamp",
-            session_id,
-        )
-        usage = await _fetch_usage_for_participants(conn, participants)
-    return {
-        "routing": [dict(r) for r in routing],
-        "usage": usage,
-        "convergence": [dict(r) for r in convergence],
-        "audit": [dict(r) for r in audit],
-    }
+        out = {
+            key: [dict(r) for r in await conn.fetch(sql, session_id)]
+            for key, sql in _LOG_QUERIES.items()
+        }
+        out["usage"] = await _fetch_usage_for_participants(conn, participants)
+    return out
 
 
 async def _fetch_usage_for_participants(conn: Any, participants: list) -> list:

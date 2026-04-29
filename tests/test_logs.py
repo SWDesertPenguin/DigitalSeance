@@ -173,3 +173,51 @@ async def test_audit_log_history(
     actions = [e.action for e in entries]
     assert "approve_participant" in actions
     assert "remove_participant" in actions
+
+
+async def test_log_security_event_persists(
+    repo: LogRepository,
+    session_and_facilitator: tuple[str, str],
+) -> None:
+    """Security events are persisted with layer + findings + risk score."""
+    sid, pid = session_and_facilitator
+    entry = await repo.log_security_event(
+        session_id=sid,
+        speaker_id=pid,
+        turn_number=-1,
+        layer="output_validator",
+        findings='["ChatML token", "Override phrase"]',
+        risk_score=0.9,
+        blocked=True,
+    )
+    assert entry.layer == "output_validator"
+    assert entry.blocked is True
+    assert entry.risk_score == 0.9
+    assert "ChatML token" in entry.findings
+
+
+async def test_get_security_events_returns_chronological(
+    repo: LogRepository,
+    session_and_facilitator: tuple[str, str],
+) -> None:
+    """get_security_events returns all events for a session in order."""
+    sid, pid = session_and_facilitator
+    await repo.log_security_event(
+        session_id=sid,
+        speaker_id=pid,
+        turn_number=-1,
+        layer="exfiltration",
+        findings='["credential_redacted"]',
+    )
+    await repo.log_security_event(
+        session_id=sid,
+        speaker_id=pid,
+        turn_number=-1,
+        layer="pipeline_error",
+        findings='["pipeline_exception"]',
+        blocked=True,
+    )
+    events = await repo.get_security_events(sid)
+    assert len(events) == 2
+    layers = [e.layer for e in events]
+    assert layers == ["exfiltration", "pipeline_error"]

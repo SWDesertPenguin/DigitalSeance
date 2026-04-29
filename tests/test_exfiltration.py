@@ -45,6 +45,24 @@ def test_jwt_redacted() -> None:
     assert "[REDACTED]" in result
 
 
+def test_gemini_key_redacted() -> None:
+    """Gemini API key (AIza prefix, 39 chars total) is redacted."""
+    text = "Key leaked: AIzaSyA-bcdefghijklmnopqrstuvwxyz0123456"  # gitleaks:allow
+    result, flags = filter_exfiltration(text)
+    assert "AIza" not in result
+    assert "[REDACTED]" in result
+    assert "credential_redacted" in flags
+
+
+def test_groq_key_redacted() -> None:
+    """Groq API key (gsk_ prefix) is redacted."""
+    text = "Key leaked: gsk_abcdefghijklmnopqrstuv1234567890"  # gitleaks:allow
+    result, flags = filter_exfiltration(text)
+    assert "gsk_" not in result
+    assert "[REDACTED]" in result
+    assert "credential_redacted" in flags
+
+
 def test_normal_urls_unchanged() -> None:
     """Normal URLs without exfiltration patterns pass through."""
     text = "Check https://example.com/docs for more info"
