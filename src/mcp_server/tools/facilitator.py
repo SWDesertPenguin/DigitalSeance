@@ -311,7 +311,11 @@ class _ResetAICredentialsBody(BaseModel):
     """
 
     participant_id: str
-    api_key: str = Field(..., min_length=1)
+    # Optional: only required when the effective post-reset provider needs a
+    # key. Ollama doesn't auth, so resetting an ollama participant (or swapping
+    # to ollama) accepts a missing key. Validation lives in the handler since
+    # the body alone doesn't know the participant's current provider.
+    api_key: str | None = Field(default=None, min_length=1)
     provider: str | None = None
     model: str | None = None
     api_endpoint: str | None = None
@@ -346,6 +350,15 @@ async def reset_ai_credentials(
     p_repo = request.app.state.participant_repo
     target = await _load_ai_target(p_repo, participant.session_id, body.participant_id)
     _require_facilitator_or_inviter(participant, target)
+    # Ollama is the only provider that doesn't authenticate; for everything
+    # else, require a key. Effective post-reset provider = body.provider when
+    # swapping, otherwise the participant's current provider.
+    effective_provider = body.provider or target.provider
+    if effective_provider != "ollama" and not body.api_key:
+        raise HTTPException(
+            status_code=422,
+            detail=f"api_key is required when provider is '{effective_provider}'",
+        )
     await p_repo.reset_ai_credentials(
         body.participant_id,
         api_key=body.api_key,
