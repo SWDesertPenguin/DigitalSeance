@@ -26,6 +26,21 @@ _CREDENTIAL_PATTERNS = [
     _FERNET_TOKENS,
 ]
 
+# Documented placeholder shapes that are obviously not real credentials.
+# Exempt these from redaction so code-review / docs discussions remain readable.
+# Real credentials are random ASCII; they don't contain "example", "test",
+# "fake", "XXX", or "your-key" tokens.
+_CRED_PLACEHOLDER = re.compile(
+    r"(?:sk-ant-|sk-|gsk_|AIza|eyJ)"
+    r"(?:"
+    r"\.{3,}[A-Za-z0-9_-]*"
+    r"|X{3,}[A-Za-z0-9_-]*"
+    r"|(?:example|test|fake|dummy|placeholder|sample)[A-Za-z0-9_-]*"
+    r"|your[_-]?key[A-Za-z0-9_-]*"
+    r")",
+    re.IGNORECASE,
+)
+
 # Context assembly markers that must not leak into stored messages
 _SPOTLIGHT_MARKER = re.compile(r"\^[0-9a-f_]{5,8}\^")
 _SACP_TAGS = re.compile(r"</?sacp:(?:human|ai)>|@sacp:(?:human|ai)\b")
@@ -69,13 +84,24 @@ def _flag_data_urls(text: str, flags: list[str]) -> str:
 
 
 def _redact_credentials(text: str, flags: list[str]) -> str:
-    """Replace credential patterns with [REDACTED]."""
-    result = text
+    """Replace credential patterns with [REDACTED]; preserve documented placeholders."""
+    placeholders: list[str] = []
+
+    def _stash(match: re.Match[str]) -> str:
+        placeholders.append(match.group(0))
+        return f"\x00CRED_PH_{len(placeholders) - 1}\x00"
+
+    masked = _CRED_PLACEHOLDER.sub(_stash, text)
+    redacted = False
     for pattern in _CREDENTIAL_PATTERNS:
-        if pattern.search(result):
-            flags.append("credential_redacted")
-            result = pattern.sub("[REDACTED]", result)
-    return result
+        if pattern.search(masked):
+            redacted = True
+            masked = pattern.sub("[REDACTED]", masked)
+    if redacted:
+        flags.append("credential_redacted")
+    for i, original in enumerate(placeholders):
+        masked = masked.replace(f"\x00CRED_PH_{i}\x00", original)
+    return masked
 
 
 def _strip_context_markers(text: str, flags: list[str]) -> str:
