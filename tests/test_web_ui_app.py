@@ -77,6 +77,26 @@ def test_security_headers_present() -> None:
     assert response.headers["Cache-Control"] == "no-store"
 
 
+def test_csp_includes_report_uri() -> None:
+    """CSP carries a report-uri so violations land in the server log (011 CHK003)."""
+    with TestClient(_fresh_app()) as client:
+        response = client.get("/healthz")
+    assert "report-uri /csp-report" in response.headers["Content-Security-Policy"]
+
+
+def test_csp_report_endpoint_accepts_post_without_csrf_header() -> None:
+    """Browsers POST CSP violations without the X-SACP-Request header; the
+    sink endpoint MUST accept them (011 CHK003).
+    """
+    with TestClient(_fresh_app()) as client:
+        response = client.post(
+            "/csp-report",
+            content=b'{"csp-report":{"violated-directive":"script-src"}}',
+            headers={"Content-Type": "application/csp-report"},
+        )
+    assert response.status_code == 204
+
+
 def test_csrf_rejects_post_without_header() -> None:
     """POST without X-SACP-Request header → 403."""
     with TestClient(_fresh_app()) as client:
