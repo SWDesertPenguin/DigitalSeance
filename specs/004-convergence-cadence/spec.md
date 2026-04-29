@@ -100,11 +100,15 @@ Beyond embedding similarity, the convergence detector checks for nonsense output
 
 ### Edge Cases
 
-- What happens when the embedding model fails to load? The convergence detector logs a warning and skips embedding computation — the turn loop continues without convergence detection.
-- What happens when there are fewer turns than the sliding window size? The detector uses whatever turns are available and does not flag convergence until the window is full.
-- What happens when adversarial rotation targets a paused or over-budget participant? The rotation skips to the next active participant.
+- What happens when the embedding model fails to load? The convergence detector logs a warning and skips embedding computation — the turn loop continues without convergence detection. Convergence-related turn behavior (no divergence prompt, no escalation, no cadence adjustment) defaults to "no convergence detected" for the rest of the session.
+- What happens when the SafeTensors enforcement (FR-013) rejects a published model that lacks SafeTensors weights? The load fails hard; the detector enters the same warning + skip state as a load failure. Operators MUST republish or pin a model release that includes SafeTensors files.
+- What happens during the model's first load if the host has no network access to huggingface.co? The first call to `SentenceTransformer(...)` fetches the model files; without network, the load fails the same as FR-013 enforcement. Air-gapped deployments MUST pre-cache the model in `~/.cache/huggingface/hub/` before startup. Phase 3+ may add an explicit offline-mode flag.
+- What happens when there are fewer turns than the sliding window size? The detector uses whatever turns are available and does not flag convergence until the window has at least 3 prior turns (FR-003).
+- What happens when adversarial rotation targets a paused or over-budget participant? The rotation skips to the next active participant; the rotation index is NOT advanced for the skipped participant so they get the next adversarial slot when they're active.
 - What happens when the cadence delay is longer than a human's patience? Human interjections always reset to floor regardless of computed delay.
 - What happens when all participants produce identical responses? Convergence is detected immediately (similarity = 1.0), divergence prompt fires, then escalation if it continues.
+- What happens when tier text (or any other context fragment) coincidentally contains a 16-char base32-shaped string? Convergence-detection has no overlap with system-prompt extraction (008 FR-003 canaries), so there is no shared detection surface — the strings are matched against disjoint corpora.
+- What happens when the convergence threshold is misconfigured (>1.0 = always converging; <0.0 = never)? Operator error; fail-closed semantics not specified. Phase 3 may add bounds-checking at construction.
 
 ## Requirements *(mandatory)*
 
@@ -113,7 +117,7 @@ Beyond embedding similarity, the convergence detector checks for nonsense output
 - **FR-001**: System MUST compute text embeddings for each AI response asynchronously after the response is persisted.
 - **FR-002**: System MUST store embeddings in the convergence log with the similarity score and turn reference.
 - **FR-003**: System MUST compute cosine similarity between the current embedding and a configurable sliding window of recent embeddings (default 5 turns). Similarity MUST be reported as 0.0 until the window contains at least 3 prior turns — with fewer turns the signal reflects topicality, not convergence.
-- **FR-004**: System MUST detect convergence when similarity exceeds a configurable threshold (default 0.85) across the entire sliding window.
+- **FR-004**: System MUST detect convergence when similarity exceeds a configurable threshold (default 0.75 — see `DEFAULT_THRESHOLD` in `src/orchestrator/convergence.py`) across the entire sliding window. The threshold is set at `ConvergenceDetector` construction; runtime / env-var override is not exposed in Phase 1 (modify the constant or pass via constructor for tests). Phase 3+ may expose it as `SACP_CONVERGENCE_THRESHOLD`.
 - **FR-005**: System MUST inject a divergence prompt into the next turn's context when sustained convergence is detected.
 - **FR-006**: System MUST escalate to human review when convergence persists after a divergence prompt.
 - **FR-007**: System MUST record convergence events in the convergence log including divergence_prompted and escalated_to_human flags.
@@ -122,10 +126,13 @@ Beyond embedding similarity, the convergence detector checks for nonsense output
 - **FR-010**: System MUST reset cadence delay to floor on human interjection.
 - **FR-011**: System MUST inject an adversarial prompt every N turns (configurable, default 12), rotating across active participants.
 - **FR-012**: System MUST log adversarial rotation events in the routing log.
-- **FR-013**: System MUST load embedding models exclusively in SafeTensors format — no pickle deserialization.
+- **FR-013**: System MUST load embedding models exclusively in SafeTensors format — no pickle deserialization. Enforced at `ConvergenceDetector.load_model` by passing `model_kwargs={"use_safetensors": True}` to `SentenceTransformer(...)`, which causes the underlying `transformers.from_pretrained` call to fail hard if the published model lacks SafeTensors weights. Silent fallback to `.bin` (pickle) is the attack surface this requirement closes.
 - **FR-014**: System MUST not block the turn loop during embedding computation.
 - **FR-015**: System MUST detect excessive n-gram repetition as a quality signal alongside embedding similarity.
-- **FR-016**: Embedding vectors MUST never be exposed through any external interface.
+- **FR-016**: Embedding vectors MUST never be exposed through any external interface. Enforced at the debug-export layer (`src/mcp_server/tools/debug.py` `_LOG_QUERIES["convergence"]`) by selecting only the `(turn_number, session_id, similarity_score, divergence_prompted, escalated_to_human)` columns from `convergence_log` — the `embedding` BYTEA column is intentionally excluded. New export paths MUST follow this pattern; broad `SELECT *` from `convergence_log` is forbidden in any caller-facing surface.
+- **FR-017**: The divergence prompt content (FR-005) and the adversarial prompt content (FR-011) are operator-controlled system text injected into AI context. Their canonical strings live in `src/orchestrator/convergence.py:DIVERGENCE_PROMPT` and `src/orchestrator/adversarial.py:ADVERSARIAL_PROMPT`. Both prompts are EXEMPT from the sanitization pipeline (007 §FR-001) because they are system-trust content, not participant-supplied input. Phase 1 ships both with the same text ("Identify the weakest assumption..."); the prompts are conceptually distinct (FR-005 fires on convergence detection, FR-011 fires on rotation interval) but the wording overlap is accepted residual until adversarial-rotation usage data justifies divergent text.
+- **FR-018**: The sliding window (FR-003) operates over `convergence_log` rows only. `convergence_log` rows are written exclusively for AI turns (humans, system messages, and summaries do not produce embeddings), so the window naturally excludes those speaker types. There is no interleaving of human / system content into the window even though the spec wording could be read either way.
+- **FR-019**: Async embedding tasks MUST complete before the next turn's routing decision. `process_turn` is awaited synchronously inside the turn loop after persistence (`src/orchestrator/loop.py`); it is NOT fire-and-forget. The "asynchronous" framing in FR-001 means "off the main asyncio coroutine via `run_in_executor`" — the loop awaits the executor result before advancing. This avoids orphan tasks at session shutdown and ordering ambiguity in `convergence_log`.
 
 ### Key Entities
 
@@ -154,6 +161,32 @@ Beyond embedding similarity, the convergence detector checks for nonsense output
 - The convergence log table already exists from feature 001. This feature adds the detection logic.
 - The divergence prompt text is a constant — not configurable in Phase 1.
 - Escalation to human means flagging the session status, not sending external notifications.
+
+## Threat model traceability
+
+| FR | Defends against | OWASP LLM | NIST AI 100-2 / SP 800-53 |
+|----|-----------------|-----------|----------------------------|
+| FR-001, FR-002, FR-003, FR-004 (embedding + similarity) | Repetitive-output failure mode (degenerate convergence) | LLM05 | SI-4 |
+| FR-005, FR-006, FR-007, FR-017 (divergence prompt + escalation) | Groupthink / undetected drift | LLM05 | SI-4 |
+| FR-008, FR-009, FR-010 (cadence pacing) | Throughput abuse / cost runaway | LLM04 | SC-5 |
+| FR-011, FR-012 (adversarial rotation) | Multi-agent groupthink | LLM05 | SI-4 |
+| FR-013 (SafeTensors-only model load) | Pickle-deserialization supply-chain attack | LLM03 | SR-3, SI-7 |
+| FR-014, FR-019 (non-blocking embedding) | Loop starvation / DoS via slow embedding | API4 | SC-5 |
+| FR-015 (n-gram repetition) | Degenerate-output false negative | LLM05 | SI-10 |
+| FR-016 (embedding never externally exposed) | Embedding-leak via debug/export endpoints | LLM06 | SC-28, SI-15 |
+| FR-018 (window scope) | Mis-windowed convergence (humans counted as AI) | — | SI-4 |
+
+Sister cross-references: prompt content (FR-017) is exempt from sanitization (007 §FR-001) because it is system-trust text; convergence_log embedding bytes are stripped at the debug-export layer (010 §FR-4 + this spec FR-016).
+
+## Audit closeout (2026-04-29)
+
+The security-requirements quality audit (`checklists/security.md`) raised 36 findings; resolution split:
+
+**Code changes**: CHK001 (`SentenceTransformer` load now passes `model_kwargs={"use_safetensors": True}` so the underlying `transformers.from_pretrained` hard-fails on .bin/pickle weights, satisfying the explicit FR-013 mandate that previously rode on sentence-transformers' default behavior).
+
+**Spec amendments (this commit)**: CHK001 (FR-013 codifies the load-time enforcement mechanism), CHK004 (Edge Case for offline / no-network deployments), CHK005 / CHK033 / CHK034 (FR-016 codifies the debug-export filter as the enforcement point + forbids broad `SELECT *`), CHK008 / CHK010 (FR-017 names the canonical prompt strings + accepts shared-text residual + sanitization-exemption rationale), CHK011 (Edge Case clarifies adversarial rotation skip + rotation-index hold), CHK012 (FR-004 default corrected from 0.85 to shipped 0.75 + Phase 3 env-var trigger), CHK013 / CHK018 (FR-018 codifies window-over-AI-turns-only semantics), CHK023 / CHK035 (FR-019 codifies await-not-fire-and-forget — embedding completes before next routing decision), CHK027 / CHK028 (Threat-model traceability table), CHK033 (cross-ref 010 + repository-layer responsibility documented).
+
+**Closed as accepted residual / out-of-scope**: CHK002 (model checksum / signature — accepted; HuggingFace's existing artifact controls are the trust anchor; pin via Phase 3+ if needed), CHK003 (model-load fail-open from a convergence standpoint — accepted: "no convergence detected" is the safer fallback than halting the loop), CHK006 (embedding-storage encryption-at-rest — accepted residual; embedding bytes are not user-supplied content, low leakage value), CHK007 (similarity scores in audit logs — accepted: similarity is operationally important; embedding bytes are stripped per FR-016), CHK009 (sanitization of divergence prompt — FR-017 settles via system-trust exemption), CHK014 (async embedding wording vs awaited reality — FR-019 settles), CHK015 (adversarial interval per-session — implicit single-session counter, no cross-session collision), CHK016 (cadence + rate-limit interaction — math: 60s cruise ceiling = 1 req/min, well under 60 req/min — no constraint), CHK017 (cadence reset interaction with interrupt queue priority — covered by 003 §FR-013), CHK019 / CHK020 ("20% reduction" / "exactly once before cycling" — measurability deferred to integration test suite), CHK021 (model crash mid-session — Edge Case state covers), CHK022 (concurrent embedding ordering — single-await-per-turn enforces order), CHK024 (adversarial input designed to game similarity — accepted residual; mitigation requires LLM-judge layer per 007 FR-003.detect deferred), CHK025 (very-short responses — embeddings still computed; quality detector handles via FR-015), CHK026 (all-paused at adversarial fire — covered by Edge Case), CHK029 (observability — convergence_log + similarity score is the audit; alerting deferred), CHK030 (asyncio embedding budget — accepted residual since FR-019 awaits result), CHK031 (model deprecation trigger — when sentence-transformers >= 4.0 ships, OR when MiniLM-L6-v2 is yanked, OR every 24 months), CHK032 (in-memory state — accepted; restart loosening is briefly observable but bounded), CHK036 (FR-008 vs FR-010 race — interjection always wins per 003 §FR-013).
 
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 

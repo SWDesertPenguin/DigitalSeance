@@ -171,10 +171,14 @@ Participants can create proposals for group decisions and cast votes. Each propo
 ### Edge Cases
 
 - What happens when a session is deleted while participants are connected? All associated data is atomically removed; connected participants receive disconnection.
-- What happens when a participant departs? Their API key is overwritten (not nulled), auth token is invalidated, status set to 'offline', but their messages remain in the transcript.
-- What happens when turn numbers collide on the same branch? The composite primary key (turn_number, session_id, branch_id) prevents duplicates — the insert is rejected.
+- What happens when a participant departs? Their API key is overwritten with `uuid.uuid4().hex` (a deterministic-looking placeholder, not a null), auth token is invalidated, status set to 'offline', but their messages remain in the transcript. The placeholder ensures decrypt attempts fail cleanly rather than returning leftover plaintext.
+- What happens when turn numbers collide on the same branch? The composite primary key (turn_number, session_id, branch_id) prevents duplicates — the insert is rejected. The turn-loop engine serializes via PostgreSQL advisory lock on `hashtext(branch_id)` to avoid the collision window (see 003 §Clarifications 2026-04-15).
 - What happens when a session has no 'main' branch? Session creation MUST atomically create the 'main' branch to prevent orphaned messages.
-- What happens when the encryption key is unavailable at startup? The system MUST fail closed — no API key decryption, no provider dispatch, clear error surfaced.
+- What happens when the encryption key is unavailable at startup? The system MUST fail closed — no API key decryption, no provider dispatch, clear error surfaced via process exit before the FastAPI app binds its port.
+- What happens when the encryption key is changed between writes and reads (FR-021)? Decryption raises `cryptography.fernet.InvalidToken`; affected participants must rotate their API key via the participant-self-service flow. Phase 1 does not support transparent re-keying.
+- What happens when an audit log row would orphan its session/participant FK (e.g., session deletion)? Per FR-019, the FK constraints are dropped from `admin_audit_log` — the rows persist as denormalized snapshots. A query that joins `admin_audit_log` to `sessions` or `participants` MUST handle missing parents.
+- What happens when `turn_number` (INTEGER, ~2.1B max) approaches overflow on a hypothetical multi-million-turn session? Out of scope for Phase 1 — typical sessions are <10K turns. Migrate to BIGINT if the population statistics shift.
+- What happens when `domain_tags` (serialized text array per Assumptions) references a domain string that no other participant uses? Accepted — `domain_tags` carries operator-supplied free-form labels by design; FR-009 referential integrity does not extend to denormalized free-form fields.
 
 ## Requirements *(mandatory)*
 
@@ -198,7 +202,10 @@ Participants can create proposals for group decisions and cast votes. Each propo
 - **FR-016**: System MUST overwrite (not null) API key material when a participant departs, and invalidate their auth token.
 - **FR-017**: System MUST support schema evolution through versioned, forward-only migrations.
 - **FR-018**: System MUST include tree-structure support (parent_turn, branch_id) in the message data model from the initial release, even though branching UI is deferred to Phase 3.
-- **FR-019**: Admin audit log entries MUST be retained indefinitely by default. Retention policy MAY be overridden per deployment (e.g., via operator-set TTL for regulatory compliance).
+- **FR-019**: Admin audit log entries MUST be retained indefinitely by default. Retention policy MAY be overridden per deployment via the `SACP_AUDIT_RETENTION_DAYS` env var (default unset = indefinite). To survive session and participant deletion, the `admin_audit_log.session_id` and `admin_audit_log.facilitator_id` columns are denormalized identifiers (NOT NULL TEXT, no foreign-key constraints — see migration 007). The audit log row recording a `delete_session` action MUST itself outlive the deletion transaction.
+- **FR-020**: Encryption-at-rest scope (Phase 1) covers ONLY `participants.api_key_encrypted` (Fernet column-level). Other potentially sensitive fields — `system_prompt`, `display_name`, message content — are stored unencrypted at the column level and rely on database-level access control + log scrubbing (007 §FR-012) for confidentiality. Phase 2+ migration to envelope encryption (DEK/KEK) MAY widen this scope; trigger: any deployment that stores material classified higher than "operational metadata".
+- **FR-021**: Encryption-key rotation (changing `SACP_ENCRYPTION_KEY`) is NOT supported in Phase 1. Existing ciphertexts cannot be re-keyed. If the operator changes the key, all `participants.api_key_encrypted` rows become undecryptable and the affected participants MUST rotate their stored API keys via the participant-self-service flow (002 §FR-008 token rotation does not affect this — the participant must explicitly re-set their api_key). Phase 2+ envelope encryption introduces per-row key versioning so rotation becomes safe; trigger: first non-test deployment that requires rotation as a security control.
+- **FR-022**: Append-only enforcement (FR-007 messages, FR-008 logs) is implemented at the Python repository interface — no `LogRepository` / `MessageRepository` method exists for UPDATE or DELETE on these tables. The `sacp_app` SQL role defined in `roles.sql` grants only INSERT + SELECT on log tables and is intended to enforce append-only at the database layer in a future deployment hardening pass; in Phase 1 the orchestrator connects with a single role that has DELETE permission (used only by `_delete_session_data`). Direct DBA access bypasses both layers; that risk is accepted residual.
 
 ### Key Entities
 
@@ -240,6 +247,36 @@ Participants can create proposals for group decisions and cast votes. Each propo
 - Schema evolution is forward-only — no rollback migrations in production.
 - Summarization checkpoint content is stored as structured text within the message content field (speaker_type = 'summary'), not in a separate table.
 - Domain tags are stored as serialized arrays in a text field, not as a separate junction table.
+
+## Threat model traceability
+
+| FR | Defends against | OWASP ASVS | NIST SP 800-53 |
+|----|-----------------|-----------|----------------|
+| FR-001, FR-002, FR-009, FR-010 (entities + lifecycle + RI) | Logical-state corruption | V13.1 | CM-2, SI-7 |
+| FR-003, FR-016 (participant config + key overwrite on departure) | Stale credential reuse | V2.1.5 | IA-5(7) |
+| FR-004, FR-020 (encryption at rest, scope) | Database-dump credential exposure | V6.1.1, V6.2.1 | SC-28 |
+| FR-005 (auth token hashed) | Stored-credential cracking | V2.1.4 | IA-5(2) |
+| FR-006, FR-007 (message immutability) | Transcript tampering | V13.4.1 | SI-7, AU-9 |
+| FR-008, FR-022 (append-only logs) | Log tampering / forensics evasion | V7.4.2 | AU-9, AU-12 |
+| FR-011 (atomic deletion) | Partial-delete data leakage | V13.4.2 | SC-4 |
+| FR-012 (invite hashing) | Invite-token bruteforce | V2.1.4 | IA-5(2) |
+| FR-014 (interrupt queue) | Drop-priority race | V13.1 | SI-10 |
+| FR-015 (review gate staging) | Direct-output bypass of human review | V4.1.1 | AC-3 |
+| FR-017 (forward-only migrations) | Schema-rollback corruption | V14.2 | CM-3 |
+| FR-019 (audit retention) | Forensics evasion via deletion | V7.4.2 | AU-11, AU-12 |
+| FR-021 (no key rotation Phase 1) | (accepted residual: re-key requires participant action) | — | — |
+
+Sister cross-references: token-plaintext scrubbing (FR-004) is enforced by the same root-logger ScrubFilter as 007 §FR-012; auth-token bcrypt parameters (FR-005) are pinned by 002 §FR-A1; encryption-key fail-closed at startup (FR-021 + Edge Cases) is the same path used by 003 §FR-007 dispatch.
+
+## Audit closeout (2026-04-29)
+
+The security-requirements quality audit (`checklists/security.md`) raised 40 findings; resolution split:
+
+**Code changes**: CHK010 (audit log preserved past deletion — migration 007 drops the FK constraints from `admin_audit_log.session_id` and `admin_audit_log.facilitator_id` so rows survive as denormalized snapshots; `_delete_participants_and_session` no longer DELETEs them).
+
+**Spec amendments (this commit)**: CHK001 / CHK002 / CHK028 / CHK029 (FR-021 codifies "key rotation NOT supported in Phase 1"; participants re-set API key on rotation), CHK003 (Edge Case fail-closed via process exit), CHK004 (Edge Case `uuid.uuid4().hex` overwrite), CHK013 (FR-019 `SACP_AUDIT_RETENTION_DAYS` env var), CHK016 (FR-020 encryption-at-rest scope is `api_key_encrypted` only), CHK030 (Edge Case turn_number overflow accepted out-of-scope), CHK032 (Threat-model traceability table), CHK040 (Edge Case domain_tags accepted as denormalized free-form).
+
+**Closed as cross-reference / accepted residual**: CHK005 (backup encryption — operator concern, out of Phase 1 scope), CHK006 / CHK022 (FR-022 codifies interface-level append-only + planned DB-role enforcement), CHK007 (sacp_cleanup role staged for future deployment — FR-022), CHK008 (DBA direct access — accepted residual via FR-022), CHK009 (`summary_epoch` mutability — interface append-only via MessageRepository), CHK011 (concurrent-read isolation — PostgreSQL READ COMMITTED is the default; mid-deletion reads see partial state, accepted), CHK012 (deletion audit-row schema — `(facilitator_id, action='delete_session', target_id=session_id)`, count not recorded in Phase 1), CHK014 (audit log tamper-evidence — accepted residual; cross-row hash chaining is Phase 3 hardening), CHK015 (audit retention vs erasure — operator policy resolves; FR-019 default is indefinite, regulator-driven TTL via `SACP_AUDIT_RETENTION_DAYS`), CHK017 / CHK020 (cross-ref 002 §FR-A1 bcrypt cost factor), CHK018 (atomic = `async with conn.transaction()`), CHK019 (cross-ref 007 §FR-012 ScrubFilter), CHK021 (FR-007 / FR-008 enforced by same interface-level mechanism), CHK023 / CHK033 / CHK034 (no per-event SC for orphan / encryption / cascade duration — implicit in FR-009 / FR-011), CHK024 (no SC for startup fail-closed — accepted; tested via integration on every deploy), CHK025 (partial-cascade failure rolled back by transaction — `async with conn.transaction()` ensures all-or-nothing), CHK026 (concurrent-write races covered by FR-009 RI + advisory lock per 003), CHK027 (forward-only migration partial-apply — alembic offers `downgrade()` for staging; production is forward-only by Assumption), CHK031 (parent_turn-of-deleted-message — Phase 3 branching concern), CHK035 (DB role enforcement test — staged with FR-022), CHK036 (Fernet AES-128-CBC re-eval — when AES-128 is deprecated by NIST, OR every 5 years), CHK037 (summary content as message — accepted: summary IS a message per 005 FR-005), CHK038 (FR-019 vs erasure — operator policy resolves), CHK039 ("normal application path" = anything routed through repositories).
 
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 

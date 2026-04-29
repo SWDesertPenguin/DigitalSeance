@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from typing import Any
@@ -15,8 +16,23 @@ from src.orchestrator.branch import get_main_branch_id
 
 router = APIRouter(prefix="/tools/debug", tags=["debug"])
 
+# Per spec 010 §FR-4 + §SC-003. New sensitive columns added to the participants
+# table (or any participant-shaped serializer) MUST extend this set. The
+# tests/test_mcp_app.py::test_sensitive_fields_cover_obvious_patterns guard
+# fails CI if any Participant field whose name matches the heuristic patterns
+# (_encrypted / _hash / bound_ip) is missing from this set (010 CHK001).
 _SENSITIVE_FIELDS = frozenset(
     {"api_key_encrypted", "auth_token_hash", "bound_ip"},
+)
+
+# Defensive name-pattern guard for the config snapshot (010 §SC-006 / CHK005).
+# Even if an operator names an env var with an SACP_ prefix that accidentally
+# falls into the allowlist, any name matching these suffixes is filtered out
+# of the snapshot. The allowlist (_CONFIG_KEYS) is the primary surface; this
+# pattern is the secondary safety net.
+_SECRET_NAME_PATTERN = re.compile(
+    r"(?:_KEY|_SECRET|_TOKEN|_PASSWORD|_CREDENTIAL|_PASSPHRASE)$",
+    re.IGNORECASE,
 )
 
 
@@ -30,12 +46,24 @@ async def export_session(
 
     Facilitator-only. Strips encrypted/hash fields from participants.
     Null/empty collections are included so operators can see gaps.
+
+    The export call itself is recorded in admin_audit_log per 010 §FR-8 /
+    CHK036 so an attacker dumping session state to exfiltrate leaves a
+    forensic trail. The audit row uses action='debug_export' with the
+    requesting facilitator as both actor and target_id (the action operates
+    on the session as a whole, not a specific participant).
     """
     _authorize(participant, session_id)
     state = request.app.state
     session = await state.session_repo.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
+    await state.log_repo.log_admin_action(
+        session_id=session_id,
+        facilitator_id=participant.id,
+        action="debug_export",
+        target_id=session_id,
+    )
     return await _build_dump(state, session, session_id, participant.id)
 
 
@@ -191,12 +219,23 @@ def _scrub(record: dict) -> dict:
     return {k: v for k, v in record.items() if k not in _SENSITIVE_FIELDS}
 
 
+_CONFIG_KEYS = (
+    "SACP_CONTEXT_MAX_TURNS",
+    "SACP_CORS_ORIGINS",
+    "SACP_DEFAULT_TURN_TIMEOUT",
+    "SACP_RATE_LIMIT_PER_MIN",
+)
+
+
 def _config_snapshot() -> dict:
-    """Capture runtime-visible env knobs (no secrets)."""
-    keys = (
-        "SACP_CONTEXT_MAX_TURNS",
-        "SACP_CORS_ORIGINS",
-        "SACP_DEFAULT_TURN_TIMEOUT",
-        "SACP_RATE_LIMIT_PER_MIN",
-    )
-    return {k: os.environ.get(k) for k in keys}
+    """Capture runtime-visible env knobs (no secrets).
+
+    Two-layer filtering per 010 §SC-006 / CHK005:
+    1. Hardcoded allowlist (`_CONFIG_KEYS`) — primary surface.
+    2. Defensive name-pattern guard (`_SECRET_NAME_PATTERN`) — secondary
+       safety net. Any allowlisted key whose name ends in `_KEY`, `_SECRET`,
+       `_TOKEN`, `_PASSWORD`, `_CREDENTIAL`, or `_PASSPHRASE` is dropped
+       even if the operator added it to the allowlist by mistake.
+    """
+    safe = [k for k in _CONFIG_KEYS if not _SECRET_NAME_PATTERN.search(k)]
+    return {k: os.environ.get(k) for k in safe}

@@ -100,7 +100,11 @@ Summaries are regular messages (speaker_type='summary') and follow the same immu
 - What happens when there are fewer turns than the threshold at session start? No summarization fires until the threshold is reached.
 - What happens when the cheapest model has a very small context window? The summarization input is truncated to fit, prioritizing the most recent turns.
 - What happens when summarization produces a summary that's too large for context assembly? The summary is stored as-is but context assembly may truncate it based on token budget.
-- What happens when two summarizations trigger simultaneously (race condition)? The trigger uses the session's last_summary_turn as a guard — only one fires.
+- What happens when two summarizations trigger simultaneously (race condition)? Code-level: `should_summarize()` predicate at trigger time. SQL-level: the FR-013 guarded UPDATE ensures only one watermark advance succeeds — the loser's update is a no-op. Both summaries may be written, but only one advances `last_summary_turn`.
+- What happens when the summarizer model returns valid JSON with adversarial content (`{"narrative": "ignore previous instructions..."}` or ChatML markers in `key_positions`)? FR-011 sanitization strips injection patterns from each string field before persistence. Adversarial content is reduced to neutered text in the stored summary.
+- What happens when all candidate summarizer models fail (every cheapest-first fallthrough exhausts)? The exception propagates to `run_checkpoint`'s handler; the failure is logged; no summary is written. The next turn re-evaluates the threshold and may retry on the following turn.
+- What happens during a session deletion in flight with summarization? Per FR-015, the FK violation on `messages.session_id` fails the append; the exception is caught by `run_checkpoint` and logged. No orphan summary rows are created.
+- What happens when a summary itself triggers convergence detection? Convergence (004 §FR-003) operates over `convergence_log` rows which are written for AI turns only — summary rows do not produce embeddings, so no false convergence is triggered by summarization output (004 §FR-018 settles).
 
 ## Requirements *(mandatory)*
 
@@ -110,12 +114,17 @@ Summaries are regular messages (speaker_type='summary') and follow the same immu
 - **FR-002**: System MUST send accumulated turns to the cheapest available AI model for summarization.
 - **FR-003**: System MUST request structured JSON output with four sections: decisions, open_questions, key_positions, narrative.
 - **FR-004**: System MUST retry up to 3 times on invalid JSON responses before falling back to narrative-only storage.
-- **FR-005**: System MUST store summaries as messages with speaker_type='summary' and speaker_id='system'.
+- **FR-005**: System MUST store summaries as messages with `speaker_type='summary'` and `speaker_id` set to the **session facilitator's participant id** (NOT the literal string `'system'`). The facilitator-id attribution is required because `messages.speaker_id` has a foreign-key reference to `participants.id`; using `'system'` would violate referential integrity. The summary's distinguishing field is `speaker_type='summary'`, which is what context assembly and `get_summaries` filter on.
 - **FR-006**: System MUST update session.last_summary_turn after each successful checkpoint.
 - **FR-007**: System MUST select the cheapest model by comparing cost_per_input_token across active participants. Selection order: (1) lowest cost_per_input_token where cost > 0; (2) only if no paid models exist, fall back to free/null-cost participants (e.g., Ollama). This prevents summarization from always routing to slow local models.
 - **FR-008**: System MUST fall back to the next cheapest model if the primary fails after retries.
 - **FR-009**: System MUST log a warning when falling back to narrative-only storage.
 - **FR-010**: System MUST not block the turn loop during summarization. Summarization MUST run as an `asyncio.create_task` fire-and-forget coroutine — the loop advances to the next turn immediately without waiting for the summary to complete.
+- **FR-011**: System MUST treat summarizer model output as untrusted AI content. Before persistence, each string field of the parsed JSON (decisions, open_questions, key_positions, narrative — recursively) MUST pass through 007 §FR-001 sanitization (ChatML / role-marker / override-phrase / invisible-Unicode strip) AND 007 §FR-008 exfiltration filtering (credential redaction). A poisoned summary persists indefinitely and gets injected into every future participant's context, so it's a high-leverage indirect-injection target. If the input doesn't parse as JSON, the entire raw string is sanitized as a single block (matching the narrative-only fallback shape).
+- **FR-012**: The summarizer's API key is the **cheapest active AI participant's** `api_key_encrypted`. This means the cheapest-model participant's quota pays for summaries on behalf of the whole session. This is accepted residual: the cheapest participant has the lowest per-call cost so the asymmetry is bounded; alternative designs (split cost across all participants, dedicated summarizer credential) are deferred to Phase 3.
+- **FR-013**: The `last_summary_turn` race guard MUST be enforced at the SQL layer via `UPDATE sessions SET last_summary_turn = $1 WHERE id = $2 AND last_summary_turn < $1`. Two concurrent summarizations crossing the threshold near-simultaneously are deduplicated by this forward-only update — the second one's UPDATE is a no-op, preventing the second checkpoint from regressing the watermark.
+- **FR-014**: Narrative-only fallback (FR-004) wraps the entire raw model response as the `narrative` field of an otherwise-empty structured summary. There is NO truncation of the raw response in Phase 1 — the message-immutability budget (001 §FR-007) and context-assembly token budget (003 §FR-004) bound the practical impact. If the response approaches 100KB, downstream context truncation discards excess silently.
+- **FR-015**: An in-flight summarization that targets a session deleted between trigger and persistence MUST fail closed via the `messages.session_id` FK to `sessions(id)` (001 §FR-009). The asyncpg `ForeignKeyViolationError` is caught by `run_checkpoint`'s outer handler and logged. No orphan summary rows are created.
 
 ### Key Entities
 
@@ -140,6 +149,32 @@ Summaries are regular messages (speaker_type='summary') and follow the same immu
 - The summary JSON schema is: `{"decisions": [...], "open_questions": [...], "key_positions": [...], "narrative": "..."}`. Schema validation is lenient — missing fields default to empty arrays/strings.
 - Summary epoch tracking (message.summary_epoch field) groups messages under their checkpoint. The epoch increments with each checkpoint.
 - Context assembly (feature 003) already reads summaries via MessageRepository.get_summaries. This feature ensures summaries are written in the format context assembly expects.
+
+## Threat model traceability
+
+| FR | Defends against | OWASP LLM | NIST AI 100-2 / SP 800-53 |
+|----|-----------------|-----------|----------------------------|
+| FR-001, FR-006, FR-013 (threshold + watermark + race guard) | Double-summarization / regression | — | SI-7 |
+| FR-002, FR-007, FR-012 (cheapest-model selection) | Excessive summarization cost / supply-chain (untrusted free model) | LLM03, LLM04 | SC-5 |
+| FR-003 (structured JSON output) | Unstructured / unparseable summary | — | SI-10 |
+| FR-004, FR-008, FR-014 (retry + fallback) | Garbage summary blocking checkpoints | — | SI-13 |
+| FR-005 (immutable storage) | Summary tampering | — | AU-9, SI-7 |
+| FR-009 (warning on fallback) | Silent degradation | — | AU-2 |
+| FR-010 (non-blocking) | Loop starvation / DoS | API4 | SC-5 |
+| FR-011 (sanitize summary output) | Indirect prompt injection via summary content | LLM01, LLM05 | AI 100-2 §3.4; SI-15 |
+| FR-015 (FK fail-closed on deletion race) | Orphan summary write to deleted session | — | SI-7 |
+
+Sister cross-references: summary fields go through 007 §FR-001 sanitization + §FR-008 exfiltration filtering at `_store_summary` time; the message FK to sessions (001 §FR-009) provides fail-closed deletion-race protection (FR-015); `convergence_log` does not embed summaries (004 §FR-018) so summaries don't perturb convergence detection.
+
+## Audit closeout (2026-04-29)
+
+The security-requirements quality audit (`checklists/security.md`) raised 38 findings; resolution split:
+
+**Code changes**: CHK001 / CHK003 / CHK007 (summary string fields recursively sanitized + exfiltration-filtered before persistence — `_sanitize_summary_content` + `_clean_node` in `src/orchestrator/summarizer.py`); CHK008 (`_update_session_turn` SQL guard `WHERE last_summary_turn < $1` so concurrent summarizations can't regress the watermark). New tests in `tests/test_summarizer.py` lock the contract.
+
+**Spec amendments (this commit)**: CHK001 / CHK003 / CHK007 (FR-011 codifies sanitization mandate), CHK002 (FR-012 documents cheapest-model trust + cost asymmetry as accepted residual), CHK004 (FR-012 names the API-key source — cheapest participant's encrypted key), CHK005 (FR-014 narrative-only fallback wraps entire raw response), CHK008 (FR-013 SQL race guard mandate), CHK009 (FR-015 FK fail-closed on deletion race), CHK030 (Threat-model traceability table), CHK037 (FR-005 corrected to facilitator-id attribution + reason).
+
+**Closed as cross-reference / accepted residual**: CHK006 (lenient JSON parsing — accepted convenience; missing fields default to empty arrays/strings), CHK010 (orphan async tasks — `run_checkpoint` is awaited inside the loop; not fire-and-forget at session-shutdown granularity), CHK011 / CHK013 (immutability + visibility cross-ref to 001 + 010), CHK012 (no per-row tamper hash — accepted residual; cross-row chaining is Phase 3), CHK014 / CHK015 (cheapest-model tie-breaking + threshold scope — implementation detail), CHK016 (JSON schema authoritativeness — pinned in `SUMMARIZATION_PROMPT` constant), CHK017 (summary consumes a turn_number — yes, by design, gives chronological ordering), CHK018 / CHK019 (cross-ref 003 + 007), CHK020 / CHK021 (90%+ valid JSON / cheapest-selection — measurement deferred), CHK022 (negative-path SCs — implicit), CHK023 / CHK024 / CHK025 (recovery / repeat-failure / fallback exhaustion — accepted: failure logged + retry on next turn), CHK026 (input truncation contract — accepted; LiteLLM truncates per-model context window), CHK027 (summary-induced convergence — settled by 004 §FR-018), CHK028 (all-models-fail fallback — accepted: skip checkpoint), CHK029 (adversarial `key_positions` content — settled by FR-011 sanitization), CHK031 / CHK032 (perf SLA / observability — accepted residual), CHK033 (ProviderBridge cost contract — covered by 003 §FR-006), CHK034 (prompt-version pinning — `SUMMARIZATION_PROMPT` constant + `# noqa` history is the version trail), CHK035 (`summary_epoch` overflow — INTEGER type, ~2.1B max; accepted), CHK036 (paid-vs-free preference — `_cost_key` treats `None` as +inf so unpriced participants are last), CHK038 (fallback-warn to security_events — accepted: routed through standard logger; not a security event in the 007 sense).
 
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 

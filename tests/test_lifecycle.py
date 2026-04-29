@@ -77,6 +77,28 @@ async def test_atomic_deletion_removes_data(
     assert await repo.get_session(sid) is None
 
 
+async def test_audit_log_survives_session_deletion(
+    repo: SessionRepository,
+    pool: asyncpg.Pool,
+) -> None:
+    """Per 001 FR-019 + US5 §4, admin audit entries persist past session
+    deletion as denormalized snapshots — including the delete_session action
+    itself.
+    """
+    sid, pid, bid = await _create_session(repo)
+    log_repo = LogRepository(pool)
+    await _seed_session_data(MessageRepository(pool), log_repo, sid, pid, bid)
+    await repo.delete_session(sid)
+
+    rows = await pool.fetch(
+        "SELECT action FROM admin_audit_log WHERE session_id = $1 ORDER BY id",
+        sid,
+    )
+    actions = [r["action"] for r in rows]
+    assert "test_action" in actions
+    assert "delete_session" in actions
+
+
 async def _seed_session_data(
     msg_repo: MessageRepository,
     log_repo: LogRepository,
