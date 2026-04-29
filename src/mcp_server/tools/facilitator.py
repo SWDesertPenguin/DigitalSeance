@@ -235,6 +235,7 @@ async def remove_participant(
         participant_id=participant_id,
         reason=reason,
     )
+    request.app.state.rate_limiter.forget(participant_id)
     await _close_ws_for_participant(participant.session_id, participant_id)
     await _push_participant_update(request, participant.session_id, participant_id)
     if target is not None:
@@ -279,6 +280,7 @@ async def _cascade_remove_sponsored_ais(
             participant_id=ai.id,
             reason=reason or f"sponsor {removed_id} was removed",
         )
+        request.app.state.rate_limiter.forget(ai.id)
         await _close_ws_for_participant(caller.session_id, ai.id)
         await _push_participant_update(request, caller.session_id, ai.id)
         await _announce_removed(request, caller, ai)
@@ -492,6 +494,7 @@ async def revoke_token(
         session_id=participant.session_id,
         participant_id=participant_id,
     )
+    request.app.state.rate_limiter.forget(participant_id)
     await _close_ws_for_participant(participant.session_id, participant_id)
     await _push_participant_update(request, participant.session_id, participant_id)
     return {"status": "revoked"}

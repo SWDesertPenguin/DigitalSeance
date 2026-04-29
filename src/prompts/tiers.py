@@ -5,6 +5,8 @@ from __future__ import annotations
 import base64
 import secrets
 
+from src.security.sanitizer import sanitize
+
 TIER_LOW = (
     "You are a participant in a multi-model collaboration session. "
     "Multiple AI participants and humans share this conversation. "
@@ -68,7 +70,7 @@ def assemble_prompt(
     tiers = _TIERS.get(prompt_tier, _TIERS["mid"])
     parts = list(tiers)
     if custom_prompt:
-        parts.append(custom_prompt)
+        parts.append(sanitize(custom_prompt))
     return _embed_canaries(parts, _generate_canaries())
 
 
