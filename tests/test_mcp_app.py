@@ -87,3 +87,46 @@ async def test_sse_unsubscribe_clears_session() -> None:
     q = await cm.subscribe("session-1")
     cm.unsubscribe("session-1", q)
     assert "session-1" not in cm._queues
+
+
+def test_sensitive_fields_cover_obvious_patterns() -> None:
+    """CI guard for 010 CHK001: any Participant field whose name matches a
+    known-sensitive heuristic (`_encrypted`, `_hash`, or `bound_ip`) MUST be
+    in the debug-export strip-list. Catches the case where a developer adds
+    a new sensitive column without remembering to update _SENSITIVE_FIELDS.
+    """
+    from dataclasses import fields
+
+    from src.mcp_server.tools.debug import _SENSITIVE_FIELDS
+    from src.models.participant import Participant
+
+    suspicious = {
+        f.name
+        for f in fields(Participant)
+        if f.name.endswith(("_encrypted", "_hash")) or f.name == "bound_ip"
+    }
+    missing = suspicious - _SENSITIVE_FIELDS
+    assert not missing, (
+        f"Sensitive-looking Participant fields not in debug.py _SENSITIVE_FIELDS: "
+        f"{sorted(missing)}. Add them so the debug export strips them."
+    )
+
+
+def test_config_snapshot_drops_secret_name_pattern(monkeypatch) -> None:
+    """010 CHK005: secret-named env vars are filtered out of the snapshot
+    even if they sneak into the allowlist.
+    """
+    from src.mcp_server.tools import debug
+
+    monkeypatch.setattr(
+        debug,
+        "_CONFIG_KEYS",
+        ("SACP_CONTEXT_MAX_TURNS", "SACP_DB_PASSWORD", "SACP_FAKE_SECRET"),
+    )
+    monkeypatch.setenv("SACP_CONTEXT_MAX_TURNS", "20")
+    monkeypatch.setenv("SACP_DB_PASSWORD", "hunter2")
+    monkeypatch.setenv("SACP_FAKE_SECRET", "sk-leaked-key-12345abcdef")
+    snap = debug._config_snapshot()
+    assert "SACP_CONTEXT_MAX_TURNS" in snap
+    assert "SACP_DB_PASSWORD" not in snap
+    assert "SACP_FAKE_SECRET" not in snap
