@@ -86,6 +86,7 @@ def _get_schema_sql() -> list[str]:
         _usage_log_ddl(),
         _convergence_log_ddl(),
         _admin_audit_log_ddl(),
+        _security_events_ddl(),
         _interrupt_queue_ddl(),
         _review_gate_drafts_ddl(),
         _invites_ddl(),
@@ -268,6 +269,22 @@ def _admin_audit_log_ddl() -> str:
             target_id TEXT NOT NULL,
             previous_value TEXT,
             new_value TEXT,
+            timestamp TIMESTAMP DEFAULT NOW()
+        )
+    """
+
+
+def _security_events_ddl() -> str:
+    return """
+        CREATE TABLE security_events (
+            id SERIAL PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id),
+            speaker_id TEXT NOT NULL REFERENCES participants(id),
+            turn_number INTEGER NOT NULL,
+            layer TEXT NOT NULL,
+            risk_score REAL,
+            findings TEXT NOT NULL,
+            blocked BOOLEAN NOT NULL,
             timestamp TIMESTAMP DEFAULT NOW()
         )
     """

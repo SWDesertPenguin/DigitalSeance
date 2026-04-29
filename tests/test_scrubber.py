@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from src.security.scrubber import scrub
+import io
+import sys
+
+from src.security.scrubber import install_scrub_excepthook, scrub
 
 
 def test_api_key_redacted() -> None:
@@ -47,3 +50,35 @@ def test_key_value_redacted() -> None:
     text = "Config api_key=mysecretvalue123"
     result = scrub(text)
     assert "mysecretvalue" not in result
+
+
+def test_gemini_key_redacted() -> None:
+    """Gemini API key (AIza prefix, 39 chars total) is redacted."""
+    text = "Error with key AIzaSyA-bcdefghijklmnopqrstuvwxyz0123456"  # gitleaks:allow
+    result = scrub(text)
+    assert "AIza" not in result
+    assert "[REDACTED]" in result
+
+
+def test_groq_key_redacted() -> None:
+    """Groq API key (gsk_ prefix) is redacted."""
+    text = "Error with key gsk_abcdefghijklmnopqrstuv1234567890"  # gitleaks:allow
+    result = scrub(text)
+    assert "gsk_" not in result
+    assert "[REDACTED]" in result
+
+
+def test_excepthook_scrubs_traceback(monkeypatch) -> None:
+    """install_scrub_excepthook redacts credentials in unhandled-exception output."""
+    captured = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", captured)
+    monkeypatch.setattr(sys, "excepthook", sys.__excepthook__)
+    install_scrub_excepthook()
+    try:
+        raise RuntimeError("leaked sk-ant-api03-abcdefghijklmnopqrstuv in args")
+    except RuntimeError:
+        sys.excepthook(*sys.exc_info())
+    output = captured.getvalue()
+    assert "sk-ant" not in output
+    assert "[REDACTED]" in output
+    assert "RuntimeError" in output
