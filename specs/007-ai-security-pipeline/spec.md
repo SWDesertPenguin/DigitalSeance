@@ -143,7 +143,7 @@ All log output is scrubbed for credential patterns before emission. API keys, au
 ### Functional Requirements
 
 - **FR-001**: System MUST strip injection patterns from all messages before context assembly. The canonical pattern set lives in `src/security/sanitizer.py` and currently covers: ChatML / role-marker syntaxes (`<|im_start|>`, `system:` / `assistant:` / `user:` line prefixes), Llama instruction markers (`[INST]` / `[/INST]`), HTML comments, override phrases (`ignore/disregard/forget the previous instructions`), instruction-injection prefixes (`new/updated/revised instructions:`), reset triggers (`from now on`), and invisible Unicode (zero-width spaces, RTL/LTR overrides, BOM). The list is open-ended: new patterns are added to the canonical file as attacks surface. Sanitization runs AFTER NFKC normalization and a mixed-script homoglyph fold (Cyrillic/Greek lookalikes -> Latin in words that mix scripts) so injection attempts that obfuscate ASCII via Unicode tricks still hit the regexes.
-- **FR-002**: System MUST apply datamarking to AI responses before inclusion in another AI's context.
+- **FR-002**: System MUST apply datamarking to AI responses before inclusion in another AI's context. The marker format is `^<6-hex-prefix>^<word>` per whitespace-split word, where `<6-hex-prefix>` is the first 6 characters of the SHA-256 of the source participant id (canonical implementation: `src/security/spotlighting.py`).
 - **FR-003**: System MUST NOT datamark human interjections, system messages, or AI messages from the same speaker as the current participant (an AI reading its own prior output has no trust boundary to enforce).
 - **FR-004**: System MUST validate every AI response against injection pattern checks before persistence.
 - **FR-005**: System MUST hold responses with high risk scores (>=0.7 in `src/security/output_validator.py`) for facilitator review instead of persisting them. On facilitator approve / edit, the resolved content is persisted verbatim — it does NOT re-enter the security pipeline. Operator authority overrides defenses by design; the audit log captures the original draft, the edit (if any), and the resolution.
@@ -157,12 +157,16 @@ All log output is scrubbed for credential patterns before emission. API keys, au
 - **FR-013**: System MUST never silently drop or block an AI response — blocked responses are always held for review with the original content preserved. Pipeline-internal failures (regex bug, unicode error, etc.) fail closed: the turn is skipped with reason=`security_pipeline_error` and the participant is NOT penalized via the circuit breaker (the failure is ours, not theirs).
 - **FR-014**: Layer evaluation order is fixed: validate -> exfiltration filter (-> jailbreak/prompt-protector when wired). Each layer emits independent flags / findings / reasons. Blocking decision is `max(risk_score)` across layers crossing the high-risk threshold; flag accumulation across layers is preserved for audit.
 - **FR-015**: System MUST persist per-layer detection records to `security_events` for post-hoc review. Schema: `(session_id, speaker_id, turn_number, layer, risk_score, findings, blocked, timestamp)` where `findings` is a JSON-encoded list of finding/flag/reason names. `layer` is one of `output_validator` / `exfiltration` / `jailbreak` / `prompt_protector` / `pipeline_error`. Events are exposed via `GET /tools/debug/export` under `logs.security_events`.
+- **FR-016**: System MUST notify the facilitator when the pipeline holds a response. Notification surfaces (Phase 1+2): (a) the review-gate UI banner that appears on routing-mode transition to `review`, (b) the `security_events` row written by FR-015 (with `blocked=True`), and (c) the WS `routing_mode` event that flips seated facilitators' UI into review state. Held responses are never silently queued.
+- **FR-017**: Pattern lists in `src/security/` (sanitizer, exfiltration, jailbreak, output_validator, scrubber, prompt_protector) are the canonical source of truth. New attack patterns surfaced in shakedowns, red-team exercises, or production incidents MUST be added to the relevant module within one PR cycle, with the originating incident referenced in the commit message and (when applicable) `docs/red-team-runbook.md`. Pattern modules SHOULD be reviewed at the start of each phase to prune obsolete entries and confirm coverage of newly supported providers.
+- **FR-018**: Auto-block, auto-mute, and per-participant threshold tightening are explicitly out of scope. Repeat-offender response requires a facilitator decision via the review-gate UI. The system surfaces per-participant held-response counts via `security_events` (queryable by `(session_id, speaker_id)`) but does not act on them. Operator-level escalation (suspending a participant, ending a session) is a facilitator action, not a pipeline action. Automated escalation is deferred to a future phase.
+- **FR-019**: Phase 1 false-positive targets per layer, measured against a benign-corpus fixture (`tests/fixtures/benign_corpus.txt`, TBD): `output_validator` <2%, `exfiltration` <1%, `jailbreak` <8% (drift detector dominates), `prompt_protector` <0.5%. Targets are advisory until the fixture lands; the drift detector's `LENGTH_DEVIATION_FACTOR` is the primary tuning knob if `jailbreak` exceeds budget.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: Known injection patterns (ChatML, role markers, override phrases) are stripped 100% of the time.
+- **SC-001**: Known injection patterns are stripped 100% of the time, where "known" is defined by the canonical pattern set in `src/security/sanitizer.py` at the spec revision in effect (per FR-017 maintenance). Adding a new pattern updates the SC-001 surface; removing one requires a Phase-level review.
 - **SC-002**: AI responses are datamarked before cross-agent context injection 100% of the time.
 - **SC-003**: Responses containing injection markers are flagged with risk_score >= 0.7 (the block threshold) and held for facilitator review.
 - **SC-004**: Credential patterns never appear in log output.
@@ -172,30 +176,48 @@ All log output is scrubbed for credential patterns before emission. API keys, au
 
 ## Assumptions
 
-- LLM-as-judge validation layer is deferred — pattern matching and semantic checks are sufficient for Phase 1.
+- LLM-as-judge validation layer is deferred — pattern matching and semantic checks are sufficient for Phase 1. The interface contract is pinned by `src/security/llm_judge.py` (NoOpJudge default) so a future implementation slots in without rewiring callers.
 - Cross-model safety profiling (per-model trust tiers) is deferred to a future feature.
 - Spotlighting uses the datamark method (word-level markers). Delimiter and encoding methods are alternatives for future experimentation.
 - Log scrubbing applies to Python logging output via the root-logger ScrubFilter. Loggers that disable propagation to root bypass scrubbing — out of scope for Phase 1. Traceback scrubbing (sys.excepthook override) is included.
-- The security pipeline runs synchronously in the turn loop — it must complete before persistence. Performance target: <50ms for the full pipeline excluding LLM-as-judge.
+- The security pipeline runs synchronously in the turn loop — it must complete before persistence. Performance target: <50ms for the full pipeline excluding LLM-as-judge, measured as wall-clock time inside `_validate_and_persist` per AI dispatch on representative production hardware (orchestrator container, Postgres on same host or low-latency LAN). The target is observational only — no test enforces it; if regressions surface, add per-layer timing logs first, then a benchmark fixture.
 - Jailbreak detection uses simple heuristics (length deviation, phrase matching). ML-based detection is a future enhancement.
 - Repeat-offender escalation (per-participant threshold tightening) is out of scope for Phase 1. Each turn is evaluated independently.
 - Operator runtime bypass of pipeline layers is not supported — the pipeline always runs on AI dispatch paths. Pen-testing / red-team work uses test fixtures, not runtime overrides.
 - Per-layer performance budget is not specified; only the aggregate <50ms target. Add per-layer instrumentation if regressions surface.
+- **Re-evaluation triggers** (when the assumptions "pattern matching is sufficient" and "jailbreak heuristics are sufficient" must be revisited): (a) >=3 confirmed pattern-bypass incidents (post-hoc reclassified `security_events` rows where `blocked=False` should have been `True`) in any rolling 90-day window; (b) per-call cost of an LLM judge drops below ~$0.001/evaluation at projected production volume; (c) any non-shakedown attack succeeds in production; (d) drift detector false-positive rate exceeds the FR-019 budget on the benign-corpus fixture for two consecutive measurement cycles. Hitting any trigger opens an issue scoped to "promote LLM-judge from stub to active layer" or "tune jailbreak thresholds", as appropriate.
 
-## Known gaps (open from 2026-04-29 audit)
+## Threat model traceability
 
-These were surfaced by the security-requirements quality audit (`checklists/security.md`) and remain open for a future iteration. They are not blockers for the shipped Phase 1+2 pipeline but should be addressed before Phase 3 high-stakes use cases:
+Each functional requirement traces to a section of `docs/AI_attack_surface_analysis_for_SACP_orchestrator.md` and to standard threat catalogs (OWASP LLM Top 10 2025, NIST AI 100-2, NIST SP 800-53):
 
-- **Operator notification path** (CHK005): no requirement defines how a facilitator is told a response was held. Phase 2 review-gate UI surfaces it as a side effect of routing-mode changes. Codify a notification-channel requirement.
-- **Pattern-list maintenance** (CHK006): patterns are hardcoded constants. No process for adding patterns without a release.
-- **Incident response** (CHK007): no escalation requirement for confirmed attacks. FR-013 forbids auto-block. Repeat-offender tightening is explicitly out of scope (see Assumptions).
-- **False-positive rate targets** (CHK023): none specified per layer. Drift detector (3x avg) is known-noisy in shakedowns; no numeric bound.
-- **Threat-model traceability** (CHK033): no mapping from this pipeline back to a named threat model (OWASP LLM Top 10, MITRE ATLAS, internal). `docs/AI_attack_surface_analysis_for_SACP_orchestrator.md` exists but isn't cross-referenced.
-- **Re-evaluation triggers** (CHK037, CHK038): assumptions "pattern matching is sufficient for Phase 1" and "jailbreak heuristics are sufficient" lack measurable triggers (e.g., revisit after N escapes, when LLM-as-judge cost drops below X).
-- **LLM-as-judge interface contract** (CHK039): deferred without an interface stub.
-- **False-positive on credential-resembling content** (CHK029): code-snippet messages mentioning `sk-example-...` get redacted. No code-fence-aware redaction yet.
+| FR | Defends against | Attack-surface doc | OWASP LLM | NIST AI 100-2 / SP 800-53 |
+|----|-----------------|--------------------|-----------|---------------------------|
+| FR-001 (sanitization) | Indirect prompt injection, ChatML/role-marker spoofing | §1, §11 | LLM01 | AI 100-2 §3.4; SP 800-53 SI-3, AC-4 |
+| FR-002, FR-003 (spotlighting) | Cross-agent injection propagation | §1 | LLM01 | AI 100-2 §3.4; SP 800-53 AC-4 |
+| FR-004, FR-005 (output validation) | Output-side injection markers, instruction leakage | §1, §11 | LLM01, LLM05 | AI 100-2 §3.4; SP 800-53 SI-15 |
+| FR-006, FR-007 (image/URL strip + flag) | Markdown-image and URL exfiltration vectors | §6 | LLM02, LLM06 | SP 800-53 SI-15, SC-7 |
+| FR-008 (credential redaction in responses) | API-key exfiltration via AI output | §4, §6 | LLM02, LLM06 | SP 800-53 IA-5, SC-28 |
+| FR-009 (jailbreak / drift detection) | Jailbreak propagation, multi-turn escalation | §2, §11 | LLM01, LLM07 | AI 100-2 §3.4.4; SP 800-53 SI-4 |
+| FR-010, FR-011 (canary + fragment scan) | System-prompt extraction | §3 | LLM07 | SP 800-53 SI-15, SC-28 |
+| FR-012 (log scrubbing + excepthook) | Credential leakage in logs/tracebacks | §4 | LLM02 | SP 800-53 IA-5, SC-12, AU-9 |
+| FR-013 (no silent drop, fail-closed) | Defense erosion via silent bypass | §11 | LLM05 | SP 800-53 SI-4, AU-2 |
+| FR-014 (layer precedence) | Audit-attribution ambiguity across layers | §11 | LLM05 | SP 800-53 AU-2, AU-12 |
+| FR-015 (security_events persistence) | Forensic blind spots after a held turn | §11 | LLM05 | SP 800-53 AU-2, AU-3, AU-12 |
+| FR-016 (operator notification) | Held-response queue invisibility | §11 | LLM05 | SP 800-53 IR-6, AU-6 |
+| FR-017 (pattern-list maintenance) | Pattern-list staleness as new attacks emerge | §1, §2 | LLM01 | SP 800-53 RA-3, RA-5 |
+| FR-018 (incident response scope) | Premature automation of facilitator decisions | §11 | LLM05 | SP 800-53 IR-4, IR-6 |
+| FR-019 (FPR targets per layer) | Operator alert fatigue | §11 | LLM05 | SP 800-53 SI-4(11) |
 
-**Closed in 2026-04-29 audit followup PR**: CHK001 (sanitizer enumeration), CHK002 (Gemini/Groq patterns), CHK003 (URL params), CHK004 (jailbreak phrases), CHK008 (security_events table), CHK010-CHK012 (thresholds quantified), CHK016 (consolidated coverage doc), CHK017 (correctly enforced), CHK018/CHK042 (multi-canary aligned), CHK020/CHK022 (SC measurability), CHK024 (review-gate persists verbatim), CHK025 (fail-closed pipeline), CHK026 (NFKC + homoglyph fold), CHK027 (precedence), CHK028 (out-of-scope), CHK030 (accepted residual), CHK031 (out-of-scope), CHK032 (cold-start), CHK034 (out-of-scope per-layer), CHK035 (SC-007), CHK040 (logger scope), CHK041 (FR-001 broadened), CHK043 (FR-011 clarified), CHK044 (excepthook).
+## Audit closeout (2026-04-29)
+
+The security-requirements quality audit (`checklists/security.md`) raised 33 findings; all 33 are addressed by this spec or by code in `src/security/`. The closeout split:
+
+**Code changes**: CHK002 (Gemini/Groq patterns), CHK008 (security_events table), CHK025 (fail-closed pipeline), CHK026 (NFKC + Cyrillic/Greek homoglyph fold), CHK029 (credential-placeholder allowlist), CHK039 (LLM-judge interface stub), CHK044 (excepthook scrubbing).
+
+**Spec amendments**: CHK001 (FR-001 sanitizer enumeration), CHK003 (FR-007 URL params), CHK004 (FR-009 jailbreak phrases), CHK005 (FR-016 notification path), CHK006 (FR-017 pattern maintenance), CHK007 (FR-018 incident-response scope), CHK009 (FR-002 datamark format pinned), CHK010 (FR-005 quantified threshold), CHK011 (FR-009 LENGTH_DEVIATION_FACTOR), CHK012 (FR-010 canary shape), CHK013 (Assumptions perf measurement methodology), CHK016 (FR-008/FR-012 coverage parity), CHK018/CHK042 (FR-010 multi-canary), CHK020 (SC-003 quantified), CHK021 (SC-001 references canonical pattern set), CHK022 (SC-006 timing note), CHK023 (FR-019 FPR targets), CHK024 (FR-005 review-gate persists verbatim), CHK027 (FR-014 precedence), CHK033 (Threat-model traceability table), CHK037/CHK038 (Assumptions re-evaluation triggers), CHK041 (FR-001 broadened beyond ChatML), CHK043 (FR-011 tier scope).
+
+**Closed as out-of-scope / accepted residual** (documented in Assumptions or Edge Cases): CHK014 (novel credential format pass-through), CHK017 (per-id same-speaker exemption is correct on re-inspection), CHK019 (markdown-image dual layer), CHK028 (no per-participant tightening), CHK030 (cross-participant fragment overlap), CHK031 (no runtime bypass), CHK032 (cold-start drift skip), CHK034 (no per-layer perf budget), CHK035 (SC-007 covers production paths), CHK036 (a11y deferred to Phase 3), CHK040 (root-logger propagation scope).
 
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 
