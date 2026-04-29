@@ -259,12 +259,14 @@ def _convergence_log_ddl() -> str:
 
 
 def _admin_audit_log_ddl() -> str:
+    # session_id and facilitator_id are denormalized identifiers (no FK) so
+    # audit log rows survive session/participant deletion per 001 FR-019 +
+    # US5 §4. Mirror of alembic 007_audit_log_survives_deletion.
     return """
         CREATE TABLE admin_audit_log (
             id SERIAL PRIMARY KEY,
-            session_id TEXT NOT NULL REFERENCES sessions(id),
-            facilitator_id TEXT NOT NULL
-                REFERENCES participants(id),
+            session_id TEXT NOT NULL,
+            facilitator_id TEXT NOT NULL,
             action TEXT NOT NULL,
             target_id TEXT NOT NULL,
             previous_value TEXT,
