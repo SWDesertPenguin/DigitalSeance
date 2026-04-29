@@ -146,3 +146,37 @@ def test_mixed_markers_all_stripped() -> None:
     assert "^9f58a7^" not in result
     assert "<sacp:" not in result
     assert result == "Great point"
+
+
+def test_placeholder_example_not_redacted() -> None:
+    """Documented placeholder strings (sk-example-...) survive redaction."""
+    text = "Configure with sk-example-your-key-here-123 in your env."
+    result, flags = filter_exfiltration(text)
+    assert "sk-example-your-key-here-123" in result
+    assert "credential_redacted" not in flags
+
+
+def test_placeholder_xxxx_not_redacted() -> None:
+    """Placeholder XXXXX patterns survive."""
+    text = "Set OPENAI_API_KEY=sk-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    result, flags = filter_exfiltration(text)
+    assert "sk-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" in result
+    assert "credential_redacted" not in flags
+
+
+def test_placeholder_alongside_real_key() -> None:
+    """A placeholder in the same message as a real key only redacts the real key."""
+    text = "Example: sk-example-key-here. " "Real: sk-abc123def456ghi789jkl0123."
+    result, flags = filter_exfiltration(text)
+    assert "sk-example-key-here" in result
+    assert "sk-abc123def456ghi789jkl0123" not in result
+    assert "[REDACTED]" in result
+    assert "credential_redacted" in flags
+
+
+def test_placeholder_anthropic_example_preserved() -> None:
+    """Anthropic-shaped example placeholders also survive."""
+    text = "Try sk-ant-example-12345 in your config."
+    result, flags = filter_exfiltration(text)
+    assert "sk-ant-example-12345" in result
+    assert "credential_redacted" not in flags

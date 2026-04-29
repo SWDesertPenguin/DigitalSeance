@@ -192,7 +192,7 @@ async def test_log_security_event_persists(
     )
     assert entry.layer == "output_validator"
     assert entry.blocked is True
-    assert entry.risk_score == 0.9
+    assert entry.risk_score == pytest.approx(0.9)
     assert "ChatML token" in entry.findings
 
 
