@@ -64,6 +64,33 @@ class ConvergenceLog:
 
 
 @dataclass(frozen=True, slots=True)
+class SecurityEvent:
+    """Security pipeline detection record (CHK008).
+
+    Persists what each layer caught on a given turn, so attacks can be
+    reviewed post-hoc without re-running the pipeline. ``layer`` is one
+    of: ``output_validator``, ``exfiltration``, ``jailbreak``,
+    ``prompt_protector``, ``pipeline_error``. ``findings`` is a JSON-
+    encoded list of finding/flag/reason names from the layer.
+    """
+
+    id: int
+    session_id: str
+    speaker_id: str
+    turn_number: int
+    layer: str
+    risk_score: float | None
+    findings: str
+    blocked: bool
+    timestamp: datetime
+
+    @classmethod
+    def from_record(cls, record: Any) -> SecurityEvent:
+        """Construct from an asyncpg Record."""
+        return cls(**{f: record[f] for f in cls.__slots__})
+
+
+@dataclass(frozen=True, slots=True)
 class AdminAuditLog:
     """Facilitator action record with before/after values."""
 
