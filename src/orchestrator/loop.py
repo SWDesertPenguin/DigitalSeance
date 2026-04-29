@@ -472,6 +472,18 @@ def _has_new_input(context: list) -> bool:
     return True
 
 
+def _run_pipeline(content: str) -> tuple[object, str]:
+    """Run validate + exfiltration. Raises if either layer crashes.
+
+    Wrapping both layers in a single helper lets the caller fail-closed on
+    any pipeline-internal exception (regex bug, unicode error, etc.) without
+    knowing which layer broke.
+    """
+    validation = validate_output(content)
+    cleaned, _ = filter_exfiltration(content)
+    return validation, cleaned
+
+
 async def _validate_and_persist(
     ctx: _TurnContext,
     speaker: object,
@@ -479,12 +491,20 @@ async def _validate_and_persist(
     response: ProviderResponse,
     breaker: CircuitBreaker,
 ) -> TurnResult:
-    """Run security pipeline then persist. Empty/degenerate count as failures."""
-    validation = validate_output(response.content)
+    """Run security pipeline then persist. Empty/degenerate count as failures.
+
+    Pipeline-internal failures (regex bug, unicode error, etc.) fail closed:
+    skip the turn with reason='security_pipeline_error' WITHOUT recording a
+    breaker failure — the bug is ours, not the participant's.
+    """
+    try:
+        validation, cleaned = _run_pipeline(response.content)
+    except Exception:  # noqa: BLE001 — fail-closed on any pipeline error
+        log.exception("Security pipeline crashed for %s; failing closed", speaker.id)
+        return _skip_result(ctx.session_id, speaker.id, "security_pipeline_error")
     if validation.blocked:
         log.warning("Blocked %s: %s", speaker.id, validation.findings)
         return await _stage_for_review(ctx, speaker, decision, response)
-    cleaned, _ = filter_exfiltration(response.content)
     if not cleaned.strip():
         log.warning("Skipped empty response from %s", speaker.id)
         await _record_failure_and_announce(ctx, breaker, speaker)
