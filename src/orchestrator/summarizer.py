@@ -16,6 +16,8 @@ from src.repositories.errors import ProviderDispatchError
 from src.repositories.message_repo import MessageRepository
 from src.repositories.participant_repo import ParticipantRepository
 from src.repositories.session_repo import SessionRepository
+from src.security.exfiltration import filter_exfiltration
+from src.security.sanitizer import sanitize
 
 log = logging.getLogger(__name__)
 
@@ -288,18 +290,54 @@ async def _store_summary(
 
     Attributed to the session facilitator because the messages FK
     requires speaker_id to reference a real participant row.
+
+    The summary text fields are passed through 007's sanitizer +
+    exfiltration filter before persistence (005 CHK001 / CHK003 /
+    CHK007). The summary becomes context for every future turn from
+    every participant, so a poisoned summary persists indefinitely
+    and amplifies indirect injection. Treating summary content as
+    untrusted AI output (because it IS untrusted AI output) closes
+    the gap.
     """
+    cleaned_json = _sanitize_summary_content(summary_json)
     bid = await get_main_branch_id(pool, session_id)
     await msg_repo.append_message(
         session_id=session_id,
         branch_id=bid,
         speaker_id=speaker_id,
         speaker_type="summary",
-        content=summary_json,
-        token_count=len(summary_json) // 4,
+        content=cleaned_json,
+        token_count=len(cleaned_json) // 4,
         complexity_score="low",
         summary_epoch=current_turn,
     )
+
+
+def _sanitize_summary_content(summary_json: str) -> str:
+    """Run sanitizer + exfiltration filter over each text field of the summary.
+
+    Structured JSON is preserved; only string leaves get cleaned. If the
+    input doesn't parse as JSON, the raw string is sanitized as a single
+    block (matches the narrative-only fallback shape).
+    """
+    try:
+        parsed = json.loads(summary_json)
+    except (json.JSONDecodeError, TypeError):
+        cleaned, _ = filter_exfiltration(sanitize(summary_json))
+        return cleaned
+    return json.dumps(_clean_node(parsed))
+
+
+def _clean_node(node):  # type: ignore[no-untyped-def]
+    """Recursively sanitize string leaves of a parsed-JSON node."""
+    if isinstance(node, str):
+        cleaned, _ = filter_exfiltration(sanitize(node))
+        return cleaned
+    if isinstance(node, list):
+        return [_clean_node(item) for item in node]
+    if isinstance(node, dict):
+        return {key: _clean_node(value) for key, value in node.items()}
+    return node
 
 
 async def _emit_summary_created(
@@ -324,10 +362,17 @@ async def _update_session_turn(
     session_id: str,
     turn: int,
 ) -> None:
-    """Update session's last_summary_turn."""
+    """Update session's last_summary_turn with a forward-only race guard.
+
+    The `WHERE last_summary_turn < $1` clause makes the UPDATE a no-op if
+    a concurrent checkpoint already advanced the watermark to a higher
+    turn (005 CHK008). The pre-check at run_checkpoint is code-level only;
+    this is the SQL-level back-stop.
+    """
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE sessions SET last_summary_turn = $1 WHERE id = $2",
+            "UPDATE sessions SET last_summary_turn = $1 "
+            "WHERE id = $2 AND last_summary_turn < $1",
             turn,
             session_id,
         )

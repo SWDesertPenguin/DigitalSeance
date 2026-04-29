@@ -23,7 +23,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 
 from src.web_ui.auth import router as auth_router
@@ -69,6 +69,7 @@ def create_web_app() -> FastAPI:
     add_csrf_header_check(app)
     add_strict_cors(app)
     _add_healthcheck(app)
+    _add_csp_report_endpoint(app)
     app.include_router(auth_router)
     app.include_router(ws_router)
     _mount_static(app)
@@ -81,6 +82,34 @@ def _add_healthcheck(app: FastAPI) -> None:
     @app.get("/healthz", include_in_schema=False)
     async def healthz() -> dict:
         return {"status": "ok"}
+
+
+_CSP_LOG = logging.getLogger("sacp.web_ui.csp_violation")
+
+
+async def _csp_report_handler(request: Request) -> Response:
+    """Sink for CSP `report-uri` violations (011 §SR-001 / CHK003).
+
+    Browsers POST a CSP violation report here when the policy blocks
+    something. We log it at WARNING and return 204 — visibility into
+    silent CSP regressions without standing up a separate report
+    collector. Phase 3 may forward to a structured aggregator.
+    """
+    try:
+        payload = await request.body()
+        _CSP_LOG.warning("CSP violation: %s", payload.decode("utf-8", errors="replace")[:2000])
+    except Exception:  # noqa: BLE001 — never fail the report endpoint
+        _CSP_LOG.exception("Failed to parse CSP violation report")
+    return Response(status_code=204)
+
+
+def _add_csp_report_endpoint(app: FastAPI) -> None:
+    app.add_api_route(
+        "/csp-report",
+        _csp_report_handler,
+        methods=["POST"],
+        include_in_schema=False,
+    )
 
 
 def _mount_static(app: FastAPI) -> None:

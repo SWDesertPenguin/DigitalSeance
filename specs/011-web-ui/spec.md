@@ -210,14 +210,25 @@ AI-generated message content is rendered as markdown with mandatory security con
 
 ### Security Requirements
 
-- **SR-001**: CSP header. `script-src 'self' 'unsafe-eval' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net` — the two pinned CDN origins are required by FR-002 (CDN-loaded, no build toolchain), `'unsafe-eval'` is required by Babel Standalone's runtime JSX compilation via `new Function(...)`, and `'unsafe-inline'` is required because Babel injects the transpiled module back into the DOM as an inline `<script>` element that `script-src-elem` would otherwise block. The precompile-at-build alternative is tracked for a future phase when a frontend toolchain is introduced. SRI integrity attributes on every CDN `<script>` (task T204) are the primary CDN-compromise defense. `connect-src 'self' ws: wss: <SACP_WEB_UI_MCP_ORIGIN>` — operator sets the env to their deployment's MCP origin. `default-src 'self'`, `img-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`, `base-uri 'self'`, `form-action 'self'`. No `data:` URIs for images.
-- **SR-002**: HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy headers on all responses.
+- **SR-001**: CSP header. `script-src 'self' 'unsafe-eval' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net` — the two pinned CDN origins are required by FR-002 (CDN-loaded, no build toolchain), `'unsafe-eval'` is required by Babel Standalone's runtime JSX compilation via `new Function(...)`, and `'unsafe-inline'` is required because Babel injects the transpiled module back into the DOM as an inline `<script>` element that `script-src-elem` would otherwise block. The precompile-at-build alternative is tracked for a future phase when a frontend toolchain is introduced. SRI integrity attributes are required on every cross-origin CDN `<script>` (task T204); `frontend/app.jsx` is a same-origin static asset and therefore exempt from SRI. `connect-src 'self' <SACP_WEB_UI_MCP_ORIGIN> <ws-equivalent> <SACP_WEB_UI_WS_ORIGIN>` — operator sets the env vars to their deployment's MCP and Web UI WS origins; the previous broad `ws: wss:` was tightened to explicit origins to close an exfiltration channel if any future XSS slips past DOMPurify. `default-src 'self'`, `style-src 'self' 'unsafe-inline'`, `img-src 'self'`, `font-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`, `base-uri 'self'`, `form-action 'self'`, `report-uri /csp-report`. No `data:` URIs for images. CSP violations POST to `/csp-report` (logged at WARNING, returns 204) so silent regressions are visible in server logs; the endpoint is exempt from CSRF-header enforcement because browsers cannot add custom headers to violation reports.
+- **SR-001a**: WebSocket frame size MUST be capped (default 256 KB via `ws_max_size` on the uvicorn config in `src/run_apps.py`). The default uvicorn cap is 16 MB, which is large enough that a malicious server (or compromised orchestrator) could OOM a browser tab via a single oversized frame. SACP messages are bounded above by `MAX_MESSAGE_CONTENT_CHARS = 2_000` so 256 KB leaves comfortable headroom for state_snapshot payloads while closing the OOM surface.
+- **SR-002**: Security headers on all responses (canonical values pinned in `src/web_ui/security.py`):
+  - `Strict-Transport-Security: max-age=31536000; includeSubDomains` (1 year, includes subdomains).
+  - `X-Content-Type-Options: nosniff`.
+  - `X-Frame-Options: DENY`.
+  - `Referrer-Policy: no-referrer`.
+  - `Permissions-Policy: camera=(), microphone=(), geolocation=()`. Phase 1 denies camera, microphone, and geolocation; additional directives (`payment=()`, `usb=()`, `magnetometer=()`, `xr-spatial-tracking=()`) are deferred — trigger: when Web UI introduces any feature that touches a Permissions-Policy-controlled API.
+  - `Cache-Control: no-store` (SR-008).
 - **SR-003**: CORS restricted to own origin only. No wildcard.
 - **SR-004**: WebSocket upgrade validates Origin header. Missing or mismatched origins closed with 4403. Allowed origins come from `SACP_WEB_UI_ALLOWED_ORIGINS` (CSV), defaulting to same-origin (Origin matches the request's own `Host`). Required by constitution §9.
 - **SR-005**: No `dangerouslySetInnerHTML` on unsanitized content. Only on markdown-rendered output with security overrides active.
 - **SR-006**: CSRF protection via `X-SACP-Request: 1` custom header on all mutations.
 - **SR-007**: API keys and system prompts never displayed in the UI.
-- **SR-008**: `Cache-Control: no-store` on all API responses and the HTML page.
+- **SR-008**: `Cache-Control: no-store` on all API responses and the HTML page (also tracked in SR-002 for consolidation).
+- **SR-009**: Markdown link rendering MUST add `rel="noreferrer noopener"` to every `<a>` tag with `target="_blank"`. Forbidden URL schemes for `<a href>`: `javascript:`, `data:`, `vbscript:`, `file:` (current Phase 1 set in `frontend/app.jsx`). Additional schemes (`chrome-extension:`, `moz-extension:`, `intent:`, `ms-windows-store:`) are deferred to Phase 3; trigger: any deployment that observes a renderable href with a non-allowlisted scheme.
+- **SR-010**: Pending participants (002 §FR-020 + §US12) MUST receive a filtered state_snapshot containing session name and human-participant list only — no transcript, no AI roster. Filtering is applied at `src/web_ui/snapshot.py:_pending_snapshot`. Ongoing WebSocket events (message, convergence_update, review_gate_staged) for pending participants are NOT separately filtered in Phase 1+2: pending participants connected via WebSocket may receive transcript-relevant events. Filter-on-broadcast is deferred to Phase 3 — trigger: any operator observation that pending participants gleaned transcript content from live events. The mechanism (`broadcast_to_session_roles`) already exists in `src/web_ui/websocket.py`; activation requires routing each call site through the role-aware variant.
+- **SR-011**: Sensitive participant fields (`api_key_encrypted`, `auth_token_hash`, `bound_ip`, `system_prompt`) MUST be stripped from WS state_snapshot payloads at the server-side allow-list serializer (`_participant_dict` in `src/web_ui/snapshot.py`). The Web UI defends in depth: even if the server forgets, the React renderer's allow-list silently drops unknown / sensitive keys. Defense-in-depth is intentional duplication — see also 010 §FR-4 / §FR-9 for the debug-export equivalent and CI guard.
+- **SR-012**: Malformed WebSocket frames received by the client (invalid JSON, missing required fields) MUST be discarded with a `console.warn` log; the WebSocket connection MUST NOT be torn down. The client re-syncs at the next `state_snapshot` event (sent on reconnect per FR-005) so transient parser failures don't propagate user-facing errors.
 
 ### Key Entities
 
@@ -249,6 +260,36 @@ AI-generated message content is rendered as markdown with mandatory security con
 - Session creation wizard, invite/onboarding flow, and export UI are simple enough to implement directly from the API spec — no separate sub-specs needed.
 - Branching UI, sub-session navigation, and OAuth 2.1 are Phase 3 — not in scope here.
 - Accessibility audit (keyboard nav, ARIA, screen reader) is a follow-up pass after initial implementation.
+
+## Threat model traceability
+
+| FR / SR | Defends against | OWASP ASVS L2 v4.0.3 | NIST SP 800-53 |
+|---------|------------------|----------------------|----------------|
+| FR-003, FR-014, SR-009 (token storage + WS close codes + safe link rels) | Token theft, window-name attacks, replay | V3.4, V3.7 | IA-2, SC-23 |
+| FR-006, SR-005, SR-009 (markdown sanitization + scheme blocking) | XSS, exfiltration via malicious URLs | V14.4 | SI-15 |
+| FR-009, FR-016 (role-gated controls + admin panel) | Privilege escalation in browser | V4.1 | AC-3 |
+| SR-001, SR-001a (CSP + WS frame cap + report-uri) | XSS, inline-script injection, OOM via WS frame, silent CSP regression | V14.4 | SI-15, SC-5, AU-2 |
+| SR-002 (HSTS / X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Permissions-Policy / Cache-Control) | Downgrade attack, MIME-sniff XSS, clickjacking, referrer leak, capability misuse, sensitive-state caching | V14.3, V14.4 | SC-7, SC-8, SC-23 |
+| SR-003, SR-004 (CORS strict + WS Origin validation) | Cross-origin reuse of authenticated session | V14.5 | SC-7 |
+| SR-006 (custom CSRF header) | CSRF on mutation endpoints | V13.2 | SC-23 |
+| SR-007, SR-011 (no API-keys/system-prompts in UI + defense-in-depth strip) | Credential / system-prompt leak via UI | V14.3 | SC-28 |
+| SR-008 (Cache-Control: no-store) | Sensitive state cached by browser / proxy | V14.4 | SC-28 |
+| SR-010 (pending-snapshot filter) | Pre-approval information disclosure | V4.2 | AC-3 |
+| SR-012 (graceful WS frame parser) | Malformed-input crash / DoS | — | SI-10 |
+
+Sister cross-references: token rotation invalidates the UI session via 002 §FR-008 + this spec FR-003; markdown sanitization runs server-side at 007 §FR-001 / §FR-006 / §FR-007 and again at the renderer (defense in depth); the SSE-side counterpart to SR-001a's WS frame cap is 006 §FR-013 (bounded queue with drop-on-full); the sensitive-field allow-list mirrors 010 §FR-9's CI guard.
+
+## Audit closeout (2026-04-29)
+
+The security-requirements quality audit (`checklists/security.md`) raised 47 findings; resolution split:
+
+**Code changes**:
+- CHK013 (uvicorn `ws_max_size=256*1024` in `src/run_apps.py` — closes WebSocket OOM surface).
+- CHK003 (CSP `report-uri /csp-report` directive added to `src/web_ui/security.py`; new `/csp-report` endpoint stub in `src/web_ui/app.py` logs the violation at WARNING and returns 204; CSRF middleware exempts the path so browsers can post reports without the custom header).
+
+**Spec amendments (this commit)**: CHK001 (SR-001 clarifies SRI applies to cross-origin CDN scripts only; `app.jsx` is same-origin and exempt), CHK003 / CHK032 (SR-001 codifies `report-uri`; SR-012 codifies malformed-frame discard semantics), CHK005 / CHK006 (SR-002 pins exact HSTS / Permissions-Policy / X-Frame-Options values + Phase 3 trigger for additional directives), CHK013 (SR-001a codifies WS frame size cap), CHK016 / CHK019 (SR-009 codifies allowed-scheme list + `rel="noreferrer noopener"` mandate + Phase 3 trigger for additional schemes), CHK020 / CHK022 (SR-010 codifies pending-snapshot filter + acknowledged event-filter gap as accepted residual with Phase 3 trigger), CHK023 (SR-005 cross-ref pins "sanitized = output of marked + DOMPurify"), CHK033 / CHK045 (SR-011 codifies sensitive-field allow-list + defense-in-depth duplication + cross-ref 010), CHK039 (Threat-model traceability table mapping every FR / SR to OWASP ASVS L2 + NIST SP 800-53), SR-008 cross-reference to SR-002 for consolidation.
+
+**Closed as cross-reference / accepted residual**: CHK002 (CSP `connect-src` operator-config — operators set `SACP_WEB_UI_MCP_ORIGIN`; covered in SR-001), CHK004 (precompile-at-build alternative — accepted residual; SR-001 documents trigger), CHK007 / CHK008 (token storage + rotation timing — covered by 002 §FR-008 + this spec FR-003), CHK010 (token-reveal modal one-time-only — accepted residual; user can re-rotate to recover), CHK011 (WS Origin exact-match — confirmed at `src/web_ui/websocket.py`), CHK012 (close-code semantics — FR-014 enumerates), CHK014 (rotation gap — same as CHK008), CHK015 / CHK017 / CHK018 / CHK046 (markdown defense-in-depth — server (007) + UI (FR-006) layered intentionally), CHK021 (pending → participant escalation timing — covered by `participant_update` WS event + `state_snapshot` re-sync on reconnect), CHK024 (CSRF custom header on mutations only — WS frames don't need it; Origin validation defends), CHK025 (SR-007 own vs other system_prompt — accepted: NO participant sees any system_prompt via WS; allow-list strips them all), CHK026 (markdown XSS test corpus — accepted residual; comprehensive XSS-corpus testing requires JS test framework not in Phase 1+2 scope; manual red-team via `docs/red-team-runbook.md`), CHK027 (own row strip — confirmed at `_participant_dict` allow-list), CHK028 (whitespace-in-token sign-in — accepted residual; token validation handles edge cases), CHK029 (rotation SSOT — covered by 002 §FR-008 + this spec FR-003), CHK030 (XSS test fixture — same as CHK026), CHK031 (WS reconnect under packet loss — covered by FR-014 exponential backoff), CHK034 (multi-tab — accepted residual; cookie shared, last-WS-wins), CHK035 / CHK036 (large / adversarial markdown DoS — accepted residual; client-side bound by browser), CHK037 (clipboard-readText cross-origin — browser policy enforces, not our concern), CHK038 (whitespace-in-token-paste — token validation handles), CHK040 (CDN failure fallback — accepted residual already in Assumptions), CHK041 (a11y deferred — Assumptions trigger documented), CHK042 / CHK043 (Babel Standalone reliance — accepted; precompile trigger documented), CHK044 (US11 / US12 onboarding security review — implicit in this audit), CHK047 (CSRF cross-origin custom header — accepted: browsers prevent custom headers cross-origin; rationale in SR-006).
 
 ## Topology and Use Case Coverage (V12/V13)
 

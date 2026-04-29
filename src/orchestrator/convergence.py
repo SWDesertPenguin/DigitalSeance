@@ -38,12 +38,20 @@ class ConvergenceDetector:
         self._divergence_prompted = False
 
     def load_model(self) -> None:
-        """Load the sentence-transformers model (SafeTensors)."""
+        """Load the sentence-transformers model in SafeTensors format only.
+
+        Per spec 004 FR-013 ("SafeTensors only — no pickle deserialization"),
+        the loader passes use_safetensors=True to the underlying transformers
+        from_pretrained call. If the model files don't include SafeTensors
+        weights, the load fails hard rather than silently falling back to
+        .bin (pickle), which would be a supply-chain attack surface.
+        """
         try:
             from sentence_transformers import SentenceTransformer
 
             self._model = SentenceTransformer(
                 "all-MiniLM-L6-v2",
+                model_kwargs={"use_safetensors": True},
             )
             log.info("Loaded embedding model (SafeTensors)")
         except Exception:

@@ -42,13 +42,23 @@ async def _run() -> None:
 
 
 def _server(app, port: int) -> uvicorn.Server:  # type: ignore[no-untyped-def]
-    """Build a uvicorn Server bound to 0.0.0.0 for a given port."""
+    """Build a uvicorn Server bound to 0.0.0.0 for a given port.
+
+    ws_max_size caps WebSocket payloads at 256 KB (011 §FR-013 / CHK013).
+    The default uvicorn cap is 16 MB which is large enough that a malicious
+    server (or compromised orchestrator) could OOM a browser tab via a
+    single oversized frame. SACP messages are bounded above by the
+    `MAX_MESSAGE_CONTENT_CHARS = 2_000` cap on inject_message, so 256 KB
+    leaves comfortable headroom for state_snapshot payloads while closing
+    the OOM surface.
+    """
     return uvicorn.Server(
         uvicorn.Config(
             app,
             host="0.0.0.0",  # noqa: S104 — containerized service
             port=port,
             log_level="info",
+            ws_max_size=256 * 1024,
         )
     )
 
