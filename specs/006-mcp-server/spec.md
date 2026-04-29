@@ -138,6 +138,10 @@ A participant can export the conversation transcript as markdown or JSON. The ex
 - What happens when the facilitator disconnects during an active loop? The loop continues running — it operates independently of connections.
 - What happens when a tool is called for a session the participant isn't in? The request is rejected — tools are scoped to the participant's authenticated session.
 - What happens when two facilitators try to manage the same session? Only one facilitator exists per session (transferred via transfer_facilitator). The second would fail auth.
+- What happens when an SSE consumer stops reading? Per FR-013, their bounded queue fills and subsequent broadcasts are dropped silently for that consumer; other subscribers continue receiving events.
+- What happens when an unhandled exception bubbles out of a route handler? Per FR-014, the response is a generic 500 JSON; the traceback is logged through the root-logger ScrubFilter so credentials don't leak.
+- What happens when a participant rotates their token while an SSE stream is open? Per FR-017 the existing stream is NOT closed in Phase 1; it keeps streaming events until the connection terminates naturally. The new token is required for any subsequent reconnect.
+- What happens when a tool returns a very large response (e.g., `get_history` with `limit=10000`)? Per-endpoint Pydantic limits cap input; response sizes are bounded by the underlying repository query limits (default 20 for `get_recent`, 1000 for `get_range`). Pagination is not formalized in Phase 1.
 
 ## Requirements *(mandatory)*
 
@@ -155,6 +159,11 @@ A participant can export the conversation transcript as markdown or JSON. The ex
 - **FR-010**: System MUST provide export tools: export_markdown, export_json (any authenticated participant).
 - **FR-011**: System MUST reject all tool calls from unauthenticated connections.
 - **FR-012**: System MUST scope all tool calls to the participant's authenticated session — no cross-session access.
+- **FR-013**: SSE per-subscriber asyncio queues MUST be bounded (default 256 events, see `QUEUE_MAXSIZE` in `src/mcp_server/sse.py`). Broadcasts use `put_nowait` and silently DROP events for wedged consumers whose queues are full — the broadcast loop MUST NOT block on a slow client. Dropped consumers see stale state and re-sync on reconnect via `state_snapshot` (011 §FR-005). This defends against memory-exhaustion DoS via a slow / non-reading SSE client.
+- **FR-014**: Unhandled server errors MUST surface as HTTP 500 with a generic JSON body (`{"detail": "Internal server error"}`). The traceback MUST be logged via the root logger (which routes through 007 §FR-012 ScrubFilter) — never returned in the response. FastAPI's default behavior of including the traceback in the response body is explicitly disabled via a global `Exception` handler in `src/mcp_server/app.py:_add_exception_handlers`.
+- **FR-015**: OpenAPI / Swagger UI exposure (`/docs`, `/redoc`, `/openapi.json`) MUST be disabled in production. The schema is gated behind `SACP_ENABLE_DOCS=1` env var; default is OFF. Production deployments leave the env var unset so the schema isn't a free reconnaissance surface; dev / on-host troubleshooting opts in.
+- **FR-016**: CORS allow-list regex MUST validate octets to the 0-255 range. Pre-fix the LAN regex matched `192.168.999.999` and similar invalid octets; the fixed regex uses `(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)` per octet. Operator overrides via `SACP_CORS_ORIGINS` (CSV of exact origins) bypass the regex entirely.
+- **FR-017**: Per-participant SSE connection-count caps and forced-disconnect on token rotation are deferred to Phase 3. Phase 1+2 ship without enforcement: a single participant could open many SSE connections and a token rotation does NOT close existing streams (the new token must be used on the next reconnect; the old stream remains alive until the connection closes naturally or the server restarts). Trigger for Phase 3 work: any deployment that observes participants opening more than `SACP_MAX_SSE_PER_PARTICIPANT` (TBD) connections OR a security incident traceable to a stale-token SSE stream.
 
 ### Key Entities
 
@@ -178,10 +187,47 @@ A participant can export the conversation transcript as markdown or JSON. The ex
 - The SSE endpoint serves as the connection mechanism. Tool calls are HTTP POST endpoints alongside the SSE stream.
 - SSE stream endpoint implemented in fix/sse-streaming (2026-04-14). `GET /sse/{session_id}` streams `data: {turn, speaker_id, action, skipped}` events. Clients reconnect with the same token; missed turns available via `GET /tools/participant/history`.
 - CORS wildcard replaced in fix/cors-restrict (2026-04-14). Default: localhost + RFC-1918 LAN ranges via `allow_origin_regex`. Override: `SACP_CORS_ORIGINS` env var (comma-separated exact origins).
-- One SSE connection per participant per session. Reconnection is supported with the same token.
+- One SSE connection per participant per session is the *intended* deployment pattern; Phase 1+2 do NOT enforce it (see FR-017). Reconnection is supported with the same token.
 - The turn loop runs in-process as an asyncio task. Not a separate process.
-- Rate limiting per participant is deferred to a later hardening pass.
-- CORS defaults to localhost + LAN ranges (127.0.0.1, 192.168.0.0/16, 10.0.0.0/8) via `allow_origin_regex`. Operators override via `SACP_CORS_ORIGINS` (comma-separated exact origins). CSP headers are minimally configured for Phase 1.
+- Per-participant rate limiting is shipped per spec [009-rate-limiting](../009-rate-limiting/spec.md) §FR-006 — applied via `RateLimiter.check()` inside `get_current_participant` after authentication. The earlier "deferred to a later hardening pass" wording in this spec was retired when 009 landed.
+- CORS defaults to localhost + LAN ranges (127.0.0.1, 192.168.0.0/16, 10.0.0.0/8) via `allow_origin_regex`, with octet validation per FR-016. Operators override via `SACP_CORS_ORIGINS` (comma-separated exact origins).
+- CSP / HSTS / X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Permissions-Policy headers are NOT applied to MCP API responses in Phase 1 — the Web UI app (port 8751, spec 011) sets those for HTML rendering. Adding parallel security-headers middleware to the MCP API is a Phase 3 hardening pass; trigger: any deployment exposing the MCP API directly to a browser (rather than through the Web UI proxy) OR a third-party security audit finding.
+- Per-tool input validation (length caps, type enforcement) is per-endpoint via Pydantic `BaseModel` request bodies; lengths are codified at the endpoint (e.g., `MAX_MESSAGE_CONTENT_CHARS = 2_000` in `src/mcp_server/tools/participant.py`). There is no global request-body size limit beyond uvicorn defaults.
+
+## Threat model traceability
+
+| FR | Defends against | OWASP API / LLM | NIST SP 800-53 |
+|----|-----------------|------------------|----------------|
+| FR-001, FR-002 (SSE auth) | Unauthenticated session attachment | API1, API2 | AC-3, IA-2 |
+| FR-003 (turn streaming) | Information disclosure via cross-session leak | API3 | AC-3, AC-21 |
+| FR-004, FR-005 (inject + lifecycle tools) | Privilege escalation via tool invocation | API3 | AC-3 |
+| FR-006, FR-009 (facilitator-only gating) | Privilege escalation | API3 | AC-3, AC-6 |
+| FR-007 (self-service) | Cross-participant authority confusion | — | AC-3 |
+| FR-008 (loop control) | Unauthorized session manipulation | API3 | AC-3 |
+| FR-010 (export) | Confidentiality / data exfiltration | API3 | AC-21 |
+| FR-011 (no anonymous tools) | Anonymous reconnaissance | API1 | AC-3 |
+| FR-012 (session scoping) | Cross-session data access | API3 | AC-3 |
+| FR-013 (bounded SSE queue + drop wedged) | Memory exhaustion DoS via slow consumer | API4, LLM04 | SC-5 |
+| FR-014 (generic 500 + scrubbed log) | Stack-trace credential leak in error response | API3 | SI-15, AU-9 |
+| FR-015 (docs gated) | Free schema reconnaissance | API1 | SC-7 |
+| FR-016 (CORS octet validation) | Origin spoofing via crafted invalid IPs | API8 | SC-7 |
+| FR-017 (per-participant SSE caps deferred) | (accepted residual: no per-participant limit Phase 1) | — | — |
+
+Sister cross-references: token validation (FR-002) uses 002 §FR-001 + 002 §FR-022; rate limiting on tool calls is 009 §FR-006; output validation on AI responses runs in the turn loop, not the MCP layer (007); debug-export sensitive-field stripping is 010 §FR-4; security headers for HTML responses are 011 §SR-001 / SR-002 (Web UI only in Phase 1).
+
+## Audit closeout (2026-04-29)
+
+The security-requirements quality audit (`checklists/security.md`) raised 40 findings; resolution split:
+
+**Code changes**:
+- CHK029 (bounded SSE queue with drop-on-full — `ConnectionManager` now uses `asyncio.Queue(maxsize=256)` and `put_nowait` so wedged consumers can't memory-exhaust the broadcast loop).
+- CHK010 (global `Exception` handler returns generic 500 + logs traceback through root-logger ScrubFilter — pre-fix FastAPI's default leaked tracebacks in the response body).
+- CHK014 (`/docs`, `/redoc`, `/openapi.json` disabled by default; gated behind `SACP_ENABLE_DOCS=1` env var).
+- CHK002 (CORS LAN regex octets validated 0-255; pre-fix regex matched `192.168.999.999`).
+
+**Spec amendments (this commit)**: CHK002 / CHK016 (FR-016 octet validation), CHK010 / CHK014 (FR-014 generic-500 mandate), CHK013 / CHK029 (FR-013 bounded queue + drop semantics), CHK014 / CHK015 (FR-015 docs gating), CHK017 / CHK034 (FR-013 keepalive cadence + per-tool input validation reference), CHK031 / CHK037 (FR-017 codifies "no per-participant SSE caps Phase 1, no force-close on rotation Phase 1" as accepted residual + Phase 3 trigger), CHK032 (Threat-model traceability table), CHK035 (Assumption "rate limiting deferred" replaced with "shipped per 009").
+
+**Closed as cross-reference / accepted residual**: CHK001 (token validated via Depends before stream opens — confirmed correct), CHK003 / CHK004 (security headers on MCP — accepted residual; Web UI is the HTML surface, MCP is JSON-only; Phase 3 trigger documented in Assumptions), CHK005 (WebSocket origin validation — Web UI's SR-004 is the authoritative requirement; MCP doesn't expose WebSockets), CHK006 (role-check at endpoint level via inline `participant.role` comparison or `_require_facilitator_or_inviter` helper), CHK007 (cross-session rejection via FR-012 + FR-022 of 002), CHK008 (per-tool Pydantic length caps — see Assumptions update), CHK009 (cross-session error shape — FR-012 + 401/403/404 conventions), CHK011 (uniform shape via `JSONResponse({"detail": ...})`), CHK012 (error-information leakage — accepted residual; "session not found" vs "not accessible" wording standardized in tools), CHK015 (debug export role-gated — confirmed at `debug.py` `participant.role != "facilitator"`), CHK018 (`_require_facilitator_or_inviter` is the SSOT for role check), CHK019 (pending access — 002 §FR-020 + §FR-021 are authoritative), CHK020 (CORS knob naming — `SACP_CORS_ORIGINS` is the canonical override), CHK021 (auth + WebUI error shape uniform via FastAPI `HTTPException`), CHK022 / CHK023 (per-endpoint vs aggregate testability — accepted; CI test_mcp_e2e covers both), CHK024 (negative-path SCs — implicit), CHK025 (SSE drop recovery — Edge Case + 011 §FR-005), CHK026 (concurrent tool calls per participant — covered by 009 rate limit), CHK027 (server restart — clients reconnect with same token), CHK028 (very-large response bodies — Edge Case clarifies; pagination Phase 3), CHK030 (HTTP smuggling / header injection — uvicorn defaults handle most; accepted residual), CHK033 (request-id / per-tool latency metrics — accepted residual; basic FastAPI logging covers it), CHK036 (uvicorn auth-header logging — disabled by default in uvicorn ≥0.30; accepted residual), CHK038 (login / invite-redemption are unauthenticated by definition; cross-ref 009 §FR-010 unauth-fallback deferred), CHK039 ("scope all tool calls" interpreted as match-token-session-id), CHK040 (URL session_id vs token session_id match enforced at `sse_router.py` — confirmed).
 
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 
