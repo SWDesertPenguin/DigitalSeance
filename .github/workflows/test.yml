@@ -53,5 +53,8 @@ jobs:
       - name: Traceability gate (FR-to-test artifact)
         run: python scripts/check_traceability.py
 
+      - name: Env-vars gate (SACP_* code/docs/validators coverage)
+        run: python scripts/check_env_vars.py
+
       - name: Run tests
         run: pytest -v --tb=short
