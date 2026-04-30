@@ -36,6 +36,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "integration: requires real Postgres + orchestrator + LiteLLM; runs in a separate CI tier per spec 012 FR-015",
+    "e2e: end-to-end browser tests via Playwright (skipped without [e2e] extras)",
 ]
 
 [tool.ruff]
