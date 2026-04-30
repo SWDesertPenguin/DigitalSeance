@@ -52,6 +52,9 @@ test-plan-*.md
 # === Local feedback backlog (not for GitHub) ===
 FEEDBACK.local.md
 
+# === Local audit plan (not for GitHub) ===
+AUDIT_PLAN.local.md
+
 # === OS ===
 .DS_Store
 Thumbs.db
