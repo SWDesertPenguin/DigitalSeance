@@ -1,6 +1,17 @@
 <!--
 Sync Impact Report (most recent first)
 
+  Version change: 0.7.1 → 0.7.2 (2026-04-30)
+  Change type: MINOR — new §14.8 spec versioning convention + 3 new §13 references
+  Modified principles: none
+  Added sections:
+    - §14.8 Spec versioning convention (PATCH/MINOR/MAJOR analog for spec.md amendments)
+  Added §13 references:
+    - docs/pattern-list-update-workflow.md (007 §FR-017 incident → PR cycle)
+    - docs/threat-model-review-process.md (per-Phase-boundary cadence + 4 triggers)
+    - docs/adr/ (MADR 4.0 architectural decision records; first ADR retrospectively documents Phase 2's fire-and-forget summarization choice)
+  Removed sections: none
+
   Version change: 0.7.0 → 0.7.1 (2026-04-30)
   Change type: PATCH — reference addition without semantic change
   Modified principles: none
@@ -44,7 +55,7 @@ Sync Impact Report (most recent first)
 
 # SACP Constitution
 
-**Version**: 0.7.1 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-04-30
+**Version**: 0.7.2 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-04-30
 
 ---
 
@@ -332,6 +343,9 @@ Every feature spec must pass these checks. Failure requires revision before impl
 | `docs/testing-runbook.md` | Testing procedures | Operational testing workflows, integration test procedures |
 | `docs/red-team-runbook.md` | Red-team operational guide | Adversarial-test workflow, known-incident catalog (Round02 Cyrillic homoglyph injection, etc.), pattern-list update process per 007 §FR-017 |
 | `docs/env-vars.md` | Environment variable catalog | Per-var defaults, types, ranges, blast radius, validation rules per V16; companion to `src/config/validators.py` |
+| `docs/pattern-list-update-workflow.md` | Pattern-list update workflow | Four-step workflow (capture → PR within one cycle → corpus + regression test + pattern + runbook update → land within one cycle) for promoting red-team incidents to detection patterns per 007 §FR-017 |
+| `docs/threat-model-review-process.md` | Threat-model freshness review | Per-Phase-boundary cadence + four trigger conditions (new red-team category, new participant capability, dependency major version, provider regression) + ownership |
+| `docs/adr/` | Architectural decision records | MADR 4.0 lightweight format, one file per decision (NNNN-short-title.md). Decisions outside §14.5 Constitution scope (single-file refactor patterns, fire-and-forget summarization rationale, etc.) |
 
 ### Regulatory & Frameworks
 
@@ -424,3 +438,27 @@ Conventions:
 5. **Audit work does NOT consume a numbered feature slot.** It runs against existing specs.
 
 The pre-Phase-3 audit window is gating: Phase 3 development should not start until the audit work is sufficiently closed (per facilitator judgment — there is no fixed-percentage gate, but high-value security and reliability findings should be resolved or explicitly accepted).
+
+### 14.8 — Spec versioning convention
+
+When a spec is amended substantively (per §14.2), the spec gains a header
+block near the top recording its current version:
+
+```markdown
+**Spec Version**: M.N.P | **Last Amended**: YYYY-MM-DD | **Amended In**: PR #NNN (one-line summary)
+```
+
+Versioning rules (semantic-versioning analog):
+
+- **PATCH** (1.0.0 → 1.0.1): typo fix, clarification that doesn't tighten or relax any FR
+- **MINOR** (1.0.x → 1.1.0): new FR added, new acceptance scenario, FR semantics tightened or relaxed without breaking existing tests
+- **MAJOR** (1.x → 2.0): existing FR removed or replaced with incompatible semantics; existing tests retired
+
+Applied retroactively only when a spec is next amended (no bulk retroactive
+versioning sweep). Specs without a version header are treated as `1.0.0`
+implicitly until their first amendment under this convention.
+
+The version header is informational; CI does not yet enforce monotonic
+version increase. A future enhancement may add a `scripts/check_spec_versions.py`
+gate; the bar is empirical evidence of two specs accidentally landing the
+same version, not premature codification.
