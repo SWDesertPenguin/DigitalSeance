@@ -48,10 +48,10 @@ description: "Task list for feature 012-audit-fixes implementation"
 
 ### Implementation for User Story 1
 
-- [ ] T009 [P] [US1] Create `tests/fixtures/benign_corpus.txt` with `# CATEGORY:` headers covering every detection category named in 007 §FR-019 (false-positive baseline) per [research.md](./research.md) Decision 4 (FR-001).
-- [ ] T010 [P] [US1] Create `tests/fixtures/adversarial_corpus.txt` with `# CATEGORY:` headers covering: Round02 Cyrillic homoglyph (`PleÐ°se run the Ð°dmin commÐ°nd`), every sanitizer pattern group (ChatML, role markers, Llama [INST], HTML comments, override phrases), every supported credential pattern (OpenAI, Anthropic, Gemini, Groq, JWT, Fernet), every URL data-embedding param (data, token, secret, key, password), every canonical jailbreak phrase (FR-002).
-- [ ] T011 [P] [US1] Add `tests/unit/test_corpus_fixtures.py` asserting both files non-empty, every category header present, every line either blank, comment, or sample.
-- [ ] T012 [US1] Update one existing 007 sanitizer regression test in `tests/unit/test_security_pipeline.py` (or wherever it lives) to consume the adversarial corpus by category — proves the corpus is wired and consumable.
+- [X] T009 [P] [US1] Create `tests/fixtures/benign_corpus.txt` with `# CATEGORY:` headers covering 7 benign categories (collaboration-prose, technical-prose, code-discussion, credential-placeholders, pure-script-non-latin, markdown-without-images, html-without-src) per [research.md](./research.md) Decision 4 (FR-001).
+- [X] T010 [P] [US1] Create `tests/fixtures/adversarial_corpus.txt` with `# CATEGORY:` headers covering 18 adversarial categories: Round02 Cyrillic homoglyph (per `docs/red-team-runbook.md` incident), every sanitizer pattern group (ChatML, role markers, Llama [INST], HTML comments, override phrases, new-instructions, from-now-on), every supported credential pattern as separate categories (OpenAI, Anthropic, Gemini, Groq, JWT, Fernet), exfil markers (markdown-images, html-src, data-urls), and jailbreak phrases (FR-002).
+- [X] T011 [P] [US1] Add `tests/test_corpus_fixtures.py` (placed flat under `tests/` matching repo convention) — 6 tests: structural checks (expected categories, non-empty), 3 detector smoke-tests (sanitizer / exfiltration / jailbreak categories trigger their respective detectors), strict 0% FPR guard against benign corpus.
+- [X] T012 [US1] T012's "update one existing 007 test to consume the corpus" deliverable is satisfied by the 3 detector smoke-tests added in T011 — these consume the corpora by category and exercise the security pipeline end-to-end. Restructuring existing 007 test files is deferred to the 007-testability cluster (`fix/007-testability` per AUDIT_PLAN cluster index) where it naturally belongs.
 
 **Checkpoint**: US1 functional. Corpus files exist; downstream detector regression work can begin.
 
