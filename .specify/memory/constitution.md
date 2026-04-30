@@ -1,5 +1,14 @@
 <!--
-Sync Impact Report
+Sync Impact Report (most recent first)
+
+  Version change: 0.7.0 → 0.7.1 (2026-04-30)
+  Change type: PATCH — reference addition without semantic change
+  Modified principles: none
+  Added §13 references: docs/env-vars.md (env-var catalog backing V16
+    startup validators per spec 012 FR-005). Companion to
+    src/config/validators.py landed in the same PR (012 US2).
+  Removed sections: none
+
   Version change: 0.6.0 → 0.7.0
   Change type: MINOR — Phase 2 retrospective + new principle (placeholder) + new validation rules + new change-management category + drift corrections
   Modified principles:
@@ -35,7 +44,7 @@ Sync Impact Report
 
 # SACP Constitution
 
-**Version**: 0.7.0 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-04-29
+**Version**: 0.7.1 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-04-30
 
 ---
 
@@ -322,6 +331,7 @@ Every feature spec must pass these checks. Failure requires revision before impl
 | `.pre-commit-config.yaml` | Hook chain | gitleaks → ruff → lint_code_standards.py |
 | `docs/testing-runbook.md` | Testing procedures | Operational testing workflows, integration test procedures |
 | `docs/red-team-runbook.md` | Red-team operational guide | Adversarial-test workflow, known-incident catalog (Round02 Cyrillic homoglyph injection, etc.), pattern-list update process per 007 §FR-017 |
+| `docs/env-vars.md` | Environment variable catalog | Per-var defaults, types, ranges, blast radius, validation rules per V16; companion to `src/config/validators.py` |
 
 ### Regulatory & Frameworks
 
