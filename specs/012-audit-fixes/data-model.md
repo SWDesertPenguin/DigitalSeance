@@ -32,13 +32,13 @@ This feature is primarily documentation and infrastructure work; schema addition
 |---|---|---|---|---|
 | `layer_duration_ms` | INTEGER | NULL | NULL | 007 §FR-020 |
 | `override_reason` | TEXT | NULL | NULL | §4.9 (b)/(b'-equivalent only) — FR-006 |
-| `override_actor_id` | UUID | NULL | NULL | §4.9 (b) — FR-006; references `participants.id` |
+| `override_actor_id` | TEXT | NULL | NULL | §4.9 (b) — FR-006; references `participants.id` (no FK constraint, mirrors `admin_audit_log` pattern from alembic 007 so audit rows survive participant deletion) |
 
 **Validation rules**:
 
 - `layer_duration_ms` non-negative; written at the close of every layer call in `src/security/pipeline.py`.
 - `override_reason` populated ONLY when `event_type='facilitator_override'`; non-NULL value MUST be ≥ 16 characters (prevents low-friction "ok" / "test" overrides) and ≤ 4000 characters (length cap; enforced in `src/security/review_gate.py`).
-- `override_actor_id` non-NULL when `override_reason` is non-NULL; references the facilitator who issued the override. FK to `participants.id` with ON DELETE SET NULL (preserves audit trail when the actor is later removed, per 001 §FR-019 audit-log retention semantics).
+- `override_actor_id` non-NULL when `override_reason` is non-NULL; holds the facilitator's `participants.id`. No FK constraint — audit rows must survive participant deletion (mirrors the `admin_audit_log` denormalized-identifier pattern landed in alembic 007 per 001 §FR-019).
 - A new event type `event_type='facilitator_override'` joins the existing enumeration (sanitization, credential_detected, jailbreak_detected, pipeline_error, etc.). No DDL change to the column itself (it is a free-form VARCHAR per existing schema); the new value is documented in `docs/error-codes.md` and reflected in the application's event-type literal.
 
 ### `tests/conftest.py` raw DDL — mirror update

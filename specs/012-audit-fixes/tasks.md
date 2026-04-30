@@ -18,12 +18,12 @@ description: "Task list for feature 012-audit-fixes implementation"
 
 **Purpose**: Directory scaffolding and pytest configuration shared by all user stories.
 
-- [ ] T001 [P] Create `tests/fixtures/` directory with `.gitkeep`
-- [ ] T002 [P] Create `tests/integration/` directory with `__init__.py`
-- [ ] T003 [P] Create `docs/adr/` directory with placeholder `.gitkeep`
-- [ ] T004 [P] Create `docs/traceability/` directory with placeholder `.gitkeep`
-- [ ] T005 [P] Create `src/config/` directory with `__init__.py` (empty for now; T013/T014 populate it)
-- [ ] T006 Add `[tool.pytest.ini_options] markers = ["integration: requires real Postgres + orchestrator + LiteLLM"]` to `pyproject.toml` (FR-015 first half)
+- [X] T001 [P] Create `tests/fixtures/` directory with `.gitkeep`
+- [X] T002 [P] Create `tests/integration/` directory with `__init__.py`
+- [X] T003 [P] Create `docs/adr/` directory with placeholder `.gitkeep`
+- [X] T004 [P] Create `docs/traceability/` directory with placeholder `.gitkeep`
+- [X] T005 [P] Create `src/config/` directory with `__init__.py` (empty for now; T013/T014 populate it)
+- [X] T006 Add `[tool.pytest.ini_options] markers = ["integration: requires real Postgres + orchestrator + LiteLLM"]` to `pyproject.toml` (FR-015 first half)
 
 ---
 
@@ -33,8 +33,8 @@ description: "Task list for feature 012-audit-fixes implementation"
 
 **CRITICAL**: No US4 or US6 implementation tasks can begin until this phase completes.
 
-- [ ] T007 Create alembic migration `alembic/versions/008_security_events_instrumentation.py` adding `route_ms`, `assemble_ms`, `dispatch_ms`, `persist_ms`, `advisory_lock_wait_ms` to `routing_log` + `layer_duration_ms`, `override_reason`, `override_actor_id` to `security_events` per [data-model.md](./data-model.md). All columns nullable; `downgrade()` body is `pass` (forward-only invariant).
-- [ ] T008 Update `tests/conftest.py` raw DDL to mirror the new columns from T007 (the schema-mirror CI gate from US7 will enforce this drift class going forward).
+- [X] T007 Create alembic migration `alembic/versions/008_security_events_instrumentation.py` adding `route_ms`, `assemble_ms`, `dispatch_ms`, `persist_ms`, `advisory_lock_wait_ms` to `routing_log` + `layer_duration_ms`, `override_reason`, `override_actor_id` to `security_events` per [data-model.md](./data-model.md). All columns nullable; `downgrade()` body is `pass` (forward-only invariant).
+- [X] T008 Update `tests/conftest.py` raw DDL to mirror the new columns from T007 (the schema-mirror CI gate from US7 will enforce this drift class going forward).
 
 **Checkpoint**: Foundation ready — user stories can begin.
 
