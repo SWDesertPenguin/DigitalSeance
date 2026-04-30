@@ -18,11 +18,12 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Use the same Fernet key the CI workflow + repo precedent uses.
-_VALID_FERNET = "nVEFAqlxNoXayhpZiK-KXwxeto-_y0HXdbtGSGBzSr8="
+# Generated per process so no committable Fernet-shaped string lives in the tree.
+_VALID_FERNET = Fernet.generate_key().decode()
 _VALID_DB = "postgresql://user:pass@localhost:5432/db"
 
 
