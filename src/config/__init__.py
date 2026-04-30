@@ -13,12 +13,35 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from src.config.validators import (
+    VALIDATORS,
+    ConfigValidationError,
+    ValidationFailure,
+    iter_failures,
+)
+
 __all__ = [
+    "VALIDATORS",
+    "ConfigValidationError",
     "DatabaseConfig",
     "EncryptionConfig",
     "Settings",
+    "ValidationFailure",
     "load_settings",
+    "validate_all",
 ]
+
+
+def validate_all() -> None:
+    """Validate every SACP_* env var; raise ConfigValidationError on any failure.
+
+    Per Constitution §12 V16, called BEFORE binding any port at process
+    startup. Reports every failing var in a single raise (no early exit
+    on first failure) so operators see all drift in one pass.
+    """
+    failures = list(iter_failures())
+    if failures:
+        raise ConfigValidationError(failures)
 
 
 @dataclass(frozen=True, slots=True)
