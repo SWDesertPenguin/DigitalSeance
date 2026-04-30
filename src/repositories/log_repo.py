@@ -25,8 +25,19 @@ class LogRepository(BaseRepository):
         complexity: str,
         domain_match: bool,
         reason: str,
+        route_ms: int | None = None,
+        assemble_ms: int | None = None,
+        dispatch_ms: int | None = None,
+        persist_ms: int | None = None,
+        advisory_lock_wait_ms: int | None = None,
     ) -> RoutingLog:
-        """Append a routing decision log entry."""
+        """Append a routing decision log entry.
+
+        Per-stage timing columns (route_ms..advisory_lock_wait_ms) back
+        Constitution §12 V14 / 003 §FR-030 + §FR-032; populated by the
+        turn-loop persist path (012 US6) and remain NULL on skip-path
+        / pre-instrumentation rows.
+        """
         record = await self._fetch_one(
             _INSERT_ROUTING_SQL,
             session_id,
@@ -37,6 +48,11 @@ class LogRepository(BaseRepository):
             complexity,
             domain_match,
             reason,
+            route_ms,
+            assemble_ms,
+            dispatch_ms,
+            persist_ms,
+            advisory_lock_wait_ms,
         )
         return RoutingLog.from_record(record)
 
@@ -182,8 +198,15 @@ class LogRepository(BaseRepository):
         findings: str,
         risk_score: float | None = None,
         blocked: bool = False,
+        layer_duration_ms: int | None = None,
     ) -> SecurityEvent:
-        """Append a security pipeline detection record (CHK008)."""
+        """Append a security pipeline detection record (CHK008).
+
+        ``layer_duration_ms`` records the wall-clock time the named
+        layer spent inspecting the response (007 §FR-020); populated by
+        the turn-loop pipeline-runner (012 US6) and NULL on rows that
+        predate the instrumentation or on pipeline_error fast-paths.
+        """
         record = await self._fetch_one(
             _INSERT_SECURITY_EVENT_SQL,
             session_id,
@@ -193,6 +216,7 @@ class LogRepository(BaseRepository):
             risk_score,
             findings,
             blocked,
+            layer_duration_ms,
         )
         return SecurityEvent.from_record(record)
 
@@ -244,8 +268,11 @@ _INSERT_ROUTING_SQL = """
     INSERT INTO routing_log
         (session_id, turn_number, intended_participant,
          actual_participant, routing_action,
-         complexity_score, domain_match, reason)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         complexity_score, domain_match, reason,
+         route_ms, assemble_ms, dispatch_ms, persist_ms,
+         advisory_lock_wait_ms)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+            $9, $10, $11, $12, $13)
     RETURNING *
 """
 
@@ -312,8 +339,9 @@ _AUDIT_LOG_SQL = """
 
 _INSERT_SECURITY_EVENT_SQL = """
     INSERT INTO security_events
-        (session_id, speaker_id, turn_number, layer, risk_score, findings, blocked)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+        (session_id, speaker_id, turn_number, layer, risk_score, findings, blocked,
+         layer_duration_ms)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING *
 """
 
