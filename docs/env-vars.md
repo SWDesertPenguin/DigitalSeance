@@ -1,0 +1,152 @@
+# SACP Environment Variable Catalog
+
+Authoritative reference for every `SACP_*` environment variable consumed
+by the SACP orchestrator and Web UI. Per Constitution §12 V16, every var
+has a documented type, valid range, and fail-closed behavior on invalid
+values; the application validates every var at startup BEFORE binding
+any port and exits with a clear error rather than silently accepting an
+out-of-range default.
+
+## Conventions
+
+- Every var is prefixed `SACP_`.
+- "Default" is the value used when the var is unset; `<required>` indicates
+  no default (process exits non-zero if not set).
+- "Validation rule" mirrors the per-var function in `src/config/validators.py`.
+- "Blast radius on invalid" describes what fails when the value is wrong.
+- Validation timing: `validate_all()` runs in `src/run_apps.py:main()` before
+  `asyncio.run(_run())`, so an invalid value causes the process to exit
+  before binding any port.
+- Smoke check: `python -m src.run_apps --validate-config-only` runs validation
+  only and exits 0/1.
+
+## Validated vars
+
+### `SACP_DATABASE_URL`
+
+- **Default**: `<required>`
+- **Type**: PostgreSQL URL (`postgresql://...` or `postgres://...`)
+- **Valid range**: scheme must be `postgresql` or `postgres`; netloc (host[:port]) must be non-empty
+- **Blast radius on invalid**: orchestrator cannot connect to Postgres; no functionality
+- **Validation rule**: `validators.validate_database_url`
+- **Source spec(s)**: 001 §FR-020 (encryption-at-rest scope), 003 §FR-019 (advisory-lock provider)
+
+### `SACP_ENCRYPTION_KEY`
+
+- **Default**: `<required>`
+- **Type**: Fernet key (44-char URL-safe base64)
+- **Valid range**: `len() == 44` AND `cryptography.fernet.Fernet(value)` accepts it without raising
+- **Blast radius on invalid**: encryption-at-rest unavailable; participant `api_key_encrypted` columns inaccessible
+- **Validation rule**: `validators.validate_encryption_key`
+- **Source spec(s)**: 001 §FR-020, §FR-021
+
+### `SACP_CONTEXT_MAX_TURNS`
+
+- **Default**: `20`
+- **Type**: integer
+- **Valid range**: `>= 3` (Constitution §6.7 MVC floor)
+- **Blast radius on invalid**: turn-loop context assembly cannot satisfy MVC floor; turns silently truncated
+- **Validation rule**: `validators.validate_context_max_turns`
+- **Source spec(s)**: 003 §FR-003 (5-priority context allocation)
+
+### `SACP_TRUST_PROXY`
+
+- **Default**: `0`
+- **Type**: bool-string enum
+- **Valid range**: `"0"` or `"1"` (anything else is invalid)
+- **Blast radius on invalid**: documented IP-binding semantics for participant auth become undefined; security-critical
+- **Validation rule**: `validators.validate_trust_proxy`
+- **Source spec(s)**: 002 §FR-016 (XFF rightmost trust)
+
+### `SACP_ENABLE_DOCS`
+
+- **Default**: `0`
+- **Type**: bool-string enum
+- **Valid range**: `"0"` or `"1"`
+- **Blast radius on invalid**: `/docs` / `/redoc` / `/openapi.json` exposure becomes undefined
+- **Validation rule**: `validators.validate_enable_docs`
+- **Source spec(s)**: 006 §FR-014, CHK014
+
+### `SACP_WEB_UI_INSECURE_COOKIES`
+
+- **Default**: `0`
+- **Type**: bool-string enum
+- **Valid range**: `"0"` or `"1"`
+- **Blast radius on invalid**: HttpOnly / Secure cookie flags become undefined
+- **Validation rule**: `validators.validate_web_ui_insecure_cookies`
+- **Note**: Setting `1` is a LAN/dev escape hatch. Production MUST use `0` (HTTPS).
+- **Source spec(s)**: 011 §SR cookie classification
+
+### `SACP_WEB_UI_MCP_ORIGIN`
+
+- **Default**: empty (same-origin)
+- **Type**: URL
+- **Valid range**: scheme `http` / `https` / `ws` / `wss`; non-empty netloc
+- **Blast radius on invalid**: Web UI cannot reach MCP server; CORS preflights fail
+- **Validation rule**: `validators.validate_web_ui_mcp_origin`
+- **Source spec(s)**: 011 §FR-002 connect-src wiring
+
+### `SACP_WEB_UI_WS_ORIGIN`
+
+- **Default**: empty (same-origin)
+- **Type**: URL (typically `ws://` or `wss://`)
+- **Valid range**: scheme `http` / `https` / `ws` / `wss`; non-empty netloc
+- **Blast radius on invalid**: WebSocket connection fails on origin check
+- **Validation rule**: `validators.validate_web_ui_ws_origin`
+- **Source spec(s)**: 011 §FR-014 WS lifecycle
+
+### `SACP_CORS_ORIGINS`
+
+- **Default**: empty (deny all cross-origin)
+- **Type**: comma-separated URL list
+- **Valid range**: each comma-separated entry parses as URL with scheme in {`http`, `https`, `ws`, `wss`} and non-empty netloc
+- **Blast radius on invalid**: CORS preflights fail; legitimate browser clients blocked
+- **Validation rule**: `validators.validate_cors_origins`
+- **Source spec(s)**: 006 §FR (CORS regex)
+
+### `SACP_WEB_UI_ALLOWED_ORIGINS`
+
+- **Default**: empty (same-origin only)
+- **Type**: comma-separated URL list
+- **Valid range**: same as `SACP_CORS_ORIGINS`
+- **Blast radius on invalid**: Web UI rejects legitimate cross-origin connects
+- **Validation rule**: `validators.validate_web_ui_allowed_origins`
+- **Source spec(s)**: 011 §SR-006 CSRF + origin
+
+## Reserved (documented but not yet wired)
+
+These vars appear in `src/mcp_server/tools/debug.py` `_CONFIG_KEYS` allowlist
+(so they show up in debug-export config snapshots if set) but are NOT consumed
+by application code. Operators setting them today will see the value in the
+debug snapshot but no behavioral effect. Validators land when application code
+starts consuming them — likely as part of a per-spec amendment cluster (see
+`AUDIT_PLAN.local.md` cluster index).
+
+### `SACP_RATE_LIMIT_PER_MIN`
+
+- **Status**: Reserved
+- **Phase 3 trigger**: 009 rate-limiter spec amendment introducing operator-tunable per-minute rate
+- **Intended type**: integer, `>= 1`
+
+### `SACP_DEFAULT_TURN_TIMEOUT`
+
+- **Status**: Reserved
+- **Phase 3 trigger**: 003 turn-loop spec amendment exposing the per-turn timeout knob
+- **Intended type**: integer seconds, `> 0` (current hardcoded default in code is 180 per migration 003)
+
+## CI enforcement
+
+`scripts/check_env_vars.py` (per spec 012 FR-005):
+
+- Scans `src/` for every `os.environ.get("SACP_*")` / `os.environ["SACP_*"]` call
+- Asserts every grepped var has a section in this doc
+- Asserts every var with a section AND a `Validation rule:` line has a function with that name in `src/config/validators.py`
+- Drift fails CI
+
+When adding a new `SACP_*` var:
+
+1. Add `os.environ.get(...)` reading the var in code
+2. Write a `validate_<var>()` function in `src/config/validators.py`
+3. Append it to `VALIDATORS` tuple in `src/config/validators.py`
+4. Add a section to this doc with all six fields (Default, Type, Valid range, Blast radius, Validation rule, Source spec)
+5. CI gate confirms the linkage; if anything's missing, the build fails
