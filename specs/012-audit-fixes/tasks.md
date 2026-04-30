@@ -172,9 +172,9 @@ description: "Task list for feature 012-audit-fixes implementation"
 
 ### Implementation for User Story 7
 
-- [ ] T051 [P] [US7] Create `scripts/check_schema_mirror.py` per [contracts/schema-mirror-ci.md](./contracts/schema-mirror-ci.md): apply alembic chain to in-memory DB, apply conftest raw DDL to second in-memory DB, diff schemas, exit 1 on drift (FR-008).
-- [ ] T052 [P] [US7] Add `tests/unit/test_schema_mirror.py` meta-tests: synthetic alembic migration adding un-mirrored column → exit 1 with diff; matching alembic + conftest → exit 0; column type drift → exit 1 with type-difference message.
-- [ ] T053 [US7] Add `scripts/check_schema_mirror.py` to CI workflow as a pre-test step; depends on T051.
+- [X] T051 [P] [US7] Create `scripts/check_schema_mirror.py` per [contracts/schema-mirror-ci.md](./contracts/schema-mirror-ci.md): parse alembic SQL strings + conftest CREATE TABLE blocks into {table: cols} models, diff per-table column sets, exit 1 on drift. No DB dependency. Type-mismatch detection deferred (column-presence drift is the recurring bug class per `feedback_test_schema_mirror.md`). (FR-008)
+- [X] T052 [P] [US7] Add `tests/test_schema_mirror.py` (placed flat under `tests/` to match existing convention rather than `tests/unit/` from the original plan) — 4 meta-tests: current repo state passes, synthetic drift exits 1 with column name in stderr, matching synthetic alembic+conftest pass, constraint-only lines (PRIMARY KEY / FOREIGN KEY) not mistaken for columns.
+- [X] T053 [US7] Add `scripts/check_schema_mirror.py` to `.github/workflows/test.yml` as a pre-test step; runs before pytest so drift fails the build before any DB-backed test runs.
 - [ ] T054 [P] [US7] Refactor `tests/conftest.py` to provide a `fastapi_app` per-test fixture (fresh app instance + middleware) preventing cross-test state leaks (FR-009 per [research.md](./research.md) FastAPI app fixture pattern).
 - [ ] T055 [P] [US7] Add `tests/unit/test_conftest_isolation.py`: two tests configuring different middleware on the per-test app fixture both pass; assert no shared mutable state across tests.
 - [ ] T056 [US7] Update existing tests that depend on a shared app instance to use the new `fastapi_app` fixture (refactor pass; scope: `tests/integration/`, `tests/unit/test_*_endpoints.py`).
