@@ -86,10 +86,10 @@ description: "Task list for feature 012-audit-fixes implementation"
 
 ### Implementation for User Story 3
 
-- [ ] T021 [US3] Create `docs/traceability/fr-to-test.md` with one section per spec (001–011); for each FR populate Tests column with discoverable test paths or `untested + <Phase-N trigger>` per [contracts/traceability-artifact.md](./contracts/traceability-artifact.md) (FR-003). Initial population is hand-curated (~10 sub-PRs acceptable).
-- [ ] T022 [P] [US3] Create `scripts/check_traceability.py` CI gate per [contracts/traceability-artifact.md](./contracts/traceability-artifact.md): every FR in every spec has a traceability entry; every test path resolves; every `untested` row has a non-empty trigger note.
-- [ ] T023 [US3] Add `scripts/check_traceability.py` to CI workflow as a pre-test step; depends on T022.
-- [ ] T024 [P] [US3] Add `tests/unit/test_traceability_check.py` meta-tests: synthetic spec FR without entry → script exits 1; entry referencing nonexistent test path → exits 1; `untested` row without trigger → exits 1; happy path → exits 0.
+- [ ] T021 [US3] Create `docs/traceability/fr-to-test.md` with one section per spec (001–011); for each FR populate Tests column with discoverable test paths or `untested + <Phase-N trigger>` per [contracts/traceability-artifact.md](./contracts/traceability-artifact.md) (FR-003). Initial population is hand-curated (~10 sub-PRs acceptable). **Strictness rule**: the gate from T022 only checks specs that have a section in this artifact, so each per-spec PR adds its own section and turns the gate on for that spec.
+- [X] T022 [P] [US3] Create `scripts/check_traceability.py` CI gate per [contracts/traceability-artifact.md](./contracts/traceability-artifact.md): every FR/SR marker in every spec section in the artifact has a traceability row; every test path resolves; every `untested` row has a non-empty trigger note. Per-spec opt-in via section presence (specs absent from the artifact are skipped — incremental rollout under T021).
+- [X] T023 [US3] Add `scripts/check_traceability.py` to `.github/workflows/test.yml` as a pre-test step right after the schema-mirror gate.
+- [X] T024 [P] [US3] Add `tests/test_traceability_check.py` (placed flat under `tests/` matching repo convention) — 7 meta-tests: artifact-absent skip; matching spec+artifact pass; missing FR row fails; extra FR row fails; `untested` without trigger fails; nonexistent test path fails; unpopulated spec is skipped (incremental rollout).
 
 **Checkpoint**: US3 functional. Coverage gaps for any FR are queryable in <30 seconds (SC-005).
 
