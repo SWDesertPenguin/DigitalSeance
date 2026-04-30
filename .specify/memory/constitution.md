@@ -1,35 +1,41 @@
 <!--
 Sync Impact Report
-  Version change: 0.5.1 → 0.6.0
-  Change type: MINOR — post-deployment hardening + new authoritative references
+  Version change: 0.6.0 → 0.7.0
+  Change type: MINOR — Phase 2 retrospective + new principle (placeholder) + new validation rules + new change-management category + drift corrections
   Modified principles:
-    - §1 Identity: integrated 7 canonical use cases as design test cases
-    - §3 Sovereignty: added Topology choice — 7 communication topologies, Phase 1 ships 1–6, MCP-to-MCP is Phase 2+
-    - §8 AI-Specific Security: canary token requirement strengthened (multi-canary, no structural format)
-    - §8 AI-Specific Security: spotlighting clarified (same-speaker exemption)
-    - §12 Validation Rules: added V12 topology compatibility, V13 use case coverage
+    - §3 Sovereignty: topology line "MCP-to-MCP is Phase 2+" corrected to "Phase 3+" (Phase 2 shipped without topology 7 per spec 011 Out of Scope)
+    - §6.8 Container: "Alpine-based image" corrected to Debian slim-bookworm (deliberate choice for glibc / wheel ABI compatibility — torch, sentence-transformers)
+    - §8 AI-Specific Security: cross-model safety profiling explicitly deferred (listed as constitutional requirement but not implemented in Phase 1+2; trigger added)
+    - §9 Security Boundaries: tool description hashing explicitly deferred (same shape as cross-model safety profiling)
+    - §10 Phase Boundaries: Phase 2 description rewritten as retrospective of what actually shipped vs. what deferred to Phase 3
   Added sections:
-    - §14 Change Management (bug-fix and hotfix workflow)
+    - §4.9 Secure by design (placeholder — implementation under architectural review per AUDIT_PLAN cross-cutting item)
+    - §12 V14 Performance budgets specified + instrumented
+    - §12 V15 Security pipeline fail-closed
+    - §12 V16 Configuration validation at startup
+    - §14.7 Audit work category
   Removed sections: none
   New authoritative references in §13:
-    - sacp-communication-topologies.md (7 participant topologies)
-    - sacp-use-cases.md (7 concrete scenarios)
-    - sacp-use-cases-and-topologies.md (combined analysis)
-    - sacp-system-prompts.md (4-tier delta prompt drafts)
-    - testing-runbook.md (operational testing procedures)
-  Post-deployment decisions captured (from 2026-04-14 /speckit-clarify session):
-    - Default turn timeout raised 60s → 180s (migration 003)
-    - Cadence cruise ceiling reduced 300s → 60s (PR #47)
-    - Convergence requires ≥3 prior turns for non-zero similarity (PR #47)
-  Follow-up TODOs:
-    - Implement SSE streaming (spec 006 gap)
-    - Restrict CORS from wildcard to LAN+env (spec 006)
-    - Harden canary tokens to multi-canary random strings (spec 008)
+    - docs/red-team-runbook.md (operational red-team workflow + incident catalog)
+  Phase 2 decisions captured (post-2026-04-29 /speckit-constitution session):
+    - 11-spec security-audit sweep landed (PR #157, 439 findings + 14 code drifts)
+    - Tier 1-3 quality checklists landed (PRs #159, #161)
+    - Trivy CVE-2025-47273 setuptools fix landed in three rounds (PRs #158, #160, #162); pattern documented for future multi-stage Docker COPY work
+    - Performance audit + spec amendments landed (PR #163) — added FR-030/031/032 to 003, FR-018/019/020 to 006, FR-020/021/022/023 to 007, FR-011/012/013/014 to 008, FR-011/012/013/014 to 009; codifies stage timings, compound-retry caps, subscriber caps, request-id propagation, per-layer budgets, memoization contracts, ReDoS guard, 429-rate metrics
+  Follow-up TODOs (closed from previous version):
+    - ✓ SSE streaming implemented (spec 006)
+    - ✓ CORS restricted from wildcard to LAN+env (spec 006)
+    - ✓ Canary tokens hardened to multi-canary random base32 (spec 008)
+  Follow-up TODOs (new this version):
+    - §4.9 secure-by-design implementation: 007 §FR-005 currently encodes "operator authority overrides defenses by design" (drift). Architectural review pending; see AUDIT_PLAN cross-cutting item "secure-by-design override semantics".
+    - V14 perf-budget contracts: PR #163 codified the spec contracts; instrumentation implementation outstanding (per-stage timing capture, memoization caches, retention purge job, subscriber-cap enforcement, request-id middleware, benchmark + CI regression gate).
+    - V16 env-var validation: AUDIT_PLAN batch 5 config-validation audit will catalog every SACP_* var with type/range/fail-closed semantics.
+    - Constitution adherence audit (AUDIT_PLAN batch 5): full review may surface additional amendments; this v0.7.0 is interim.
 -->
 
 # SACP Constitution
 
-**Version**: 0.6.0 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-04-14
+**Version**: 0.7.0 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-04-29
 
 ---
 
@@ -77,7 +83,7 @@ Sovereignty is the core architectural principle. Every design decision must pres
 6. **Heterogeneous routing** — different participants on different routing modes (always, observer, addressed_only, etc.)
 7. **MCP-to-MCP** — AIs run client-side in participants' desktop clients (Claude Desktop, ChatGPT app); the orchestrator becomes a shared state manager and never makes provider calls. This is the **strongest** sovereignty mode — API keys never leave participants' machines. Tradeoff: when all participants disconnect, the conversation pauses.
 
-Different topologies activate different orchestrator components. Constitutional principles (sovereignty, transparency, human authority) MUST hold across all seven. Phase 1 ships with topologies 1–6 (orchestrator-driven); MCP-to-MCP is Phase 2+.
+Different topologies activate different orchestrator components. Constitutional principles (sovereignty, transparency, human authority) MUST hold across all seven. Phase 1+2 ship with topologies 1–6 (orchestrator-driven); MCP-to-MCP is Phase 3+ (deferred from earlier "Phase 2+" framing — Phase 2 shipped without topology 7 per spec 011 Out of Scope).
 
 ---
 
@@ -100,6 +106,8 @@ These resolve ambiguity when the design doc doesn't have a specific answer.
 **4.7 — Known limitations are documented, not hidden.** Constraints the design cannot fully solve — prompt injection being the primary example — are documented explicitly. The NIST AI 100-2 taxonomy notes that theoretical impossibility results on adversarial ML mitigations exist. The facilitator approval flow is the ultimate defense.
 
 **4.8 — Defense in depth, not silver bullets.** No single defense solves prompt injection, exfiltration, or cross-model poisoning. SACP uses six coordinated defense layers: network, application, data, AI/ML, operational, and governance. Every security decision must identify its layer and whether adjacent layers provide backup. (Framework: attack surface analysis §14)
+
+**4.9 — Secure by design.** Defenses do not cease at role boundary. The security pipeline (§8) MUST validate every AI response on every persistence path; no role — including facilitator — silently bypasses defenses. The facilitator's role is to direct workflow, not to disable security. Implementation of this principle for the held-response review-gate flow (specifically 007 §FR-005, which currently encodes "operator authority overrides defenses by design" — a position this principle reverses) is under architectural review; the resolution chooses among (a) re-pipeline on approve, (b) re-pipeline + explicit-override with logged justification, (c) defense-absolute (no override). The principle is binding regardless of which resolution lands; only the implementation surface is open. (Tracked in `AUDIT_PLAN.local.md` cross-cutting item "secure-by-design override semantics".)
 
 ---
 
@@ -143,7 +151,7 @@ Non-negotiable implementation boundaries.
 
 **6.7 — Convergence detection:** sentence-transformers (all-MiniLM-L6-v2), numpy. SafeTensors format exclusively — no pickle deserialization. Multi-signal detection (embedding similarity + lexical overlap + nonsense detection), not embeddings alone. (Adversarial defense: attack surface analysis §9)
 
-**6.8 — Container:** Docker Compose, FastAPI + PostgreSQL 16. Alpine-based image. PostgreSQL co-located on the same Docker network. LiteLLM network-isolated. No Kubernetes, Helm, or cloud-managed services in Phase 1.
+**6.8 — Container:** Docker Compose, FastAPI + PostgreSQL 16. Debian slim-bookworm base (`python:3.14.4-slim-bookworm`) — chosen over Alpine to keep glibc available so wheels (torch, numpy, sentence-transformers) install ABI-compatibly without forcing source builds. PostgreSQL co-located on the same Docker network. LiteLLM network-isolated. No Kubernetes, Helm, or cloud-managed services in Phase 1+2.
 
 **6.9 — Tree-structured messages from day one.** Every message has `parent_turn` and `branch_id`. Branching UI is Phase 3 but the data model supports it from the first migration.
 
@@ -192,7 +200,7 @@ SACP's defining security challenge: one AI's output is another AI's input. The c
 
 - **Context sanitization.** All messages are preprocessed to strip known injection patterns (ChatML tokens, role markers, override phrases, invisible Unicode) before entering conversation history.
 
-- **Cross-model safety profiling.** The orchestrator maintains per-model safety tiers. Outputs from low-safety and untrusted models pass through additional validation. Sessions can enforce minimum model tiers for participation.
+- **Cross-model safety profiling.** The orchestrator maintains per-model safety tiers. Outputs from low-safety and untrusted models pass through additional validation. Sessions can enforce minimum model tiers for participation. *(Phase 1+2 status: deferred — minimum-model-tier session policy ships, but per-model safety-tier registry + tier-conditional validation is Phase 3+. Trigger: any deployment with a documented adversarial-model-class concern OR addition of a model class with known safety regressions.)*
 
 - **Multi-layer output validation.** Every AI response passes through a validation pipeline (pattern matching → semantic analysis → LLM-as-judge for flagged content) before entering conversation history. Blocked responses are held for facilitator review, never silently passed through.
 
@@ -218,7 +226,7 @@ General security requirements beyond data and AI-specific concerns.
 - **Rate limiting.** Per-participant rate limits on all MCP tool calls, independent of budget controls. (Defaults: design doc §7.5)
 - **Origin validation.** Origin header checked on all MCP SSE and WebSocket connections to prevent DNS rebinding.
 - **CORS and CSP.** Restrictive CORS on Web UI. CSP prevents inline script execution.
-- **MCP SSE hardening.** Sessions bound to client IP. Connection limits enforced. Tool description hashing detects rug-pull attacks. (Details: attack surface analysis §8)
+- **MCP SSE hardening.** Sessions bound to client IP (002 §FR-016). Connection limits enforced (per-session subscriber cap per 006 §FR-019). Tool description hashing — *Phase 1+2 status: deferred (tool descriptions are static at registration time; rug-pull threat surface is small until external MCP integration lands). Trigger: any external MCP server integration OR a documented incident where tool descriptions changed unexpectedly.* (Details: attack surface analysis §8)
 - **DoS multiplication awareness.** Hard timeouts on all LiteLLM calls. CPU-bound operations offloaded from the async event loop. Per-participant budgets enforced at the orchestrator level. (Details: attack surface analysis §12)
 - **Dependency security.** All dependencies pinned with hash verification. SBOM maintained. LiteLLM network-isolated. ML models loaded in SafeTensors only. CI runs `pip-audit` and `safety`. (LiteLLM supply chain history: attack surface analysis §10)
 - **Banned functions.** No `eval()`, `exec()`, `pickle.loads()` on untrusted data, or `subprocess` with `shell=True`. (Full list: coding-standards.md)
@@ -231,7 +239,7 @@ Each phase is a complete, usable system. No phase depends on a future phase to f
 
 **Phase 1 (MVP):** Two participants, one facilitator. Static token auth. LiteLLM bridge (network-isolated). 4-tier delta-only system prompts with canary tokens. Serialized turn loop with all 8 routing modes, complexity classifier (pattern-matching), interrupt queue, multi-signal convergence detection, adaptive cadence, adversarial rotation, per-turn timeouts. Context assembly with 5-priority token budget and summarization checkpoints. `[NEED:]` tool proxy with allowlist and SSRF protection. Full AI security pipeline (spotlighting, sanitization, safety profiling, multi-layer output validation, jailbreak detection, prompt extraction defense, role-based tool scoping, exfiltration defense, trust-tiered content model). Error detection with retry and circuit breaker. TLS, rate limiting, input validation, response size enforcement, origin validation, MCP SSE binding, CORS/CSP, log scrubbing. Append-only logs with restricted DB permissions. Admin audit log. Export (markdown, JSON, Vaire). One-sided conversation detection. Docker Compose. SafeTensors-only. SBOM. No web UI. No artifact store.
 
-**Phase 2:** Web UI (port 8751) with streaming, review-gate UI, invite/onboarding. Session archiving, export (UI), forking. Multi-project support. Decision/proposal workflow. Participant-facing audit log subset. Artifact store (blob KV). Per-participant context optimization. Envelope encryption migration.
+**Phase 2 (shipped 2026-04-29):** Web UI (port 8751) with WebSocket streaming, review-gate UI, three-path guest onboarding (sign-in / create / request-to-join, US11+US12), facilitator admin panel, decision/proposal workflow (US7), summary panel (US9), participant health indicators with circuit-breaker visibility (US10), secure markdown rendering with XSS defenses (US8), debug-export tool (spec 010). Followed by an extensive post-deploy hardening pass: 11-spec security audit sweep, perf-amendment landings (PR #163), Trivy CVE-2025-47273 fix iterations, Tier 1-3 quality checklists. **Deferred from Phase 2 to Phase 3:** session forking, multi-project support, participant-facing audit log subset, artifact store (blob KV), per-participant context optimization, envelope encryption migration, OAuth 2.1 with PKCE, MCP-to-MCP topology 7 integration. *(Pre-Phase-3 audit window currently open; ~37 audit topics tracked in `AUDIT_PLAN.local.md` before Phase 3 development begins.)*
 
 **Phase 3:** 3–5 participants. Branching and rollback with UI. Sub-sessions with conclusion merging. Vaire integration. Relevance-based routing, broadcast mode. Ollama/vLLM local model support. OAuth 2.1 with PKCE replaces static tokens. Step-up authorization. Artifact store enhancements. Git-backed decision tracking.
 
@@ -277,6 +285,12 @@ Every feature spec must pass these checks. Failure requires revision before impl
 
 **V13 — Use case coverage acknowledged.** Every feature spec MUST reference at least one of the seven use cases (`docs/sacp-use-cases.md`) it primarily serves, OR explicitly justify why the feature is foundational/cross-cutting. This prevents accidental drift toward features that look reasonable in isolation but don't serve any of the canonical scenarios.
 
+**V14 — Performance budgets specified and instrumented.** Every feature spec with a hot path MUST codify per-stage latency budgets (P50, P95, P99 where measurable), memory ceilings, and degradation-under-load behavior — not as observational targets but as enforceable contracts. Per-stage timings MUST be captured into structured logs (cross-ref 003 §FR-030 stage timings into `routing_log`, 007 §FR-020 layer durations into `security_events`) so regressions are diagnosable per-stage rather than aggregate-only. PR #163 codified the contracts; instrumentation implementation work is outstanding but the validation rule is binding for all future specs.
+
+**V15 — Security pipeline fail-closed.** Pipeline-internal failures (regex compile errors, unicode normalization errors, layer crashes) MUST fail closed: skip the turn with a documented `reason='security_pipeline_error'`, write a `security_events` row with `layer='pipeline_error'`, and DO NOT increment the participant's circuit-breaker counter (the failure is the system's, not the participant's). Cross-ref 007 §FR-013 + 003 §FR-023. Combined with §4.9 (secure by design), this rule means defenses-by-default extend to defense-when-defense-itself-fails.
+
+**V16 — Configuration validated at startup.** Every `SACP_*` env var MUST have a documented type, valid range, and fail-closed semantics for invalid values. The application MUST validate every var at startup BEFORE binding any port or accepting any connection; an invalid value MUST cause the process to exit with a clear error rather than silently accepting an out-of-range default. Catalog of all env vars + per-var validation rules is the deliverable of the AUDIT_PLAN batch 5 config-validation audit.
+
 ---
 
 ## 13. Authoritative References
@@ -307,6 +321,7 @@ Every feature spec must pass these checks. Failure requires revision before impl
 | `references/dod-secure-dev.md` | Dev pipeline | Pre-commit, CI, periodic review layers |
 | `.pre-commit-config.yaml` | Hook chain | gitleaks → ruff → lint_code_standards.py |
 | `docs/testing-runbook.md` | Testing procedures | Operational testing workflows, integration test procedures |
+| `docs/red-team-runbook.md` | Red-team operational guide | Adversarial-test workflow, known-incident catalog (Round02 Cyrillic homoglyph injection, etc.), pattern-list update process per 007 §FR-017 |
 
 ### Regulatory & Frameworks
 
@@ -381,3 +396,21 @@ Every amendment updates the Sync Impact Report block at the top of this file. Ev
 ### 14.6 — The "no ceremony without value" principle
 
 When in doubt, pick the lightest workflow that captures the decision in a way future-you can audit. A two-line regex fix needing a full spec is bureaucracy; a new multi-agent routing mode shipping without a spec is debt. The test is: **will a future developer trying to understand this change find enough to reconstruct the reasoning?** If yes, the workflow is right-sized. If no, escalate.
+
+### 14.7 — Audit work
+
+Audits are systematic reviews of existing specs/code against a quality dimension (security, performance, compliance, testability, operations, reliability, accessibility, ux, etc.). They produce findings; findings produce work that flows through the existing categories (spec amendments per §14.2, new features per §14.1, hotfixes per §14.3 if a security finding requires immediate response).
+
+Conventions:
+
+1. **One-off formal audit** (single spec × type) → run `/speckit.checklist <type>` on a `docs/<slug>` branch. Produces a committed `specs/NNN/checklists/<type>.md` file as a permanent artifact. Used for the original 2026-04-29 security sweep + tier-1-3 quality checklists (PRs #157-#163).
+
+2. **Sweep-style audit window** (many specs × many types as a coordinated effort) → track in a gitignored local action plan (`AUDIT_PLAN.local.md`). Action items, not formal checklists. Findings get promoted to spec amendments via §14.2 PRs as they're resolved. The pre-Phase-3 audit window (opened 2026-04-29) uses this pattern; ~37 audit topics tracked.
+
+3. **Branch naming**: `audit/<topic>` for sweep audit work that isn't yet a spec amendment; `fix/<slug>` for the resulting amendment PRs.
+
+4. **Cross-cutting findings** (the same gap appears across many audits — env-var inventory, FR-to-test traceability, benchmark fixture, pattern-list update workflow) are consolidated into single-PR resolutions rather than per-audit piecemeal work.
+
+5. **Audit work does NOT consume a numbered feature slot.** It runs against existing specs.
+
+The pre-Phase-3 audit window is gating: Phase 3 development should not start until the audit work is sufficiently closed (per facilitator judgment — there is no fixed-percentage gate, but high-value security and reliability findings should be resolved or explicitly accepted).
