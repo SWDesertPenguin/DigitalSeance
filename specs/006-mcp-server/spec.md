@@ -164,6 +164,9 @@ A participant can export the conversation transcript as markdown or JSON. The ex
 - **FR-015**: OpenAPI / Swagger UI exposure (`/docs`, `/redoc`, `/openapi.json`) MUST be disabled in production. The schema is gated behind `SACP_ENABLE_DOCS=1` env var; default is OFF. Production deployments leave the env var unset so the schema isn't a free reconnaissance surface; dev / on-host troubleshooting opts in.
 - **FR-016**: CORS allow-list regex MUST validate octets to the 0-255 range. Pre-fix the LAN regex matched `192.168.999.999` and similar invalid octets; the fixed regex uses `(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)` per octet. Operator overrides via `SACP_CORS_ORIGINS` (CSV of exact origins) bypass the regex entirely.
 - **FR-017**: Per-participant SSE connection-count caps and forced-disconnect on token rotation are deferred to Phase 3. Phase 1+2 ship without enforcement: a single participant could open many SSE connections and a token rotation does NOT close existing streams (the new token must be used on the next reconnect; the old stream remains alive until the connection closes naturally or the server restarts). Trigger for Phase 3 work: any deployment that observes participants opening more than `SACP_MAX_SSE_PER_PARTICIPANT` (TBD) connections OR a security incident traceable to a stale-token SSE stream.
+- **FR-018**: Per-tool latency MUST be captured into structured request logs (FastAPI access log extended with `tool_name`, `duration_ms`, `participant_id_hash`). Cheap tools (`get_status`, `set_routing_preference`) and expensive tools (`get_history`, `export_json`, `export_markdown`) are differentiated for SLO tracking — see SC-006.
+- **FR-019**: SSE per-session subscriber count MUST be bounded by `SACP_MAX_SUBSCRIBERS_PER_SESSION` (default 64). When the cap is reached, additional SSE connection attempts MUST receive HTTP 503 with `{"detail": "subscriber_cap_reached"}` until existing connections drain. The cap × FR-013's 256-event queue × ~1KB-per-event ≈ 16MB/session memory ceiling makes capacity planning concrete. Combined with FR-017's deferred per-participant cap, this prevents a single session from exhausting server memory regardless of participant identity.
+- **FR-020**: Request correlation: every API request MUST emit a `request_id` (UUID4) into structured logs. The `request_id` propagates to downstream calls (orchestrator, repositories) via `contextvars` and lands in `routing_log` (cross-ref 003 §FR-030 stage timings) so a single user-visible operation can be traced across MCP API → orchestrator → DB. Without this, multi-table forensics requires guesswork on timestamps.
 
 ### Key Entities
 
@@ -180,6 +183,9 @@ A participant can export the conversation transcript as markdown or JSON. The ex
 - **SC-003**: Injected messages appear in the interrupt queue within 1 second of the tool call.
 - **SC-004**: Session lifecycle transitions (create/pause/resume/archive) complete within 1 second.
 - **SC-005**: The server starts and accepts connections on the configured port.
+- **SC-006**: Per-tool P95 latency targets: cheap-class tools (config reads, single-row lookups) ≤ 100ms; expensive-class tools (`get_history`, `export_*`) ≤ 1000ms typical-session (cross-ref 010 §SC-005). P99 ≤ 2× P95 for both classes; persistent breaches indicate either DB regression or unbounded data growth.
+- **SC-007**: SSE-connection-establishment SLO: P95 connect-to-first-event ≤ 500ms (auth + session-bind + initial-state-snapshot). This decomposes SC-001's 2s aggregate, separating connection cost from steady-state event delivery.
+- **SC-008**: Per-session subscriber-cap (FR-019) enforcement: synthetic-load test with 65 simultaneous SSE attempts on a single session MUST result in exactly 64 successful connections and 1 HTTP 503; the 503 response body MUST equal `{"detail": "subscriber_cap_reached"}` with no internal counter state leaked.
 
 ## Assumptions
 

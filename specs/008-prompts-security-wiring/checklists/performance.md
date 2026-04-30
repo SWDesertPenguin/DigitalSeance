@@ -128,3 +128,23 @@
   - CHK007 / CHK019 (pre-allocate budget for FR-003.detect when wiring lands).
   - CHK010 / CHK027 (surface implicit perf benefits of correctness rules).
 - Sister checklists: `requirements.md`, `security.md` already on main. Cross-refs throughout to 007 (the actual security work) and 003 (the turn-loop integration point).
+
+## Closeout (2026-04-29)
+
+Spec amendments to 008 close the highest-leverage GAPs:
+
+- **CHK001** (per-turn tier-assembly latency bounded) closed by FR-011 (memoization) + SC-005 (tier_assembly_ms <= 1ms P95).
+- **CHK004** (memoize sanitize on custom_prompt) closed by FR-012 (memoize at participant-update boundary, not per turn).
+- **CHK013** (per-turn wiring cost decomposed) closed by FR-013 (per-stage timings to routing_log) + SC-005 (per-stage P95 budgets).
+- **CHK017** (memoize per-tier text) closed by FR-011 (4-entry cache, invalidate on process restart only).
+- **CHK020** (ReDoS risk on user-controlled inputs) closed by FR-014 (every regex MUST be ReDoS-verified on 10KB pathological input; >100ms = reject).
+- **CHK022** (per-stage timing required for wiring) closed by FR-013.
+- **CHK025** (memoization trade-off documented) closed by FR-011 + FR-012 + SC-006 (memoization-effectiveness check).
+
+Items remaining [GAP]:
+
+- CHK023 (benchmark fixture) same shape across all 7 perf checklists.
+- CHK005 / CHK009-010 (compound runtime sanitize cost, spotlighting cost on every cross-speaker message) partially addressed by SC-005 per-stage budgets.
+- CHK006-008 (canary embedding cost, per-session storage when wired) addressed by existing FR-003 deferral; perf budget pre-allocated.
+
+Implementation of FR-011 / FR-012 / FR-013 / FR-014 / SC-005 / SC-006 ships as a follow-up PR (memoization caches, ReDoS test fixture).
