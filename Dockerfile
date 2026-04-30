@@ -29,18 +29,6 @@ FROM python:3.14.4-slim-bookworm
 
 WORKDIR /app
 
-# Strip the base image's pre-installed setuptools/pkg_resources/distutils-hack
-# before the COPY below. Without this, COPY merges the builder's setuptools
-# (81.x) on top of the base image's bundled setuptools (70.2.0, vulnerable to
-# CVE-2025-47273) — the version-suffixed dist-info dir survives as an orphan
-# and orphan 70.x files inside setuptools/ may also be left behind. Trivy
-# reads METADATA files and fails the build on the stale 70.2.0 metadata.
-# Setuptools is not used at runtime (CMD is alembic + python -m), so removing
-# it from the runtime base is safe.
-RUN rm -rf /usr/local/lib/python3.14/site-packages/setuptools* \
-           /usr/local/lib/python3.14/site-packages/pkg_resources \
-           /usr/local/lib/python3.14/site-packages/_distutils_hack
-
 # Create unprivileged user before copying app files so chown applies cleanly.
 # Numeric uid/gid (10001) is portable across hosts and avoids name lookups.
 # --no-create-home: nothing in $HOME is needed at runtime.
@@ -51,6 +39,18 @@ RUN groupadd --system --gid 10001 sacp && \
 # /install/lib/python3.14/site-packages -> /usr/local/lib/python3.14/site-packages
 # /install/bin/uvicorn etc. -> /usr/local/bin/
 COPY --from=builder /install /usr/local
+
+# Force a clean setuptools upgrade after the COPY. Two sources contribute
+# vulnerable setuptools 70.2.0 (CVE-2025-47273): the runtime base image's
+# bundled install AND pip's transitive resolution in the builder, which
+# can land 70.x in /install. PR #158 stripped only the base image, missing
+# the second source. --force-reinstall ensures the dist-info is regenerated
+# cleanly so Trivy doesn't flag stale 70.x metadata sitting next to a 78+
+# install. Capped <81 to keep pkg_resources available for transitive deps
+# that may lazy-import it.
+RUN pip install --no-cache-dir --upgrade --force-reinstall \
+        'setuptools>=78.1.1,<81' && \
+    rm -rf /root/.cache/pip
 
 COPY --chown=sacp:sacp src/ src/
 COPY --chown=sacp:sacp frontend/ frontend/
