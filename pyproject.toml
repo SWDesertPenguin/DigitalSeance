@@ -14,7 +14,7 @@ dependencies = [
     "litellm>=1.83.0",
     "sentence-transformers>=3.0.0",
     "numpy>=1.26.0",
-    "psycopg2-binary>=2.9.0",
+    "psycopg2-binary>=2.9.12",
     "itsdangerous>=2.2.0",
     "websockets>=13.0",
 ]
