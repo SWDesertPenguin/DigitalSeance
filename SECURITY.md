@@ -2,9 +2,9 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in SACP, please report it responsibly. Do not open a public issue.
+If you discover a security vulnerability in SACP, please report it responsibly. **Do not open a public issue.**
 
-Email: [your email here]
+Use GitHub's private vulnerability reporting: open the **Security** tab on this repository and click **Report a vulnerability**. The report is delivered privately to the maintainers and is not publicly visible.
 
 Include:
 - Description of the vulnerability
