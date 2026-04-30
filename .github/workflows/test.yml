@@ -53,13 +53,20 @@ jobs:
       - name: Traceability gate (FR-to-test artifact)
         run: python scripts/check_traceability.py
 
+      - name: Env-vars gate (SACP_* code/docs/validators coverage)
+        run: python scripts/check_env_vars.py
+
       - name: Run unit tests (fast tier)
         run: pytest -v --tb=short -m "not integration"
 
       - name: Run integration tests (slow tier)
-        run: pytest -v --tb=short -m integration
-      - name: Env-vars gate (SACP_* code/docs/validators coverage)
-        run: python scripts/check_env_vars.py
-
-      - name: Run tests
-        run: pytest -v --tb=short
+        run: |
+          set +e
+          pytest -v --tb=short -m integration
+          rc=$?
+          set -e
+          if [ "$rc" = "5" ]; then
+            echo "::notice::Integration tier collected zero tests (exit 5). No @pytest.mark.integration tests yet — expected during the pre-Phase-3 audit window. Spec 012 T048-T050 will land integration coverage."
+            exit 0
+          fi
+          exit $rc
