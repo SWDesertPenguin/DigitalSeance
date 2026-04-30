@@ -34,6 +34,9 @@ e2e = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: requires real Postgres + orchestrator + LiteLLM; runs in a separate CI tier per spec 012 FR-015",
+]
 
 [tool.ruff]
 target-version = "py311"
