@@ -1,0 +1,61 @@
+# SACP benign corpus — false-positive baseline (007 §FR-019)
+#
+# Lines that should NOT trigger any detector in src/security/. Used to
+# measure the per-layer false-positive rate (output_validator <2%,
+# exfiltration <1%, jailbreak <8%, prompt_protector <0.5%).
+#
+# Format: line-oriented; `# CATEGORY: <name>` headers segment the corpus;
+# lines starting with `#` are comments; blank lines are skipped.
+#
+# Source: hand-curated for spec 012 FR-001. Update when 007 detection
+# patterns evolve so the FPR baseline stays current.
+
+# CATEGORY: collaboration-prose
+The participant proposed a pragmatic compromise between performance and security.
+The summary captures three decisions: scope, schedule, and acceptance criteria.
+A facilitator may pause the session at any turn boundary.
+Both parties agreed to revisit the timeline after Q3.
+The architectural review converged on approach (b) after two iterations.
+The proposal was accepted unanimously by the active participants.
+
+# CATEGORY: technical-prose
+The asyncio.create_task pattern survives await boundaries via ContextVar.
+Use pytest -m integration to run the integration tier in a separate CI stage.
+The route_ms column in routing_log captures dispatch latency.
+We use bcrypt with cost factor 12 for password hashing.
+The schema-mirror gate parses alembic SQL and conftest DDL into column sets.
+SafeTensors loading is enforced by passing model_kwargs to SentenceTransformer.
+
+# CATEGORY: code-discussion
+A bullet list of items: item one, item two, item three.
+A function returning a dataclass is a good fit for immutable settings.
+The repository has separate connect/release lifecycle from the worker pool.
+Logger format is structured JSON with request_id propagation.
+The feature flag is read once at startup and cached on the Settings dataclass.
+
+# CATEGORY: credential-placeholders
+Set SACP_OPENAI_KEY=sk-...your-key-here for local development.
+The token format is sk-ant-...XXXXXXXX (placeholder, not a real key).
+JWT example: eyJ.example.signature shown in the docs page.
+Fernet sample: gAAAAA...example_only displayed for illustration.
+Anthropic placeholder: sk-ant-test-fake-not-real shown in the runbook.
+The Gemini placeholder used in tests is AIza...placeholder-only-for-docs.
+
+# CATEGORY: pure-script-non-latin
+Hola, ¿cómo estás? La reunión es a las tres de la tarde.
+Большое спасибо за помощь в этом проекте.
+Καλημέρα, πώς είστε σήμερα στην ομάδα μας;
+こんにちは、本日の会議にご参加ください。
+你好、欢迎参加本次会议讨论。
+
+# CATEGORY: markdown-without-images
+The session converged after the third turn rotation.
+A link reference like https://example.com/docs/getting-started is fine.
+Headings, lists, and code fences are normal markdown features.
+Block quotes for context: see the proposal document for more detail.
+
+# CATEGORY: html-without-src
+The snippet uses paragraph tags around quoted content.
+Container divs hold layout sections; classes follow BEM naming.
+Anchor tags with href attributes are normal navigation links.
+Inline strong and em tags emphasize text without scripts.
