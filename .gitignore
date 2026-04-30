@@ -55,6 +55,9 @@ FEEDBACK.local.md
 # === Local audit plan (not for GitHub) ===
 AUDIT_PLAN.local.md
 
+# === Local audit follow-through tracker (not for GitHub) ===
+AUDIT_FOLLOWTHROUGH.local.md
+
 # === OS ===
 .DS_Store
 Thumbs.db
