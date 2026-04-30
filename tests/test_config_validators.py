@@ -36,7 +36,14 @@ def _valid_env() -> dict[str, str]:
 
 def _run(env: dict[str, str], *extra_args: str) -> subprocess.CompletedProcess[str]:
     # S603: input is sys.executable + a fixed module path; env is test-controlled.
-    full_env = {**os.environ, **env}
+    # Strip SACP_* from inherited environ before layering test env on top so
+    # the test dict is the EXACT spec of which SACP_* vars are set. CI
+    # workflows set SACP_DATABASE_URL etc. at the job level; without this
+    # filter, popping a var from `env` doesn't actually remove it from the
+    # subprocess (the workflow-level value bleeds back through). Locally
+    # this was masked because the dev shell didn't export those vars.
+    base_env = {k: v for k, v in os.environ.items() if not k.startswith("SACP_")}
+    full_env = {**base_env, **env}
     return subprocess.run(  # noqa: S603
         [sys.executable, "-m", "src.run_apps", *extra_args],
         capture_output=True,
