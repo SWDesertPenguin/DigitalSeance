@@ -29,6 +29,18 @@ FROM python:3.14.4-slim-bookworm
 
 WORKDIR /app
 
+# Strip the base image's pre-installed setuptools/pkg_resources/distutils-hack
+# before the COPY below. Without this, COPY merges the builder's setuptools
+# (81.x) on top of the base image's bundled setuptools (70.2.0, vulnerable to
+# CVE-2025-47273) — the version-suffixed dist-info dir survives as an orphan
+# and orphan 70.x files inside setuptools/ may also be left behind. Trivy
+# reads METADATA files and fails the build on the stale 70.2.0 metadata.
+# Setuptools is not used at runtime (CMD is alembic + python -m), so removing
+# it from the runtime base is safe.
+RUN rm -rf /usr/local/lib/python3.14/site-packages/setuptools* \
+           /usr/local/lib/python3.14/site-packages/pkg_resources \
+           /usr/local/lib/python3.14/site-packages/_distutils_hack
+
 # Create unprivileged user before copying app files so chown applies cleanly.
 # Numeric uid/gid (10001) is portable across hosts and avoids name lookups.
 # --no-create-home: nothing in $HOME is needed at runtime.
