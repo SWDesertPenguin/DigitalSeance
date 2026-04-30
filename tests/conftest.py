@@ -211,6 +211,8 @@ def _messages_ddl() -> str:
 
 
 def _routing_log_ddl() -> str:
+    # Per-stage timing columns (route_ms..advisory_lock_wait_ms) added in
+    # alembic 008 backing 003 §FR-030 / §FR-032 + Constitution §12 V14.
     return """
         CREATE TABLE routing_log (
             id SERIAL PRIMARY KEY,
@@ -224,7 +226,12 @@ def _routing_log_ddl() -> str:
             complexity_score TEXT NOT NULL,
             domain_match BOOLEAN NOT NULL,
             reason TEXT NOT NULL,
-            timestamp TIMESTAMP DEFAULT NOW()
+            timestamp TIMESTAMP DEFAULT NOW(),
+            route_ms INTEGER,
+            assemble_ms INTEGER,
+            dispatch_ms INTEGER,
+            persist_ms INTEGER,
+            advisory_lock_wait_ms INTEGER
         )
     """
 
@@ -277,6 +284,10 @@ def _admin_audit_log_ddl() -> str:
 
 
 def _security_events_ddl() -> str:
+    # layer_duration_ms (007 §FR-020) + override_reason / override_actor_id
+    # (§4.9 / spec 012 FR-006) added in alembic 008. override_actor_id has
+    # no FK to allow audit rows to outlive participant deletion, mirroring
+    # the admin_audit_log pattern from alembic 007.
     return """
         CREATE TABLE security_events (
             id SERIAL PRIMARY KEY,
@@ -287,7 +298,10 @@ def _security_events_ddl() -> str:
             risk_score REAL,
             findings TEXT NOT NULL,
             blocked BOOLEAN NOT NULL,
-            timestamp TIMESTAMP DEFAULT NOW()
+            timestamp TIMESTAMP DEFAULT NOW(),
+            layer_duration_ms INTEGER,
+            override_reason TEXT,
+            override_actor_id TEXT
         )
     """
 
