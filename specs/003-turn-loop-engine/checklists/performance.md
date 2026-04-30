@@ -146,3 +146,25 @@
   - CHK012 / CHK013 / CHK014 (process-wide concurrency caps — relevant for multi-instance deploy if 006 CHK011 ever ships).
   - CHK034 (cross-log turn-id correlation — pairs with 006 CHK016 observability work).
 - Sister checklists: `requirements.md`, `security.md`, `testability.md` already on main. Cross-refs to 004 (embedding latency in `process_turn` is part of this turn's clock) and 005 (summarization is fire-and-forget but shares the executor pool).
+
+## Closeout (2026-04-29)
+
+Spec amendments to 003 close the highest-leverage GAPs:
+
+- **CHK001** (decompose end-to-end into stage budgets) closed by FR-030 (per-stage timing capture) + SC-010 (per-stage P95 budgets).
+- **CHK004** (persist-step latency bounded) addressed by SC-010 (persist_ms <= 20ms P95).
+- **CHK005** (routing-decision latency bounded) addressed by SC-010 (routing <= 5ms P95).
+- **CHK009 / CHK010** (compound-retry total-time cap) closed by FR-031 (compound_retry_total_max_seconds default 600s + warn at 360s).
+- **CHK011** (advisory-lock contention metric) closed by FR-032 (advisory_lock_wait_ms capture + alert threshold).
+- **CHK024** (SLO percentiles) closed by SC-011 (P50/P95/P99 contract with model-class baselines).
+- **CHK027** (FR-016 retry-depth worst case documented) closed by FR-031.
+- **CHK030** (per-stage timing instrumentation) closed by FR-030.
+- **CHK034** (request-id correlation) closed by 006 FR-020 (request-id propagates via contextvars into routing_log).
+
+Items remaining [GAP] (require infrastructure beyond the spec):
+
+- CHK032 / CHK033 (benchmark fixture + CI regression gate) same shape across all 7 perf checklists; tracked as a single follow-up PR.
+- CHK022 (degraded-mode behavior under load) needs measurement infrastructure first.
+- Memory / throughput specifics (CHK013-021) depend on operational observability stack.
+
+Implementation of FR-030 / FR-031 / FR-032 / SC-010 / SC-011 ships as a follow-up PR (instrumentation + telemetry).
