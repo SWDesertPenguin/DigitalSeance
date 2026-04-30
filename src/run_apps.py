@@ -8,11 +8,18 @@ share the same connection manager, repositories, and auth service.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import logging
+import sys
 
 import uvicorn
 
+from src.config import (
+    VALIDATORS,
+    ConfigValidationError,
+    validate_all,
+)
 from src.mcp_server.app import create_app as create_mcp_app
 from src.security import install_scrub_excepthook, install_scrub_filter
 from src.web_ui.app import create_web_app
@@ -72,8 +79,39 @@ async def _wait_for_mcp_ready(mcp_app) -> None:  # type: ignore[no-untyped-def]
     log.warning("MCP app did not publish pool within 30s; web UI may start without services")
 
 
+def _print_validation(success: bool) -> None:
+    """Emit the documented success line per contracts/config-validator-cli.md."""
+    if success:
+        print(f"config validation: OK ({len(VALIDATORS)} vars validated)")
+    else:
+        print("config validation: FAIL")
+
+
+def _run_validation() -> int:
+    """Run V16 startup validation; return 0 on clean, 1 on any failure."""
+    try:
+        validate_all()
+    except ConfigValidationError as exc:
+        _print_validation(success=False)
+        for failure in exc.failures:
+            print(f"  {failure.var_name}: {failure.reason}", file=sys.stderr)
+        return 1
+    _print_validation(success=True)
+    return 0
+
+
 def main() -> None:
-    """Blocking entrypoint."""
+    """Blocking entrypoint. Validates config before binding any port."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--validate-config-only",
+        action="store_true",
+        help="Validate every SACP_* env var and exit; do not start the server.",
+    )
+    args = parser.parse_args()
+    rc = _run_validation()
+    if args.validate_config_only or rc != 0:
+        sys.exit(rc)
     asyncio.run(_run())
 
 
