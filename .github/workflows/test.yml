@@ -50,5 +50,8 @@ jobs:
       - name: Schema-mirror gate (alembic vs tests/conftest.py)
         run: python scripts/check_schema_mirror.py
 
+      - name: Traceability gate (FR-to-test artifact)
+        run: python scripts/check_traceability.py
+
       - name: Run tests
         run: pytest -v --tb=short
