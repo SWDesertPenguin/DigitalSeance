@@ -53,6 +53,11 @@ jobs:
       - name: Traceability gate (FR-to-test artifact)
         run: python scripts/check_traceability.py
 
+      - name: Run unit tests (fast tier)
+        run: pytest -v --tb=short -m "not integration"
+
+      - name: Run integration tests (slow tier)
+        run: pytest -v --tb=short -m integration
       - name: Env-vars gate (SACP_* code/docs/validators coverage)
         run: python scripts/check_env_vars.py
 

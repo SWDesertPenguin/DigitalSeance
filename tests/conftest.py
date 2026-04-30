@@ -530,3 +530,31 @@ async def session_with_participant(
         encryption_key,
     )
     return session, facilitator, participant, branch
+
+
+# ---------------------------------------------------------------------------
+# Per-test FastAPI app instance fixture (spec 012 FR-009 / US7)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mcp_app() -> object:
+    """Per-test fresh MCP FastAPI app instance.
+
+    Each test that touches MCP gets its own app object so middleware
+    state (request-id contextvars, rate-limit buckets, CORS config
+    overrides via app.state) cannot leak across tests. Closes the
+    recurring middleware-state-leak bug class in feature 012 US7
+    (FR-009).
+    """
+    from src.mcp_server.app import create_app
+
+    return create_app()
+
+
+@pytest.fixture
+def web_app() -> object:
+    """Per-test fresh Web UI FastAPI app instance. Pairs with mcp_app."""
+    from src.web_ui.app import create_web_app
+
+    return create_web_app()
