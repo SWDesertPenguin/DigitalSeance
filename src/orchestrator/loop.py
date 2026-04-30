@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections import Counter
 from dataclasses import dataclass
 
@@ -19,6 +20,12 @@ from src.orchestrator.context import ContextAssembler
 from src.orchestrator.convergence import DIVERGENCE_PROMPT, ConvergenceDetector
 from src.orchestrator.router import TurnRouter
 from src.orchestrator.summarizer import SummarizationManager
+from src.orchestrator.timing import (
+    get_timings,
+    record_stage,
+    start_turn,
+    with_stage_timing,
+)
 from src.orchestrator.types import ProviderResponse, TurnResult
 from src.repositories.errors import (
     AllParticipantsExhaustedError,
@@ -129,6 +136,7 @@ class ConversationLoop:
 
     async def execute_turn(self, session_id: str) -> TurnResult:
         """Execute a single turn iteration."""
+        start_turn()
         if not await _session_is_active(self._pool, session_id):
             msg = f"Session {session_id} is not active"
             raise SessionNotActiveError(msg)
@@ -169,6 +177,7 @@ class ConversationLoop:
         await _mark_delivered(self._int_repo, interjections)
         return result
 
+    @with_stage_timing("route")
     async def _check_route(
         self,
         session_id: str,
@@ -402,11 +411,13 @@ async def _assemble_and_dispatch(
     Anthropic to "continue" its own message returns empty and would
     otherwise trip the circuit breaker on a healthy participant.
     """
+    assemble_start = time.monotonic()
     context = await assembler.assemble(
         session_id=ctx.session_id,
         participant=speaker,
         interjections=interjections,
     )
+    record_stage("assemble", int((time.monotonic() - assemble_start) * 1000))
     if not _has_new_input(context):
         log.info("Skipping %s: last message was same speaker", speaker.id)
         return None, "no_new_input"
@@ -473,11 +484,22 @@ def _has_new_input(context: list) -> bool:
     return True
 
 
-def _run_pipeline(content: str) -> tuple[object, str, list[str]]:
-    """Run validate + exfiltration. Raises if either layer crashes."""
+def _run_pipeline(content: str) -> tuple[object, str, list[str], int, int]:
+    """Run validate + exfiltration with per-layer timing (007 §FR-020).
+
+    Returns (validation, cleaned, exfil_flags, validator_ms, exfil_ms).
+    Per-layer durations are captured even if a downstream layer raises;
+    raise propagates to the caller's fail-closed handler.
+    """
+    validator_start = time.monotonic()
     validation = validate_output(content)
+    validator_ms = int((time.monotonic() - validator_start) * 1000)
+
+    exfil_start = time.monotonic()
     cleaned, exfil_flags = filter_exfiltration(content)
-    return validation, cleaned, exfil_flags
+    exfil_ms = int((time.monotonic() - exfil_start) * 1000)
+
+    return validation, cleaned, exfil_flags, validator_ms, exfil_ms
 
 
 async def _log_security_events(
@@ -485,8 +507,13 @@ async def _log_security_events(
     speaker_id: str,
     validation: object,
     exfil_flags: list[str],
+    layer_durations: dict[str, int],
 ) -> None:
-    """Persist per-layer findings to security_events for post-hoc review (CHK008)."""
+    """Persist per-layer findings to security_events for post-hoc review (CHK008).
+
+    ``layer_durations`` carries 007 §FR-020 wall-clock samples keyed by
+    layer name (``output_validator`` / ``exfiltration``).
+    """
     if validation.findings or validation.blocked:
         await ctx.log_repo.log_security_event(
             session_id=ctx.session_id,
@@ -496,6 +523,7 @@ async def _log_security_events(
             findings=json.dumps(list(validation.findings)),
             risk_score=validation.risk_score,
             blocked=validation.blocked,
+            layer_duration_ms=layer_durations.get("output_validator"),
         )
     if exfil_flags:
         await ctx.log_repo.log_security_event(
@@ -505,7 +533,20 @@ async def _log_security_events(
             layer="exfiltration",
             findings=json.dumps(exfil_flags),
             blocked=False,
+            layer_duration_ms=layer_durations.get("exfiltration"),
         )
+
+
+async def _log_pipeline_error(ctx: _TurnContext, speaker_id: str) -> None:
+    """Record a fail-closed security-pipeline crash (012 US6 / 007 §FR-020)."""
+    await ctx.log_repo.log_security_event(
+        session_id=ctx.session_id,
+        speaker_id=speaker_id,
+        turn_number=-1,
+        layer="pipeline_error",
+        findings=json.dumps(["pipeline_exception"]),
+        blocked=True,
+    )
 
 
 async def _validate_and_persist(
@@ -522,19 +563,15 @@ async def _validate_and_persist(
     breaker failure — the bug is ours, not the participant's.
     """
     try:
-        validation, cleaned, exfil_flags = _run_pipeline(response.content)
+        validation, cleaned, exfil_flags, validator_ms, exfil_ms = _run_pipeline(
+            response.content,
+        )
     except Exception:  # noqa: BLE001 — fail-closed on any pipeline error
         log.exception("Security pipeline crashed for %s; failing closed", speaker.id)
-        await ctx.log_repo.log_security_event(
-            session_id=ctx.session_id,
-            speaker_id=speaker.id,
-            turn_number=-1,
-            layer="pipeline_error",
-            findings=json.dumps(["pipeline_exception"]),
-            blocked=True,
-        )
+        await _log_pipeline_error(ctx, speaker.id)
         return _skip_result(ctx.session_id, speaker.id, "security_pipeline_error")
-    await _log_security_events(ctx, speaker.id, validation, exfil_flags)
+    layer_durations = {"output_validator": validator_ms, "exfiltration": exfil_ms}
+    await _log_security_events(ctx, speaker.id, validation, exfil_flags, layer_durations)
     if validation.blocked:
         log.warning("Blocked %s: %s", speaker.id, validation.findings)
         return await _stage_for_review(ctx, speaker, decision, response)
@@ -564,6 +601,7 @@ def _is_degenerate(text: str) -> bool:
     return top3 / len(words) > 0.5
 
 
+@with_stage_timing("dispatch")
 async def _dispatch_to_provider(
     speaker: object,
     messages: list[dict[str, str]],
@@ -588,6 +626,7 @@ async def _persist_turn(
     response: ProviderResponse,
 ) -> TurnResult:
     """Persist response as message and log routing + usage."""
+    persist_start = time.monotonic()
     branch_id = await get_main_branch_id(ctx.pool, ctx.session_id)
     msg = await ctx.msg_repo.append_message(
         session_id=ctx.session_id,
@@ -599,13 +638,30 @@ async def _persist_turn(
         complexity_score=decision.complexity,
         cost_usd=response.cost_usd,
     )
-    await _log_routing(ctx.log_repo, ctx.session_id, decision, turn_number=msg.turn_number)
+    record_stage("persist", int((time.monotonic() - persist_start) * 1000))
+    await _log_routing(
+        ctx.log_repo,
+        ctx.session_id,
+        decision,
+        turn_number=msg.turn_number,
+        timings=get_timings(),
+    )
     await _log_usage(ctx.log_repo, speaker, msg.turn_number, response)
     await _sync_current_turn(ctx.pool, ctx.session_id, msg.turn_number)
+    await _emit_persist_signals(ctx, speaker, msg, response)
+    return _turn_result(ctx.session_id, msg.turn_number, speaker, decision, response)
+
+
+async def _emit_persist_signals(
+    ctx: _TurnContext,
+    speaker: object,
+    msg: object,
+    response: ProviderResponse,
+) -> None:
+    """Broadcast post-persist WS events: message, spend update, AI signals."""
     await _emit_message_to_web_ui(ctx.session_id, msg, response.cost_usd)
     await _emit_spend_update(ctx, speaker.id)
     await _emit_ai_signals(ctx, speaker, msg)
-    return _turn_result(ctx.session_id, msg.turn_number, speaker, decision, response)
 
 
 async def _emit_ai_signals(
@@ -717,7 +773,12 @@ async def _stage_for_review(
         context_summary="Auto-generated turn response",
     )
     log.info("Staged draft %s for review (participant=%s)", draft.id, speaker.id)
-    await _log_routing(ctx.log_repo, ctx.session_id, decision)
+    await _log_routing(
+        ctx.log_repo,
+        ctx.session_id,
+        decision,
+        timings=get_timings(),
+    )
     await _emit_draft_staged(ctx.session_id, draft)
     skip = _skip_result(ctx.session_id, speaker.id, "review_gate_staged")
     return _with_delay(skip, 5.0)
@@ -778,8 +839,10 @@ async def _log_routing(
     decision: object,
     *,
     turn_number: int = -1,
+    timings: dict[str, int] | None = None,
 ) -> None:
     """Log the routing decision."""
+    timings = timings or {}
     await log_repo.log_routing(
         session_id=session_id,
         turn_number=turn_number,
@@ -789,6 +852,11 @@ async def _log_routing(
         complexity=decision.complexity,
         domain_match=decision.domain_match,
         reason=decision.reason,
+        route_ms=timings.get("route"),
+        assemble_ms=timings.get("assemble"),
+        dispatch_ms=timings.get("dispatch"),
+        persist_ms=timings.get("persist"),
+        advisory_lock_wait_ms=timings.get("advisory_lock_wait"),
     )
 
 

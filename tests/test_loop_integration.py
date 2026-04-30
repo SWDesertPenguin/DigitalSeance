@@ -109,6 +109,56 @@ async def test_exfiltration_cleaned(
     assert "sk-ant-" not in row["content"]
 
 
+async def test_execute_turn_populates_per_stage_timings(
+    pool: asyncpg.Pool,
+    session_with_participant,
+    mock_litellm,
+):
+    """Per-stage timings on routing_log are populated end-to-end (US6 / V14).
+
+    Verifies T048: route_ms / assemble_ms / dispatch_ms / persist_ms are
+    captured on the success-path routing_log row. advisory_lock_wait_ms
+    remains NULL until 003 §FR-032 gets its lock-wait observer.
+    """
+    session, _, _, _ = session_with_participant
+    loop = _make_loop(pool)
+    await loop.execute_turn(session.id)
+    routing = await _fetch_routing_log(pool, session.id)
+    assert routing is not None
+    assert routing["route_ms"] is not None
+    assert routing["route_ms"] >= 0
+    assert routing["assemble_ms"] is not None
+    assert routing["assemble_ms"] >= 0
+    assert routing["dispatch_ms"] is not None
+    assert routing["dispatch_ms"] >= 0
+    assert routing["persist_ms"] is not None
+    assert routing["persist_ms"] >= 0
+    assert routing["advisory_lock_wait_ms"] is None
+
+
+async def test_execute_turn_populates_security_layer_duration(
+    pool: asyncpg.Pool,
+    session_with_participant,
+    mock_litellm,
+):
+    """Per-layer security timings on security_events are populated (US6 / 007 §FR-020).
+
+    Verifies T049: when a security layer flags content, the persisted
+    security_events row carries a non-NULL layer_duration_ms.
+    """
+    leaked = "Here is sk-ant-api03-abcdef0123456789012345678901234567890123456789"
+    mock_litellm.acompletion.return_value = _build_fake_response(leaked)
+    session, _, _, _ = session_with_participant
+    loop = _make_loop(pool)
+    await loop.execute_turn(session.id)
+    events = await _fetch_security_events(pool, session.id)
+    assert events, "expected at least one security_events row for the leaked-key payload"
+    exfil_rows = [r for r in events if r["layer"] == "exfiltration"]
+    assert exfil_rows, "exfiltration layer should have logged a finding"
+    assert exfil_rows[0]["layer_duration_ms"] is not None
+    assert exfil_rows[0]["layer_duration_ms"] >= 0
+
+
 # --- Helpers (under 25 lines each) ---
 
 
@@ -134,6 +184,15 @@ async def _fetch_usage_log(pool: asyncpg.Pool):
     """Fetch the first usage log entry."""
     async with pool.acquire() as conn:
         return await conn.fetchrow("SELECT * FROM usage_log LIMIT 1")
+
+
+async def _fetch_security_events(pool: asyncpg.Pool, session_id: str):
+    """Fetch all security_events rows for a session in chronological order."""
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT * FROM security_events WHERE session_id = $1 ORDER BY timestamp",
+            session_id,
+        )
 
 
 async def _fetch_interrupt(pool: asyncpg.Pool, intr_id: int):
