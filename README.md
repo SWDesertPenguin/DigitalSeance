@@ -33,4 +33,6 @@ See the [Wiki](https://github.com/SWDesertPenguin/DigitalSeance/wiki) for more d
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) for details.
+Code is licensed under the GNU Affero General Public License v3.0. See [LICENSE](LICENSE) for details.
+
+Documentation is licensed under Creative Commons Attribution 4.0 International (CC BY 4.0). See [LICENSE-DOCS](LICENSE-DOCS) for details.
