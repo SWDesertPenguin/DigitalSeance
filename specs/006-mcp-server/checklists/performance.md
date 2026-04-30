@@ -134,3 +134,25 @@
   - CHK005 (keepalive cadence rationale — relevant for proxy / NAT deployments).
   - CHK018 / CHK019 (paginate large reads — already deferred to Phase 3 but worth tracking).
 - Sister checklists: `requirements.md`, `security.md`, `operations.md` already on main. Cross-refs to 003 (turn-loop produces events), 010 (debug-export timing), 011 (Web UI's WebSocket on port 8751 mirrors this analysis).
+
+## Closeout (2026-04-29)
+
+Spec amendments to 006 close the highest-leverage GAPs:
+
+- **CHK001** (SC-001 2s decomposed) closed by SC-007 (P95 connect-to-first-event <= 500ms).
+- **CHK002 / CHK003** (per-tool budgets for inject + lifecycle) closed by FR-018 (per-tool latency capture) + SC-006 (P95 budgets per cheap/expensive class).
+- **CHK004** (per-tool latency budget) closed by FR-018 + SC-006.
+- **CHK008** (broadcast fan-out cost) addressed indirectly by FR-019 (subscriber cap x per-event cost = 16MB ceiling).
+- **CHK013** (per-session subscriber count bounded) closed by FR-019 (SACP_MAX_SUBSCRIBERS_PER_SESSION default 64) + SC-008 (cap enforcement test).
+- **CHK020** (cross-ref to 010 SC-005 debug-export) closed by SC-006 (explicit cross-ref).
+- **CHK023** (SLO percentiles) closed by SC-006 + SC-007.
+- **CHK029** (request-id propagation) closed by FR-020 (UUID4 + contextvars across MCP -> orchestrator -> DB).
+- **CHK032** (per-connection memory bound) closed by FR-019 (16MB/session ceiling).
+
+Items remaining [GAP] (require infrastructure or tier-4 work):
+
+- CHK030 / CHK031 (load-test harness + CI gate) same shape across all 7 perf checklists.
+- CHK016-019 (cold-start, throughput, DB-tool latency for very long sessions) depend on production observability.
+- CHK024-026 (per-error log volume, regex cost, OpenAPI build cost) fine-grained instrumentation work.
+
+Implementation of FR-018 / FR-019 / FR-020 / SC-006 / SC-007 / SC-008 ships as a follow-up PR (subscriber cap enforcement, request-id middleware, structured logs).

@@ -134,3 +134,25 @@
   - CHK013 / CHK030 / CHK031 (parallelization + tokenize-once + happy-path short-circuit are real optimization paths not yet contemplated).
   - CHK028 (the deferred benign_corpus.txt fixture is dual-use: FP measurement AND perf benchmark).
 - Sister checklists: `requirements.md`, `security.md` already on main. Cross-refs: 003 CHK036 (fail-closed path), 004 CHK022 (no benchmark fixture), 005 CHK004 (recursive sanitize cost), 006 CHK020 (debug-export pulls security_events).
+
+## Closeout (2026-04-29)
+
+Spec amendments to 007 close the highest-leverage GAPs:
+
+- **CHK001** (decompose 50ms target per-layer) closed by FR-020 (security_events.layer_duration_ms) + SC-008 (per-layer P95 budgets summing to <=50ms aggregate).
+- **CHK002-007** (per-layer latency: sanitizer, spotlighting, output_validator, exfiltration, jailbreak, prompt_protector) closed by SC-008 (explicit per-layer budgets).
+- **CHK008** (security_events INSERT latency) addressed by FR-021 (90ms worst-case ceiling).
+- **CHK009** (worst-case latency bound) closed by FR-021 (90ms adversarial-pass ceiling, regression-detection rule).
+- **CHK012** (LLM-as-judge budget pre-allocation) closed by FR-023 (target expands to <2s when wired; placement after pattern layers).
+- **CHK020** (cumulative tax across spec boundaries with 005 + 008) closed by FR-022 (pipeline_total_ms aggregate to routing_log).
+- **CHK025** (security_events retention) closed by SC-009 (90-day default + SACP_SECURITY_EVENTS_RETENTION_DAYS override + purge job).
+- **CHK027** (per-stage timing instrumentation) closed by FR-020.
+
+Items remaining [GAP]:
+
+- CHK028 / CHK029 (benchmark fixture benign_corpus.txt + adversarial sibling, CI regression gate) same shape across all 7 perf checklists.
+- CHK013-018 (parallelization, regex compile amortization, memory bounds) implementation-detail optimizations.
+- CHK022-024 (cold-start, false-positive rate vs review-gate-queue congestion) requires telemetry stack.
+- CHK030-032 (cross-layer optimizations, fast-path short-circuit) Phase 3 perf work, not blocked by spec.
+
+Implementation of FR-020 / FR-021 / FR-022 / FR-023 / SC-008 / SC-009 ships as a follow-up PR (per-layer timing capture, retention purge job, pipeline_total_ms emit).

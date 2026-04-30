@@ -129,3 +129,26 @@
   - CHK026 / CHK027 (benchmark fixture + CI gate — same shape as 003/004/006/007/008 — system-wide gap).
   - CHK020 (per-endpoint RL cost differentiation — relevant for tuning).
 - Sister checklists: `requirements.md`, `security.md` already on main. Cross-refs to 002 (auth runs before RL), 006 (RL middleware lives in MCP server), 011 (Web UI same-origin requests pay this tax too).
+
+## Closeout (2026-04-29)
+
+Spec amendments to 009 close the highest-leverage GAPs:
+
+- **CHK001** (per-check() latency bounded) closed by FR-011 (P95 <= 1ms steady state) + SC-005 (synthetic-load measurement contract).
+- **CHK002** (timestamp pruning cost) addressed by FR-011 (cost components enumerated).
+- **CHK003** (eviction sweep cost) closed by FR-013 (at-most-once-per-second + duration capture).
+- **CHK009** (10MB memory ceiling codified) closed by FR-014 + SC-007 (RSS-delta enforcement at 20MB ceiling).
+- **CHK017** (eviction-frequency under cap-pressure) closed by FR-013 (rate-limited sweep prevents pathological cascading).
+- **CHK019** (P50/P95/P99 SLO) closed by SC-005 (P95 <= 1ms, P99 <= 5ms).
+- **CHK022** (per-call timing instrumentation) closed by FR-011 + SC-005.
+- **CHK023** (429-rate metrics) closed by FR-012 (per-participant + aggregate counters) + SC-006 (attack-vs-legit-workload distinguishing rule).
+- **CHK024** (bucket-count-vs-cap monitoring) addressed by FR-013 + FR-014.
+- **CHK025** (eviction-sweep-frequency tracked metric) closed by FR-013 (rate_limit_eviction_sweep_ms capture).
+
+Items remaining [GAP]:
+
+- CHK026 / CHK027 (benchmark fixture + CI regression gate) same shape across all 7 perf checklists.
+- CHK006-016 (cross-participant aggregate throughput, middleware position cost, per-bucket footprint) depend on telemetry stack.
+- CHK020 / CHK028-030 (per-endpoint RL cost differentiation, sliding-window vs token-bucket trade-off, lazy vs eager eviction) design notes for Phase 3.
+
+Implementation of FR-011 / FR-012 / FR-013 / FR-014 / SC-005 / SC-006 / SC-007 ships as a follow-up PR (sweep-rate-limit logic, 429-counter capture, per-check() timing, RSS measurement test).
