@@ -47,5 +47,8 @@ jobs:
           pip install .[dev] || pip install .
           pip install pytest pytest-asyncio
 
+      - name: Schema-mirror gate (alembic vs tests/conftest.py)
+        run: python scripts/check_schema_mirror.py
+
       - name: Run tests
         run: pytest -v --tb=short
