@@ -40,16 +40,24 @@ RUN groupadd --system --gid 10001 sacp && \
 # /install/bin/uvicorn etc. -> /usr/local/bin/
 COPY --from=builder /install /usr/local
 
-# Force a clean setuptools upgrade after the COPY. Two sources contribute
-# vulnerable setuptools 70.2.0 (CVE-2025-47273): the runtime base image's
-# bundled install AND pip's transitive resolution in the builder, which
-# can land 70.x in /install. PR #158 stripped only the base image, missing
-# the second source. --force-reinstall ensures the dist-info is regenerated
-# cleanly so Trivy doesn't flag stale 70.x metadata sitting next to a 78+
-# install. Capped <81 to keep pkg_resources available for transitive deps
-# that may lazy-import it.
-RUN pip install --no-cache-dir --upgrade --force-reinstall \
-        'setuptools>=78.1.1,<81' && \
+# Explicitly remove every setuptools-related directory after the COPY,
+# THEN install a clean fixed version. Two sources contribute vulnerable
+# setuptools 70.2.0 (CVE-2025-47273): the runtime base image AND pip's
+# transitive resolution in the builder. After the COPY both have landed
+# their own setuptools-*.dist-info dirs side-by-side in site-packages.
+# PR #158 (pre-COPY rm) handled only the base. PR #160 (post-COPY pip
+# --force-reinstall) cleaned only one of the two duplicate dist-info
+# dirs because pip's uninstaller can't reliably handle two installed
+# copies of the same package — it finds one via importlib.metadata and
+# leaves the other as orphan metadata. Wipe the slate first, then
+# install fresh: only one dist-info dir exists when pip is done.
+# Capped <81 to keep pkg_resources available for transitive deps that
+# may lazy-import it.
+RUN rm -rf /usr/local/lib/python3.14/site-packages/setuptools \
+           /usr/local/lib/python3.14/site-packages/setuptools-*.dist-info \
+           /usr/local/lib/python3.14/site-packages/pkg_resources \
+           /usr/local/lib/python3.14/site-packages/_distutils_hack && \
+    pip install --no-cache-dir 'setuptools>=78.1.1,<81' && \
     rm -rf /root/.cache/pip
 
 COPY --chown=sacp:sacp src/ src/
