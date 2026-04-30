@@ -194,11 +194,11 @@ description: "Task list for feature 012-audit-fixes implementation"
 
 ### Implementation for User Story 8
 
-- [ ] T060 [P] [US8] Create `docs/adr/0001-fire-and-forget-summarization.md` retrospective ADR using MADR 4.0 lightweight format per [research.md](./research.md) Decision 2 — covers the Phase 2 decision rationale (FR-013).
-- [ ] T061 [P] [US8] Create `docs/pattern-list-update-workflow.md` covering 007 §FR-017 incident → PR-within-one-cycle → red-team-runbook entry cycle (FR-012).
-- [ ] T062 [P] [US8] Create `docs/threat-model-review-process.md` per [research.md](./research.md) Decision 9: per-Phase-boundary cadence + trigger conditions (new red-team incident category, new participant-side capability, dependency major version with new attack surface) + ownership (FR-016).
-- [ ] T063 [US8] Add `## 14.8 — Spec versioning convention` section to `.specify/memory/constitution.md` per [research.md](./research.md) Decision 3: header-block format, MAJOR/MINOR/PATCH semantics, retroactive-only application; bump constitution PATCH per §14.5.
-- [ ] T064 [P] [US8] Update `.specify/memory/constitution.md` §13 with authoritative-references entries for `docs/pattern-list-update-workflow.md` and `docs/threat-model-review-process.md`.
+- [X] T060 [P] [US8] Create `docs/adr/0001-fire-and-forget-summarization.md` retrospective ADR using MADR 4.0 lightweight format. Captures Phase 2's choice of fire-and-forget over synchronous-in-loop or synchronous-with-timeout-fallback for summarization — preserves 003 §FR-021 turn-loop never-halts invariant (FR-013).
+- [X] T061 [P] [US8] Create `docs/pattern-list-update-workflow.md` codifying 007 §FR-017's four-step workflow: capture incident → PR within one cycle (corpus + regression test + pattern + runbook update) → verify zero-regression on broader corpus → land within one cycle. Plus ownership and trigger conditions (FR-012).
+- [X] T062 [P] [US8] Create `docs/threat-model-review-process.md` per [research.md](./research.md) Decision 9: per-Phase-boundary review cadence + four trigger-based review conditions (new red-team incident category, new participant-side capability, dependency major-version with new attack surface, provider-disclosed regression) + ownership (FR-016).
+- [X] T063 [US8] Add `### 14.8 — Spec versioning convention` to `.specify/memory/constitution.md` (placed AFTER §14.7 to preserve sequential numbering): header-block format `**Spec Version**: M.N.P | **Last Amended**: YYYY-MM-DD | **Amended In**: PR #NNN`, MAJOR/MINOR/PATCH semantics, retroactive-only application. Constitution version bumped 0.7.1 → 0.7.2 MINOR per §14.5 (assumes env-vars PR's 0.7.0 → 0.7.1 PATCH merges first; swap at rebase if order flips).
+- [X] T064 [P] [US8] Add §13 entries for `docs/pattern-list-update-workflow.md`, `docs/threat-model-review-process.md`, and `docs/adr/` to the Development & Operations table.
 
 **Checkpoint**: US8 functional. Phase-3-readiness conventions established; future contributors have one-place references for ADR / pattern-list update / threat-model review / spec versioning.
 
