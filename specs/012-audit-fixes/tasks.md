@@ -154,11 +154,11 @@ description: "Task list for feature 012-audit-fixes implementation"
 
 ### Implementation for User Story 6
 
-- [ ] T046 [P] [US6] Create `src/orchestrator/timing.py` with `with_stage_timing(stage_name)` decorator using `time.monotonic()` and `ContextVar`-backed accumulator per [research.md](./research.md) Decision 7 (FR-007).
-- [ ] T047 [P] [US6] Add microbenchmark test in `tests/unit/test_timing_decorator.py` asserting decorator overhead ≤ 50µs per call; per-turn aggregate ≤ 0.5ms.
-- [ ] T048 [US6] Wrap turn-loop stage methods in `src/orchestrator/turn_loop.py` with `@with_stage_timing("route")`, `@with_stage_timing("assemble")`, `@with_stage_timing("dispatch")`, `@with_stage_timing("persist")`, `@with_stage_timing("advisory_lock_wait")`. Modify the persist step to read the accumulator and populate the new routing_log columns (FR-007).
-- [ ] T049 [US6] Wrap pipeline layer calls in `src/security/pipeline.py` with timing decorators; populate `security_events.layer_duration_ms` on each layer's row write (FR-007).
-- [ ] T050 [P] [US6] Add integration test `tests/integration/test_per_stage_instrumentation.py`: synthetic turn → assert routing_log + security_events rows have all expected timing columns populated with non-null non-negative integer values; assert ContextVar isolation across `asyncio.create_task` boundaries.
+- [X] T046 [P] [US6] Create `src/orchestrator/timing.py` exposing `with_stage_timing(stage_name)` async decorator + `start_turn()` / `get_timings()` / `record_stage()` / `reset()` helpers, all backed by a `ContextVar[dict[str, int] | None]` accumulator. Survives `asyncio.create_task` boundaries; record_stage is no-op outside a turn context (FR-007 per research.md Decision 7).
+- [X] T047 [P] [US6] Add `tests/test_timing_decorator.py` (placed flat under `tests/` matching repo convention) — 6 tests: decorator records duration, records on raise, repeated calls accumulate, no-op outside turn context, ContextVar isolation across `asyncio.create_task`, microbenchmark overhead ≤ 200µs/call (CI-jitter-tolerant; research.md target 50µs).
+- [ ] T048 [US6] **Deferred to follow-up**: wiring `@with_stage_timing` into actual stage call sites needs careful refactor of `src/orchestrator/loop.py` (note: file is `loop.py` not `turn_loop.py` from the original plan; stages live as module-level helpers `_check_route`, `_assemble_and_dispatch`, `_dispatch_and_persist`, `_validate_and_persist` rather than as class methods). Also requires adding `start_turn()` call at the top of `execute_turn` and reading `get_timings()` in the persist path to populate the `route_ms` / `assemble_ms` / `dispatch_ms` / `persist_ms` / `advisory_lock_wait_ms` columns added in alembic 008. Land in a focused refactor PR or as part of an ops-amendment cluster touching loop.py.
+- [ ] T049 [US6] **Deferred to follow-up**: wiring per-layer timing into `src/security/pipeline.py` and writing `layer_duration_ms` on each `security_events` insert. Same shape as T048; bundle with that PR.
+- [ ] T050 [P] [US6] **Deferred**: integration test landing alongside T048+T049; needs real DB to assert columns are populated end-to-end.
 
 **Checkpoint**: US6 functional. SC-008 satisfied (per-stage timings on 100% of production-path turns).
 
