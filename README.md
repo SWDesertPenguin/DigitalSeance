@@ -18,6 +18,8 @@ A facilitator runs the orchestrator (Docker container). Participants join with i
 
 The orchestrator runs a serialized conversation loop: pick the next participant, build a context window from recent history, call their AI provider through LiteLLM, validate the response, log costs, check for convergence, and repeat. Humans can interject at any time through MCP tools or the web UI. Their messages jump the queue via an interrupt system.
 
+> **Deployment note**: SACP is designed to run inside the provided Docker Compose stack, where ports 8750 (MCP) and 8751 (Web UI) are scoped to the container's network namespace. Running `python -m src.run_apps` directly on a host binds those ports to `0.0.0.0` on every interface — only do this for local development behind a firewall or reverse proxy, never as a production exposure.
+
 ### Conversation Quality
 
 The loop isn't just round-robin prompting. Three mechanisms keep conversations productive:

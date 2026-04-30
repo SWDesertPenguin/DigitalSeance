@@ -1,0 +1,28 @@
+# Dependabot watches two ecosystems for SACP:
+#   - pip: tracks pyproject.toml runtime + dev deps (FastAPI, asyncpg,
+#     LiteLLM, cryptography, etc.). Bumps that fail Trivy (HIGH/CRITICAL)
+#     in build-image.yml gate themselves.
+#   - github-actions: tracks the SHA-pinned actions in .github/workflows/.
+#     PRs propose new SHA + tag-comment in the same format the workflows
+#     already use.
+#
+# Weekly cadence picked over daily so Monday triage stays bounded.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"

@@ -10,6 +10,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # Least-privilege GITHUB_TOKEN: this workflow only reads the repo and
+    # publishes nothing. Belt-and-braces against the legacy repo-default
+    # which can be read/write on older repositories.
+    permissions:
+      contents: read
+
     services:
       postgres:
         image: postgres:16-alpine
@@ -28,12 +34,15 @@ jobs:
     env:
       SACP_DATABASE_URL: postgresql://sacp_test:testpass@localhost:5432/sacp_test
       SACP_TEST_DATABASE_URL: postgresql://sacp_test:testpass@localhost:5432/sacp_test
-      SACP_ENCRYPTION_KEY: ***REMOVED***
 
     steps:
-      - uses: actions/checkout@v4
+      # Actions pinned to immutable commit SHAs (vs mutable major-version
+      # tags) per supply-chain hygiene — a compromised maintainer cannot
+      # retag `v4` to a malicious ref. Dependabot proposes SHA bumps
+      # against this format (.github/dependabot.yml).
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
         with:
           # Match the Python minor the production image uses
           # (Dockerfile: python:3.14.4-slim-bookworm). Floor in
@@ -46,6 +55,14 @@ jobs:
           pip install --upgrade pip
           pip install .[dev] || pip install .
           pip install pytest pytest-asyncio
+
+      - name: Generate test encryption key
+        # Fresh per-run Fernet so no committable secret-shaped string lives
+        # in the workflow file. Must run after Install dependencies because
+        # cryptography is pulled in by the project install.
+        run: |
+          KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+          echo "SACP_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
 
       - name: Schema-mirror gate (alembic vs tests/conftest.py)
         run: python scripts/check_schema_mirror.py

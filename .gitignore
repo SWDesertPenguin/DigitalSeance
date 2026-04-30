@@ -58,6 +58,20 @@ AUDIT_PLAN.local.md
 # === Local audit follow-through tracker (not for GitHub) ===
 AUDIT_FOLLOWTHROUGH.local.md
 
+# === Local doc deliverables (US5 drafts; redact before publishing) ===
+docs/glossary.md
+docs/error-codes.md
+docs/retention.md
+docs/state-machines.md
+docs/ws-events.md
+docs/roles-permissions.md
+docs/compliance-mapping.md
+docs/operational-runbook.md
+scripts/check_doc_deliverables.py
+
+# === Local exploratory transcripts (working notes; redact before publishing) ===
+docs/sacp-shakedown-threat-model-session.md
+
 # === OS ===
 .DS_Store
 Thumbs.db
