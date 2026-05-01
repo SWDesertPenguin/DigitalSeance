@@ -2,8 +2,10 @@
 -- Run once per database to configure application-level access control.
 -- Constitution §6.2: Append-only log tables restricted to INSERT and SELECT.
 
--- Application role (normal operations)
-CREATE ROLE sacp_app WITH LOGIN ENCRYPTED PASSWORD 'changeme_app';
+-- Application role (normal operations).
+-- Placeholder password trips the V16 startup validator (audit H-04) when
+-- inherited via `SACP_DATABASE_URL`. Replace before running this script.
+CREATE ROLE sacp_app WITH LOGIN ENCRYPTED PASSWORD 'REPLACE_ME_BEFORE_FIRST_RUN_APP';
 GRANT CONNECT ON DATABASE sacp TO sacp_app;
 GRANT USAGE ON SCHEMA public TO sacp_app;
 
@@ -23,8 +25,8 @@ TO sacp_app;
 -- Sequence access for SERIAL columns
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sacp_app;
 
--- Cleanup role (session deletion only)
-CREATE ROLE sacp_cleanup WITH LOGIN ENCRYPTED PASSWORD 'changeme_cleanup';
+-- Cleanup role (session deletion only). Same placeholder rule as sacp_app.
+CREATE ROLE sacp_cleanup WITH LOGIN ENCRYPTED PASSWORD 'REPLACE_ME_BEFORE_FIRST_RUN_CLEANUP';
 GRANT CONNECT ON DATABASE sacp TO sacp_cleanup;
 GRANT USAGE ON SCHEMA public TO sacp_cleanup;
 GRANT SELECT, DELETE ON ALL TABLES IN SCHEMA public TO sacp_cleanup;
