@@ -209,6 +209,25 @@ def validate_ws_max_connections_per_ip() -> ValidationFailure | None:
     return None
 
 
+def validate_auth_lookup_key() -> ValidationFailure | None:
+    """SACP_AUTH_LOOKUP_KEY: required HMAC key for the token-lookup index. Audit C-02."""
+    val = os.environ.get("SACP_AUTH_LOOKUP_KEY")
+    if not val:
+        return ValidationFailure("SACP_AUTH_LOOKUP_KEY", "required but not set")
+    placeholder = _contains_placeholder(val)
+    if placeholder:
+        return ValidationFailure(
+            "SACP_AUTH_LOOKUP_KEY",
+            f"contains placeholder {placeholder!r} -- generate a real random secret",
+        )
+    if len(val) < 32:
+        return ValidationFailure(
+            "SACP_AUTH_LOOKUP_KEY",
+            f"must be >= 32 chars of high-entropy randomness; got {len(val)} chars",
+        )
+    return None
+
+
 VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_database_url,
     validate_encryption_key,
@@ -221,6 +240,7 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_cors_origins,
     validate_web_ui_allowed_origins,
     validate_ws_max_connections_per_ip,
+    validate_auth_lookup_key,
 )
 
 
