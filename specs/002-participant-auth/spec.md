@@ -20,6 +20,8 @@
 
 - Q: When `IPBindingMismatchError` fires on the Web UI auth path, should the 403 response body echo the bound IP and request IP from the exception message? → A: No. The 403 body returns only the generic detail `"IP binding mismatch"`. The underlying exception still carries the IP-pair tuple for operator-side forensic logging, but echoing it in the HTTP response would hand a stolen-token replay attempt the legitimate user's bound IP. The MCP middleware path (`src/mcp_server/middleware.py`) has always returned the generic string; this aligns the Web UI path. (Audit finding H-01.)
 
+- Q: How does `_check_ip_binding` resolve concurrent first-auth attempts from two different IPs against a participant with `bound_ip IS NULL`? → A: Atomically. `_bind_ip` issues `UPDATE participants SET bound_ip = $1 WHERE id = $2 AND bound_ip IS NULL` and inspects the rowcount. Rowcount 1 means we won the race and our IP is bound; rowcount 0 means another concurrent auth bound a different IP first, and we re-read the row to get whoever won. The caller compares the returned bound IP against `client_ip` and raises `IPBindingMismatchError` if they don't match. Net guarantee: under N concurrent first-auth attempts, exactly one IP ends up bound and every other request gets a 403 — no silent overwrite. The previous implementation read `bound_ip` from the in-memory `Participant` snapshot and issued an unconditional `UPDATE`, which let two NULL-observing concurrent auths last-write-wins each other's bind. (Audit finding M-01.)
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Token Authentication (Priority: P1)
