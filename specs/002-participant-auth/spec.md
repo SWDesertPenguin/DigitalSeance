@@ -16,6 +16,10 @@
 
 - Q: How do we prevent the Swagger default `"string"` literal from being persisted as a real model/provider name? → A: `_AddParticipantBody` rejects blank, whitespace-only, or case-insensitively equal to `"string"` values on `display_name`, `provider`, `model`, `model_tier`, `model_family` at validation time (HTTP 422). The provider dispatcher never sees invalid values, and `Turn -1` failure cycles caused by placeholder-model participants are eliminated.
 
+### Session 2026-04-30
+
+- Q: When `IPBindingMismatchError` fires on the Web UI auth path, should the 403 response body echo the bound IP and request IP from the exception message? → A: No. The 403 body returns only the generic detail `"IP binding mismatch"`. The underlying exception still carries the IP-pair tuple for operator-side forensic logging, but echoing it in the HTTP response would hand a stolen-token replay attempt the legitimate user's bound IP. The MCP middleware path (`src/mcp_server/middleware.py`) has always returned the generic string; this aligns the Web UI path. (Audit finding H-01.)
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Token Authentication (Priority: P1)
