@@ -129,7 +129,7 @@ Applied retroactively only when a spec is next amended (no bulk retroactive vers
 
 **Rationale**:
 
-- Gitignored matches `AUDIT_PLAN.local.md` precedent (memory: `feedback_audits_as_local_action_plans.md`).
+- Gitignored matches `AUDIT_PLAN.local.md` precedent (audit findings are tracked in local action plans, not committed checklists, until they close).
 - A separate file (rather than a column on existing closeouts) avoids retroactively rewriting committed audit closeouts.
 - A single file per repo (not per-batch) keeps the lookup surface small.
 - Markdown table is grep-friendly for "what's the verifying test for finding X?" queries.
