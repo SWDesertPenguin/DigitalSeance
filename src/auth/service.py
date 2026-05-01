@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import asyncpg
 import bcrypt
@@ -209,7 +209,7 @@ def _check_expiry(participant: Participant) -> None:
     expires = getattr(participant, "token_expires_at", None)
     if expires is None:
         return
-    now = datetime.utcnow()  # noqa: DTZ003
+    now = datetime.now(tz=UTC).replace(tzinfo=None)
     if hasattr(expires, "tzinfo") and expires.tzinfo is not None:
         expires = expires.replace(tzinfo=None)
     if now > expires:
@@ -248,7 +248,7 @@ async def _bind_ip(
 
 def _compute_expiry(days: int) -> datetime:
     """Calculate expiry timestamp from now (naive UTC for PostgreSQL)."""
-    return datetime.utcnow() + timedelta(days=days)  # noqa: DTZ003
+    return datetime.now(tz=UTC).replace(tzinfo=None) + timedelta(days=days)
 
 
 async def _do_transfer(
