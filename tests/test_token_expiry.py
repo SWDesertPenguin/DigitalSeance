@@ -70,7 +70,7 @@ async def test_expired_token_rejected(
     """Expired token raises TokenExpiredError."""
     _, pid, token = session_with_token
     # Set expiry to the past
-    past = datetime.utcnow() - timedelta(hours=1)  # noqa: DTZ003
+    past = datetime.now(tz=UTC).replace(tzinfo=None) - timedelta(hours=1)
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE participants SET token_expires_at = $1 WHERE id = $2",

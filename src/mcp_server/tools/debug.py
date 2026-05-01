@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import asdict, is_dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -90,7 +90,7 @@ async def _build_dump(
     spend = await _fetch_spend(state.pool, participants)
     name_by_id = {p.id: p.display_name for p in participants}
     return {
-        "exported_at": datetime.utcnow().isoformat() + "Z",
+        "exported_at": datetime.now(tz=UTC).replace(tzinfo=None).isoformat() + "Z",
         "exported_by": requester_id,
         "session": _serialize(session),
         "branch_id": branch_id,
