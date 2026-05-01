@@ -8,7 +8,9 @@
 
 ## Clarifications
 
-*None yet — pending first implementation session.*
+### Session 2026-05-01
+
+- **Per-IP WS cap (audit H-03)**: The 4429 `CLOSE_TOO_MANY` close code documented in `contracts/websocket-events.md` is now enforced server-side via `SACP_WS_MAX_CONNECTIONS_PER_IP` (default 10). The `WebSocketManager` reserves a slot atomically before `accept()` so a hostile peer cannot win a half-handshake race; the slot is released on `unregister`. Pre-fix the constant was defined but never wired, so a single host could open unbounded WS upgrades and exhaust the manager.
 
 ## User Scenarios & Testing *(mandatory)*
 
