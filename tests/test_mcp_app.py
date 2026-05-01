@@ -91,9 +91,11 @@ async def test_sse_unsubscribe_clears_session() -> None:
 
 def test_sensitive_fields_cover_obvious_patterns() -> None:
     """CI guard for 010 CHK001: any Participant field whose name matches a
-    known-sensitive heuristic (`_encrypted`, `_hash`, or `bound_ip`) MUST be
-    in the debug-export strip-list. Catches the case where a developer adds
-    a new sensitive column without remembering to update _SENSITIVE_FIELDS.
+    known-sensitive heuristic (`_encrypted`, `_hash`, `_lookup`, or `bound_ip`)
+    MUST be in the debug-export strip-list. Catches the case where a
+    developer adds a new sensitive column without remembering to update
+    _SENSITIVE_FIELDS. The `_lookup` suffix covers HMAC token-lookup style
+    columns added under audit C-02.
     """
     from dataclasses import fields
 
@@ -103,7 +105,7 @@ def test_sensitive_fields_cover_obvious_patterns() -> None:
     suspicious = {
         f.name
         for f in fields(Participant)
-        if f.name.endswith(("_encrypted", "_hash")) or f.name == "bound_ip"
+        if f.name.endswith(("_encrypted", "_hash", "_lookup")) or f.name == "bound_ip"
     }
     missing = suspicious - _SENSITIVE_FIELDS
     assert not missing, (

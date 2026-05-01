@@ -32,6 +32,7 @@ def _valid_env() -> dict[str, str]:
     return {
         "SACP_DATABASE_URL": _VALID_DB,
         "SACP_ENCRYPTION_KEY": _VALID_FERNET,
+        "SACP_AUTH_LOOKUP_KEY": "x" * 48,
     }
 
 
@@ -161,6 +162,40 @@ def test_ws_max_connections_per_ip_rejects_non_integer(_restore_env: None):
     failure = validate_ws_max_connections_per_ip()
     assert failure is not None
     assert "must be integer" in failure.reason
+
+
+def test_auth_lookup_key_required(_restore_env: None):
+    from src.config.validators import validate_auth_lookup_key
+
+    os.environ.pop("SACP_AUTH_LOOKUP_KEY", None)
+    failure = validate_auth_lookup_key()
+    assert failure is not None
+    assert "required but not set" in failure.reason
+
+
+def test_auth_lookup_key_rejects_short(_restore_env: None):
+    from src.config.validators import validate_auth_lookup_key
+
+    os.environ["SACP_AUTH_LOOKUP_KEY"] = "tooshort"
+    failure = validate_auth_lookup_key()
+    assert failure is not None
+    assert ">= 32 chars" in failure.reason
+
+
+def test_auth_lookup_key_rejects_placeholder(_restore_env: None):
+    from src.config.validators import validate_auth_lookup_key
+
+    os.environ["SACP_AUTH_LOOKUP_KEY"] = "REPLACE_ME_BEFORE_FIRST_RUN_padding_padding_padding"
+    failure = validate_auth_lookup_key()
+    assert failure is not None
+    assert "placeholder" in failure.reason
+
+
+def test_auth_lookup_key_accepts_strong(_restore_env: None):
+    from src.config.validators import validate_auth_lookup_key
+
+    os.environ["SACP_AUTH_LOOKUP_KEY"] = "x" * 48
+    assert validate_auth_lookup_key() is None
 
 
 def test_url_list_validator_rejects_bad_entry(_restore_env: None):

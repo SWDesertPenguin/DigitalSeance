@@ -22,6 +22,10 @@
 
 - Q: How does `_check_ip_binding` resolve concurrent first-auth attempts from two different IPs against a participant with `bound_ip IS NULL`? → A: Atomically. `_bind_ip` issues `UPDATE participants SET bound_ip = $1 WHERE id = $2 AND bound_ip IS NULL` and inspects the rowcount. Rowcount 1 means we won the race and our IP is bound; rowcount 0 means another concurrent auth bound a different IP first, and we re-read the row to get whoever won. The caller compares the returned bound IP against `client_ip` and raises `IPBindingMismatchError` if they don't match. Net guarantee: under N concurrent first-auth attempts, exactly one IP ends up bound and every other request gets a 403 — no silent overwrite. The previous implementation read `bound_ip` from the in-memory `Participant` snapshot and issued an unconditional `UPDATE`, which let two NULL-observing concurrent auths last-write-wins each other's bind. (Audit finding M-01.)
 
+### Session 2026-05-01
+
+- Q: How does `_find_by_token` resolve a plaintext bearer to its participant without bcrypt-scanning every row? → A: An HMAC-keyed lookup column. Migration 009 adds `participants.auth_token_lookup TEXT` (partial index where NOT NULL) populated at write time as `HMAC-SHA256(SACP_AUTH_LOOKUP_KEY, plaintext)`. `_find_by_token` probes the indexed column first (O(log N)), then bcrypt-verifies the matched row — bcrypt verify is still required so a leaked HMAC key alone never authenticates, only narrows. Falls back to the legacy bcrypt-scan only for grandfathered rows whose lookup is NULL (tokens issued before migration 009); every rotation populates the column, so the fallback path drains naturally. SACP_AUTH_LOOKUP_KEY is distinct from SACP_ENCRYPTION_KEY — different threat model, separate rotation cadence. V16 validator refuses to bind ports if it's missing, < 32 chars, or carries a placeholder. (Audit finding C-02.)
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Token Authentication (Priority: P1)
