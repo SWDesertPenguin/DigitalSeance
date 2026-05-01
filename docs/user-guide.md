@@ -133,15 +133,36 @@ Click **+ Add participant** in the left sidebar.
 
 ### 3.1.1 Adding an Ollama participant
 
-Ollama runs on the host (or LAN), not inside the SACP container. Two prerequisites:
+Ollama runs outside the SACP container. **Ollama has no built-in authentication** — anything that can reach `:11434` can call its API and load arbitrary models, and Ollama has shipped multiple RCE-class CVEs (CVE-2024-37032 and follow-ons). Pick the most-restricted reachability that fits your topology — **never bind `OLLAMA_HOST=0.0.0.0` on a network you don't fully trust**.
 
-**1. Bind Ollama to all interfaces** — set `OLLAMA_HOST=0.0.0.0:11434` before `ollama serve` (or `Environment="OLLAMA_HOST=0.0.0.0:11434"` in the systemd unit). Default `127.0.0.1` only accepts loopback connections.
+**Option A — Same Docker Compose stack (recommended).** Add an `ollama` service to your compose file. SACP reaches it at `http://ollama:11434` over the internal Docker network. Nothing on the host network can talk to Ollama unless you publish a port (don't):
 
-**2. Use the host's LAN IP in the API endpoint field** — find it with `hostname -I` (Linux) or `ipconfig` (Windows), enter `http://<that-IP>:11434`. The placeholder text suggests this format.
+```yaml
+# Alongside the orchestrator service in docker-compose.yml:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-data:/root/.ollama
+    # No `ports:` block — internal-only on the compose network.
+```
 
-`http://host.docker.internal:11434` works on Docker Desktop (Mac / Windows) where the alias is auto-injected, but is unreliable on Linux Docker and TrueNAS even with the `extra_hosts: ["host.docker.internal:host-gateway"]` mapping in [docker-compose.yml](../docker-compose.yml). Prefer the LAN IP form.
+UI: AddParticipant → `provider=ollama` → endpoint `http://ollama:11434` → **Fetch models**.
 
-After both: AddParticipant → `provider=ollama` → fill in the API endpoint → click **Fetch models** to populate the dropdown from your installed tags.
+**Option B — Ollama on the host, bound to the Docker bridge only.** If Ollama already runs on the host (systemd, Homebrew, etc.), bind it to the Docker bridge gateway, **not** `0.0.0.0`:
+
+```ini
+# /etc/systemd/system/ollama.service.d/override.conf
+[Service]
+Environment="OLLAMA_HOST=172.17.0.1:11434"
+```
+
+Find your bridge IP with `ip addr show docker0`. Verify the bind with `ss -tlnp | grep 11434` — should show only that IP, never `0.0.0.0:11434`. UI endpoint: `http://172.17.0.1:11434` (substitute your actual bridge IP).
+
+**Option C — Ollama on a separate LAN host.** Treat this exactly like exposing any unauthenticated service. Bind to the LAN-facing interface only, use a host firewall (`ufw` / `firewalld` / `iptables`) to allow connections from the SACP host's IP only, and never expose `:11434` to the internet. **Do not use Option C on hostile networks** — coffee-shop / conference / multi-tenant Wi-Fi, exposed VPS, or any LAN where you don't control every connected device. When the network isn't fully trusted, tunnel over a VPN (WireGuard, Tailscale, Headscale) and bind Ollama to the VPN interface only.
+
+`http://host.docker.internal:11434` works on Docker Desktop (Mac / Windows) where the alias is auto-injected, but is unreliable on Linux Docker and TrueNAS even with the `extra_hosts: ["host.docker.internal:host-gateway"]` mapping in [docker-compose.yml](../docker-compose.yml). Prefer the explicit IP form (Option A's compose-network DNS name, or Option B's bridge IP).
+
+After completing one of A/B/C: AddParticipant → `provider=ollama` → fill in the API endpoint → click **Fetch models** to populate the dropdown from your installed tags.
 
 ### 3.2 Send the opening message
 
