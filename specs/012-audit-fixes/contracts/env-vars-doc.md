@@ -29,11 +29,11 @@
 ## Cross-cutting notes
 
 - `SACP_TRUST_PROXY` interaction with `SACP_WEB_UI_INSECURE_COOKIES` (security-critical pairing)
-- `SACP_AUDIT_RETENTION_DAYS` interaction with the AUDIT_PLAN purge job (FR-007 cross-ref)
+- `SACP_AUDIT_RETENTION_DAYS` interaction with the audit-log purge job (FR-007 cross-ref)
 - Vars deferred to Phase 3 (listed but inactive in Phase 1+2)
 ```
 
-## Initial inventory (per AUDIT_PLAN batch 5 + cross-spec scan)
+## Initial inventory
 
 The doc MUST cover at minimum:
 
