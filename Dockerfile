@@ -12,17 +12,47 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc libpq-dev && \
     rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml ./
-# Install torch from PyTorch's CPU-only index BEFORE the project install so
+# Bootstrap uv only to expand uv.lock into a hash-pinned requirements file.
+# uv does not ship in the runtime image — pip is the actual installer.
+RUN pip install --no-cache-dir uv
+
+COPY pyproject.toml uv.lock ./
+
+# Install torch from PyTorch's CPU-only index BEFORE the locked deps so
 # sentence-transformers picks up the CPU build instead of the default CUDA
 # wheels. CUDA wheels pull in ~4GB of nvidia-* libraries we never use
 # (SACP runs inference on CPU per spec 004 SC-001 "~80ms on CPU"); the bloat
 # blew the GHCR push past the 5GB layer threshold and triggered "unknown blob"
-# errors. The subsequent `pip install .` sees the torch requirement already
-# satisfied and skips it.
+# errors. PyTorch's CPU index is single-publisher (the PyTorch project
+# itself), so skipping --require-hashes here is a narrower trust posture
+# than the multi-publisher PyPI risk model the next step closes off.
 RUN pip install --no-cache-dir --prefix=/install \
-        --index-url https://download.pytorch.org/whl/cpu torch && \
-    pip install --no-cache-dir --prefix=/install .
+        --index-url https://download.pytorch.org/whl/cpu torch
+
+# Make the previously-installed torch visible to subsequent pip invocations
+# so they don't try to re-resolve torch from PyPI (which would land the
+# 4GB CUDA build and bust the GHCR layer cap).
+ENV PYTHONPATH=/install/lib/python3.14/site-packages
+
+# Generate a hash-pinned requirements file from uv.lock, excluding torch
+# (handled above). The exported file lists every transitive dependency
+# with the exact wheel hash recorded in uv.lock; --require-hashes refuses
+# to install any wheel whose content doesn't match, closing the supply-
+# chain class flagged by the LiteLLM 1.82.7-1.82.8 compromise.
+RUN uv export \
+        --no-dev \
+        --no-emit-project \
+        --format requirements-txt \
+        --output-file /tmp/requirements-all.txt && \
+    awk '/^[a-zA-Z]/ { skip = ($1 ~ /^torch==/) ? 1 : 0 } !skip' \
+        /tmp/requirements-all.txt > /tmp/requirements.txt
+
+# Hash-verified install of every other dep from uv.lock. Without the
+# --require-hashes flag, pip resolves PyPI fresh on every build and
+# accepts any wheel claiming the right version — the LiteLLM compromise
+# vector. With it, a tampered wheel fails install and the build aborts.
+RUN pip install --no-cache-dir --prefix=/install \
+        --require-hashes -r /tmp/requirements.txt
 
 # ---- Runtime stage: slim base, no build tools ----
 FROM python:3.14.4-slim-bookworm
