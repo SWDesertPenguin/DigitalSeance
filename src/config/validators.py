@@ -209,6 +209,26 @@ def validate_ws_max_connections_per_ip() -> ValidationFailure | None:
     return None
 
 
+def validate_max_subscribers_per_session() -> ValidationFailure | None:
+    """SACP_MAX_SUBSCRIBERS_PER_SESSION: positive int, default 64. 006 §FR-019."""
+    val = os.environ.get("SACP_MAX_SUBSCRIBERS_PER_SESSION")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MAX_SUBSCRIBERS_PER_SESSION",
+            f"must be integer; got {val!r}",
+        )
+    if num <= 0:
+        return ValidationFailure(
+            "SACP_MAX_SUBSCRIBERS_PER_SESSION",
+            f"must be > 0; got {num}",
+        )
+    return None
+
+
 def validate_auth_lookup_key() -> ValidationFailure | None:
     """SACP_AUTH_LOOKUP_KEY: required HMAC key for the token-lookup index. Audit C-02."""
     val = os.environ.get("SACP_AUTH_LOOKUP_KEY")
@@ -240,6 +260,7 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_cors_origins,
     validate_web_ui_allowed_origins,
     validate_ws_max_connections_per_ip,
+    validate_max_subscribers_per_session,
     validate_auth_lookup_key,
 )
 
