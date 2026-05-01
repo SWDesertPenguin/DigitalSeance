@@ -43,6 +43,25 @@ CLOSE_TOO_MANY = 4429
 # Drop a connection if no pong is received for this long.
 _PONG_TIMEOUT_SECONDS = 60
 
+# Per-IP simultaneous-connection cap. A single browser tab opens 1 WS, so
+# the default of 10 covers a power user with multiple tabs / a refresh
+# storm without leaving headroom for a single host to exhaust the
+# manager. Override via SACP_WS_MAX_CONNECTIONS_PER_IP. Audit H-03 closes
+# the wiring gap that left CLOSE_TOO_MANY (4429) defined but unused.
+_DEFAULT_MAX_CONNECTIONS_PER_IP = 10
+
+
+def _max_connections_per_ip() -> int:
+    """Read the per-IP cap from env each call so tests can monkeypatch it."""
+    raw = os.environ.get("SACP_WS_MAX_CONNECTIONS_PER_IP", "").strip()
+    if not raw:
+        return _DEFAULT_MAX_CONNECTIONS_PER_IP
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_MAX_CONNECTIONS_PER_IP
+    return value if value > 0 else _DEFAULT_MAX_CONNECTIONS_PER_IP
+
 
 class WebSocketManager:
     """Per-session WebSocket subscriber registry."""
@@ -54,7 +73,38 @@ class WebSocketManager:
         # Per-ws role tag so audit_entry / future facilitator-only events can
         # filter recipients without re-querying the DB on every broadcast.
         self._ws_role: dict[int, str] = {}
+        # Per-ws client IP + per-IP open-connection counter. Audit H-03: the
+        # 4429 CLOSE_TOO_MANY contract documented in websocket-events.md
+        # was wired to nothing; one host could open unbounded WS upgrades.
+        self._ws_ip: dict[int, str] = {}
+        self._ip_count: dict[str, int] = {}
         self._lock = asyncio.Lock()
+
+    async def reserve_ip_slot(self, ip: str) -> bool:
+        """Atomically check-and-increment the per-IP count under the lock.
+
+        Returns True if a slot was reserved (caller proceeds with accept +
+        register), False if the cap was already reached (caller closes
+        with CLOSE_TOO_MANY before accepting). Reservation must be
+        released by `register` (which sets the per-ws IP) or by an
+        explicit `release_ip_slot` if accept fails.
+        """
+        cap = _max_connections_per_ip()
+        async with self._lock:
+            current = self._ip_count.get(ip, 0)
+            if current >= cap:
+                return False
+            self._ip_count[ip] = current + 1
+            return True
+
+    async def release_ip_slot(self, ip: str) -> None:
+        """Undo a `reserve_ip_slot` if the connection failed before register."""
+        async with self._lock:
+            current = self._ip_count.get(ip, 0)
+            if current <= 1:
+                self._ip_count.pop(ip, None)
+            else:
+                self._ip_count[ip] = current - 1
 
     async def register(
         self,
@@ -62,14 +112,17 @@ class WebSocketManager:
         ws: WebSocket,
         participant_id: str | None = None,
         role: str | None = None,
+        client_ip: str | None = None,
     ) -> None:
-        """Add a subscriber, tagged with its participant id and role."""
+        """Add a subscriber, tagged with its participant id, role, and IP."""
         async with self._lock:
             self._subs.setdefault(session_id, set()).add(ws)
             if participant_id:
                 self._ws_pid[id(ws)] = participant_id
             if role:
                 self._ws_role[id(ws)] = role
+            if client_ip:
+                self._ws_ip[id(ws)] = client_ip
         log.info(
             "WS subscriber added for session %s (%d total)",
             session_id,
@@ -77,7 +130,7 @@ class WebSocketManager:
         )
 
     async def unregister(self, session_id: str, ws: WebSocket) -> None:
-        """Remove a subscriber."""
+        """Remove a subscriber and release its per-IP slot."""
         async with self._lock:
             bucket = self._subs.get(session_id)
             if bucket:
@@ -86,7 +139,18 @@ class WebSocketManager:
                     del self._subs[session_id]
             self._ws_pid.pop(id(ws), None)
             self._ws_role.pop(id(ws), None)
+            ip = self._ws_ip.pop(id(ws), None)
+            if ip is not None:
+                current = self._ip_count.get(ip, 0)
+                if current <= 1:
+                    self._ip_count.pop(ip, None)
+                else:
+                    self._ip_count[ip] = current - 1
         log.info("WS subscriber removed for session %s", session_id)
+
+    def ip_count(self, ip: str) -> int:
+        """Active connection count for an IP (test introspection)."""
+        return self._ip_count.get(ip, 0)
 
     def count(self, session_id: str) -> int:
         """Active subscriber count for a session."""
@@ -182,18 +246,38 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
     participant = await _authenticate_ws(websocket, session_id)
     if participant is None:
         return
-    await websocket.accept()
+    client_ip = websocket.client.host if websocket.client else "unknown"
+    if not await _accept_with_ip_cap(websocket, client_ip):
+        return
     await _send_initial_snapshot(websocket, session_id, participant)
     await _MANAGER.register(
         session_id,
         websocket,
         participant.get("pid"),
         participant.get("role"),
+        client_ip=client_ip,
     )
     try:
         await _pump_client_frames(websocket)
     finally:
         await _MANAGER.unregister(session_id, websocket)
+
+
+async def _accept_with_ip_cap(websocket: WebSocket, client_ip: str) -> bool:
+    """Reserve a per-IP slot then accept; close 4429 if at cap. Audit H-03.
+
+    Reservation precedes accept() so a hostile peer can't open
+    half-handshakes faster than the manager can count them.
+    """
+    if not await _MANAGER.reserve_ip_slot(client_ip):
+        await websocket.close(code=CLOSE_TOO_MANY, reason="too many connections")
+        return False
+    try:
+        await websocket.accept()
+    except Exception:
+        await _MANAGER.release_ip_slot(client_ip)
+        raise
+    return True
 
 
 async def _authenticate_ws(websocket: WebSocket, session_id: str) -> dict[str, Any] | None:
