@@ -138,8 +138,7 @@ These vars appear in `src/mcp_server/tools/debug.py` `_CONFIG_KEYS` allowlist
 (so they show up in debug-export config snapshots if set) but are NOT consumed
 by application code. Operators setting them today will see the value in the
 debug snapshot but no behavioral effect. Validators land when application code
-starts consuming them — likely as part of a per-spec amendment cluster (see
-`AUDIT_PLAN.local.md` cluster index).
+starts consuming them — likely as part of a per-spec amendment cluster.
 
 ### `SACP_RATE_LIMIT_PER_MIN`
 
