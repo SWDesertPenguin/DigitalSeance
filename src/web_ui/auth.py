@@ -120,8 +120,12 @@ async def _authenticate_or_raise(
         raise HTTPException(401, "Invalid token") from None
     except TokenExpiredError:
         raise HTTPException(401, "Token expired") from None
-    except IPBindingMismatchError as e:
-        raise HTTPException(403, str(e)) from None
+    except IPBindingMismatchError:
+        # Generic detail only — the underlying exception carries the bound IP
+        # and the request IP for operator-side forensic logging, but echoing
+        # them in the HTTP response would hand a stolen-token replay attempt
+        # the legitimate user's bound IP. Mirrors src/mcp_server/middleware.py.
+        raise HTTPException(403, "IP binding mismatch") from None
 
 
 def _set_session_cookie(
