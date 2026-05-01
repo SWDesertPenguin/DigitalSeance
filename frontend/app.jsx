@@ -25,11 +25,10 @@ const { useState, useEffect, useReducer, useCallback, useRef, useMemo } = React;
 // Configuration
 // ---------------------------------------------------------------------------
 
-const MCP_BASE = (() => {
-  if (window.__SACP_MCP_BASE__) return window.__SACP_MCP_BASE__;
-  const { protocol, hostname } = window.location;
-  return `${protocol}//${hostname}:8750`;
-})();
+// MCP tool calls now go through the Web UI's same-origin proxy at
+// /api/mcp/<path>. The proxy attaches the bearer server-side from the
+// session store (audit H-02). The SPA no longer holds the bearer in JS.
+const MCP_PROXY_PREFIX = "/api/mcp";
 
 const WS_BASE = (() => {
   const { protocol, host } = window.location;
@@ -88,15 +87,15 @@ async function _fetchJson(url, opts = {}) {
   return body;
 }
 
-function mcpCall(path, token, { method = "GET", body = null } = {}) {
-  const headers = {
-    "Content-Type": "application/json",
-    "X-SACP-Request": "1",
-  };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const opts = { method, headers };
+// Audit H-02: the second positional arg used to be a JS-resident bearer
+// token; it's retained for call-site backward compatibility but ignored.
+// Auth is established by the HttpOnly session cookie which the same-
+// origin /api/mcp proxy resolves to a server-side bearer.
+function mcpCall(path, _ignoredToken, { method = "GET", body = null } = {}) {
+  const headers = { "Content-Type": "application/json", "X-SACP-Request": "1" };
+  const opts = { method, headers, credentials: "include" };
   if (body !== null) opts.body = JSON.stringify(body);
-  return _fetchJson(`${MCP_BASE}${path}`, opts);
+  return _fetchJson(`${MCP_PROXY_PREFIX}${path}`, opts);
 }
 
 function uiCall(path, { method = "GET", body = null } = {}) {
@@ -684,24 +683,6 @@ function TokenRevealModal({ result, onProceed }) {
   );
 }
 
-function SelfTokenModal({ token, onClose }) {
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal token-reveal" onClick={(ev) => ev.stopPropagation()}>
-        <h2>Your token</h2>
-        <p className="dim">
-          Your current bearer. Use it for API / MCP / Swagger calls.
-          Treat it like a password.
-        </p>
-        <CopyableToken token={token} />
-        <div className="modal-actions">
-          <button type="button" onClick={onClose}>Close</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function AddedParticipantTokenModal({ entry, onClose }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -1085,7 +1066,7 @@ function ParticipantCard({
   );
 }
 
-function SelfControls({ me, participants, isFacilitator, onRoutingChange, onShowToken }) {
+function SelfControls({ me, participants, isFacilitator, onRoutingChange }) {
   // US2 T071–T072: display the caller's own routing preference. Today the
   // backend's set_routing_preference is facilitator-scoped (PR #61); only
   // facilitators get a live selector. Non-facilitators see read-only with
@@ -1120,11 +1101,6 @@ function SelfControls({ me, participants, isFacilitator, onRoutingChange, onShow
             {ROUTING_PREFERENCES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
         </div>
-      )}
-      {onShowToken && (
-        <button type="button" className="full-width" onClick={onShowToken}>
-          Show my token
-        </button>
       )}
     </section>
   );
@@ -2506,7 +2482,6 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [resetTarget, setResetTarget] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
-  const [rotatedToken, setRotatedToken] = useState(null);
   const [addedToken, setAddedToken] = useState(null);
   const [theme, setTheme] = useState(() => {
     try {
@@ -2655,16 +2630,6 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     } catch (e) {
       alert(`Rename failed: ${e.message}`);
     }
-  };
-
-  const onShowMyToken = () => {
-    // Display the in-memory token rather than calling /rotate_my_token.
-    // The rotate endpoint invalidates the caller's current bearer, which
-    // cascaded into 401s on every subsequent mcpCall in Test06-Web03.
-    // The SPA already holds a valid token (from create / login / /me
-    // restore) — showing it is sufficient for the "copy for API use"
-    // need; a dedicated rotation UI can come later if security demands.
-    if (auth?.token) setRotatedToken(auth.token);
   };
 
   const onRemoveParticipant = async (p) => {
@@ -2904,7 +2869,6 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
             participants={state.participants}
             isFacilitator={isFacilitator}
             onRoutingChange={onRoutingChange}
-            onShowToken={onShowMyToken}
           />
           <ParticipantList
             participants={state.participants}
@@ -3002,9 +2966,6 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
           onSave={editDraftSave}
           onClose={() => setEditDraft(null)}
         />
-      )}
-      {rotatedToken && (
-        <SelfTokenModal token={rotatedToken} onClose={() => setRotatedToken(null)} />
       )}
       {addedToken && (
         <AddedParticipantTokenModal entry={addedToken} onClose={() => setAddedToken(null)} />
