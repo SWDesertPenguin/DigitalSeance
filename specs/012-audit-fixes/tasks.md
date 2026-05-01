@@ -51,7 +51,7 @@ description: "Task list for feature 012-audit-fixes implementation"
 - [X] T009 [P] [US1] Create `tests/fixtures/benign_corpus.txt` with `# CATEGORY:` headers covering 7 benign categories (collaboration-prose, technical-prose, code-discussion, credential-placeholders, pure-script-non-latin, markdown-without-images, html-without-src) per [research.md](./research.md) Decision 4 (FR-001).
 - [X] T010 [P] [US1] Create `tests/fixtures/adversarial_corpus.txt` with `# CATEGORY:` headers covering 18 adversarial categories: Round02 Cyrillic homoglyph (per `docs/red-team-runbook.md` incident), every sanitizer pattern group (ChatML, role markers, Llama [INST], HTML comments, override phrases, new-instructions, from-now-on), every supported credential pattern as separate categories (OpenAI, Anthropic, Gemini, Groq, JWT, Fernet), exfil markers (markdown-images, html-src, data-urls), and jailbreak phrases (FR-002).
 - [X] T011 [P] [US1] Add `tests/test_corpus_fixtures.py` (placed flat under `tests/` matching repo convention) — 6 tests: structural checks (expected categories, non-empty), 3 detector smoke-tests (sanitizer / exfiltration / jailbreak categories trigger their respective detectors), strict 0% FPR guard against benign corpus.
-- [X] T012 [US1] T012's "update one existing 007 test to consume the corpus" deliverable is satisfied by the 3 detector smoke-tests added in T011 — these consume the corpora by category and exercise the security pipeline end-to-end. Restructuring existing 007 test files is deferred to the 007-testability cluster (`fix/007-testability` per AUDIT_PLAN cluster index) where it naturally belongs.
+- [X] T012 [US1] T012's "update one existing 007 test to consume the corpus" deliverable is satisfied by the 3 detector smoke-tests added in T011 — these consume the corpora by category and exercise the security pipeline end-to-end. Restructuring existing 007 test files is deferred to the 007-testability cluster (`fix/007-testability`) where it naturally belongs.
 
 **Checkpoint**: US1 functional. Corpus files exist; downstream detector regression work can begin.
 
@@ -178,8 +178,8 @@ description: "Task list for feature 012-audit-fixes implementation"
 - [X] T054 [P] [US7] Add `mcp_app` and `web_app` per-test fixtures to `tests/conftest.py` returning a fresh `create_app()` / `create_web_app()` instance per test. Closes the recurring middleware-state-leak bug class (FR-009).
 - [X] T055 [P] [US7] Add `tests/test_fastapi_app_isolation.py` (placed flat under `tests/` matching repo convention) — 4 tests: `mcp_app` is FastAPI instance, `app.state` markers don't leak across tests, two apps in same test are distinct objects.
 - [ ] T056 [US7] **Deferred**: refactor pass updating ~14 existing test files that create their own `create_app()` inline to use the new `mcp_app` / `web_app` fixtures. Existing inline pattern is already correct (each test calls `create_app()` independently, so isolation holds); the fixture is a QoL/DRY improvement, not a correctness fix. Land incrementally (one test module per follow-up PR) or as part of the 006-testability cluster.
-- [X] T057 [P] [US7] Create `AUDIT_FOLLOWTHROUGH.local.md` at repo root with markdown-table tracker per [data-model.md](./data-model.md). Pre-populated with rows for every cross-cutting item in `AUDIT_PLAN.local.md`; status flips as PRs land (FR-011).
-- [X] T058 [US7] Add explicit `AUDIT_FOLLOWTHROUGH.local.md` entry to `.gitignore` (the existing `*.local.md` glob is implicit only — explicit entry matches the precedent set by `AUDIT_PLAN.local.md` and `FEEDBACK.local.md`).
+- [X] T057 [P] [US7] Create `AUDIT_FOLLOWTHROUGH.local.md` at repo root with markdown-table tracker per [data-model.md](./data-model.md). Pre-populated with rows for every cross-cutting item; status flips as PRs land (FR-011).
+- [X] T058 [US7] Add explicit `AUDIT_FOLLOWTHROUGH.local.md` entry to `.gitignore` (the existing `*.local.md` glob is implicit only — explicit entry matches the precedent set by other gitignored local working files).
 - [X] T059 [US7] Split CI workflow `Run tests` step into `Run unit tests (fast tier)` (`pytest -m "not integration"`) and `Run integration tests (slow tier)` (`pytest -m integration`) — sequential within the same job (fast tier fails first if regressions hit; integration tier still runs to surface its own state). True separate-runner-pool tiering deferred to a follow-up that warrants its own CI ergonomics review (FR-015 second half; pairs with T006).
 
 **Checkpoint**: US7 functional. Recurring schema-mirror bug class (memory `feedback_test_schema_mirror.md`) closed; integration tests separated from unit tests.
@@ -210,7 +210,7 @@ description: "Task list for feature 012-audit-fixes implementation"
 
 - [ ] T065 Walk through [quickstart.md](./quickstart.md) end-to-end on a clean checkout: validate config, look up an FR in traceability, run schema-mirror, exercise §4.9 override path, consult each new doc.
 - [ ] T066 Run full test suite `pytest tests/unit/ && pytest -m integration`; assert no regressions vs. main.
-- [ ] T067 Update `AUDIT_PLAN.local.md` cross-cutting checkboxes for items delivered via this feature (mark `[x]` for benign+adversarial corpus, FR-to-test traceability, conftest schema-mirror gate, per-test FastAPI app fixture, env-var contract consolidation, pattern-list update workflow, per-stage instrumentation, audit follow-through tracking, §4.9 secure-by-design implementation).
+- [ ] T067 Update the local working plan's cross-cutting checkboxes for items delivered via this feature (mark `[x]` for benign+adversarial corpus, FR-to-test traceability, conftest schema-mirror gate, per-test FastAPI app fixture, env-var contract consolidation, pattern-list update workflow, per-stage instrumentation, audit follow-through tracking, §4.9 secure-by-design implementation).
 - [ ] T068 Add closeout entries in `AUDIT_FOLLOWTHROUGH.local.md` for each cross-cutting item delivered, including resolution PR + verifying test references.
 - [ ] T069 [P] Sanity-check all CI gates green on a synthetic green PR: env_vars, traceability, schema_mirror, doc_deliverables.
 - [ ] T070 Update spec status: change `**Status**: Draft` to `**Status**: Implemented` on `specs/012-audit-fixes/spec.md`.
@@ -305,7 +305,7 @@ Task: "Add tests/unit/test_config_validators.py"                       # T019 [P
 
 ### Phase-3-readiness gating
 
-After US1–US8 close, the spec status flips to Implemented (T070) and AUDIT_PLAN.local.md cross-cutting items show `[x]`. Phase 3 begins on facilitator declaration per Constitution §14.7.
+After US1–US8 close, the spec status flips to Implemented (T070) and the local working plan's cross-cutting items show `[x]`. Phase 3 begins on facilitator declaration per Constitution §14.7.
 
 ---
 
@@ -315,4 +315,4 @@ After US1–US8 close, the spec status flips to Implemented (T070) and AUDIT_PLA
 - [Story] label maps to spec.md user stories (US1–US8).
 - US4's 007 + 011 spec amendments are the documented carveout from FR-017 (in-scope under FR-006); all OTHER per-spec amendments derived from audit findings ship on `fix/<slug>` branches per Constitution §14.7.5 and are NOT in this task list.
 - Avoid: vague tasks, same-file conflicts, cross-story coupling that breaks story independence.
-- Commit per task or per logical group; `AUDIT_PLAN.local.md` checkboxes track per-finding progress separately from these task IDs.
+- Commit per task or per logical group; the local working plan's checkboxes track per-finding progress separately from these task IDs.

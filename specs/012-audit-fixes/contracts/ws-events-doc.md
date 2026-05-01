@@ -1,6 +1,6 @@
 # Contract: `docs/ws-events.md`
 
-**Source**: spec FR-010 (ws-events.md), AUDIT_PLAN batch 5 WS-event-schema audit
+**Source**: spec FR-010 (ws-events.md); WS-event-schema audit
 
 ## Required sections
 
@@ -87,7 +87,7 @@ Today: implicit (no version field). When breaking change ships, add `version: <i
 
 ## Machine-readable schemas (optional Phase 1 stretch)
 
-Per AUDIT_PLAN: `specs/011-web-ui/contracts/ws-events/<event-type>.json` JSON Schema files. Stretch goal — not gating this feature's close.
+`specs/011-web-ui/contracts/ws-events/<event-type>.json` JSON Schema files. Stretch goal — not gating this feature's close.
 
 ## CI gate
 

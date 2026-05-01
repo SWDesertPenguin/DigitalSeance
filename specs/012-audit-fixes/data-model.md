@@ -101,7 +101,7 @@ A row in `AUDIT_FOLLOWTHROUGH.local.md` (markdown table format).
 
 | Field | Type | Description |
 |---|---|---|
-| `batch` | string | `1` / `2` / `3` / `4` / `5` (matches `AUDIT_PLAN.local.md`) |
+| `batch` | string | `1` / `2` / `3` / `4` / `5` (matches the local working plan) |
 | `finding` | string | One-line summary of the audit finding |
 | `resolution_pr` | string | `#NNN` or `out-of-scope` or `deferred-phase-3` |
 | `verifying_test` | string | `tests/path/to/test.py::test_name` or `none` (with rationale) |
