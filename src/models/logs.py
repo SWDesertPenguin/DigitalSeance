@@ -70,8 +70,15 @@ class SecurityEvent:
     Persists what each layer caught on a given turn, so attacks can be
     reviewed post-hoc without re-running the pipeline. ``layer`` is one
     of: ``output_validator``, ``exfiltration``, ``jailbreak``,
-    ``prompt_protector``, ``pipeline_error``. ``findings`` is a JSON-
-    encoded list of finding/flag/reason names from the layer.
+    ``prompt_protector``, ``pipeline_error``, ``facilitator_override``.
+    ``findings`` is a JSON-encoded list of finding/flag/reason names from
+    the layer.
+
+    Spec 012 FR-006 (§4.9 approach (b)): when a facilitator explicitly
+    overrides a flagged draft, a row is appended with
+    ``layer="facilitator_override"``, ``blocked=False``,
+    ``override_reason`` (the stated justification), and
+    ``override_actor_id`` (the facilitator's participant id).
     """
 
     id: int
@@ -83,6 +90,9 @@ class SecurityEvent:
     findings: str
     blocked: bool
     timestamp: datetime
+    layer_duration_ms: int | None = None
+    override_reason: str | None = None
+    override_actor_id: str | None = None
 
     @classmethod
     def from_record(cls, record: Any) -> SecurityEvent:
