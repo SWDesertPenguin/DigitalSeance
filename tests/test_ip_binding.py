@@ -96,3 +96,41 @@ async def test_rotation_clears_binding(
     # New token should work from a different IP
     result = await auth.authenticate(new_token, "10.0.0.50")
     assert result.id == pid
+
+
+async def test_concurrent_first_auth_one_ip_wins(
+    auth: AuthService,
+    session_with_token: tuple[str, str, str],
+    pool: asyncpg.Pool,
+) -> None:
+    """Audit M-01: concurrent first-auth from two IPs — exactly one wins.
+
+    Pre-fix, both coroutines observed bound_ip=None on their in-memory
+    Participant snapshot, both issued unconditional UPDATEs, and the
+    second one silently overwrote the first. Now `_bind_ip` is atomic
+    (UPDATE WHERE bound_ip IS NULL): exactly one rowcount=1 wins, the
+    other reads the winner's IP, compares, and raises.
+    """
+    import asyncio
+
+    _, pid, token = session_with_token
+
+    results = await asyncio.gather(
+        auth.authenticate(token, "192.168.1.100"),
+        auth.authenticate(token, "10.0.0.50"),
+        return_exceptions=True,
+    )
+
+    successes = [r for r in results if not isinstance(r, Exception)]
+    failures = [r for r in results if isinstance(r, IPBindingMismatchError)]
+    assert len(successes) == 1, (
+        f"expected exactly one auth to succeed; got {len(successes)} "
+        f"successes and {len(failures)} IPBindingMismatchError(s)"
+    )
+    assert len(failures) == 1, f"expected exactly one IPBindingMismatchError; got {len(failures)}"
+
+    # Whichever IP won is whatever ends up persisted.
+    p_repo = ParticipantRepository(pool, encryption_key=TEST_KEY)
+    p = await p_repo.get_participant(pid)
+    assert p.bound_ip in ("192.168.1.100", "10.0.0.50")
+    assert p.bound_ip is not None
