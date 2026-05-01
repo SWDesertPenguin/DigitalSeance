@@ -20,9 +20,9 @@ router = APIRouter(prefix="/tools/debug", tags=["debug"])
 # table (or any participant-shaped serializer) MUST extend this set. The
 # tests/test_mcp_app.py::test_sensitive_fields_cover_obvious_patterns guard
 # fails CI if any Participant field whose name matches the heuristic patterns
-# (_encrypted / _hash / bound_ip) is missing from this set (010 CHK001).
+# (_encrypted / _hash / _lookup / bound_ip) is missing from this set (010 CHK001).
 _SENSITIVE_FIELDS = frozenset(
-    {"api_key_encrypted", "auth_token_hash", "bound_ip"},
+    {"api_key_encrypted", "auth_token_hash", "auth_token_lookup", "bound_ip"},
 )
 
 # Defensive name-pattern guard for the config snapshot (010 §SC-006 / CHK005).

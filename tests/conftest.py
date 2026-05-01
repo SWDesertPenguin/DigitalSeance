@@ -21,6 +21,16 @@ TEST_DB_URL = os.environ.get(
     "postgresql://sacp_test:testpass@localhost:5432/sacp_test",
 )
 
+# Audit C-02: every repo write that hashes a token also computes an HMAC
+# token-lookup keyed by SACP_AUTH_LOOKUP_KEY. Set a deterministic value at
+# import time so every test (DB-backed or not) can exercise auth paths
+# without each suite re-setting the env var. Tests that exercise the V16
+# validator for this var override it themselves.
+os.environ.setdefault(
+    "SACP_AUTH_LOOKUP_KEY",
+    "test-only-auth-lookup-key-do-not-use-in-prod-32chars-min",
+)
+
 
 @pytest.fixture(scope="session")
 def event_loop_policy() -> object:
@@ -159,6 +169,7 @@ _PARTICIPANTS_TABLE_DDL = """
         api_endpoint TEXT,
         api_key_encrypted TEXT,
         auth_token_hash TEXT,
+        auth_token_lookup TEXT,
         last_seen TIMESTAMP,
         invited_by TEXT REFERENCES participants(id),
         approved_at TIMESTAMP,
@@ -398,6 +409,8 @@ def _index_ddls() -> list[str]:
         "CREATE INDEX idx_routing_session_turn ON routing_log (session_id, turn_number)",
         "CREATE INDEX idx_usage_participant ON usage_log (participant_id, timestamp)",
         "CREATE INDEX idx_participants_session ON participants (session_id, status)",
+        "CREATE INDEX idx_participants_auth_token_lookup "
+        "ON participants (auth_token_lookup) WHERE auth_token_lookup IS NOT NULL",
         "CREATE INDEX idx_invites_session ON invites (session_id)",
         "CREATE INDEX idx_proposals_session ON proposals (session_id, status)",
         "CREATE INDEX idx_review_gate_pending ON review_gate_drafts (session_id, status)",
