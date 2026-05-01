@@ -189,6 +189,26 @@ def validate_web_ui_allowed_origins() -> ValidationFailure | None:
     return _validate_url_list("SACP_WEB_UI_ALLOWED_ORIGINS")
 
 
+def validate_ws_max_connections_per_ip() -> ValidationFailure | None:
+    """SACP_WS_MAX_CONNECTIONS_PER_IP: positive int, default 10. Audit H-03."""
+    val = os.environ.get("SACP_WS_MAX_CONNECTIONS_PER_IP")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_WS_MAX_CONNECTIONS_PER_IP",
+            f"must be integer; got {val!r}",
+        )
+    if num <= 0:
+        return ValidationFailure(
+            "SACP_WS_MAX_CONNECTIONS_PER_IP",
+            f"must be > 0; got {num}",
+        )
+    return None
+
+
 VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_database_url,
     validate_encryption_key,
@@ -200,6 +220,7 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_web_ui_ws_origin,
     validate_cors_origins,
     validate_web_ui_allowed_origins,
+    validate_ws_max_connections_per_ip,
 )
 
 

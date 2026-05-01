@@ -138,6 +138,31 @@ def test_url_list_validator_accepts_empty(_restore_env: None):
     assert validate_cors_origins() is None
 
 
+def test_ws_max_connections_per_ip_unset_ok(_restore_env: None):
+    from src.config.validators import validate_ws_max_connections_per_ip
+
+    os.environ.pop("SACP_WS_MAX_CONNECTIONS_PER_IP", None)
+    assert validate_ws_max_connections_per_ip() is None
+
+
+def test_ws_max_connections_per_ip_rejects_zero(_restore_env: None):
+    from src.config.validators import validate_ws_max_connections_per_ip
+
+    os.environ["SACP_WS_MAX_CONNECTIONS_PER_IP"] = "0"
+    failure = validate_ws_max_connections_per_ip()
+    assert failure is not None
+    assert "must be > 0" in failure.reason
+
+
+def test_ws_max_connections_per_ip_rejects_non_integer(_restore_env: None):
+    from src.config.validators import validate_ws_max_connections_per_ip
+
+    os.environ["SACP_WS_MAX_CONNECTIONS_PER_IP"] = "ten"
+    failure = validate_ws_max_connections_per_ip()
+    assert failure is not None
+    assert "must be integer" in failure.reason
+
+
 def test_url_list_validator_rejects_bad_entry(_restore_env: None):
     from src.config.validators import validate_cors_origins
 

@@ -21,7 +21,9 @@ from src.web_ui.auth import _make_cookie_value
 from src.web_ui.events import message_event, session_status_changed_event
 from src.web_ui.websocket import (
     CLOSE_FORBIDDEN,
+    CLOSE_TOO_MANY,
     CLOSE_UNAUTHENTICATED,
+    WebSocketManager,
     broadcast_to_session,
     get_ws_manager,
 )
@@ -157,3 +159,41 @@ def test_event_envelope_shape() -> None:
     assert status["v"] == 1
     assert status["type"] == "session_status_changed"
     assert status["status"] == "archived"
+
+
+@pytest.mark.asyncio
+async def test_per_ip_cap_blocks_excess(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Audit H-03: at the cap, reserve_ip_slot returns False so the endpoint
+    will close 4429 instead of accepting a runaway connection from one host."""
+    monkeypatch.setenv("SACP_WS_MAX_CONNECTIONS_PER_IP", "2")
+    mgr = WebSocketManager()
+    assert await mgr.reserve_ip_slot("10.0.0.1") is True
+    assert await mgr.reserve_ip_slot("10.0.0.1") is True
+    assert await mgr.reserve_ip_slot("10.0.0.1") is False
+    # Other IPs are unaffected.
+    assert await mgr.reserve_ip_slot("10.0.0.2") is True
+
+
+@pytest.mark.asyncio
+async def test_unregister_releases_ip_slot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Counter is pruned on unregister so a closed connection frees its slot."""
+    monkeypatch.setenv("SACP_WS_MAX_CONNECTIONS_PER_IP", "1")
+    mgr = WebSocketManager()
+
+    class _FakeWS:
+        async def send_text(self, text: str) -> None: ...
+
+    ws = _FakeWS()
+    assert await mgr.reserve_ip_slot("10.0.0.3") is True
+    await mgr.register("sid", ws, client_ip="10.0.0.3")  # type: ignore[arg-type]
+    # Cap=1 → second reserve fails while the first connection is open.
+    assert await mgr.reserve_ip_slot("10.0.0.3") is False
+    await mgr.unregister("sid", ws)  # type: ignore[arg-type]
+    assert mgr.ip_count("10.0.0.3") == 0
+    # Slot is reusable after unregister.
+    assert await mgr.reserve_ip_slot("10.0.0.3") is True
+
+
+def test_close_too_many_constant_matches_contract() -> None:
+    """websocket-events.md pins 4429 as the per-IP-cap close code."""
+    assert CLOSE_TOO_MANY == 4429
