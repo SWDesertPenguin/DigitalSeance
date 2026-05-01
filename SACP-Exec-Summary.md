@@ -98,6 +98,6 @@ The codebase enforces a strict secure development pipeline: pre-commit hooks (gi
 
 Shakedown-tester documentation lives in [docs/user-guide.md](docs/user-guide.md). The red-team runbook ([docs/red-team-runbook.md](docs/red-team-runbook.md)) has 70+ attacks keyed to the seven-layer pipeline for re-running after any security change. Section 5.4 (multi-turn jailbreak escalation via fictional framing) is a **known weakness** on `gpt-4o-mini`; Haiku held under the same test. Mitigation candidates documented in the runbook, not yet implemented.
 
-**Phase 3 (planned)** — branching UI + sub-sessions, OAuth 2.1 with PKCE, MCP-to-MCP topology 7, local model support (Ollama/vLLM per-participant URL), Vaire shared-memory integration, step-up authorization. Will require a new Speckit cycle (`012-...`) when pursued.
+**Phase 3 (planned)** — branching UI + sub-sessions, OAuth 2.1 with PKCE, MCP-to-MCP topology 7, local model support (Ollama/vLLM per-participant URL), external shared-memory integration, step-up authorization. Will require a new Speckit cycle (`012-...`) when pursued.
 
 **Phase 4 (planned)** — A2A federation, multi-orchestrator linking, hierarchical sub-sessions, data retention policies.
