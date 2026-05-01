@@ -40,6 +40,16 @@ out-of-range default.
 - **Validation rule**: `validators.validate_encryption_key`
 - **Source spec(s)**: 001 §FR-020, §FR-021
 
+### `SACP_AUTH_LOOKUP_KEY`
+
+- **Default**: `<required>`
+- **Type**: high-entropy random string (>= 32 chars)
+- **Valid range**: `len() >= 32` AND not equal to any documented placeholder
+- **Blast radius on invalid**: orchestrator refuses to bind ports; auth path cannot compute the HMAC token-lookup index
+- **Validation rule**: `validators.validate_auth_lookup_key`
+- **Source spec(s)**: 002 audit C-02 (HMAC-keyed token lookup)
+- **Note**: Distinct from `SACP_ENCRYPTION_KEY`. Used as the HMAC key for `participants.auth_token_lookup`. Rotate by re-issuing every active token (force re-login).
+
 ### `SACP_CONTEXT_MAX_TURNS`
 
 - **Default**: `20`
