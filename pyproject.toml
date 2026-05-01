@@ -11,7 +11,12 @@ dependencies = [
     "bcrypt>=4.2.0",
     "httpx>=0.28.0",
     "uvicorn>=0.34.0",
-    "litellm>=1.83.14",
+    # litellm 1.83.8+ dropped Python 3.14 support (Requires-Python <3.14).
+    # Project pins Python 3.14.4 (Constitution §6.8 slim-bookworm), so the
+    # only installable 3.14-compatible release is 1.83.7. Upper bound is
+    # explicit to keep Dependabot from re-bumping until upstream restores
+    # 3.14 in 1.83.x or a 1.84+ line. Re-evaluate on every litellm release.
+    "litellm>=1.83.0,<1.83.8",
     "sentence-transformers>=3.0.0",
     "numpy>=1.26.0",
     "psycopg2-binary>=2.9.12",
