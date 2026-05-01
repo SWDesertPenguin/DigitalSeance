@@ -221,11 +221,15 @@ async def _check_ip_binding(
     participant: Participant,
     client_ip: str,
 ) -> None:
-    """Check IP binding; bind if first auth, reject if mismatch."""
+    """Check IP binding; atomically bind on first auth, reject on mismatch."""
     bound = getattr(participant, "bound_ip", None)
     if bound is None:
-        await _bind_ip(pool, participant.id, client_ip)
-        return
+        # Atomic bind closes the audit-M-01 TOCTOU race: two concurrent
+        # first-auth attempts from different IPs would otherwise both see
+        # bound=None on their in-memory Participant snapshot and silently
+        # overwrite each other. _bind_ip now returns the IP that actually
+        # ended up bound — either ours (we won) or whoever raced ahead.
+        bound = await _bind_ip(pool, participant.id, client_ip)
     if bound != client_ip:
         raise IPBindingMismatchError(
             f"Session bound to {bound}, request from {client_ip}",
@@ -236,14 +240,31 @@ async def _bind_ip(
     pool: asyncpg.Pool,
     participant_id: str,
     ip: str,
-) -> None:
-    """Bind a participant's session to a client IP."""
+) -> str:
+    """Atomically bind a participant's IP if NULL; return the bound IP.
+
+    Returns the IP that ended up bound after this call:
+      - `ip` if we won the race (UPDATE rowcount == 1)
+      - whoever else bound first if we lost (rowcount == 0; re-read row)
+
+    Caller compares against client_ip to decide accept/reject. Audit M-01.
+    """
     async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE participants SET bound_ip = $1 WHERE id = $2",
+        result = await conn.execute(
+            "UPDATE participants SET bound_ip = $1 " "WHERE id = $2 AND bound_ip IS NULL",
             ip,
             participant_id,
         )
+        # asyncpg returns the command tag, e.g. "UPDATE 1" or "UPDATE 0".
+        rowcount = int(result.split()[-1]) if result.startswith("UPDATE") else 0
+        if rowcount == 1:
+            return ip
+        # Lost the race — read whoever won.
+        row = await conn.fetchrow(
+            "SELECT bound_ip FROM participants WHERE id = $1",
+            participant_id,
+        )
+        return row["bound_ip"] if row and row["bound_ip"] else ip
 
 
 def _compute_expiry(days: int) -> datetime:
