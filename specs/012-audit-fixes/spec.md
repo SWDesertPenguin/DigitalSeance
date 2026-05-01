@@ -115,7 +115,7 @@ Constitution §12 V14 binds future specs to per-stage performance budgets, and P
 
 A test author hits one of several recurring infrastructure gaps: (a) middleware state leaking across tests because tests share a FastAPI app instance, (b) a column added via alembic migration not reflected in `tests/conftest.py` raw DDL only surfacing on CI, (c) integration tests mixed with unit tests in CI runtime making the suite slow, (d) audit findings without follow-through linkage between finding → resolution PR → verifying test.
 
-**Why this priority**: Recurring bug class (per memory: `feedback_test_schema_mirror.md`); not blocking deploys but multiplicative cost over time as new tests and migrations land.
+**Why this priority**: Recurring bug class — alembic migrations not mirrored in `tests/conftest.py` raw DDL surface only on CI, not local; multiplicative cost over time as new tests and migrations land.
 
 **Independent Test**: For each item, a synthetic test asserts the gate works: (a) two tests using different middleware configs both pass without cross-contamination, (b) a synthetic alembic migration adding an unmirrored column fails CI, (c) `pytest -m integration` runs only integration tests, (d) an audit finding can be traced to its resolution PR and verifying test via the tracking artifact.
 

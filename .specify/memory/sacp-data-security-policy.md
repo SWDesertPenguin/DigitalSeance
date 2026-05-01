@@ -126,7 +126,7 @@ Operational logs are append-only. The application's database role has INSERT and
 
 ### Export
 
-Three formats: markdown (human-readable transcript), JSON (structured data with metadata, logs, proposals, requesting participant's usage), Vaire bulk import (decision summaries for shared memory). Export excludes other participants' detailed usage, API keys, system prompt content, and admin audit log. Available via MCP tool (`export_session`) in Phase 1; Web UI download in Phase 2.
+Three formats: markdown (human-readable transcript), JSON (structured data with metadata, logs, proposals, requesting participant's usage), external memory bulk import (decision summaries for shared memory). Export excludes other participants' detailed usage, API keys, system prompt content, and admin audit log. Available via MCP tool (`export_session`) in Phase 1; Web UI download in Phase 2.
 
 ---
 

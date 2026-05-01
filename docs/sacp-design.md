@@ -73,7 +73,7 @@ This heterogeneity can produce better outcomes than homogeneous agent teams. Dif
 
 ## 3. Architecture Overview
 
-SACP consists of three layers: the orchestrator core (persistent service managing conversation state and the AI turn loop), the participant interface (MCP server enabling human drop-in/drop-out), and the API bridge (abstraction layer routing conversation turns to each participant's AI provider). An optional shared memory layer connects to external stores like Vaire for persistent project context.
+SACP consists of three layers: the orchestrator core (persistent service managing conversation state and the AI turn loop), the participant interface (MCP server enabling human drop-in/drop-out), and the API bridge (abstraction layer routing conversation turns to each participant's AI provider). An optional shared memory layer connects to external semantic memory stores for persistent project context.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -618,7 +618,7 @@ resolve_proposal(proposal_id: string, resolution: "accept" | "reject")
 archive_session()
   → Freezes the conversation, disconnects all AI participants.
 
-export_session(format: "markdown" | "json" | "vaire")
+export_session(format: "markdown" | "json" | "memory")
   → Exports the session.
 
 --- Branching tools ---
@@ -658,7 +658,7 @@ LiteLLM serves as the primary abstraction layer, translating OpenAI-format messa
 
 Connects to external persistent memory stores for project-level context that survives across sessions.
 
-**Vaire** (or compatible semantic memory) — the orchestrator calls `remember` when a proposal is formally accepted, storing the decision context with tags. Each participant's AI can independently call `recall` through their own MCP connection.
+**External semantic memory** — the orchestrator calls `remember` when a proposal is formally accepted, storing the decision context with tags. Each participant's AI can independently call `recall` through their own MCP connection.
 
 **Git repository** — accepted decisions can be committed as structured files (markdown, JSON) to a shared repo. Participants can read the repo through their own filesystem MCP connections.
 
@@ -722,7 +722,7 @@ Recall — triggered by keywords like "previous," "earlier," "history," "what wa
 
 Status — triggered by keywords like "status," "budget," "who," "participants," "proposals," "active." The orchestrator returns the equivalent of `get_status()` output: active participants, current topic, spend per participant, pending proposals, cadence mode.
 
-External — triggered by references to shared memory ("recall," "remember," "look up," "search"), files, or any registered shared tool name. The orchestrator attempts to map the freeform text to the appropriate tool call (e.g., a Vaire `recall` with the NEED text as the query). If the request can't be mapped to a known tool, it is marked unfulfilled.
+External — triggered by references to shared memory ("recall," "remember," "look up," "search"), files, or any registered shared tool name. The orchestrator attempts to map the freeform text to the appropriate tool call (e.g., a `recall` call to an external memory store with the NEED text as the query). If the request can't be mapped to a known tool, it is marked unfulfilled.
 
 Fulfilled results are injected at the top of the model's next turn context in a clearly delimited block:
 
@@ -819,7 +819,7 @@ Five distinct network paths exist in a running SACP instance, each with differen
 
 **Orchestrator → PostgreSQL.** On the same Docker Compose network, this is localhost-equivalent traffic within the container runtime's virtual network. No encryption needed. If PostgreSQL is deployed on a separate host (not the default topology), enable PostgreSQL SSL (`sslmode=require` in the connection string).
 
-**Orchestrator → Vaire / external MCP servers.** Depends on deployment topology. Same-host connections over localhost need no encryption. Cross-network connections must use TLS. The orchestrator's MCP client configuration should support a `tls_required` flag per external server.
+**Orchestrator → external memory / external MCP servers.** Depends on deployment topology. Same-host connections over localhost need no encryption. Cross-network connections must use TLS. The orchestrator's MCP client configuration should support a `tls_required` flag per external server.
 
 **Remote access for participants.** The orchestrator should not be exposed on a public IP with open ports. For remote participants, the deployer provides an encrypted tunnel or VPN of their choice — WireGuard, Tailscale, a cloud provider's tunnel service, an SSH tunnel, or any other mechanism that provides authenticated, encrypted transport between the participant and the orchestrator's network. The SACP design does not prescribe a specific tunneling product; it requires that the transport between remote participants and the orchestrator is encrypted and authenticated. For LAN-only deployments (all participants on the same local network), the threat model is different — TLS on the orchestrator is still recommended but the tunnel/VPN layer is unnecessary.
 
@@ -887,7 +887,7 @@ Tool results carry the same trust tier as the entity that triggered the tool cal
 <sacp:system>     — system instructions, collaboration rules
 <sacp:human id="participant_a">  — human interjections
 <sacp:ai id="participant_b">     — AI responses
-<sacp:tool source="vaire">       — tool call results
+<sacp:tool source="memory">      — tool call results
 <sacp:context>    — orchestrator-injected context (summaries, proposals, NEED fulfillment)
 ```
 
@@ -909,7 +909,7 @@ This is an imperfect defense — models can be tricked into paraphrasing their i
 
 The `[NEED:]` proxy for low-capability models is already scoped to three action types (recall, status, external). For native tool-calling models, the orchestrator validates every tool call against the participant's role before execution. If a model attempts to call a tool it doesn't have access to (which shouldn't happen if tool definitions are correct, but could occur through prompt injection convincing the model to fabricate a tool call), the orchestrator rejects the call, logs the attempt, and notifies the facilitator.
 
-Tool calls that would exfiltrate conversation content to external systems (e.g., a Vaire `remember` call that stores the full conversation history, or a hypothetical HTTP tool that sends content to an external URL) are subject to additional validation. The orchestrator caps the size of content passed to external tools (default 2,000 tokens per call) and blocks calls to tools not in the session's registered tool allowlist.
+Tool calls that would exfiltrate conversation content to external systems (e.g., a `remember` call to an external memory store that stores the full conversation history, or a hypothetical HTTP tool that sends content to an external URL) are subject to additional validation. The orchestrator caps the size of content passed to external tools (default 2,000 tokens per call) and blocks calls to tools not in the session's registered tool allowlist.
 
 **Known limitations.** No mitigation fully prevents prompt injection. The NIST AI 100-2 taxonomy explicitly notes that "any alignment process that attenuates (but doesn't remove) undesired behavior will remain vulnerable" and that "theoretical impossibility results on AML mitigations exist." SACP's defenses raise the cost of attack and detect obvious attempts, but a sufficiently determined adversary with a participant seat and knowledge of the system prompt structure can influence other AIs' behavior through carefully crafted conversation content. The facilitator approval flow is the ultimate defense — only approved participants join the session, and the facilitator can remove bad actors. The admin audit log ensures all facilitator actions are recorded. The design documents these limitations intentionally so they are understood as known constraints rather than overlooked gaps.
 
@@ -972,7 +972,7 @@ Branching requires facilitator approval by default, relaxable in two-person coll
 
 Four states: active (loop running or ready), paused (loop stopped, resumable), archived (read-only, AI loop terminated, transcript viewable), deleted (data removed).
 
-Export formats: markdown (full transcript with speaker labels and timestamps), JSON (structured data including all metadata, routing logs, proposals, convergence events), Vaire bulk import (decision summaries and key context to shared memory).
+Export formats: markdown (full transcript with speaker labels and timestamps), JSON (structured data including all metadata, routing logs, proposals, convergence events), external memory bulk import (decision summaries and key context to shared memory).
 
 Data retention is configurable per session. Default is indefinite. Auto-archive after N days of inactivity and auto-delete archived sessions after N days are both configurable. A background cleanup job runs daily.
 
@@ -1085,7 +1085,7 @@ The data flows below describe the canonical topology (orchestrator-driven AI loo
 │             │                            │
 │  ┌──────────┴───────────────────────┐    │
 │  │   Existing Services              │    │
-│  │   • Vaire (port 8742)            │    │
+│  │   • External memory store         │    │
 │  │   • Other MCP servers            │    │
 │  └──────────────────────────────────┘    │
 └──────────────────────────────────────────┘
@@ -1127,15 +1127,15 @@ Features: real-time conversation transcript with color-coded speakers, message i
 
 **Containerization:** Docker Compose with two services: the orchestrator (Alpine-based Python image) and PostgreSQL 16. Database data persisted via a Docker volume. Environment variables for configuration.
 
-**External dependencies (optional):** Vaire MCP client for shared memory integration. Git CLI for repo-backed decision tracking. Encrypted tunnel or VPN for remote participant access (deployer's choice — WireGuard, Tailscale, SSH tunnel, cloud provider tunnel, or equivalent).
+**External dependencies (optional):** External memory MCP client for shared memory integration. Git CLI for repo-backed decision tracking. Encrypted tunnel or VPN for remote participant access (deployer's choice — WireGuard, Tailscale, SSH tunnel, cloud provider tunnel, or equivalent).
 
 ## 13. Implementation Phases
 
 **Phase 1 — Core Loop (MVP).** Two-participant conversation loop with round-robin turn-taking. Facilitator-as-admin model with single facilitator role and participant approval flow. Static bearer token auth with configurable expiry and rotation. PostgreSQL state management with linear conversation history (branching deferred). Anthropic and OpenAI API bridge support with LiteLLM for format translation. 4-tier delta-only system prompts. Response format normalization. Capability registry per participant. Orchestrator-mediated tool proxy. Adaptive context window management. Interrupt queue. Adaptive cadence with sprint/cruise/idle presets. Convergence detection with divergence prompts and human escalation. Adversarial rotation at configurable intervals. Error detection (empty responses, repetition loops, framing breaks) with retry and circuit breaker. Per-turn timeouts with late injection and auto-pause. Basic MCP server with `get_summary`, `get_history`, `inject_message`, `pause_my_ai`, `resume_my_ai`, `set_cadence`, `set_routing_preference`, `set_prompt_tier`, `get_status`, `get_routing_report`, `rotate_token`, `update_api_key`. Facilitator tools: `create_invite`, `approve_participant`, `remove_participant`, `revoke_token`, `set_session_config`. Eight routing preference modes. Token tracking and per-participant budget enforcement. One-sided conversation detection. TLS on all participant-facing connections. Rate limiting, input validation, response size enforcement, origin validation, log scrubbing. Admin audit log. Docker Compose deployment.
 
-**Phase 2 — Human Experience.** Web UI for real-time transcript viewing (split-stream accumulator for streaming providers), message injection, budget dashboard, routing visualizations, and convergence graphs. Summarization checkpoints with configurable triggers. Participant onboarding via web registration with invitation links and auto-approve option. Decision/proposal workflow (`propose_decision`, `vote_decision`). Review-gate UI (approve/edit/reject pending drafts). Per-participant context optimization. Session archiving and export (markdown, JSON, Vaire bulk import). Session forking for project phase transitions. Multi-project support via `participant_session_config` join table.
+**Phase 2 — Human Experience.** Web UI for real-time transcript viewing (split-stream accumulator for streaming providers), message injection, budget dashboard, routing visualizations, and convergence graphs. Summarization checkpoints with configurable triggers. Participant onboarding via web registration with invitation links and auto-approve option. Decision/proposal workflow (`propose_decision`, `vote_decision`). Review-gate UI (approve/edit/reject pending drafts). Per-participant context optimization. Session archiving and export (markdown, JSON, external memory bulk import). Session forking for project phase transitions. Multi-project support via `participant_session_config` join table.
 
-**Phase 3 — Scale and Integration.** Support for 3–5 participants. Relevance-based turn routing with domain tags. Conversation branching and rollback (`request_branch`, `approve_branch`, tree-structured message store). Sub-session architecture (`create_sub_session`, `conclude_sub_session`) with session tree and conclusion merging. Vaire shared memory integration (auto-`remember` on accepted proposals). Git-backed decision tracking. Broadcast mode for multi-perspective polling. Ollama and vLLM local model support with chat template auto-detection. OAuth 2.1 with PKCE for web UI authentication, replacing static tokens. Shared artifact store (blob KV for shared files).
+**Phase 3 — Scale and Integration.** Support for 3–5 participants. Relevance-based turn routing with domain tags. Conversation branching and rollback (`request_branch`, `approve_branch`, tree-structured message store). Sub-session architecture (`create_sub_session`, `conclude_sub_session`) with session tree and conclusion merging. External shared memory integration (auto-`remember` on accepted proposals). Git-backed decision tracking. Broadcast mode for multi-perspective polling. Ollama and vLLM local model support with chat template auto-detection. OAuth 2.1 with PKCE for web UI authentication, replacing static tokens. Shared artifact store (blob KV for shared files).
 
 **Phase 4 — Protocol and Federation.** A2A Agent Card for orchestrator discovery. Multi-orchestrator federation (linking two SACP instances for cross-team collaboration). Hierarchical sub-session topology for groups beyond five participants. Step-up authorization for destructive facilitator actions. Data retention policies with auto-archive and auto-delete scheduling. Formal protocol specification for interoperability with other implementations.
 

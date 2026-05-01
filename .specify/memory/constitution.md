@@ -119,7 +119,7 @@ These resolve ambiguity when the design doc doesn't have a specific answer.
 
 **4.4 — Minimum viable context over maximum context.** The context assembly pipeline sends the smallest coherent payload, not the largest the model can accept. Priority order is fixed: interjections → proposals → MVC floor (3 turns) → latest summary → additional history. (Implementation: design doc §4.1)
 
-**4.5 — Session-scoped state.** No cross-session persistence in the core orchestrator. External integrations (Vaire, artifact stores) handle cross-session memory.
+**4.5 — Session-scoped state.** No cross-session persistence in the core orchestrator. External integrations (memory stores, artifact stores) handle cross-session memory.
 
 **4.6 — Security > Correctness > Readability > Style.** This hierarchy governs every code decision. Higher-priority concerns always win conflicts.
 
@@ -142,7 +142,7 @@ The facilitator is the person who runs the orchestrator. They are not a superuse
 - Rotate or revoke auth tokens (forcing immediate disconnection).
 - Transfer the facilitator role to another participant.
 - Override any open proposal (logged to admin audit log).
-- Export sessions (markdown, JSON, Vaire bulk import).
+- Export sessions (markdown, JSON, external memory bulk import).
 - Review and act on security flags (jailbreak detection, prompt extraction attempts, tool call violations).
 
 The facilitator cannot impersonate a participant, send messages as another's AI, modify another's system prompt or routing preference, or read another's API key. Every facilitator action is recorded in the admin audit log.
@@ -257,11 +257,11 @@ General security requirements beyond data and AI-specific concerns.
 
 Each phase is a complete, usable system. No phase depends on a future phase to function.
 
-**Phase 1 (MVP):** Two participants, one facilitator. Static token auth. LiteLLM bridge (network-isolated). 4-tier delta-only system prompts with canary tokens. Serialized turn loop with all 8 routing modes, complexity classifier (pattern-matching), interrupt queue, multi-signal convergence detection, adaptive cadence, adversarial rotation, per-turn timeouts. Context assembly with 5-priority token budget and summarization checkpoints. `[NEED:]` tool proxy with allowlist and SSRF protection. Full AI security pipeline (spotlighting, sanitization, safety profiling, multi-layer output validation, jailbreak detection, prompt extraction defense, role-based tool scoping, exfiltration defense, trust-tiered content model). Error detection with retry and circuit breaker. TLS, rate limiting, input validation, response size enforcement, origin validation, MCP SSE binding, CORS/CSP, log scrubbing. Append-only logs with restricted DB permissions. Admin audit log. Export (markdown, JSON, Vaire). One-sided conversation detection. Docker Compose. SafeTensors-only. SBOM. No web UI. No artifact store.
+**Phase 1 (MVP):** Two participants, one facilitator. Static token auth. LiteLLM bridge (network-isolated). 4-tier delta-only system prompts with canary tokens. Serialized turn loop with all 8 routing modes, complexity classifier (pattern-matching), interrupt queue, multi-signal convergence detection, adaptive cadence, adversarial rotation, per-turn timeouts. Context assembly with 5-priority token budget and summarization checkpoints. `[NEED:]` tool proxy with allowlist and SSRF protection. Full AI security pipeline (spotlighting, sanitization, safety profiling, multi-layer output validation, jailbreak detection, prompt extraction defense, role-based tool scoping, exfiltration defense, trust-tiered content model). Error detection with retry and circuit breaker. TLS, rate limiting, input validation, response size enforcement, origin validation, MCP SSE binding, CORS/CSP, log scrubbing. Append-only logs with restricted DB permissions. Admin audit log. Export (markdown, JSON, external memory). One-sided conversation detection. Docker Compose. SafeTensors-only. SBOM. No web UI. No artifact store.
 
 **Phase 2 (shipped 2026-04-29):** Web UI (port 8751) with WebSocket streaming, review-gate UI, three-path guest onboarding (sign-in / create / request-to-join, US11+US12), facilitator admin panel, decision/proposal workflow (US7), summary panel (US9), participant health indicators with circuit-breaker visibility (US10), secure markdown rendering with XSS defenses (US8), debug-export tool (spec 010). Followed by an extensive post-deploy hardening pass: 11-spec security audit sweep, perf-amendment landings (PR #163), Trivy CVE-2025-47273 fix iterations, Tier 1-3 quality checklists. **Deferred from Phase 2 to Phase 3:** session forking, multi-project support, participant-facing audit log subset, artifact store (blob KV), per-participant context optimization, envelope encryption migration, OAuth 2.1 with PKCE, MCP-to-MCP topology 7 integration. *(Pre-Phase-3 audit window currently open; ~37 audit topics tracked in `AUDIT_PLAN.local.md` before Phase 3 development begins.)*
 
-**Phase 3:** 3–5 participants. Branching and rollback with UI. Sub-sessions with conclusion merging. Vaire integration. Relevance-based routing, broadcast mode. Ollama/vLLM local model support. OAuth 2.1 with PKCE replaces static tokens. Step-up authorization. Artifact store enhancements. Git-backed decision tracking.
+**Phase 3:** 3–5 participants. Branching and rollback with UI. Sub-sessions with conclusion merging. External memory integration. Relevance-based routing, broadcast mode. Ollama/vLLM local model support. OAuth 2.1 with PKCE replaces static tokens. Step-up authorization. Artifact store enhancements. Git-backed decision tracking.
 
 **Phase 4:** A2A federation. Agent Card discovery. Hierarchical sub-sessions. Data retention policies. Formal protocol spec. Evaluate Inter-Agent Trust Protocol for multi-sovereign trust.
 
