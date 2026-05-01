@@ -7,6 +7,7 @@ import uuid
 import asyncpg
 import bcrypt
 
+from src.auth.token_lookup import compute_token_lookup
 from src.database.encryption import encrypt_value
 from src.models.participant import Participant
 from src.repositories.base import BaseRepository
@@ -58,6 +59,7 @@ class ParticipantRepository(BaseRepository):
             context_window,
             _encrypt_api_key(api_key, self._encryption_key),
             _hash_auth_token(auth_token),
+            _lookup_auth_token(auth_token),
             api_endpoint,
             budget_hourly,
             budget_daily,
@@ -112,6 +114,7 @@ class ParticipantRepository(BaseRepository):
             """UPDATE participants
                SET api_key_encrypted = $1,
                    auth_token_hash = NULL,
+                   auth_token_lookup = NULL,
                    status = 'offline'
                WHERE id = $2""",
             overwrite,
@@ -147,7 +150,10 @@ class ParticipantRepository(BaseRepository):
         await self._execute(
             """UPDATE participants
                SET api_key_encrypted = COALESCE($1, api_key_encrypted),
-                   auth_token_hash = CASE WHEN $1 IS NOT NULL THEN NULL ELSE auth_token_hash END,
+                   auth_token_hash = CASE WHEN $1 IS NOT NULL
+                       THEN NULL ELSE auth_token_hash END,
+                   auth_token_lookup = CASE WHEN $1 IS NOT NULL
+                       THEN NULL ELSE auth_token_lookup END,
                    consecutive_timeouts = 0,
                    provider = COALESCE($2, provider),
                    model = COALESCE($3, model),
@@ -176,6 +182,7 @@ class ParticipantRepository(BaseRepository):
             """UPDATE participants
                SET api_key_encrypted = NULL,
                    auth_token_hash = NULL,
+                   auth_token_lookup = NULL,
                    status = 'reset'
                WHERE id = $1""",
             participant_id,
@@ -212,14 +219,21 @@ class ParticipantRepository(BaseRepository):
         participant_id: str,
         *,
         new_hash: str,
+        new_lookup: str | None,
         expires_at: object,
     ) -> None:
-        """Replace token hash, set new expiry, clear IP binding."""
+        """Replace token hash + lookup, set new expiry, clear IP binding.
+
+        ``new_lookup`` should be the HMAC-SHA256 of the plaintext token
+        (compute_token_lookup) for rotations, or None for revoke (so the
+        row drops out of the indexed-lookup path entirely). Audit C-02.
+        """
         await self._execute(
             "UPDATE participants"
-            " SET auth_token_hash = $1, token_expires_at = $2,"
-            " bound_ip = NULL WHERE id = $3",
+            " SET auth_token_hash = $1, auth_token_lookup = $2,"
+            " token_expires_at = $3, bound_ip = NULL WHERE id = $4",
             new_hash,
+            new_lookup,
             expires_at,
             participant_id,
         )
@@ -272,9 +286,9 @@ _INSERT_PARTICIPANT_SQL = """
     INSERT INTO participants
         (id, session_id, display_name, role, provider, model,
          model_tier, model_family, context_window,
-         api_key_encrypted, auth_token_hash, api_endpoint,
+         api_key_encrypted, auth_token_hash, auth_token_lookup, api_endpoint,
          budget_hourly, budget_daily, invited_by, max_tokens_per_turn)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 """
 
 
@@ -296,3 +310,10 @@ def _hash_auth_token(auth_token: str | None) -> str | None:
         auth_token.encode(),
         bcrypt.gensalt(),
     ).decode()
+
+
+def _lookup_auth_token(auth_token: str | None) -> str | None:
+    """HMAC token-lookup for indexed resolution if provided. Audit C-02."""
+    if auth_token is None:
+        return None
+    return compute_token_lookup(auth_token)

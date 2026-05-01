@@ -14,6 +14,7 @@ from src.auth.guards import (
     require_role,
     require_target_in_session,
 )
+from src.auth.token_lookup import compute_token_lookup
 from src.models.participant import Participant
 from src.repositories.errors import (
     AuthRequiredError,
@@ -111,10 +112,12 @@ class AuthService:
             new_token.encode(),
             bcrypt.gensalt(),
         ).decode()
+        new_lookup = compute_token_lookup(new_token)
         expires_at = _compute_expiry(self._token_expiry_days)
         await self._participant_repo.update_auth_token(
             participant_id,
             new_hash=new_hash,
+            new_lookup=new_lookup,
             expires_at=expires_at,
         )
         return new_token
@@ -136,6 +139,7 @@ class AuthService:
         await self._participant_repo.update_auth_token(
             participant_id,
             new_hash=random_hash,
+            new_lookup=None,
             expires_at=None,
         )
         await self._log_repo.log_admin_action(
@@ -193,14 +197,35 @@ async def _find_by_token(
     pool: asyncpg.Pool,
     token: str,
 ) -> Participant:
-    """Find the participant matching this token via bcrypt scan."""
+    """Resolve a plaintext token to its participant.
+
+    Audit C-02. Indexed-lookup-first: HMAC the plaintext, probe the
+    auth_token_lookup column (O(log N) on the partial index), then
+    bcrypt-verify the matched row. The bcrypt verify is still required
+    -- a leaked HMAC key alone never authenticates, only narrows.
+
+    Falls back to the legacy O(N) bcrypt scan only for grandfathered
+    rows whose lookup column is NULL (tokens issued before migration
+    009). Every rotation populates the lookup column, so the fallback
+    path drains naturally as participants re-auth.
+    """
+    lookup = compute_token_lookup(token)
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT * FROM participants WHERE auth_token_hash IS NOT NULL",
+        row = await conn.fetchrow(
+            "SELECT * FROM participants WHERE auth_token_lookup = $1",
+            lookup,
         )
-    for row in rows:
-        if bcrypt.checkpw(token.encode(), row["auth_token_hash"].encode()):
-            return Participant.from_record(row)
+        if row is not None:
+            if bcrypt.checkpw(token.encode(), row["auth_token_hash"].encode()):
+                return Participant.from_record(row)
+            raise TokenInvalidError("Invalid authentication token")
+        legacy_rows = await conn.fetch(
+            "SELECT * FROM participants "
+            "WHERE auth_token_hash IS NOT NULL AND auth_token_lookup IS NULL",
+        )
+    for legacy in legacy_rows:
+        if bcrypt.checkpw(token.encode(), legacy["auth_token_hash"].encode()):
+            return Participant.from_record(legacy)
     raise TokenInvalidError("Invalid authentication token")
 
 
@@ -251,7 +276,7 @@ async def _bind_ip(
     """
     async with pool.acquire() as conn:
         result = await conn.execute(
-            "UPDATE participants SET bound_ip = $1 " "WHERE id = $2 AND bound_ip IS NULL",
+            "UPDATE participants SET bound_ip = $1 WHERE id = $2 AND bound_ip IS NULL",
             ip,
             participant_id,
         )
