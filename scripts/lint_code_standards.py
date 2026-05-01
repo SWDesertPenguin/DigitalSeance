@@ -45,7 +45,7 @@ import os
 import re
 import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 PYTHON_RESERVED = {
@@ -115,7 +115,8 @@ def _check_function_size(
     effective_lines = _function_body_lines(fn) - _count_free_log_lines_in_fn(fn)
     if effective_lines > MAX_FUNCTION_LINES:
         findings.append(
-            f"{path}:{fn.lineno}: function `{fn.name}` is {effective_lines} lines (max {MAX_FUNCTION_LINES})"
+            f"{path}:{fn.lineno}: function `{fn.name}` is {effective_lines} lines "
+            f"(max {MAX_FUNCTION_LINES})"
         )
 
 
@@ -127,7 +128,8 @@ def _check_arg_count(
     counted = [a for a in all_pos if a.arg not in {"self", "cls"}]
     if len(counted) > MAX_POSITIONAL_ARGS:
         findings.append(
-            f"{path}:{fn.lineno}: function `{fn.name}` has {len(counted)} positional args (max {MAX_POSITIONAL_ARGS})"
+            f"{path}:{fn.lineno}: function `{fn.name}` has {len(counted)} "
+            f"positional args (max {MAX_POSITIONAL_ARGS})"
         )
 
 
@@ -145,9 +147,7 @@ def _check_type_hints(
                 f"{path}:{fn.lineno}: public function `{fn.name}` arg `{arg.arg}` missing type hint"
             )
     if fn.returns is None and fn.name != "__init__":
-        findings.append(
-            f"{path}:{fn.lineno}: public function `{fn.name}` missing return type hint"
-        )
+        findings.append(f"{path}:{fn.lineno}: public function `{fn.name}` missing return type hint")
 
 
 def _check_function_shape(
@@ -179,13 +179,10 @@ def _check_call(node: ast.Call, findings: list[str], path: Path) -> None:
     if func_name in {"eval", "exec", "__import__", "os.system"}:
         findings.append(f"{path}:{node.lineno}: banned call `{func_name}(...)`")
     if func_name in {"pickle.load", "pickle.loads", "marshal.loads"}:
-        findings.append(
-            f"{path}:{node.lineno}: banned deserialization `{func_name}(...)`"
-        )
+        findings.append(f"{path}:{node.lineno}: banned deserialization `{func_name}(...)`")
     if func_name == "yaml.load":
         uses_safe_loader = any(
-            isinstance(kw.value, (ast.Attribute, ast.Name))
-            and ("SafeLoader" in ast.dump(kw.value))
+            isinstance(kw.value, ast.Attribute | ast.Name) and ("SafeLoader" in ast.dump(kw.value))
             for kw in node.keywords
             if kw.arg == "Loader"
         )
@@ -195,11 +192,7 @@ def _check_call(node: ast.Call, findings: list[str], path: Path) -> None:
             )
     if func_name and func_name.startswith("subprocess."):
         for kw in node.keywords:
-            if (
-                kw.arg == "shell"
-                and isinstance(kw.value, ast.Constant)
-                and kw.value.value is True
-            ):
+            if kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
                 findings.append(
                     f"{path}:{node.lineno}: `{func_name}(..., shell=True)` is shell-injection-prone"
                 )
@@ -228,19 +221,19 @@ def _check_imports(node: ast.AST, findings: list[str], path: Path) -> None:
         )
 
 
-def _check_banned_calls(
-    node: ast.AST, findings: list[str], path: Path, *, is_test: bool
-) -> None:
+def _check_banned_calls(node: ast.AST, findings: list[str], path: Path, *, is_test: bool) -> None:
     if isinstance(node, ast.Call):
         _check_call(node, findings, path)
     _check_imports(node, findings, path)
     if isinstance(node, ast.ExceptHandler) and node.type is None:
         findings.append(
-            f"{path}:{node.lineno}: bare `except:` catches SystemExit/KeyboardInterrupt — use `except Exception:`"
+            f"{path}:{node.lineno}: bare `except:` catches "
+            f"SystemExit/KeyboardInterrupt — use `except Exception:`"
         )
     if isinstance(node, ast.Assert) and not is_test:
         findings.append(
-            f"{path}:{node.lineno}: `assert` for validation is stripped in -O mode — use a real check + raise"
+            f"{path}:{node.lineno}: `assert` for validation is stripped in -O "
+            f"mode — use a real check + raise"
         )
 
 
@@ -264,15 +257,13 @@ def _arg_is_log_safe(arg: ast.expr) -> bool:
     recursively. Anything else (BinOp, comprehensions, lambdas, calls
     to other functions) hides logic and returns False.
     """
-    if isinstance(arg, (ast.Constant, ast.Name)):
+    if isinstance(arg, ast.Constant | ast.Name):
         return True
     if isinstance(arg, ast.Attribute):
         return _arg_is_log_safe(arg.value)
     if isinstance(arg, ast.JoinedStr):
         return all(
-            _arg_is_log_safe(fv.value)
-            for fv in arg.values
-            if isinstance(fv, ast.FormattedValue)
+            _arg_is_log_safe(fv.value) for fv in arg.values if isinstance(fv, ast.FormattedValue)
         )
     if isinstance(arg, ast.Call):
         return _call_is_log_safe(arg)
@@ -340,14 +331,12 @@ def _count_free_log_lines_in_fn(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> i
     stack: list[ast.stmt] = list(_stmts_excluding_docstring(fn))
     while stack:
         stmt = stack.pop()
-        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        if isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             continue
         if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
             call = stmt.value
             kw_values = [kw.value for kw in call.keywords]
-            if _is_free_log_call(call) and all(
-                _arg_is_log_safe(a) for a in call.args + kw_values
-            ):
+            if _is_free_log_call(call) and all(_arg_is_log_safe(a) for a in call.args + kw_values):
                 end = stmt.end_lineno or stmt.lineno
                 total += end - stmt.lineno + 1
         for field_name in ("body", "orelse", "finalbody", "handlers"):
@@ -392,11 +381,11 @@ def _count_single_call_helpers(tree: ast.AST) -> int:
     private_fn_names = {
         n.name
         for n in ast.walk(tree)
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)
         and n.name.startswith("_")
         and not (n.name.startswith("__") and n.name.endswith("__"))
     }
-    counts: dict[str, int] = {name: 0 for name in private_fn_names}
+    counts: dict[str, int] = dict.fromkeys(private_fn_names, 0)
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.Call)
@@ -419,11 +408,7 @@ def _length_percentiles(lengths: list[int]) -> tuple[int, int, int]:
 
 def _collect_function_stats(tree: ast.AST) -> dict:
     """One-pass per-file stats record. See logs/lint-instrumentation-wip.md for schema."""
-    fns = [
-        fn
-        for fn in ast.walk(tree)
-        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
-    ]
+    fns = [fn for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef)]
     lengths = [_function_body_lines(fn) for fn in fns]
     p50, p90, lmax = _length_percentiles(lengths)
     free_logs = [_count_free_log_lines_in_fn(fn) for fn in fns]
@@ -439,11 +424,9 @@ def _collect_function_stats(tree: ast.AST) -> dict:
     }
 
 
-def _emit_lint_stats(
-    path: Path, tree: ast.AST, *, n_findings: int, output_dir: Path
-) -> None:
+def _emit_lint_stats(path: Path, tree: ast.AST, *, n_findings: int, output_dir: Path) -> None:
     """Append a JSONL stats record for `path` to today's file in `output_dir`."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     record = {
         "ts": now.isoformat(),
         "file": str(path),
@@ -478,7 +461,7 @@ def lint(path: Path) -> list[str]:
     is_test = _is_test_file(path)
     findings: list[str] = []
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             _check_function_shape(node, findings, path)
         _check_banned_calls(node, findings, path, is_test=is_test)
     _maybe_emit_stats(path, tree, len(findings))
@@ -604,13 +587,15 @@ def _run_baseline_mode(baseline_path: Path, paths: list[Path]) -> int:
     raw_findings, parse_status = _collect_findings(paths)
     scanned_paths = {str(p) for p in paths if p.is_file()}
     relevant_baseline_keys = {key for key in baseline if key[0] in scanned_paths}
-    current_norms = [
-        n for f in raw_findings if (n := _normalize_finding(f)) is not None
-    ]
+    current_norms = [n for f in raw_findings if (n := _normalize_finding(f)) is not None]
     current_keys = {(n[0], n[1]) for n in current_norms}
     new_findings = [
         f
-        for f, n in zip(raw_findings, (_normalize_finding(f) for f in raw_findings))
+        for f, n in zip(
+            raw_findings,
+            (_normalize_finding(f) for f in raw_findings),
+            strict=True,
+        )
         if n is None or not _is_grandfathered(n, baseline)
     ]
     cleared = relevant_baseline_keys - current_keys
@@ -693,9 +678,7 @@ def _format_top_p90_files(records: list[dict], n: int = 10) -> str:
 def _format_free_log_section(records: list[dict]) -> str:
     """Free-log usage trend — total used, max in any one fn, fns over the cap."""
     total = sum(r.get("free_log_lines_used", 0) for r in records)
-    biggest = max(
-        (r.get("free_log_lines_max_in_one_fn", 0) for r in records), default=0
-    )
+    biggest = max((r.get("free_log_lines_max_in_one_fn", 0) for r in records), default=0)
     over5 = sum(1 for r in records if r.get("free_log_lines_used", 0) > 5)
     return (
         "## Free-Log Usage\n"
@@ -762,9 +745,7 @@ def _walk_python_files(root: Path) -> list[Path]:
     """Recursive .py file walk, skipping .venv and __pycache__."""
     out: list[Path] = []
     for p in root.rglob("*.py"):
-        if any(
-            part in {".venv", "__pycache__", ".git", "node_modules"} for part in p.parts
-        ):
+        if any(part in {".venv", "__pycache__", ".git", "node_modules"} for part in p.parts):
             continue
         out.append(p)
     return out
@@ -781,12 +762,10 @@ def _compute_full_tree_histogram(root: Path) -> str:
         except SyntaxError:
             continue
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 total_fns += 1
                 counts[_bucket_for_p90(_function_body_lines(node))] += 1
-    lines = [
-        f"## Full-Tree Function Length Histogram ({total_fns} functions, root={root})"
-    ]
+    lines = [f"## Full-Tree Function Length Histogram ({total_fns} functions, root={root})"]
     for _, _, label in bands:
         lines.append(f"  {label}: {counts.get(label, 0)}")
     return "\n".join(lines)
@@ -826,7 +805,10 @@ def _record_shadow_disagreement(
     result: dict,
 ) -> None:
     """Mutate result dict to record one disagreement."""
-    key = f"{path}:{fn.lineno}:{fn.name} (lines={_function_body_lines(fn)}, args={_pos_arg_count(fn)})"
+    key = (
+        f"{path}:{fn.lineno}:{fn.name} "
+        f"(lines={_function_body_lines(fn)}, args={_pos_arg_count(fn)})"
+    )
     if prod[0] and not shadow[0]:
         result["blocked_by_prod_only"].append(f"{key} [length]")
     elif shadow[0] and not prod[0]:
@@ -847,20 +829,16 @@ def _shadow_scan_file(
         return
     result["files_scanned"] += 1
     for fn in ast.walk(tree):
-        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         pl, sl, pa, sa = _classify_fn_for_shadow(fn, shadow_max_lines, shadow_max_args)
         if pl == sl and pa == sa:
             result["agreements"] += 1
         else:
-            _record_shadow_disagreement(
-                path, fn, prod=(pl, pa), shadow=(sl, sa), result=result
-            )
+            _record_shadow_disagreement(path, fn, prod=(pl, pa), shadow=(sl, sa), result=result)
 
 
-def _run_shadow_lint(
-    paths: list[Path], shadow_max_lines: int, shadow_max_args: int
-) -> dict:
+def _run_shadow_lint(paths: list[Path], shadow_max_lines: int, shadow_max_args: int) -> dict:
     """Compare production vs shadow rules. Returns a diff dict suitable for printing."""
     result: dict = {
         "prod_max_lines": MAX_FUNCTION_LINES,
@@ -880,10 +858,14 @@ def _run_shadow_lint(
 
 def _format_shadow_result(result: dict) -> str:
     """Render the shadow-diff dict as a readable text report."""
+    prod_lines = result["prod_max_lines"]
+    prod_args = result["prod_max_args"]
+    shadow_lines = result["shadow_max_lines"]
+    shadow_args = result["shadow_max_args"]
     lines = [
         "## Shadow Lint Diff",
-        f"  Production rules: max_lines={result['prod_max_lines']}, max_args={result['prod_max_args']}",
-        f"  Shadow rules:     max_lines={result['shadow_max_lines']}, max_args={result['shadow_max_args']}",
+        f"  Production rules: max_lines={prod_lines}, max_args={prod_args}",
+        f"  Shadow rules:     max_lines={shadow_lines}, max_args={shadow_args}",
         f"  Files scanned: {result['files_scanned']}",
         f"  Agreements: {result['agreements']}",
         f"  Blocked by PROD only ({len(result['blocked_by_prod_only'])}):",
@@ -913,9 +895,7 @@ def _run_shadow_cli(argv: list[str]) -> int:
     except ValueError:
         print("error: --shadow needs integer thresholds", file=sys.stderr)
         return 2
-    print(
-        _format_shadow_result(_run_shadow_lint([Path(a) for a in argv[3:]], sml, sma))
-    )
+    print(_format_shadow_result(_run_shadow_lint([Path(a) for a in argv[3:]], sml, sma)))
     return 0
 
 

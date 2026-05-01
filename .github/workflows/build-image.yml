@@ -71,3 +71,17 @@ jobs:
           severity: HIGH,CRITICAL
           vuln-type: os,library
           ignore-unfixed: true
+
+      # Release-readiness gate (audit M-09): assert the image's /app tree
+      # has every required entrypoint and none of the forbidden trees
+      # (.env, .git, tests/, specs/, .venv, IDE caches). A drift in
+      # .dockerignore or a bad COPY would otherwise ship workshop debris
+      # to ghcr.io.
+      - name: Set up Python for release-readiness check
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.14"
+      - name: Release-readiness check
+        run: |
+          python scripts/check_image_contents.py \
+            "${{ env.REGISTRY }}/${{ steps.lower.outputs.image }}@${{ steps.build.outputs.digest }}"

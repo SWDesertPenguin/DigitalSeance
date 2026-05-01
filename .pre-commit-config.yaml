@@ -37,13 +37,42 @@ repos:
       - id: ruff-format
 
   # --- Python security analysis (SAST) ---
+  # Two passes (audit M-06): the strict src/ pass keeps the production
+  # ban-list at full strength; the tests/ pass scans test code with B101
+  # (assert_used) skipped — pytest tests legitimately use `assert`, but
+  # everything else (subprocess shell=True, pickle, hardcoded passwords,
+  # bind-all-interfaces) should still trip on test-only code.
   - repo: https://github.com/PyCQA/bandit
     rev: 1.8.3
     hooks:
       - id: bandit
-        name: bandit (Python SAST)
+        name: bandit (Python SAST — src/)
         args: ["-c", "pyproject.toml"]
         additional_dependencies: ["bandit[toml]"]
+      - id: bandit
+        name: bandit (Python SAST — tests/, B101 skipped)
+        files: ^tests/.*\.py$
+        args: ["--skip", "B101", "--severity-level", "medium"]
+
+  # --- Placeholder-secret guard (audit M-06) ---
+  # Refuses commits that introduce a placeholder-secret literal into a
+  # config-shaped file (.env, .yaml, .conf, .ini, etc.). The pattern list
+  # lives in scripts/check_no_placeholder_secrets.py and is kept in
+  # lockstep with src/config/validators.py _PLACEHOLDER_PATTERNS. Runtime
+  # validators refuse to bind ports on these values, but a committed
+  # config carrying one would still leak into the repo via review.
+  # Python sources are excluded because the validator module
+  # legitimately lists the patterns to detect them.
+  - repo: local
+    hooks:
+      - id: no-placeholder-secrets
+        name: no placeholder secrets in config files
+        entry: uv run python scripts/check_no_placeholder_secrets.py
+        language: system
+        types_or: [yaml, toml, ini]
+        files: \.(env|env\..*|conf|cfg)$|\.(ya?ml|toml|ini)$
+        exclude: ^\.env\.example$
+        pass_filenames: true
 
   # --- Coding standards enforcement (25-line/5-arg) ---
   - repo: local
