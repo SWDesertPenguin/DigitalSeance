@@ -31,6 +31,15 @@ os.environ.setdefault(
     "test-only-auth-lookup-key-do-not-use-in-prod-32chars-min",
 )
 
+# Audit M-02: Web UI cookie signing now uses SACP_WEB_UI_COOKIE_KEY,
+# distinct from SACP_ENCRYPTION_KEY. Set a deterministic test value so
+# auth / WS suites can mint and parse cookies without each test re-
+# setting the env var. Tests that exercise the V16 validator override.
+os.environ.setdefault(
+    "SACP_WEB_UI_COOKIE_KEY",
+    "test-only-cookie-key-do-not-use-in-prod-32chars-minimum",
+)
+
 
 @pytest.fixture(scope="session")
 def event_loop_policy() -> object:
