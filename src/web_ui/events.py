@@ -9,7 +9,7 @@ will call them (orchestrator loop, review-gate repo, summarizer, etc.).
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 SCHEMA_VERSION = 1
@@ -125,7 +125,7 @@ def ai_question_opened_event(
         participant_id=participant_id,
         turn_number=turn_number,
         questions=questions,
-        at=datetime.utcnow().isoformat(),
+        at=datetime.now(tz=UTC).replace(tzinfo=None).isoformat(),
     )
 
 
@@ -146,7 +146,7 @@ def ai_exit_requested_event(
         participant_id=participant_id,
         turn_number=turn_number,
         phrase=phrase,
-        at=datetime.utcnow().isoformat(),
+        at=datetime.now(tz=UTC).replace(tzinfo=None).isoformat(),
     )
 
 
