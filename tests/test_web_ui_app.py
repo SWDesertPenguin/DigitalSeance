@@ -86,6 +86,28 @@ def test_csp_includes_report_uri() -> None:
     assert "report-uri /csp-report" in response.headers["Content-Security-Policy"]
 
 
+def test_csp_connect_src_excludes_cross_origin_mcp(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Audit H-02 follow-up: MCP origin is server-side only, not in CSP.
+
+    With the same-origin proxy in place the SPA never connects to the
+    MCP server directly. Listing the MCP origin in `connect-src` would
+    leave a cross-origin exfiltration channel open if XSS ever slipped
+    past DOMPurify. The variable still exists (the proxy reads it for
+    upstream forwarding) but no longer drives the browser CSP.
+    """
+    monkeypatch.setenv("SACP_WEB_UI_MCP_ORIGIN", "http://upstream.example:8750")
+    # Re-import security so the module-level CSP rebuilds with the new env.
+    import importlib
+
+    from src.web_ui import security
+
+    importlib.reload(security)
+    csp = security._build_csp()  # noqa: SLF001 — module-level under test
+
+    assert "upstream.example" not in csp
+    assert "connect-src 'self'" in csp
+
+
 def test_csp_report_endpoint_accepts_post_without_csrf_header() -> None:
     """Browsers POST CSP violations without the X-SACP-Request header; the
     sink endpoint MUST accept them (011 CHK003).
