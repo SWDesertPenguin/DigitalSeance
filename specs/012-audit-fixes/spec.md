@@ -5,7 +5,7 @@
 **Status**: Draft
 **Input**: User description: "audit fixes"
 
-Phase 2 closed 2026-04-29; the pre-Phase-3 audit window is open. ~37 audits across 5 batches surfaced ~635 actionable findings tracked in `AUDIT_PLAN.local.md` (gitignored). Per Constitution §14.7.5, per-spec amendments derived from audit findings ship as standalone `fix/<slug>` branches and do NOT consume numbered feature slots. **This feature owns only the work that legitimately spans multiple specs and therefore does not fit any one of them**: cross-cutting consolidations (~12), new canonical doc deliverables (~9), CI/test infrastructure shared by multiple specs, and process artifacts (~4) that establish conventions for Phase 3 onward.
+Phase 2 closed 2026-04-29; the pre-Phase-3 audit window is open. Per Constitution §14.7.5, per-spec amendments derived from audit findings ship as standalone `fix/<slug>` branches and do NOT consume numbered feature slots. **This feature owns only the work that legitimately spans multiple specs and therefore does not fit any one of them**: cross-cutting consolidations, new canonical doc deliverables, CI/test infrastructure shared by multiple specs, and process artifacts that establish conventions for Phase 3 onward.
 
 ## Clarifications
 
@@ -201,7 +201,7 @@ A future maintainer needs to understand: how Phase 2 architectural decisions wer
 
 ### Measurable Outcomes
 
-- **SC-001**: 100% of named cross-cutting consolidation items in `AUDIT_PLAN.local.md` are either delivered or explicitly accepted-out-of-scope with recorded rationale by feature close.
+- **SC-001**: 100% of named cross-cutting consolidation items in the audit-window working plan are either delivered or explicitly accepted-out-of-scope with recorded rationale by feature close.
 - **SC-002**: 100% of named doc deliverables (FR-010 list) are published with at least one cross-reference from each spec.md they aggregate.
 - **SC-003**: Constitution §4.9 placeholder qualifier is removed and 007 §FR-005 is brought into consistency with §4.9 (closing the most prominent constitution-vs-spec drift).
 - **SC-004**: A new spec author can complete V16 env-var validation work for any future spec by referencing `docs/env-vars.md` as the canonical pattern in under 30 minutes.
@@ -212,12 +212,12 @@ A future maintainer needs to understand: how Phase 2 architectural decisions wer
 
 ## Assumptions
 
-- `AUDIT_PLAN.local.md` remains the gitignored source-of-truth tracking document for batch progress; this spec does not replace it but consumes its cross-cutting and doc-deliverable items.
+- A local working plan (gitignored) tracks batch progress; this spec does not replace it but consumes its cross-cutting and doc-deliverable items.
 - Per-spec amendments derived from audit findings flow through the standard §14.2 process on `fix/<slug>` branches (per Constitution §14.7.5), NOT through this feature.
 - The §4.9 architectural review session is held within this feature window with a security-aware reviewer in the loop; the chosen approach (a/b/c or a documented alternative) and its implementation both ship before feature close.
 - Phase 3 begins when the facilitator declares the audit window closed; there is no fixed-percentage completion gate per Constitution §14.7.
 - Doc deliverables (FR-010) are written in markdown under `docs/` and referenced from the relevant spec.md files via Constitution §13's authoritative-references entry.
-- Contributors update `AUDIT_PLAN.local.md` checkboxes as cross-cutting items land via this feature's PRs.
+- Contributors flip checkboxes in the local working plan as cross-cutting items land via this feature's PRs.
 - The pre-Phase-3 audit window is open and active; this feature runs concurrently with the audits themselves rather than waiting for them all to land first.
 - Per-spec testability/compliance/operations/reliability audits may produce findings that are reclassified as cross-cutting mid-window; reclassification is in scope and updates the audit plan accordingly.
 - Constitution edits required to support this feature (e.g., bumping the version after FR-006 lands) follow the Sync Impact Report process per §14.5.

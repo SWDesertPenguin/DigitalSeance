@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Mechanical enforcement of local_genny coding standards.
+"""Mechanical enforcement of project coding standards.
 
-Phase 1.5 instrumentation. Closes the standards-discipline gap surfaced by
-the user during the router-groom retrospective: genny was generating code
-without any project-specific constraint. This linter enforces the subset of
-docs/coding-standards.md that can be checked syntactically:
+Enforces the subset of `docs/coding-standards.md` that can be checked
+syntactically:
 
   STANDARDS — function shape rules:
     - max 25 lines per function (excluding docstring + decorators)
