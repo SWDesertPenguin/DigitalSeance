@@ -177,3 +177,69 @@ def test_validate_all_raises_with_all_failures(_restore_env: None):
     assert "SACP_DATABASE_URL" in var_names
     assert "SACP_ENCRYPTION_KEY" in var_names
     assert "SACP_TRUST_PROXY" in var_names
+
+
+def test_database_url_rejects_changeme_placeholder(_restore_env: None):
+    """Audit H-04: literal `changeme` in the URL trips the validator."""
+    from src.config.validators import validate_database_url
+
+    os.environ["SACP_DATABASE_URL"] = "postgresql://sacp:changeme@localhost:5432/sacp"
+    failure = validate_database_url()
+    assert failure is not None
+    assert failure.var_name == "SACP_DATABASE_URL"
+    assert "placeholder" in failure.reason
+    assert "changeme" in failure.reason
+
+
+def test_database_url_rejects_replace_me_placeholder(_restore_env: None):
+    """Audit H-04: REPLACE_ME_BEFORE_FIRST_RUN canonical placeholder also trips."""
+    from src.config.validators import validate_database_url
+
+    os.environ["SACP_DATABASE_URL"] = (
+        "postgresql://sacp:REPLACE_ME_BEFORE_FIRST_RUN@localhost:5432/sacp"
+    )
+    failure = validate_database_url()
+    assert failure is not None
+    assert "placeholder" in failure.reason
+    assert "REPLACE_ME_BEFORE_FIRST_RUN" in failure.reason
+
+
+def test_encryption_key_rejects_generate_placeholder(_restore_env: None):
+    """Audit H-04: the literal `.env.example` Fernet placeholder trips before length check."""
+    from src.config.validators import validate_encryption_key
+
+    os.environ["SACP_ENCRYPTION_KEY"] = "generate-with-python-fernet"
+    failure = validate_encryption_key()
+    assert failure is not None
+    assert "placeholder" in failure.reason
+    # Placeholder check fires BEFORE length check — the operator gets the
+    # actionable message ("replace with a real Fernet key") instead of the
+    # misleading "must be 44-char" error.
+    assert "44-char" not in failure.reason
+
+
+def test_encryption_key_rejects_replace_me_placeholder(_restore_env: None):
+    from src.config.validators import validate_encryption_key
+
+    os.environ["SACP_ENCRYPTION_KEY"] = "REPLACE_ME_BEFORE_FIRST_RUN"
+    failure = validate_encryption_key()
+    assert failure is not None
+    assert "placeholder" in failure.reason
+
+
+def test_database_url_accepts_real_credentials(_restore_env: None):
+    """Sanity check: a non-placeholder URL passes."""
+    from src.config.validators import validate_database_url
+
+    os.environ["SACP_DATABASE_URL"] = "postgresql://user:realpassword@localhost:5432/sacp"
+    assert validate_database_url() is None
+
+
+def test_encryption_key_accepts_real_fernet(_restore_env: None):
+    """Sanity check: a real Fernet key passes."""
+    from cryptography.fernet import Fernet
+
+    from src.config.validators import validate_encryption_key
+
+    os.environ["SACP_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+    assert validate_encryption_key() is None
