@@ -99,12 +99,13 @@ out-of-range default.
 
 ### `SACP_WEB_UI_MCP_ORIGIN`
 
-- **Default**: empty (same-origin)
-- **Type**: URL
+- **Default**: `http://localhost:8750`
+- **Type**: URL (single http(s):// entry; first http(s):// in a space-separated list wins)
 - **Valid range**: scheme `http` / `https` / `ws` / `wss`; non-empty netloc
-- **Blast radius on invalid**: Web UI cannot reach MCP server; CORS preflights fail
+- **Blast radius on invalid**: Web UI proxy cannot reach MCP server; SPA's `/api/mcp/*` calls fail with 502
 - **Validation rule**: `validators.validate_web_ui_mcp_origin`
-- **Source spec(s)**: 011 §FR-002 connect-src wiring
+- **Source spec(s)**: 011 audit H-02 (same-origin MCP proxy upstream)
+- **Note**: After the H-02 same-origin proxy landed this var is server-side only — read by `src/web_ui/proxy.py` to decide where to forward MCP tool calls. The browser never connects to this origin directly; the CSP `connect-src` no longer lists it.
 
 ### `SACP_WEB_UI_WS_ORIGIN`
 
