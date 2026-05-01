@@ -12,10 +12,13 @@ import asyncpg
 import pytest
 from cryptography.fernet import Fernet
 
-# Ensure test database URL is set
+# Ensure test database URL is set. Default password matches CI
+# (.github/workflows/test.yml) so local + CI use the same credentials, AND
+# is non-placeholder so the V16 validator (audit H-04) doesn't refuse-to-bind
+# during meta-tests of the validator itself.
 TEST_DB_URL = os.environ.get(
     "SACP_TEST_DATABASE_URL",
-    "postgresql://sacp:changeme@localhost:5432/sacp_test",
+    "postgresql://sacp_test:testpass@localhost:5432/sacp_test",
 )
 
 
