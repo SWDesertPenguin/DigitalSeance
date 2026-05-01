@@ -1,0 +1,8 @@
+# Force structured submissions: blank issues redirect to the templates below.
+# Security reports route to GitHub's private vulnerability reporting via the
+# contact link — never as a public issue.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/SWDesertPenguin/DigitalSeance/security/advisories/new
+    about: Use GitHub Security Advisories for any vulnerability — credential handling, authentication, encryption, prompt-injection, or participant isolation. Do not open a public issue.
