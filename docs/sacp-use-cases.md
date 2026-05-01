@@ -10,13 +10,13 @@
 
 ## 1. Distributed Software Collaboration
 
-Two developers work on a shared codebase from different machines, each with their own AI assistant that has accumulated project context through weeks of solo work. Developer A uses Claude with Vaire memory and a local codebase MCP server. Developer B uses GPT-4 with their own toolchain.
+Two developers work on a shared codebase from different machines, each with their own AI assistant that has accumulated project context through weeks of solo work. Developer A uses Claude with an external memory store and a local codebase MCP server. Developer B uses GPT-4 with their own toolchain.
 
 They spin up an SACP session. Both AIs enter the loop carrying their respective context. Developer A's Claude knows the auth subsystem intimately. Developer B's GPT-4 has been deep in the data layer. The AIs discuss integration points, surface contradictions in approach, and draft interface contracts — all while both humans are at work doing other things.
 
 Developer A drops in over lunch, reads the transcript, sees the AIs have identified a race condition at the boundary between their subsystems. She injects a clarifying message about the locking strategy she prefers, then leaves. The AIs incorporate that constraint and continue refining.
 
-The session uses `propose_decision` to formalize interface contracts. Both humans vote. Accepted proposals get stored to Vaire for persistent project memory.
+The session uses `propose_decision` to formalize interface contracts. Both humans vote. Accepted proposals get stored to the external memory store for persistent project memory.
 
 **Why SACP and not existing tools:** CrewAI could orchestrate multiple agents on this problem, but both developers would need to hand their context and API keys to a single operator. There's no sovereignty, no independent budget control, and no persistent conversation that survives across work sessions.
 
@@ -58,7 +58,7 @@ The contributor joins via invite link, provides their API key, and enters in `bu
 
 The AIs work through edge cases, API surface design, and backward compatibility concerns. When they identify a decision point, they use `propose_decision`. The maintainer resolves proposals with facilitator override when needed.
 
-After the session, `export_session(format: "markdown")` produces a clean transcript that becomes the basis for the RFC document. Accepted proposals export to Vaire as persistent project decisions.
+After the session, `export_session(format: "markdown")` produces a clean transcript that becomes the basis for the RFC document. Accepted proposals export to the external memory store as persistent project decisions.
 
 **Why SACP and not existing tools:** The contributors don't share an organization, a platform subscription, or a budget. Each pays their own way (BYOK). The conversation persists across days of asynchronous work. No agent framework supports this participation model.
 
