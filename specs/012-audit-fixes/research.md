@@ -71,7 +71,7 @@ Pipeline false-positive rates per 007 §FR-019 are sparse (<2% / <1% / <8% / <0.
 **Decision**: **Header-block convention** in each `specs/NNN/spec.md`:
 
 ```markdown
-**Spec Version**: 1.2.0 | **Last Amended**: 2026-04-30 | **Amended In**: PR #XXX (FR-NN added per AUDIT_PLAN batch 4 testability)
+**Spec Version**: 1.2.0 | **Last Amended**: 2026-04-30 | **Amended In**: PR #XXX (FR-NN added; testability amendment)
 ```
 
 Versioning rules (semantic-versioning analog):
@@ -125,11 +125,11 @@ Applied retroactively only when a spec is next amended (no bulk retroactive vers
 
 ## Decision 5 — Audit follow-through tracking mechanism
 
-**Decision**: **Single gitignored file** `AUDIT_FOLLOWTHROUGH.local.md` at repo root, parallel to `AUDIT_PLAN.local.md`. Format: a markdown table with columns `[Audit batch, Finding, Resolution PR, Verifying test, Status]`. Entries added when an audit finding is closed; status is one of `delivered / accepted-out-of-scope / deferred-to-phase-3`.
+**Decision**: **Single gitignored file** `AUDIT_FOLLOWTHROUGH.local.md` at repo root, parallel to the local working plan. Format: a markdown table with columns `[Audit batch, Finding, Resolution PR, Verifying test, Status]`. Entries added when an audit finding is closed; status is one of `delivered / accepted-out-of-scope / deferred-to-phase-3`.
 
 **Rationale**:
 
-- Gitignored matches `AUDIT_PLAN.local.md` precedent (audit findings are tracked in local action plans, not committed checklists, until they close).
+- Gitignored matches the local working plan's precedent (audit findings are tracked in local action plans, not committed checklists, until they close).
 - A separate file (rather than a column on existing closeouts) avoids retroactively rewriting committed audit closeouts.
 - A single file per repo (not per-batch) keeps the lookup surface small.
 - Markdown table is grep-friendly for "what's the verifying test for finding X?" queries.
@@ -149,7 +149,7 @@ Applied retroactively only when a spec is next amended (no bulk retroactive vers
 **Rationale**:
 
 - V16 mandates "before binding any port"; `validate_all()` runs synchronously at module import is wrong (test suites would fail without env). Calling it explicitly from `run_apps.py` keeps test suites unaffected and makes the validation step visible in startup logs.
-- `--validate-config-only` matches the "deploy-time smoke test" pattern documented in AUDIT_PLAN batch 5.
+- `--validate-config-only` matches the deploy-time smoke-test pattern.
 - A dedicated module (not scattered `if not os.getenv(…)` checks across packages) is necessary for the catalog deliverable (`docs/env-vars.md` cross-references this module as the canonical implementation).
 
 **Alternatives considered**:
