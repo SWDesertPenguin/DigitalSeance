@@ -73,7 +73,7 @@ Developer A (laptop)                SACP Orchestrator              Developer B (
                                                                    Disconnects
 
                               Proposal accepted → stored
-                              to Vaire shared memory
+                              to external memory store
 ```
 
 ### Active Components
@@ -88,7 +88,7 @@ Developer A (laptop)                SACP Orchestrator              Developer B (
 | Context assembly | Each AI gets context tailored to its model's window size |
 | Cost tracker | Independent budget tracking per developer |
 | Summarization checkpoints | Compress early turns as the conversation grows past 50 turns |
-| Vaire integration | Accepted proposals persisted to shared project memory |
+| External memory integration | Accepted proposals persisted to shared project memory |
 
 ### Why This Topology
 
@@ -345,7 +345,7 @@ Maintainer (facilitator)           SACP Orchestrator              Contributor (p
     the basis for the RFC document
 
   Accepted proposals exported
-  to Vaire as project decisions
+  to external memory as project decisions
 ```
 
 ### Active Components
