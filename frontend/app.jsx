@@ -1581,6 +1581,78 @@ function _downloadBlob(content, mimeType, filename) {
   URL.revokeObjectURL(url);
 }
 
+function DraftCard({ draft, speaker, isFacilitator, onApprove, onReject, onEdit }) {
+  const [needsOverride, setNeedsOverride] = useState(false);
+  const [overrideText, setOverrideText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const preview = (draft.draft_content || "").slice(0, 240);
+
+  const handleApprove = async (overrideReason) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await onApprove(draft.id, overrideReason || undefined);
+      setNeedsOverride(false);
+    } catch (e) {
+      if (e.message.startsWith("422")) {
+        setNeedsOverride(true);
+        setError("Security pipeline re-flagged this draft. Provide a justification to override.");
+      } else {
+        setError(e.message);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="draft-card">
+      <header>
+        <strong>{speaker?.display_name || draft.participant_id}</strong>
+        <span className="dim">{draft.created_at ? new Date(draft.created_at).toLocaleTimeString() : ""}</span>
+      </header>
+      <div className="draft-body">
+        <pre>{preview}{draft.draft_content.length > 240 ? "…" : ""}</pre>
+      </div>
+      {error && <div className="error">{error}</div>}
+      {isFacilitator && !needsOverride && (
+        <div className="draft-actions">
+          <button onClick={() => handleApprove()} disabled={busy}>Approve</button>
+          <button onClick={() => onEdit(draft)} disabled={busy}>Edit</button>
+          <button onClick={() => onReject(draft.id)} disabled={busy} className="danger">Reject</button>
+        </div>
+      )}
+      {isFacilitator && needsOverride && (
+        <div className="override-reason-form">
+          <label>
+            Override justification (required):
+            <textarea
+              rows={3}
+              maxLength={1024}
+              value={overrideText}
+              onChange={(ev) => setOverrideText(ev.target.value)}
+              disabled={busy}
+              placeholder="State why this flagged content should be approved..."
+            />
+          </label>
+          <div className="draft-actions">
+            <button
+              onClick={() => handleApprove(overrideText)}
+              disabled={busy || !overrideText.trim()}
+            >
+              {busy ? "Submitting…" : "Approve with justification"}
+            </button>
+            <button type="button" onClick={() => { setNeedsOverride(false); setError(null); }} disabled={busy}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReviewGateQueue({ drafts, participants, pauseScope, isFacilitator, onApprove, onReject, onEdit, onToggleScope }) {
   // US5 T110–T114.
   const byId = useMemo(
@@ -1603,28 +1675,17 @@ function ReviewGateQueue({ drafts, participants, pauseScope, isFacilitator, onAp
         )}
       </div>
       {drafts.length === 0 && <p className="dim">No pending drafts.</p>}
-      {drafts.map((d) => {
-        const speaker = byId[d.participant_id];
-        const preview = (d.draft_content || "").slice(0, 240);
-        return (
-          <div key={d.id} className="draft-card">
-            <header>
-              <strong>{speaker?.display_name || d.participant_id}</strong>
-              <span className="dim">{d.created_at ? new Date(d.created_at).toLocaleTimeString() : ""}</span>
-            </header>
-            <div className="draft-body">
-              <pre>{preview}{d.draft_content.length > 240 ? "…" : ""}</pre>
-            </div>
-            {isFacilitator && (
-              <div className="draft-actions">
-                <button onClick={() => onApprove(d.id)}>Approve</button>
-                <button onClick={() => onEdit(d)}>Edit</button>
-                <button onClick={() => onReject(d.id)} className="danger">Reject</button>
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {drafts.map((d) => (
+        <DraftCard
+          key={d.id}
+          draft={d}
+          speaker={byId[d.participant_id]}
+          isFacilitator={isFacilitator}
+          onApprove={onApprove}
+          onReject={onReject}
+          onEdit={onEdit}
+        />
+      ))}
     </section>
   );
 }
@@ -1633,6 +1694,8 @@ const MAX_EDIT_CHARS = 8_000; // mirrors server-side _MAX_FACILITATOR_EDIT_CHARS
 
 function ReviewGateEditor({ draft, onSave, onClose }) {
   const [text, setText] = useState(draft.draft_content);
+  const [overrideText, setOverrideText] = useState("");
+  const [needsOverride, setNeedsOverride] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -1642,15 +1705,20 @@ function ReviewGateEditor({ draft, onSave, onClose }) {
     : "char-counter dim";
   const atLimit = text.length > MAX_EDIT_CHARS;
 
-  const submit = async () => {
+  const submit = async (overrideReason) => {
     if (!text.trim() || atLimit) return;
     setBusy(true);
     setError(null);
     try {
-      await onSave(draft.id, text);
+      await onSave(draft.id, text, overrideReason || undefined);
       onClose();
     } catch (e) {
-      setError(e.message);
+      if (e.message.startsWith("422")) {
+        setNeedsOverride(true);
+        setError("Edited content still re-flags the pipeline. Provide a justification to override.");
+      } else {
+        setError(e.message);
+      }
     } finally {
       setBusy(false);
     }
@@ -1663,15 +1731,33 @@ function ReviewGateEditor({ draft, onSave, onClose }) {
         <textarea
           rows={14}
           value={text}
-          onChange={(ev) => setText(ev.target.value)}
+          onChange={(ev) => { setText(ev.target.value); setNeedsOverride(false); }}
           disabled={busy}
           maxLength={MAX_EDIT_CHARS}
         />
         {error && <div className="error">{error}</div>}
+        {needsOverride && (
+          <div className="override-reason-form">
+            <label>
+              Override justification (required):
+              <textarea
+                rows={3}
+                maxLength={1024}
+                value={overrideText}
+                onChange={(ev) => setOverrideText(ev.target.value)}
+                disabled={busy}
+                placeholder="State why this flagged content should be approved..."
+              />
+            </label>
+          </div>
+        )}
         <div className="modal-actions">
           <span className={counterClass}>{remaining.toLocaleString()} / {MAX_EDIT_CHARS.toLocaleString()}</span>
           <button type="button" onClick={onClose}>Cancel</button>
-          <button onClick={submit} disabled={busy || !text.trim() || atLimit}>
+          <button
+            onClick={() => submit(needsOverride ? overrideText : undefined)}
+            disabled={busy || !text.trim() || atLimit || (needsOverride && !overrideText.trim())}
+          >
             {busy ? "Saving…" : "Save + approve"}
           </button>
         </div>
@@ -2763,21 +2849,22 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     }
   };
 
-  // US5 review-gate actions.
-  const approveDraft = async (draftId) => {
-    await mcpCall("/tools/facilitator/approve_draft", auth.token, {
-      method: "POST", body: { draft_id: draftId },
-    });
+  // US5 review-gate actions. overrideReason is provided on re-submission after a
+  // 422 (spec 012 FR-006 / Constitution §4.9 approach (b)).
+  const approveDraft = async (draftId, overrideReason) => {
+    const body = { draft_id: draftId };
+    if (overrideReason) body.override_reason = overrideReason;
+    await mcpCall("/tools/facilitator/approve_draft", auth.token, { method: "POST", body });
   };
   const rejectDraft = async (draftId) => {
     await mcpCall("/tools/facilitator/reject_draft", auth.token, {
       method: "POST", body: { draft_id: draftId, reason: "" },
     });
   };
-  const editDraftSave = async (draftId, editedContent) => {
-    await mcpCall("/tools/facilitator/edit_draft", auth.token, {
-      method: "POST", body: { draft_id: draftId, edited_content: editedContent },
-    });
+  const editDraftSave = async (draftId, editedContent, overrideReason) => {
+    const body = { draft_id: draftId, edited_content: editedContent };
+    if (overrideReason) body.override_reason = overrideReason;
+    await mcpCall("/tools/facilitator/edit_draft", auth.token, { method: "POST", body });
   };
   const togglePauseScope = async (scope) => {
     await mcpCall("/tools/facilitator/set_review_gate_pause_scope", auth.token, {

@@ -221,3 +221,32 @@ async def test_get_security_events_returns_chronological(
     assert len(events) == 2
     layers = [e.layer for e in events]
     assert layers == ["exfiltration", "pipeline_error"]
+
+
+async def test_facilitator_override_row_persists(
+    repo: LogRepository,
+    session_and_facilitator: tuple[str, str],
+) -> None:
+    """Spec 012 FR-006: facilitator_override rows persist override_reason + actor.
+
+    Verifies the override audit trail required by Constitution §4.9
+    approach (b) — a facilitator explicitly approving flagged content
+    must have a logged justification that survives a DB round-trip.
+    """
+    sid, pid = session_and_facilitator
+    entry = await repo.log_security_event(
+        session_id=sid,
+        speaker_id=pid,
+        turn_number=3,
+        layer="facilitator_override",
+        findings='["override_phrase"]',
+        risk_score=0.85,
+        blocked=False,
+        override_reason="Operator confirmed this is a test message, not a real override",
+        override_actor_id=pid,
+    )
+    assert entry.layer == "facilitator_override"
+    assert entry.blocked is False
+    assert entry.override_reason == "Operator confirmed this is a test message, not a real override"
+    assert entry.override_actor_id == pid
+    assert entry.risk_score == pytest.approx(0.85)

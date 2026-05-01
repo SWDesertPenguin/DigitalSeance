@@ -484,12 +484,16 @@ def _has_new_input(context: list) -> bool:
     return True
 
 
-def _run_pipeline(content: str) -> tuple[object, str, list[str], int, int]:
+def run_security_pipeline(content: str) -> tuple[object, str, list[str], int, int]:
     """Run validate + exfiltration with per-layer timing (007 §FR-020).
 
     Returns (validation, cleaned, exfil_flags, validator_ms, exfil_ms).
     Per-layer durations are captured even if a downstream layer raises;
     raise propagates to the caller's fail-closed handler.
+
+    Public so the facilitator layer (spec 012 FR-006) can re-run the
+    pipeline on approve / edit before persisting without importing a
+    private symbol.
     """
     validator_start = time.monotonic()
     validation = validate_output(content)
@@ -563,7 +567,7 @@ async def _validate_and_persist(
     breaker failure — the bug is ours, not the participant's.
     """
     try:
-        validation, cleaned, exfil_flags, validator_ms, exfil_ms = _run_pipeline(
+        validation, cleaned, exfil_flags, validator_ms, exfil_ms = run_security_pipeline(
             response.content,
         )
     except Exception:  # noqa: BLE001 — fail-closed on any pipeline error
