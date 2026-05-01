@@ -7,6 +7,12 @@
 
 Phase 2 closed 2026-04-29; the pre-Phase-3 audit window is open. ~37 audits across 5 batches surfaced ~635 actionable findings tracked in `AUDIT_PLAN.local.md` (gitignored). Per Constitution §14.7.5, per-spec amendments derived from audit findings ship as standalone `fix/<slug>` branches and do NOT consume numbered feature slots. **This feature owns only the work that legitimately spans multiple specs and therefore does not fit any one of them**: cross-cutting consolidations (~12), new canonical doc deliverables (~9), CI/test infrastructure shared by multiple specs, and process artifacts (~4) that establish conventions for Phase 3 onward.
 
+## Clarifications
+
+### Session 2026-04-30
+
+- Q: Should the V16 startup validators (US2) refuse-to-bind when a required-secret env var still contains an `.env.example` placeholder string after a copy-paste deploy? → A: Yes. `validate_database_url` and `validate_encryption_key` now reject any value containing `changeme`, `REPLACE_ME_BEFORE_FIRST_RUN`, or `generate-with-python-fernet` (case-insensitive substring match). The `.env.example` and `src/database/roles.sql` defaults use `REPLACE_ME_BEFORE_FIRST_RUN[_*]` as the canonical placeholder. The validator's failure message names the matching placeholder so the operator gets an actionable error ("contains placeholder 'changeme' — replace with a real secret") instead of a misleading downstream auth failure when bcrypt or Fernet rejects the wrong-shaped secret. (Audit finding H-04.)
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Hand-curated test corpora unblock detector regression coverage (Priority: P1)

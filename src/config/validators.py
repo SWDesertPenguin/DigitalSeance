@@ -38,6 +38,26 @@ class ConfigValidationError(Exception):
         super().__init__(f"config validation failed:\n{body}")
 
 
+# Strings that mean "operator forgot to replace the placeholder before first
+# run". An exact substring match (case-insensitive) on any required-secret
+# value triggers a refuse-to-bind. Audit H-04: a copy of `.env.example`
+# directly to `.env` shipped a postgres password of literally `changeme`.
+_PLACEHOLDER_PATTERNS = (
+    "changeme",
+    "REPLACE_ME_BEFORE_FIRST_RUN",
+    "generate-with-python-fernet",
+)
+
+
+def _contains_placeholder(value: str) -> str | None:
+    """Return the matching placeholder pattern, or None if value is clean."""
+    lowered = value.lower()
+    for pattern in _PLACEHOLDER_PATTERNS:
+        if pattern.lower() in lowered:
+            return pattern
+    return None
+
+
 def _validate_bool_enum(name: str, default: str = "0") -> ValidationFailure | None:
     """Bool-style env var: must be '0' or '1'."""
     val = os.environ.get(name, default)
@@ -74,7 +94,7 @@ def _validate_url_list(name: str) -> ValidationFailure | None:
 
 
 def validate_database_url() -> ValidationFailure | None:
-    """SACP_DATABASE_URL must be a postgresql:// URL."""
+    """SACP_DATABASE_URL must be a postgresql:// URL with no placeholder secrets."""
     val = os.environ.get("SACP_DATABASE_URL")
     if not val:
         return ValidationFailure("SACP_DATABASE_URL", "required but not set")
@@ -86,14 +106,26 @@ def validate_database_url() -> ValidationFailure | None:
         )
     if not parsed.netloc:
         return ValidationFailure("SACP_DATABASE_URL", "missing host")
+    placeholder = _contains_placeholder(val)
+    if placeholder:
+        return ValidationFailure(
+            "SACP_DATABASE_URL",
+            f"contains placeholder {placeholder!r} — replace with a real secret",
+        )
     return None
 
 
 def validate_encryption_key() -> ValidationFailure | None:
-    """SACP_ENCRYPTION_KEY must decode as a Fernet key (44-char base64)."""
+    """SACP_ENCRYPTION_KEY must decode as a Fernet key (44-char base64) and not be a placeholder."""
     val = os.environ.get("SACP_ENCRYPTION_KEY")
     if not val:
         return ValidationFailure("SACP_ENCRYPTION_KEY", "required but not set")
+    placeholder = _contains_placeholder(val)
+    if placeholder:
+        return ValidationFailure(
+            "SACP_ENCRYPTION_KEY",
+            f"contains placeholder {placeholder!r} — generate a real Fernet key",
+        )
     if len(val) != 44:
         return ValidationFailure(
             "SACP_ENCRYPTION_KEY",
