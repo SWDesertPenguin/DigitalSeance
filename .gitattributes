@@ -1,1 +1,8 @@
 * text=auto
+
+# Lockfiles must stay LF on every platform — `uv run` (invoked by the
+# `standards-lint` pre-commit hook) re-reads uv.lock during hook setup and
+# the Windows checkout's CRLF normalization flips line endings, creating a
+# phantom modification that fails the hook on every commit. eol=lf pins the
+# checkout to match what tools write back.
+*.lock text eol=lf
