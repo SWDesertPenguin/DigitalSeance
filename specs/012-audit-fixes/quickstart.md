@@ -134,6 +134,6 @@ If the PR amends 007 §FR-005 or §4.9 in `.specify/memory/constitution.md`:
 
 Per Constitution §14.7, the pre-Phase-3 audit window is gating: Phase 3 development should not start until the audit work is sufficiently closed (per facilitator judgment — there is no fixed-percentage gate).
 
-**Status check**: open `AUDIT_PLAN.local.md`. Cross-cutting items checkboxes show progress on the items in this feature's scope. Per-spec amendments live on their own `fix/<slug>` branches per Constitution §14.7.5.
+**Status check**: the local working plan (gitignored) carries the cross-cutting checklist for items in this feature's scope. Per-spec amendments live on their own `fix/<slug>` branches per Constitution §14.7.5.
 
 **Closeout signal**: when the facilitator declares the window closed, this feature's spec gets a final status update (`Status: Closed (audit window concluded YYYY-MM-DD)`) and Phase 3 work begins on its own numbered branches.

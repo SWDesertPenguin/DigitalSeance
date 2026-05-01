@@ -10,7 +10,7 @@ This file consolidates the contract for: `docs/glossary.md`, `docs/retention.md`
 
 **Required**: Alphabetical glossary of project terms. Each entry: 1-3 sentence definition + cross-ref to spec.md(s) where the term is used.
 
-**Initial entry list** (per AUDIT_PLAN batch 4 + 5 scan; this is the floor, not the ceiling):
+**Initial entry list** (this is the floor, not the ceiling):
 
 MVC floor, convergence, review gate, sponsored AI, spotlighting, datamarking, canary leakage, advisory lock, cadence preset, sprint/cruise/idle, complexity classifier, divergence prompt, adversarial rotation, fail-closed, append-only, tier delta, secure-by-design, override path, narrative-only fallback, fire-and-forget summarization, route-and-assemble-and-dispatch-and-persist, breaker (closed/open), pending/active/paused/removed, held draft, request-id propagation.
 
@@ -40,7 +40,7 @@ MVC floor, convergence, review gate, sponsored AI, spotlighting, datamarking, ca
 
 **Required**: One section per implicit state machine. Per section: states (with terminal states marked), valid transitions (as a table or diagram), invalid transitions (with documented rejection behavior), idempotency rules, source FRs.
 
-**State machines to document** (per AUDIT_PLAN batch 4):
+**State machines to document**:
 
 1. Session lifecycle (active / paused / archived / deleted) — 001 §FR-010
 2. Participant lifecycle (pending / active / paused-manual / paused-breaker / removed) — 002 §FR-005, 003 §FR-015
@@ -82,7 +82,7 @@ MVC floor, convergence, review gate, sponsored AI, spotlighting, datamarking, ca
 1. **GDPR article mapping**: Art. 5(c) minimization, Art. 6 lawful basis, Art. 13 information, Art. 15 SAR, Art. 17 erasure, Art. 20 portability, Art. 25 by-design, Art. 28 processor, Art. 30 records, Art. 32 security, Art. 33 breach, Art. 34 subject-notification, Art. 44 transfer.
 2. **NIST control mapping**: which CSF / 800-53B / AI 100-2 controls each FR addresses.
 3. **AI Act mapping** (where relevant): Art. 10 data governance, Art. 13 transparency.
-4. **Per-spec compliance traceability**: aggregates compliance items across 002, 003, 004, 005, 007, 010, 011 from AUDIT_PLAN batch 2.
+4. **Per-spec compliance traceability**: aggregates compliance items across 002, 003, 004, 005, 007, 010, 011.
 
 **Cross-cutting consumers**: `docs/retention.md`, `docs/roles-permissions.md`, future regulatory submissions.
 
