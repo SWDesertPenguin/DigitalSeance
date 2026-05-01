@@ -54,6 +54,41 @@ async def test_log_routing_persists(
     assert entry.domain_match is True
 
 
+async def test_log_routing_with_per_stage_timings(
+    repo: LogRepository,
+    session_and_facilitator: tuple[str, str],
+) -> None:
+    """Per-stage timing columns round-trip correctly (012 US6 / 003 §FR-030).
+
+    Verifies the RoutingLog dataclass exposes the timing fields and that
+    a RETURNING * row with non-NULL timing values deserializes without
+    error. Pre-fix the dataclass was missing these fields, causing
+    from_record() to crash whenever migration 008 timing columns were
+    populated.
+    """
+    sid, pid = session_and_facilitator
+    entry = await repo.log_routing(
+        session_id=sid,
+        turn_number=1,
+        intended=pid,
+        actual=pid,
+        action="normal",
+        complexity="low",
+        domain_match=True,
+        reason="timed routing",
+        route_ms=12,
+        assemble_ms=84,
+        dispatch_ms=543,
+        persist_ms=7,
+        advisory_lock_wait_ms=2,
+    )
+    assert entry.route_ms == 12
+    assert entry.assemble_ms == 84
+    assert entry.dispatch_ms == 543
+    assert entry.persist_ms == 7
+    assert entry.advisory_lock_wait_ms == 2
+
+
 async def test_log_usage_persists(
     repo: LogRepository,
     session_and_facilitator: tuple[str, str],
