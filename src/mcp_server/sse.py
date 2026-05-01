@@ -34,6 +34,10 @@ class ConnectionManager:
         self._queues: dict[str, set[asyncio.Queue[dict]]] = {}
         self._maxsize = queue_maxsize
 
+    def subscriber_count(self, session_id: str) -> int:
+        """Current subscriber count for a session (for cap enforcement)."""
+        return len(self._queues.get(session_id, set()))
+
     async def subscribe(self, session_id: str) -> asyncio.Queue[dict]:
         """Register a new subscriber and return its queue."""
         q: asyncio.Queue[dict] = asyncio.Queue(maxsize=self._maxsize)
