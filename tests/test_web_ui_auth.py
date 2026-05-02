@@ -226,3 +226,40 @@ async def test_session_store_expires_past_ttl() -> None:
     sid = await store.create("pid", "ses", "bearer")
     # ttl=0 → any access counts as expired → entry purged + None returned.
     assert await store.get(sid) is None
+
+
+# ---------------------------------------------------------------------------
+# H-02 — /me + /login no longer hand the bearer to JS
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_whoami_response_omits_bearer() -> None:
+    """Audit H-02: /me must not return the bearer token to JS.
+
+    With the same-origin proxy carrying the bearer server-side, the
+    SPA never needs the bearer in JS memory. /me's response must
+    therefore not include any token-shaped field that an XSS could
+    exfiltrate.
+    """
+    from types import SimpleNamespace
+
+    from src.web_ui.auth import whoami
+
+    fake_participant = SimpleNamespace(
+        id="pid-7",
+        session_id="ses-7",
+        role="facilitator",
+    )
+    payload = await whoami(participant=fake_participant)
+
+    assert payload["participant_id"] == "pid-7"
+    assert payload["session_id"] == "ses-7"
+    assert payload["role"] == "facilitator"
+    assert "token" not in payload
+    assert "bearer" not in payload
+    # No field carries the bearer under any name.
+    for value in payload.values():
+        assert value != "any-token-value"
+        if isinstance(value, str):
+            assert not value.startswith("Bearer ")
