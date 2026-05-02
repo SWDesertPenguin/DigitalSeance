@@ -19,6 +19,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from src.web_ui.auth import _make_cookie_value
 from src.web_ui.events import message_event, session_status_changed_event
+from src.web_ui.session_store import get_session_store
 from src.web_ui.websocket import (
     CLOSE_FORBIDDEN,
     CLOSE_TOO_MANY,
@@ -29,11 +30,13 @@ from src.web_ui.websocket import (
 )
 
 _SECURE_KEY = Fernet.generate_key().decode()
+_COOKIE_KEY = "test-cookie-key-with-at-least-thirty-two-chars-of-entropy-xyz"
 
 
 @pytest.fixture(autouse=True)
 def _env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SACP_ENCRYPTION_KEY", _SECURE_KEY)
+    monkeypatch.setenv("SACP_WEB_UI_COOKIE_KEY", _COOKIE_KEY)
     monkeypatch.setenv("SACP_WEB_UI_INSECURE_COOKIES", "1")
 
 
@@ -82,17 +85,43 @@ def test_ws_rejects_missing_cookie() -> None:
     assert excinfo.value.code == CLOSE_UNAUTHENTICATED
 
 
-def test_ws_rejects_wrong_session_cookie() -> None:
+@pytest.mark.asyncio
+async def test_ws_rejects_wrong_session_cookie() -> None:
     """Cookie bound to session A cannot open a WS for session B."""
-    cookie = _make_cookie_value("pid-1", "session-A", "tok")
+    store = get_session_store()
+    sid = await store.create("pid-1", "session-A", "tok")
+    try:
+        cookie = _make_cookie_value(sid)
+        with TestClient(_app()) as client:
+            client.cookies.set("sacp_ui_token", cookie)
+            with (
+                pytest.raises(WebSocketDisconnect) as excinfo,
+                client.websocket_connect("/ws/session-B", headers=_GOOD_ORIGIN_HEADERS) as ws,
+            ):
+                ws.receive_text()
+        assert excinfo.value.code == CLOSE_FORBIDDEN
+    finally:
+        await store.delete(sid)
+
+
+@pytest.mark.asyncio
+async def test_ws_rejects_unknown_sid() -> None:
+    """A signed cookie carrying an sid not in the store closes 4401.
+
+    Audit H-02 / M-08: cookie signature still passes (it's an opaque
+    token signed with the cookie key), but server-side state has no
+    binding for it — so the WS upgrade fails closed exactly as if the
+    cookie had been missing entirely.
+    """
+    cookie = _make_cookie_value("never-issued-sid")
     with TestClient(_app()) as client:
         client.cookies.set("sacp_ui_token", cookie)
         with (
             pytest.raises(WebSocketDisconnect) as excinfo,
-            client.websocket_connect("/ws/session-B", headers=_GOOD_ORIGIN_HEADERS) as ws,
+            client.websocket_connect("/ws/anything", headers=_GOOD_ORIGIN_HEADERS) as ws,
         ):
             ws.receive_text()
-    assert excinfo.value.code == CLOSE_FORBIDDEN
+    assert excinfo.value.code == CLOSE_UNAUTHENTICATED
 
 
 @pytest.mark.asyncio
