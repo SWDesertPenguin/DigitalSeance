@@ -80,6 +80,82 @@ The security-requirements quality audit (`checklists/security.md`) raised 40 fin
 
 **Closed as accepted residual / out-of-scope** (documented in Assumptions, Topology, or "Boundary" section): CHK005 (bypass paths — none for `/tools/*`; health-check is on a different path), CHK007 (clock source — `time.monotonic()` is the canonical choice; documented in the module), CHK008 (observability requirements — 429 logged at WARNING level by FastAPI's default; Phase 3 alerting is a future enhancement), CHK010 (counter-state corruption — in-memory + monotonic clock + restart-on-failure makes this irrelevant), CHK011 / CHK012 (warmup / cold-start — restart resets to empty, observable in deploy logs), CHK014 / CHK015 (per-participant vs per-token — FR-009 settles via participant-id keying), CHK017 (uniform algorithm, equal weighting), CHK018 (consistency with 401/403 — FastAPI HTTPException JSON shape is uniform), CHK019 (boundary with downstream LiteLLM — different surface), CHK020 (constitution fairness — per-participant IS the fairness clause), CHK021 / CHK022 / CHK023 / CHK024 (measurability — implicit; sliding-window algorithm is well-defined), CHK025 (in-flight turn vs rate limit — turn dispatch is internal, doesn't consume the window), CHK026 (batched tool calls — each HTTP request counts), CHK027 (admin / health-check exemption — FR-010), CHK028 (clock-jump backward — `time.monotonic()` immune by definition), CHK030 (boundary inclusivity — `>=` not `>`, documented in code), CHK033 / CHK034 (perf overhead, observability — in-memory dict ops are O(1) amortized; alerting deferred), CHK035 / CHK036 (re-evaluation triggers — Phase 3 candidate), CHK037 (auth-then-rate-limit ordering — `Depends(get_current_participant)` enforces order in FastAPI's DI graph).
 
+## Operational notes (Phase F amendment, 2026-05-02)
+
+These items capture operator-facing decisions that don't change behaviour
+but are required for production deployment readiness. Cross-referenced
+from `AUDIT_PLAN.local.md` Batch 5 → 009 ops.
+
+**`DEFAULT_MAX_BUCKETS` tuning runbook.** The default 10,000-bucket cap
+(FR-007) accommodates a single deployment with up to ~10,000 active
+participants in any 2× window before eviction kicks in. Raise the cap by
+increasing `DEFAULT_MAX_BUCKETS` in `src/mcp_server/rate_limiter.py` if the
+deployment expects sustained higher cardinality. Memory blast radius is
+linear: each 1,000-bucket increase adds ~1MB resident (FR-014). Lowering
+the cap below 1,000 is unsupported in Phase 1 — eviction-sweep frequency
+spikes and the eviction path becomes hot. Tuning procedure: change
+constant, restart all `mcp_server` processes; no DB migration required
+because state is in-memory only (FR-005).
+
+**Per-window / per-limit operator override surface.** Phase 1 ships a fixed
+60 req/min process-level default with no env-var or per-participant
+override (Clarifications 2026-04-14). Operators that need a different
+global default change `DEFAULT_LIMIT` / `DEFAULT_WINDOW` in
+`src/mcp_server/rate_limiter.py` and restart. Per-participant overrides
+are deferred to Phase 3 — trigger: any deployment where ≥3 participants
+need distinct ceilings (e.g. internal automation accounts vs human users).
+The Phase 3 surface is expected to be a `participants.rate_limit_override`
+nullable column read at `RateLimiter.__init__`-time per participant.
+
+**429-rate alert thresholds (FR-012).** Once the FR-012 counter wiring
+lands, alerting SHALL distinguish single-participant spike from broad
+saturation: alert when `rate_limit_429_total{participant_id=X}` > 100 in
+1 minute (single-participant attack), AND alert when
+`rate_limit_429_per_minute_total` > 1000 in 5 minutes (workload exceeded
+global ceiling — operator must tune `DEFAULT_LIMIT` or shed load).
+Threshold values are starting points; tune to deployment baseline after
+1 week of observation.
+
+**Pre-auth fallback trigger conditions (FR-010).** Phase 1 deliberately
+ships no rate limiting on unauthenticated endpoints (login, invite
+redemption). Re-evaluate this stance when ANY of: (a) authentication-
+endpoint logs show ≥10 failed attempts/sec from a single source IP for
+≥5 minutes (brute-force probing), OR (b) operator instrumentation
+catches a credential-stuffing pattern, OR (c) deployment moves to a
+public-internet exposure where pre-auth scanning becomes part of the
+baseline noise. Implementation surface (when triggered): a small
+in-memory IP→count map keyed on `request.client.host` with the same
+sliding-window algorithm but a much tighter limit (e.g., 30 req/min).
+
+**Eviction-sweep alerting.** Once the FR-013 sweep-throttle wiring lands,
+sustained `rate_limit_eviction_sweep_ms` > 50ms or sweep frequency >
+once-per-second is a capacity-pressure signal: the bucket map is at cap
+and stale-eviction is on the hot path. Operator action: raise
+`DEFAULT_MAX_BUCKETS`, OR tune `DEFAULT_WINDOW` so participants' buckets
+go stale faster. Both options are restart-required.
+
+**Rate-limit-bypass paths (canonical list).** Bypass paths in Phase 1:
+- `/healthz`, `/readyz` (no auth dependency, see FR-010)
+- `/docs`, `/redoc`, `/openapi.json` (gated by `SACP_ENABLE_DOCS=1`, no
+  auth dependency)
+- `/login`, `/auth/*` (pre-auth, see FR-010)
+- Internal orchestrator dispatch (in-process call, never reaches HTTP
+  layer, see FR-006)
+The middleware test in `tests/test_009_testability.py` enforces the
+single-call-site invariant — adding a bypass means deleting the limiter
+call from `get_current_participant`, which the audit-plan tracker will
+catch.
+
+**Phase 1 in-memory state acceptance.** The decision to skip persistence
+across restarts (FR-005) is a deliberate trade-off, not an oversight.
+Deploy log entries naming process restart events ARE the audit trail of
+"rate-limit windows reset here." If a deployment requires durable
+windows (regulatory audit requirement, multi-instance horizontal scale),
+that triggers a Phase 3 redesign — likely a Redis-backed sliding window
+or a token-bucket counter on a shared store. No partial migration
+exists; the in-memory implementation is correct under its assumptions
+and any swap is a complete rewrite of the bucket data layer.
+
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 
 **Topologies** (per constitution §3): Topologies 1–6 only (orchestrator-driven). Rate limits apply to MCP tool calls routed through the orchestrator's `/tools/*` endpoints. Topology 7 (client-side peer AI with local MCP) has no orchestrator to enforce uniform limits; peer-side rate limiting is deferred to Phase 2+.
