@@ -25,11 +25,10 @@ const { useState, useEffect, useReducer, useCallback, useRef, useMemo } = React;
 // Configuration
 // ---------------------------------------------------------------------------
 
-const MCP_BASE = (() => {
-  if (window.__SACP_MCP_BASE__) return window.__SACP_MCP_BASE__;
-  const { protocol, hostname } = window.location;
-  return `${protocol}//${hostname}:8750`;
-})();
+// MCP tool calls now go through the Web UI's same-origin proxy at
+// /api/mcp/<path>. The proxy attaches the bearer server-side from the
+// session store (audit H-02). The SPA no longer holds the bearer in JS.
+const MCP_PROXY_PREFIX = "/api/mcp";
 
 const WS_BASE = (() => {
   const { protocol, host } = window.location;
@@ -88,15 +87,11 @@ async function _fetchJson(url, opts = {}) {
   return body;
 }
 
-function mcpCall(path, token, { method = "GET", body = null } = {}) {
-  const headers = {
-    "Content-Type": "application/json",
-    "X-SACP-Request": "1",
-  };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const opts = { method, headers };
+function mcpCall(path, { method = "GET", body = null } = {}) {
+  const headers = { "Content-Type": "application/json", "X-SACP-Request": "1" };
+  const opts = { method, headers, credentials: "include" };
   if (body !== null) opts.body = JSON.stringify(body);
-  return _fetchJson(`${MCP_BASE}${path}`, opts);
+  return _fetchJson(`${MCP_PROXY_PREFIX}${path}`, opts);
 }
 
 function uiCall(path, { method = "GET", body = null } = {}) {
@@ -557,7 +552,7 @@ function RedeemInviteForm({ onLogin, onBack }) {
     if (!token.trim() || !name.trim()) return;
     setBusy(true); setError(null);
     try {
-      const result = await mcpCall("/tools/session/redeem_invite", null, {
+      const result = await mcpCall("/tools/session/redeem_invite", {
         method: "POST",
         body: { invite_token: token.trim(), display_name: name.trim() },
       });
@@ -627,7 +622,7 @@ function CreateSessionForm({ onLogin, onBack }) {
     if (!name.trim()) return;
     setBusy(true); setError(null);
     try {
-      const result = await mcpCall("/tools/session/create", null, {
+      const result = await mcpCall("/tools/session/create", {
         method: "POST",
         body: {
           display_name: `Facilitator-${name.trim()}`,
@@ -680,24 +675,6 @@ function TokenRevealModal({ result, onProceed }) {
       <button type="button" onClick={onProceed} className="big-btn">
         I saved it — enter the session
       </button>
-    </div>
-  );
-}
-
-function SelfTokenModal({ token, onClose }) {
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal token-reveal" onClick={(ev) => ev.stopPropagation()}>
-        <h2>Your token</h2>
-        <p className="dim">
-          Your current bearer. Use it for API / MCP / Swagger calls.
-          Treat it like a password.
-        </p>
-        <CopyableToken token={token} />
-        <div className="modal-actions">
-          <button type="button" onClick={onClose}>Close</button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -758,7 +735,7 @@ function RequestJoinForm({ onLogin, onBack }) {
     if (!sid.trim() || !name.trim()) return;
     setBusy(true); setError(null);
     try {
-      const result = await mcpCall("/tools/session/request_join", null, {
+      const result = await mcpCall("/tools/session/request_join", {
         method: "POST",
         body: { session_id: sid.trim(), display_name: name.trim() },
       });
@@ -1085,7 +1062,7 @@ function ParticipantCard({
   );
 }
 
-function SelfControls({ me, participants, isFacilitator, onRoutingChange, onShowToken }) {
+function SelfControls({ me, participants, isFacilitator, onRoutingChange }) {
   // US2 T071–T072: display the caller's own routing preference. Today the
   // backend's set_routing_preference is facilitator-scoped (PR #61); only
   // facilitators get a live selector. Non-facilitators see read-only with
@@ -1120,11 +1097,6 @@ function SelfControls({ me, participants, isFacilitator, onRoutingChange, onShow
             {ROUTING_PREFERENCES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
         </div>
-      )}
-      {onShowToken && (
-        <button type="button" className="full-width" onClick={onShowToken}>
-          Show my token
-        </button>
       )}
     </section>
   );
@@ -2506,7 +2478,6 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [resetTarget, setResetTarget] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
-  const [rotatedToken, setRotatedToken] = useState(null);
   const [addedToken, setAddedToken] = useState(null);
   const [theme, setTheme] = useState(() => {
     try {
@@ -2529,7 +2500,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   const exportTranscript = async (format) => {
     try {
       const path = format === "json" ? "/tools/session/export_json" : "/tools/session/export_markdown";
-      const result = await mcpCall(path, auth.token);
+      const result = await mcpCall(path);
       const blob = new Blob(
         [typeof result.content === "string" ? result.content : JSON.stringify(result, null, 2)],
         { type: format === "json" ? "application/json" : "text/markdown" },
@@ -2569,7 +2540,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   const isFacilitator = (state.me?.role || auth.role) === "facilitator";
 
   const sendMessage = async (content) => {
-    await mcpCall("/tools/participant/inject_message", auth.token, {
+    await mcpCall("/tools/participant/inject_message", {
       method: "POST",
       body: { content, priority: 1 },
     });
@@ -2577,7 +2548,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
 
   const onSessionAction = async (action) => {
     try {
-      await mcpCall(`/tools/session/${action}`, auth.token, { method: "POST" });
+      await mcpCall(`/tools/session/${action}`, { method: "POST" });
     } catch (e) {
       alert(`${action} failed: ${e.message}`);
     }
@@ -2585,32 +2556,31 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
 
   const onSummarizeNow = async () => {
     try {
-      await mcpCall("/tools/session/summarize_now", auth.token, { method: "POST" });
+      await mcpCall("/tools/session/summarize_now", { method: "POST" });
     } catch (e) {
       alert(`Summarize failed: ${e.message}`);
     }
   };
 
   const onLoadSummaryHistory = async () => {
-    const result = await mcpCall("/tools/session/list_summaries", auth.token);
+    const result = await mcpCall("/tools/session/list_summaries");
     return result.summaries || [];
   };
 
   const onLoadReviewGates = async () => {
-    const result = await mcpCall("/tools/session/list_review_gates", auth.token);
+    const result = await mcpCall("/tools/session/list_review_gates");
     return result.review_gates || [];
   };
 
   const onExportSummaries = async (fmt) => {
     return await mcpCall(
       `/tools/session/export_summaries?fmt=${encodeURIComponent(fmt)}`,
-      auth.token,
     );
   };
 
   const onReviewGateAll = async (preference) => {
     try {
-      await mcpCall("/tools/facilitator/set_routing_all_ais", auth.token, {
+      await mcpCall("/tools/facilitator/set_routing_all_ais", {
         method: "POST",
         body: { preference },
       });
@@ -2623,7 +2593,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     // Facilitator path supports adding humans + AIs; non-facilitators use
     // the narrower /tools/participant/add_ai endpoint (AI-only, sponsored).
     if (isFacilitator) {
-      const result = await mcpCall("/tools/facilitator/add_participant", auth.token, {
+      const result = await mcpCall("/tools/facilitator/add_participant", {
         method: "POST",
         body: form,
       });
@@ -2639,7 +2609,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   };
 
   const fetchProviderModels = async ({ provider, api_key, api_endpoint }) => {
-    const result = await mcpCall("/tools/provider/list_models", auth.token, {
+    const result = await mcpCall("/tools/provider/list_models", {
       method: "POST",
       body: { provider, api_key, api_endpoint: api_endpoint || null },
     });
@@ -2648,23 +2618,13 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
 
   const onRenameSession = async (newName) => {
     try {
-      await mcpCall("/tools/session/set_name", auth.token, {
+      await mcpCall("/tools/session/set_name", {
         method: "POST",
         body: { name: newName },
       });
     } catch (e) {
       alert(`Rename failed: ${e.message}`);
     }
-  };
-
-  const onShowMyToken = () => {
-    // Display the in-memory token rather than calling /rotate_my_token.
-    // The rotate endpoint invalidates the caller's current bearer, which
-    // cascaded into 401s on every subsequent mcpCall in Test06-Web03.
-    // The SPA already holds a valid token (from create / login / /me
-    // restore) — showing it is sufficient for the "copy for API use"
-    // need; a dedicated rotation UI can come later if security demands.
-    if (auth?.token) setRotatedToken(auth.token);
   };
 
   const onRemoveParticipant = async (p) => {
@@ -2676,7 +2636,6 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     try {
       await mcpCall(
         `/tools/facilitator/remove_participant?participant_id=${encodeURIComponent(p.id)}`,
-        auth.token,
         { method: "POST" },
       );
     } catch (e) {
@@ -2688,7 +2647,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   const onResetAI = (p) => setResetTarget(p);
 
   const onSubmitResetAI = async (body) => {
-    await mcpCall("/tools/facilitator/reset_ai_credentials", auth.token, {
+    await mcpCall("/tools/facilitator/reset_ai_credentials", {
       method: "POST",
       body,
     });
@@ -2701,7 +2660,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
       + `available for re-add. Message history stays linked to this slot.`
     )) return;
     try {
-      await mcpCall("/tools/facilitator/release_ai_slot", auth.token, {
+      await mcpCall("/tools/facilitator/release_ai_slot", {
         method: "POST",
         body: { participant_id: p.id },
       });
@@ -2711,7 +2670,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   };
 
   const onAddMyAI = async (form) => {
-    await mcpCall("/tools/participant/add_ai", auth.token, {
+    await mcpCall("/tools/participant/add_ai", {
       method: "POST",
       body: { ...form, context_window: parseInt(form.context_window, 10) || 0 },
     });
@@ -2723,7 +2682,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
 
   const onHonorExit = async (p) => {
     try {
-      await mcpCall("/tools/facilitator/set_routing_preference", auth.token, {
+      await mcpCall("/tools/facilitator/set_routing_preference", {
         method: "POST",
         body: { participant_id: p.id, preference: "observer", reason: "honored_exit" },
       });
@@ -2738,7 +2697,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   };
 
   const onSetBudget = async (participantId, { budget_hourly, budget_daily, max_tokens_per_turn }) => {
-    await mcpCall("/tools/facilitator/set_budget", auth.token, {
+    await mcpCall("/tools/facilitator/set_budget", {
       method: "POST",
       body: {
         participant_id: participantId,
@@ -2757,7 +2716,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
         ? "/tools/participant/set_routing_preference"
         : "/tools/facilitator/set_routing_preference";
       const body = isSelf ? { preference } : { participant_id: participantId, preference };
-      await mcpCall(path, auth.token, { method: "POST", body });
+      await mcpCall(path, { method: "POST", body });
     } catch (e) {
       alert(`Routing change failed: ${e.message}`);
     }
@@ -2765,29 +2724,29 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
 
   // US5 review-gate actions.
   const approveDraft = async (draftId) => {
-    await mcpCall("/tools/facilitator/approve_draft", auth.token, {
+    await mcpCall("/tools/facilitator/approve_draft", {
       method: "POST", body: { draft_id: draftId },
     });
   };
   const rejectDraft = async (draftId) => {
-    await mcpCall("/tools/facilitator/reject_draft", auth.token, {
+    await mcpCall("/tools/facilitator/reject_draft", {
       method: "POST", body: { draft_id: draftId, reason: "" },
     });
   };
   const editDraftSave = async (draftId, editedContent) => {
-    await mcpCall("/tools/facilitator/edit_draft", auth.token, {
+    await mcpCall("/tools/facilitator/edit_draft", {
       method: "POST", body: { draft_id: draftId, edited_content: editedContent },
     });
   };
   const togglePauseScope = async (scope) => {
-    await mcpCall("/tools/facilitator/set_review_gate_pause_scope", auth.token, {
+    await mcpCall("/tools/facilitator/set_review_gate_pause_scope", {
       method: "POST", body: { scope },
     });
   };
 
   // US6 admin actions.
   const approveParticipant = async (pid) => {
-    await mcpCall(`/tools/facilitator/approve_participant?participant_id=${encodeURIComponent(pid)}`, auth.token, { method: "POST" });
+    await mcpCall(`/tools/facilitator/approve_participant?participant_id=${encodeURIComponent(pid)}`, { method: "POST" });
   };
   const rejectParticipant = async (pid) => {
     // Optimistic removal: reject hard-deletes the row, so drop it from local
@@ -2799,7 +2758,6 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     try {
       await mcpCall(
         `/tools/facilitator/reject_participant?participant_id=${encodeURIComponent(pid)}`,
-        auth.token,
         { method: "POST" },
       );
     } catch (e) {
@@ -2808,14 +2766,14 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     }
   };
   const createInvite = async (maxUses) => {
-    return await mcpCall(`/tools/facilitator/create_invite?max_uses=${maxUses}`, auth.token, { method: "POST" });
+    return await mcpCall(`/tools/facilitator/create_invite?max_uses=${maxUses}`, { method: "POST" });
   };
   const transferFacilitator = async (targetId) => {
-    await mcpCall(`/tools/facilitator/transfer_facilitator?target_id=${encodeURIComponent(targetId)}`, auth.token, { method: "POST" });
+    await mcpCall(`/tools/facilitator/transfer_facilitator?target_id=${encodeURIComponent(targetId)}`, { method: "POST" });
   };
   const setSessionConfig = async (action, body) => {
     try {
-      await mcpCall(`/tools/facilitator/set_${action}`, auth.token, { method: "POST", body });
+      await mcpCall(`/tools/facilitator/set_${action}`, { method: "POST", body });
     } catch (e) {
       alert(`Config change failed: ${e.message}`);
     }
@@ -2823,19 +2781,19 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
 
   // US7 proposal actions.
   const createProposal = async (topic, position) => {
-    await mcpCall("/tools/proposal/create", auth.token, {
+    await mcpCall("/tools/proposal/create", {
       method: "POST",
       body: { topic, position },
     });
   };
   const voteOnProposal = async (proposalId, vote) => {
-    await mcpCall("/tools/proposal/vote", auth.token, {
+    await mcpCall("/tools/proposal/vote", {
       method: "POST",
       body: { proposal_id: proposalId, vote },
     });
   };
   const resolveProposal = async (proposalId, status) => {
-    await mcpCall("/tools/proposal/resolve", auth.token, {
+    await mcpCall("/tools/proposal/resolve", {
       method: "POST",
       body: { proposal_id: proposalId, status },
     });
@@ -2844,7 +2802,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   // Seed open + resolved proposals on first WS attach so tallies + history are current.
   useEffect(() => {
     if (!auth.session_id) return;
-    mcpCall("/tools/proposal/list?include_resolved=true", auth.token)
+    mcpCall("/tools/proposal/list?include_resolved=true")
       .then((data) => {
         if (data?.proposals) {
           dispatch({
@@ -2855,12 +2813,12 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
         }
       })
       .catch(() => { /* ignore; snapshot will still deliver open_proposals */ });
-  }, [auth.session_id, auth.token]);
+  }, [auth.session_id]);
 
   // Audit log seed — fetched once when the facilitator opens the panel.
   useEffect(() => {
     if (!isFacilitator || state.auditEntries.length > 0) return;
-    mcpCall(`/tools/debug/export?session_id=${auth.session_id}`, auth.token)
+    mcpCall(`/tools/debug/export?session_id=${auth.session_id}`)
       .then((data) => {
         const entries = (data?.logs?.audit || [])
           .map((e) => ({ ...e, timestamp: e.timestamp || null }))
@@ -2868,7 +2826,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
         if (entries.length > 0) dispatch({ type: "seed_audit_entries", entries });
       })
       .catch(() => { /* non-facilitator will 403; ignore */ });
-  }, [isFacilitator, auth.session_id, auth.token, state.auditEntries.length]);
+  }, [isFacilitator, auth.session_id, state.auditEntries.length]);
 
   return (
     <div className="app-shell">
@@ -2904,7 +2862,6 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
             participants={state.participants}
             isFacilitator={isFacilitator}
             onRoutingChange={onRoutingChange}
-            onShowToken={onShowMyToken}
           />
           <ParticipantList
             participants={state.participants}
@@ -3002,9 +2959,6 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
           onSave={editDraftSave}
           onClose={() => setEditDraft(null)}
         />
-      )}
-      {rotatedToken && (
-        <SelfTokenModal token={rotatedToken} onClose={() => setRotatedToken(null)} />
       )}
       {addedToken && (
         <AddedParticipantTokenModal entry={addedToken} onClose={() => setAddedToken(null)} />

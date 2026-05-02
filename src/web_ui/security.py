@@ -32,34 +32,18 @@ _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 # block. Trade-off documented in spec SR-001; SRI integrity attributes
 # (task T204) are the primary CDN-compromise defense once populated.
 #
-# connect-src: 'self' + the explicit MCP origin (and its ws/wss
-# equivalents) + an explicit Web UI WebSocket origin list. The previous
-# scheme-only `ws: wss:` allowed *any* host, which provided a turnkey
-# exfiltration channel if any future XSS regression slipped past
-# DOMPurify. Both env vars below are space-separated origin lists.
-#
-# LAN dev operators who set SACP_WEB_UI_MCP_ORIGIN to a LAN address
-# should likewise set SACP_WEB_UI_WS_ORIGIN to the matching ws:// for
-# the Web UI's own WebSocket — defaults cover loopback only.
-_MCP_ORIGIN = os.environ.get(
-    "SACP_WEB_UI_MCP_ORIGIN",
-    "http://localhost:8750 http://127.0.0.1:8750",
-)
+# connect-src: 'self' + the Web UI's own WebSocket origin. With the
+# H-02 same-origin proxy in place the SPA never connects cross-origin
+# to the MCP server — every MCP call goes through ``/api/mcp/<path>``
+# on the Web UI. ``SACP_WEB_UI_MCP_ORIGIN`` is now strictly server-side
+# (the proxy reads it to decide where to forward). Pre-fix the CSP
+# also listed the MCP origin so the SPA could reach it directly; that
+# allowance is now dropped. ``SACP_WEB_UI_WS_ORIGIN`` is still needed
+# because browsers treat ``ws://`` distinct from ``http://`` for CSP.
 _WEB_UI_WS_ORIGIN = os.environ.get(
     "SACP_WEB_UI_WS_ORIGIN",
     "ws://localhost:8751 wss://localhost:8751 ws://127.0.0.1:8751 wss://127.0.0.1:8751",
 )
-
-
-def _http_to_ws(origins: str) -> str:
-    """Convert space-separated http(s):// origins to their ws(s):// counterparts."""
-    out = []
-    for o in origins.split():
-        if o.startswith("https://"):
-            out.append("wss://" + o[len("https://") :])
-        elif o.startswith("http://"):
-            out.append("ws://" + o[len("http://") :])
-    return " ".join(out)
 
 
 def _build_csp() -> str:
@@ -67,9 +51,7 @@ def _build_csp() -> str:
     instead of being silent (011 §SR-001 / CHK003). The endpoint
     /csp-report (POST) is a stub that 204s the request after logging.
     """
-    mcp_ws = _http_to_ws(_MCP_ORIGIN)
-    connect_parts = ["'self'", _MCP_ORIGIN, mcp_ws, _WEB_UI_WS_ORIGIN]
-    connect = " ".join(p for p in connect_parts if p)
+    connect = " ".join(p for p in ["'self'", _WEB_UI_WS_ORIGIN] if p)
     return (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-eval' 'unsafe-inline' "
