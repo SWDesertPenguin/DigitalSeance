@@ -164,3 +164,24 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-021 | tests/test_corpus_fixtures.py | Adversarial corpus coverage per category |
 | FR-022 | untested | pipeline_total_ms metric deferred to Phase 3 operations audit |
 | FR-023 | untested | LLM-as-judge deferred (Phase 3); trigger: when NoOpJudge replaced |
+
+---
+
+## 008-prompts-security-wiring
+
+| FR | Test path(s) | Notes |
+|---|---|---|
+| FR-001 | tests/test_prompt_tiers.py, tests/test_008_testability.py | 4-tier assembly + cumulative-delta containment proof (low subset of mid subset of high subset of max) |
+| FR-002 | tests/test_prompt_tiers.py, tests/test_008_testability.py | Custom-prompt sanitize at participant-update boundary; parametrized matrix over every canonical injection pattern |
+| FR-003 | tests/test_prompt_tiers.py, tests/test_prompt_protector.py, tests/test_008_testability.py | Three 16-char base32 canaries, unique per assembly, anchored start/middle/end, rotated across assemblies |
+| FR-004 | tests/test_sanitizer.py | Sanitization at runtime-message context-assembly boundary (canonical pattern set in 007 §FR-001) |
+| FR-005 | tests/test_spotlighting.py, tests/test_008_testability.py | Same-speaker exemption: AI reading own prior output is sanitized but not tagged or datamarked |
+| FR-006 | tests/test_output_validator.py, tests/test_008_testability.py | Output validation runs in production path via run_security_pipeline; ValidationResult schema |
+| FR-007 | tests/test_exfiltration.py, tests/test_008_testability.py | Exfiltration filter runs in production path; credential redacted by run_security_pipeline |
+| FR-008 | tests/test_review_gate.py, tests/test_review_gate_repipeline.py | High-risk responses staged for review; approve/edit re-pipelines (012 US4) |
+| FR-009 | tests/test_007_security_pipeline_testability.py | Layer evaluation order + fail-closed contract inherited from 007 |
+| FR-010 | untested | Bypass-path scope is structural (production paths flow through _validate_and_persist); trigger: cross-spec integration audit |
+| FR-011 | tests/test_008_testability.py | Tier-text memoization implementation deferred; marker test pins activation trigger (_TIER_CACHE attribute appearance) — replace with cache-hit/miss assertions when impl lands |
+| FR-012 | tests/test_008_testability.py | Custom-prompt sanitize memoization implementation deferred; marker test pins activation trigger (_SANITIZE_CACHE attribute appearance) — replace with cache-hit/miss assertions when impl lands |
+| FR-013 | tests/test_007_security_pipeline_testability.py | Per-stage timing capture inherited from 007 §FR-020 |
+| FR-014 | tests/test_008_testability.py | ReDoS guard: every regex in src/security/ stays under budget on 10KB pathological input (catches catastrophic backtracking; 100ms-on-prod CI gate is Phase 3) |
