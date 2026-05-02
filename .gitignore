@@ -67,15 +67,7 @@ AUDIT_RECONCILIATION_*.local.md
 # you want to keep them locally.
 local/
 
-# === Local doc deliverables (US5 drafts; redact before publishing) ===
-docs/glossary.md
-docs/error-codes.md
-docs/retention.md
-docs/state-machines.md
-docs/ws-events.md
-docs/roles-permissions.md
-docs/compliance-mapping.md
-docs/operational-runbook.md
+# === Local doc deliverables (US5 drafts — moved to local/docs/) ===
 scripts/check_doc_deliverables.py
 
 # === Local exploratory transcripts (working notes; redact before publishing) ===
