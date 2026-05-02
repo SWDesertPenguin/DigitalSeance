@@ -8,6 +8,16 @@
 
 ## Clarifications
 
+### Session 2026-05-02 (audit fix/011-compliance — Phase D)
+
+- Q: Does the Web UI's auth cookie require a consent banner? → A: No. The single `sacp_session` HttpOnly cookie qualifies for ePrivacy Art. 5(3) "strictly necessary" exemption (required to deliver the authenticated service the user requested). No marketing, analytics, or fingerprinting cookies in Phase 1. Adding any non-strictly-necessary cookie in Phase 3 requires the operator to add a compliant consent UI.
+
+- Q: Does the join flow surface Art. 13 information-to-be-provided? → A: No. SACP surfaces participant role + session visibility on connect (FR-003 + state_snapshot) but does not present operator identity / processing purposes / subject-rights routing. That UI is the operator's responsibility and lives in their onboarding wrapper. Phase 3 trigger: any deployment where the Web UI is the primary participant-facing surface (no operator wrapper).
+
+- Q: Does loading React / Babel / DOMPurify from CDN constitute Art. 44 cross-border transfer? → A: For EU data subjects, yes. The browser request to `cdn.jsdelivr.net` and `unpkg.com` leaks client IP + page URL to Cloudflare-fronted CDNs. SR-002's `Referrer-Policy: no-referrer` minimizes the referrer leak; client IP is unavoidable. Phase 3 mitigation: server-side bundling (eliminates the CDN); trigger: any EU deployment where the CDN transfer is unacceptable.
+
+- Q: How does CSP report-uri (`/csp-report`) handle PII? → A: Violation reports may contain blocked-URL fragments including PII (if exfiltration was attempted). The endpoint logs at WARNING through 007 §FR-012 ScrubFilter; retention is operator-controlled application-log retention. Phase 3 trigger: any deployment with regulatory log-retention requirements demanding a separate purge schedule.
+
 ### Session 2026-05-01 (audit fix/011-testability — Phase B)
 
 - **JS test framework decision**: Playwright (via `pytest-playwright`, already in `[e2e]` extras) is the adopted framework for browser-requiring tests. The frontend is a CDN-loaded React SPA with no build system (`type="text/babel"`, script tags, no package.json), so Jest and Vitest have no module entry point to target. Playwright drives a real browser against the running server, covering the shipping artifact as-is. Server-testable items (SR-010, SR-011, per-directive CSP) land in `tests/test_011_testability.py` (Phase B). Browser-only items (SR-001a frame cap, SR-009 forbidden link schemes, SR-012 malformed-frame full flow, FR-014 auto-reconnect backoff, US-by-US e2e, CDN-failure graceful-degradation) are deferred to Phase F with Playwright. FR-to-test traceability for all 011 FR/SR markers added to `docs/traceability/fr-to-test.md`.
@@ -288,6 +298,103 @@ AI-generated message content is rendered as markdown with mandatory security con
 | SR-012 (graceful WS frame parser) | Malformed-input crash / DoS | — | SI-10 |
 
 Sister cross-references: token rotation invalidates the UI session via 002 §FR-008 + this spec FR-003; markdown sanitization runs server-side at 007 §FR-001 / §FR-006 / §FR-007 and again at the renderer (defense in depth); the SSE-side counterpart to SR-001a's WS frame cap is 006 §FR-013 (bounded queue with drop-on-full); the sensitive-field allow-list mirrors 010 §FR-9's CI guard.
+
+### GDPR / ePrivacy article mapping (Phase D fix/011-compliance, 2026-05-02)
+
+Authoritative project-wide GDPR mapping is in `docs/compliance-mapping.md`. The 011-specific mappings are:
+
+| FR / SR | Article | Mapping |
+|----|----|----|
+| `sacp_session` cookie | ePrivacy Art. 5(3) "strictly necessary" exemption | No consent banner required for auth indicator |
+| US12 join flow | Art. 13 | Operator's responsibility (info-to-be-provided UI lives in operator wrapper) |
+| SR-001 CSP + report-uri | Art. 32(1)(b) | Confidentiality + integrity of UI state |
+| SR-001 third-party CDN | Art. 44 | International transfer (browser → jsDelivr / unpkg); operator-DPIA item |
+| SR-007 (no keys / system-prompts in UI) | Art. 32(1)(a) | Confidentiality of operator secrets |
+| SR-010 (pending-snapshot filter) | Art. 5(1)(c) | Data minimization on pre-approval state |
+| SR-011 (WS strip-list) | Art. 5(1)(c), Art. 32(1)(a) | Data minimization + pseudonymisation at WS boundary |
+| SR-012 (graceful WS parser) | Art. 32(1)(c) | Availability of UI under malformed input |
+| Phase 3 self-service download | Art. 15, Art. 20 | Subject access + portability (deferred) |
+
+## Compliance / Privacy (Phase D fix/011-compliance, 2026-05-02)
+
+This section documents 011's privacy posture around cookies, third-party CDN risk, CSP reporting, and the WS data-minimization boundary. Authoritative project-wide compliance mapping is in `docs/compliance-mapping.md`.
+
+### Cookie classification (ePrivacy / GDPR Art. 7)
+
+The Web UI uses ONE cookie:
+
+| Cookie | Purpose | Classification | Consent required? |
+|----|----|----|----|
+| `sacp_session` (HttpOnly, Secure, SameSite=Strict) | Authenticated-session indicator post-login (per FR-003) | Strictly necessary (ePrivacy Art. 5(3) exemption) | No |
+
+No marketing, analytics, or fingerprinting cookies. No third-party cookies. ePrivacy's "strictly necessary" carve-out applies — the cookie is required to deliver the service the user explicitly requested (authenticated session).
+
+If future Phase 3 features add any non-strictly-necessary cookie (analytics, A/B testing, marketing), the operator MUST add a compliant consent UI before deploying — SACP does not currently bundle one.
+
+### Lawful basis on join (Art. 6 / Art. 13)
+
+US12 request-to-join flow surfaces the participant's sign-in but does NOT presently surface a lawful-basis selection or Art. 13 information-to-be-provided notice. This is the operator's responsibility:
+
+- Lawful basis is determined at the deployment-policy layer (see 002 Compliance / Privacy section, "Lawful basis (Art. 6)")
+- The operator's onboarding / consent UI MUST surface Art. 13 information (controller identity, purposes of processing, retention, subject-rights routing) BEFORE the participant joins
+- SACP itself does not present this UI — it surfaces participant role + session visibility on connect (FR-003 + `state_snapshot`)
+
+Phase 3 trigger: any deployment serving EU data subjects where the Web UI is the primary participant-facing surface (no operator wrapper). At that point, an Art. 13 modal MUST be added to the join flow with operator-supplied controller info.
+
+### CSP report-uri PII handling (SR-001)
+
+`/csp-report` receives CSP violation reports. Violation reports may contain:
+
+- Blocked-URL fragments (path + query string of the violating resource) — may include PII if a malicious script attempted to exfiltrate via URL
+- Referrer (page that loaded the violating script) — minimized by `Referrer-Policy: no-referrer` (SR-002)
+- Source-file location of the violating script
+
+Retention and access policy:
+
+- Endpoint logs at WARNING level
+- Logs flow through 007 §FR-012 root-logger ScrubFilter (credential pattern redaction applies)
+- Retention: tied to operator's overall application log retention policy (NOT a separate purge); Phase 3 trigger: any deployment with regulatory log-retention requirements demanding a separate purge schedule
+- Access: operator-internal (server-side log access)
+
+The `/csp-report` endpoint is exempt from CSRF-header enforcement because browsers cannot add custom headers to violation reports — this is a documented carve-out, not a CSRF gap.
+
+### Third-party CDN risk (Art. 44, ePrivacy)
+
+The Web UI loads two third-party CDN origins per SR-001 / FR-002:
+
+| Origin | Purpose | Data leak |
+|----|----|----|
+| `cdn.jsdelivr.net` | React / ReactDOM / marked / DOMPurify | Browser → jsDelivr (Cloudflare-fronted): referrer (`no-referrer` minimizes) + client IP |
+| `unpkg.com` | Babel Standalone | Browser → unpkg (Cloudflare-fronted): referrer + client IP |
+
+For EU deployments serving EU data subjects, every browser request to these CDNs is a third-country transfer under Art. 44. The transfer is initiated by the participant's browser (not the orchestrator) so SACP's role is upstream — but operators MUST be aware:
+
+- jsDelivr is operated by ProspectOne (Poland) on Cloudflare infrastructure (US / global)
+- unpkg is operated by Cloudflare directly (US / global)
+- Both serve over HTTPS; SR-002's `Referrer-Policy: no-referrer` minimizes the referrer leak; client IP is unavoidable
+
+SRI integrity attributes (SR-001 task T204) protect against tampered CDN responses but do not address the IP / referrer transfer.
+
+**Phase 3 mitigation**: bundle the static assets server-side (eliminate the CDN dependency). Trigger: any EU deployment where third-party CDN transfer is unacceptable to the operator's DPIA. The CDN approach was chosen for Phase 1 simplicity (no build toolchain per FR-002); a build pipeline is the prerequisite for self-hosting.
+
+### Confidentiality controls (Art. 32)
+
+Two SRs serve as PII-equivalent confidentiality controls at the UI boundary:
+
+- **SR-007** ("no API keys / system prompts in UI"): system prompts may contain operator-supplied instructions and business logic; they are confidentiality-sensitive even though not classical PII. SR-007 enforces server-side that they never enter the WS payload. Cross-ref 010 §FR-9 (debug-export equivalent).
+- **SR-011** (sensitive-field strip-list at WS boundary): `api_key_encrypted`, `auth_token_hash`, `bound_ip`, `system_prompt` stripped at `_participant_dict` serializer. This is data minimization at the WS broadcast boundary (Art. 5(1)(c)). The Web UI's React renderer adds defense-in-depth via allow-list serialization; even if the server forgets, the client silently drops unknown keys.
+
+### Subject rights at the UI boundary
+
+**Self-service Art. 15 / Art. 20**: deferred to Phase 3 (sister 010 Compliance / Privacy section is authoritative). No browser-side download surface for "my session history" exists today. Phase 1 fulfilment is operator-mediated via 010 debug-export + manual filtering. Phase 3 trigger: any deployment serving EU data subjects where the Web UI is the primary participant-facing surface. At that point, a participant-facing "download my data" button surfaces alongside the existing UI.
+
+### Cross-references
+
+- `docs/compliance-mapping.md` — project-wide GDPR mapping (Art. 5(c) / 13 / 32 / 44 rows authoritative)
+- 002 Compliance / Privacy section — auth-surface lawful-basis + retention
+- 003 Compliance / Privacy section — Art. 28 / Art. 44 cross-border transfer (sister; the WS payload is upstream of the litellm dispatch)
+- 007 Compliance / Privacy section — Art. 33 breach signalling + log-scrubbing
+- 010 Compliance / Privacy section — Art. 15 / Art. 20 boundary (operator-mediated in Phase 1)
 
 ## Audit closeout (2026-04-29)
 
