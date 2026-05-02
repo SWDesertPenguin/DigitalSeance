@@ -424,7 +424,102 @@ Triggers documented in spec 007 Operations section.
 
 ---
 
-## 13. Cross-references
+## 13. Web UI operations
+
+### 13.1 Deploy semantics
+
+- **Single-instance** (Phase 1): all WS connections terminate at one orchestrator process. On redeploy, WS connections close; clients reconnect via 011 §FR-014 (exponential backoff).
+- **Multi-instance** (Phase 3): requires WS session affinity OR externalized `SessionStore`. Trigger: HA Web UI requirements.
+- **Single-tenant only**: one operator, one DB, one origin per deployment.
+
+### 13.2 Reverse-proxy configurations
+
+Phase 1 documented configurations: Caddy, nginx, Cloudflare.
+
+**Required by all**:
+
+- WS upgrade headers preserved (`Upgrade: websocket`, `Connection: Upgrade`)
+- `X-Forwarded-For` set (consumed by 002 §FR-023 when `SACP_TRUST_PROXY=1`)
+- `X-Forwarded-Proto: https` set so the orchestrator emits HTTPS-only redirects
+- `/csp-report` POSTs allowed through
+- `X-SACP-Request: 1` (custom CSRF header per 011 SR-006) NOT stripped on mutations
+- WS frame size cap (256 KB per 011 SR-001a) preserved or set higher
+
+**Caddy sample**:
+
+```caddyfile
+example.com {
+    reverse_proxy /api/* localhost:8750
+    reverse_proxy /ws/* localhost:8751 {
+        header_up Upgrade {http.request.header.Upgrade}
+        header_up Connection {http.request.header.Connection}
+    }
+    reverse_proxy localhost:8751
+}
+```
+
+**nginx sample**:
+
+```nginx
+location /ws/ {
+    proxy_pass http://localhost:8751;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 86400;
+}
+```
+
+**Cloudflare**: enable WebSockets in Network settings; set `X-Forwarded-Proto` via Transform Rules; ensure WAF rules don't strip `X-SACP-Request` header.
+
+### 13.3 HTTP vs HTTPS posture sanity check
+
+Pre-deploy verification (operator-side):
+
+```bash
+# Production deploy: HTTPS expected, INSECURE_COOKIES must be unset/0
+echo "$SACP_WEB_UI_INSECURE_COOKIES" | grep -E '^(0|)$' || echo "WARN: insecure cookies enabled in production"
+
+# Verify HTTPS reachability
+curl -sI https://your-deploy.example.com/ | head -1 | grep -q "200\|3"
+```
+
+Misconfiguration to avoid: HTTPS deploy with `SACP_WEB_UI_INSECURE_COOKIES=1` silently downgrades cookie security.
+
+### 13.4 CDN dependency
+
+CDN origins (`cdn.jsdelivr.net`, `unpkg.com`) availability is a deployment dependency. If unavailable, the Web UI fails to load. Phase 1 has no fallback bundle.
+
+Operator monitoring:
+
+- Browser-side: CDN errors surface as `/csp-report` violations (when CSP blocks them) or browser console errors (when CDN responds with non-200)
+- Server-side: not visible to the orchestrator; CDN failures happen browser-side
+
+Phase 3 mitigation: server-side bundling (eliminates CDN dependency). Trigger documented in spec 011 Compliance / Privacy + Operations sections.
+
+### 13.5 CSP report log volume
+
+`/csp-report` endpoint logs at WARNING level. Misconfigured CSP can flood logs (e.g., a CDN URL not in `connect-src` triggers a report on every page load).
+
+Operator mitigation:
+
+- Monitor CSP-report ingest rate via the WARNING log stream
+- If sustained > 10/sec for the same blocked-URL: fix the CSP rather than let logs grow
+- Sanity check after deploy: load the UI, watch logs for unexpected CSP violations
+
+Phase 3 trigger: any deployment observing log-volume DoS via CSP reports; implementation: per-origin rate-limit on `/csp-report`.
+
+### 13.6 Browser cache invalidation
+
+- SR-008 `Cache-Control: no-store` on `/` (HTML) and `/api/*` ensures fresh fetch on each load
+- CDN scripts versioned in URL (`react@18.2.0`); cache invalidation = URL change on version bump
+- Service workers / PWA: NOT used in Phase 1; no aggressive cache pinning
+
+---
+
+## 14. Cross-references
 
 - `docs/retention.md` — per-table retention policy; pairs with §2.5
 - `docs/env-vars.md` — canonical env-var catalog; pairs with §1, §5, §10, §11
@@ -437,3 +532,5 @@ Triggers documented in spec 007 Operations section.
 - 007 Operations section — security-pipeline ops contracts (sister to §4, §7, §12)
 - 007 §FR-013 — fail-closed pipeline invariant
 - 007 §FR-017 — pattern-list maintenance contract
+- 011 Operations section — Web UI ops contracts (sister to §13)
+- 011 SR-001, SR-001a, SR-002, SR-006 — CSP, WS frame cap, security headers, CSRF

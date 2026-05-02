@@ -8,6 +8,20 @@
 
 ## Clarifications
 
+### Session 2026-05-02 (audit fix/011-operations — Phase E)
+
+- Q: What's the deploy semantics for Web UI session affinity? → A: Phase 1 single-instance topology — all WS connections terminate at the same orchestrator process. Multi-instance (Phase 3) requires WS session affinity (sticky sessions on the load balancer) OR session-state externalization (Phase 3 SessionStore Redis backend). Today, on redeploy, all WS connections close; clients reconnect within FR-014 backoff window.
+
+- Q: What's the operational risk if `cdn.jsdelivr.net` or `unpkg.com` is unavailable? → A: The UI fails to load — React, ReactDOM, marked, DOMPurify, Babel are all CDN-fetched. No fallback bundle ships in Phase 1. SR-001 SRI integrity attributes prevent tampered responses but do not provide availability. Phase 3 mitigation: server-side bundling. Until then: accepted residual; CDN uptime is a deployment dependency.
+
+- Q: How does browser cache invalidate across deploys? → A: SR-008 `Cache-Control: no-store` on `/` and `/api/*` ensures the SPA HTML + dynamic responses fetch fresh on each load. CDN-fetched scripts (jsdelivr, unpkg) are versioned in URL (`react@18.2.0` etc.); cache invalidation is the URL change. If the deploy bumps the React version, browsers fetch the new URL.
+
+- Q: What reverse-proxy configurations are supported? → A: Phase 1 documented configurations are Caddy, nginx, Cloudflare. Required: WS upgrade headers (`Upgrade`, `Connection`), `X-Forwarded-For` set, `X-Forwarded-Proto: https`. CSP reporting (`/csp-report` POSTs) must be allowed through. Operator's reverse-proxy MUST NOT strip the `X-SACP-Request: 1` CSRF header on mutations. See runbook §13.2.
+
+- Q: Does the Web UI support multi-tenant deployments (multiple operator orgs on one instance)? → A: No. Phase 1 is explicit single-tenant — one `SACP_*` env-var set, one DB, one origin. Multi-tenant is Phase 3+ scope (out of scope per Constitution §3 topologies 1-7 single-deployment).
+
+- Q: What's the CSP-report log volume risk? → A: A misconfigured CSP can flood logs (e.g., a CDN URL not in connect-src triggers a report on every page load). Phase 1 has no rate-limit on `/csp-report`; the endpoint logs at WARNING and returns 204. Operator mitigation: monitor CSP-report ingest rate; if sustained > 10/sec for the same blocked-URL, fix the CSP rather than let logs grow. Phase 3 trigger: any deployment observing log-volume DoS via CSP reports; implementation: per-origin rate-limit on `/csp-report`.
+
 ### Session 2026-05-02 (audit fix/011-compliance — Phase D)
 
 - Q: Does the Web UI's auth cookie require a consent banner? → A: No. The single `sacp_session` HttpOnly cookie qualifies for ePrivacy Art. 5(3) "strictly necessary" exemption (required to deliver the authenticated service the user requested). No marketing, analytics, or fingerprinting cookies in Phase 1. Adding any non-strictly-necessary cookie in Phase 3 requires the operator to add a compliant consent UI.
@@ -395,6 +409,81 @@ Two SRs serve as PII-equivalent confidentiality controls at the UI boundary:
 - 003 Compliance / Privacy section — Art. 28 / Art. 44 cross-border transfer (sister; the WS payload is upstream of the litellm dispatch)
 - 007 Compliance / Privacy section — Art. 33 breach signalling + log-scrubbing
 - 010 Compliance / Privacy section — Art. 15 / Art. 20 boundary (operator-mediated in Phase 1)
+
+## Operations (Phase E fix/011-operations, 2026-05-02)
+
+This section documents 011's operator-facing decisions for Web UI deployment. Operator playbook lives in `docs/operational-runbook.md` §13 (Web UI ops).
+
+### Tunable env vars (operator decision points)
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `SACP_WEB_UI_INSECURE_COOKIES` | LAN/dev escape hatch (omits Secure flag on session cookie) | `0` (secure) |
+| `SACP_WEB_UI_MCP_ORIGIN` | Origin string used in CSP `connect-src` for MCP API calls | (operator-supplied) |
+| `SACP_WEB_UI_WS_ORIGIN` | Origin string used in CSP `connect-src` for WebSocket | (operator-supplied) |
+| `SACP_WEB_UI_ALLOWED_ORIGINS` | CSV of accepted Origin headers on WS upgrade (SR-004) | same-origin |
+| `SACP_WEB_UI_COOKIE_KEY` | Independent cookie-signing key (≥ 32 chars, no placeholder) | (required) |
+| `SACP_WS_MAX_CONNECTIONS_PER_IP` | Per-IP WS connection cap (4429 close on exceed) | 10 |
+
+Cross-ref `docs/env-vars.md` for the canonical catalog.
+
+### Deploy semantics
+
+**Single-instance topology** (Phase 1) — one orchestrator process serves both MCP (port 8750) and Web UI (port 8751); all WS connections terminate at this process. On redeploy, all WS connections close; clients reconnect via FR-014 auto-reconnect with exponential backoff.
+
+**Multi-instance / WS session affinity** — deferred to Phase 3. Implementation surface: load-balancer sticky-session config OR externalize SessionStore to Redis (the in-process `SessionStore` keyed by sid currently). Trigger: any deployment requiring HA Web UI pods.
+
+**Multi-tenant** — explicit single-tenant in Phase 1. One operator org, one DB, one origin. Multi-tenant deferred.
+
+### HTTP vs HTTPS posture
+
+- **Production**: HTTPS required. `SACP_WEB_UI_INSECURE_COOKIES` MUST be unset (or `0`); session cookie includes the `Secure` flag and SameSite=Strict.
+- **LAN / dev**: `SACP_WEB_UI_INSECURE_COOKIES=1` permits HTTP-only deployment for local testing. The cookie loses its `Secure` flag; SameSite=Strict still applies.
+
+The orchestrator does NOT auto-detect the deployment scheme; operator-controlled. Misconfiguration (HTTPS deploy with `INSECURE_COOKIES=1`) silently downgrades cookie security — runbook §13 includes a deploy-time sanity check.
+
+### CDN dependency
+
+Web UI loads React, ReactDOM, marked, DOMPurify (jsdelivr) + Babel Standalone (unpkg) per FR-002 / SR-001. Operational implications:
+
+- **Availability**: CDN downtime → UI fails to load. No Phase 1 fallback bundle. Accepted residual; CDN uptime is a deployment dependency.
+- **Tampering**: SR-001 SRI integrity attributes on every cross-origin `<script>` (T204) protect against tampered CDN responses.
+- **Privacy**: see Compliance / Privacy section "Third-party CDN risk" — Art. 44 transfer for EU deployments.
+- **Phase 3 mitigation**: server-side bundling (eliminates CDN dependency); trigger documented in Compliance / Privacy section.
+
+### CSP wiring
+
+`SACP_WEB_UI_MCP_ORIGIN` + `SACP_WEB_UI_WS_ORIGIN` MUST be set to the operator's deployment origins. The orchestrator constructs CSP `connect-src` from these vars per SR-001. Misconfiguration symptoms:
+
+- WS connection fails immediately with browser-side CSP violation
+- `/csp-report` receives a violation report identifying the blocked origin
+
+CSP-report log retention: see Compliance / Privacy section "CSP report-uri PII handling".
+
+### Reverse-proxy configurations
+
+Phase 1 documented configurations: **Caddy**, **nginx**, **Cloudflare**. Required behavior:
+
+- WS upgrade headers (`Upgrade`, `Connection`) preserved
+- `X-Forwarded-For` set (for 002 §FR-023 IP-binding when `SACP_TRUST_PROXY=1`)
+- `X-Forwarded-Proto: https` set so the orchestrator emits HTTPS-only redirects
+- CSP reporting (`/csp-report` POSTs) allowed through
+- `X-SACP-Request: 1` CSRF header NOT stripped on mutations (SR-006)
+- WS frame size cap of 256 KB (SR-001a) preserved or set higher
+
+Sample configurations in runbook §13.2.
+
+### Cross-references
+
+- `docs/operational-runbook.md` §13 — Web UI operations (deploy, reverse-proxy, CDN, CSP)
+- `docs/env-vars.md` — canonical catalog of `SACP_WEB_UI_*` vars
+- 002 §FR-022 — bearer auth contract (cross-spec; reverse-proxy MUST preserve `Authorization` header on `/api/mcp/*` proxy)
+- 002 §FR-023 — TRUST_PROXY semantics for IP binding
+- 011 §FR-002 — CDN-loaded SPA constraint
+- 011 §FR-014 — WebSocket auto-reconnect
+- 011 SR-001, SR-001a, SR-002 — CSP, WS frame cap, security headers
+- 011 SR-004 — WS Origin validation
+- 011 SR-006 — CSRF custom header
 
 ## Audit closeout (2026-04-29)
 
