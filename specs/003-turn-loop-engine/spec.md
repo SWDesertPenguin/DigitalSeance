@@ -18,6 +18,20 @@
 - Q: How do we avoid `turn_number` collisions between the concurrent inject write and the AI-turn persist? → A: A transaction-scoped PostgreSQL advisory lock on `hashtext(branch_id)` serializes `SELECT MAX(turn_number) + 1` + `INSERT` within `MessageRepository.append_message`.
 - Q: On small/CPU-hosted models, prompt-eval latency grew every turn because history kept accumulating. What's the bound? → A: `_fill_history` now reads `SACP_CONTEXT_MAX_TURNS` (default 20, clamped to at least `MVC_FLOOR_TURNS=3`) and passes it as the limit to `MessageRepository.get_recent`. Token budget still applies; this is a secondary cap that protects latency when the token window is too generous for the actual model hardware.
 
+### Session 2026-05-02 (audit fix/003-ops-reliability — Phase E)
+
+- Q: What's the operator-override surface for a stuck loop? → A: Phase 1: pause via facilitator API or DB UPDATE on the session row. No dedicated kill-switch CLI in Phase 1. Process-level restart abandons in-flight turns across ALL sessions (RPO=0 for committed turns). Phase 3 trigger: any deployment where individual sessions can wedge without affecting others — implementation: a `/tools/admin/kill_loop?session_id=...` endpoint that cancels the session's loop task without process-restart.
+
+- Q: How does the orchestrator behave on SIGTERM? → A: In-flight turns are abandoned (uvicorn graceful shutdown cancels the loop task; transactional rollback ensures no partial state). On startup, no per-turn resumption — the next dispatch uses persisted state as the source of truth. RTO ~5–10 seconds; see `docs/operational-runbook.md` §10.4.
+
+- Q: What's the threshold for advisory-lock contention alerting? → A: FR-032 captures `routing_log.advisory_lock_wait_ms` per acquisition. Operator alert threshold: rolling-window mean > 100 ms over 5 minutes indicates cross-session lock pressure (single-instance Phase 1 deployments shouldn't normally exhibit this). Implementation: operator-side query / alerting infrastructure; SACP supplies the raw column.
+
+- Q: What's the alert escalation for FR-031 compound-retry events? → A: `compound_retry_warn` (turn elapsed > 2× per-attempt timeout, default 360 s) is informational — operator monitors trend. `compound_retry_exhausted` (turn skipped at hard cap, default 600 s) is actionable — investigate the participant's provider health. See runbook §6.4.
+
+- Q: Does the budget-enforcement window handle 23:59:59 turn boundaries correctly? → A: Yes. FR-028 uses `NOW() - INTERVAL '1 hour'` / `NOW() - INTERVAL '1 day'` as a rolling trailing window, NOT calendar-aligned. A turn fired at 23:59:59 charges against the rolling 24-hour window, not the calendar day; midnight has no semantic effect.
+
+- Q: What is interrupt-queue saturation behavior under 1000+ pending interrupts? → A: Phase 1 has no enforced cap — a session with 1000 pending interrupts scans all of them per turn, growing per-turn latency O(n). Phase 3 trigger: any deployment observing pathological interrupt accumulation; implementation: enforce `MAX_PENDING_INTERRUPTS_PER_SESSION` cap, oldest dropped with `routing_log.reason='interrupt_queue_saturated'`.
+
 ### Session 2026-05-02 (audit fix/003-compliance — Phase D)
 
 - Q: Which 003 record is the Art. 28(3)(h) processor-disclosure trail? → A: `routing_log` (FR-011). Every turn records which provider received which content; combined with FR-007 (key decrypt at dispatch only) and 001 §FR-008 (append-only repository invariant), this is the canonical sub-processor audit trail. Operators are responsible for documenting Art. 28 DPA / SCC contracts with each enabled AI provider (Anthropic, OpenAI, Google, Groq, Ollama).
@@ -374,6 +388,135 @@ Both env vars are documented in `docs/env-vars.md` as reserved. The Phase 3 trig
 - 001 §FR-008 — append-only repository invariant (Art. 28(3)(h) audit-trail integrity)
 - 001 §FR-019 — admin_audit_log retention pattern (Art. 17(3)(b) carve-out)
 - 002 Compliance / Privacy section — auth-surface privacy posture (sister)
+
+## Operations (Phase E fix/003-ops-reliability, 2026-05-02)
+
+This section documents 003's operator-facing decisions for turn-loop operation. Operator playbook lives in `docs/operational-runbook.md`; this section covers the architectural contracts and Phase 3 deferrals.
+
+### Tunable env vars (operator decision points)
+
+The 003-relevant operator-tunable env vars:
+
+| Variable | Purpose | Default | FR |
+|---|---|---|---|
+| `SACP_TURN_TIMEOUT_DEFAULT` | Per-turn dispatch timeout | 180 s | FR-019 |
+| `SACP_CONTEXT_MAX_TURNS` | History truncation limit | 20 | FR-005 |
+| `SACP_BREAKER_THRESHOLD` | Consecutive failures before circuit-breaker trips | 3 | FR-015 |
+| `SACP_COMPOUND_RETRY_WARN_FACTOR` | Multiple of turn timeout that triggers warn (proposed reserved) | 2× | FR-031 |
+| `SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS` | Hard cap on cumulative retry elapsed | 600 s | FR-031 |
+| `SACP_ADVISORY_LOCK_WAIT_ALERT_MS` | Operator-observed alert threshold (advisory; not enforced) | 100 ms | FR-032 |
+
+Cross-ref `docs/env-vars.md` for the canonical catalog.
+
+### Loop lifecycle (FR-021, FR-027)
+
+**SIGTERM behavior** — uvicorn's graceful-shutdown signal cancels the loop coroutine. In-flight turns are abandoned (transactional rollback; no partial state). RPO=0 for committed turns; see runbook §10.4.
+
+**Startup recovery** — no per-turn resumption. The next dispatch uses persisted state (`messages`, `routing_log`, `usage_log`) as the source of truth; an interrupted turn's coroutine state is gone. Sessions with `status='active'` resume their loop on the next eligible participant.
+
+**Single-loop-per-session enforcement (FR-027)** — Phase 1 enforces this implicitly via single-deployment topology (one orchestrator container per database). The advisory lock (FR-022) provides defense-in-depth — a hypothetical second writer would race on the lock but also produce duplicate dispatches. Phase 3 multi-instance trigger: any deployment requiring HA orchestrator pods. Implementation surface: explicit single-loop coordination via a session lease (lease-on-claim, heartbeat-on-tick, expire-on-stale).
+
+### Operator override (kill switch)
+
+Phase 1 operator overrides for a stuck loop:
+
+1. Pause the session via facilitator API or `UPDATE sessions SET status='paused' WHERE id=...`
+2. Process-level: restart the orchestrator (RTO ~5–10 s; abandons in-flight turns across ALL sessions)
+
+Phase 3 trigger: any deployment where individual sessions can wedge without affecting others. Implementation surface: a `/tools/admin/kill_loop?session_id=...` admin endpoint that cancels the session's loop task without process-restart.
+
+### Cadence-preset runtime switching
+
+Cadence preset (`SACP_CADENCE_PRESET`) is read at orchestrator startup; per-session override via the cadence config UI takes effect on the next turn (snapshot semantics per FR-025). Switching from `sprint` to `cruise` mid-session is supported; the orchestrator does not enforce who can change cadence — the facilitator role gate applies at the API layer (002 §FR-010).
+
+### Deploy-time env-var validation
+
+Per 012 US2 V16 contract (`scripts/check_env_vars.py`), all `SACP_*` env vars validate at startup. 003-relevant range checks:
+
+- `SACP_TURN_TIMEOUT_DEFAULT` MUST be > 0
+- `SACP_CONTEXT_MAX_TURNS` MUST be ≥ `MVC_FLOOR_TURNS` (currently 3) per FR-029
+- `SACP_BREAKER_THRESHOLD` MUST be ≥ 1
+- `SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS` MUST be ≥ `SACP_TURN_TIMEOUT_DEFAULT`
+
+The validator prevents deploys with nonsensical values (e.g., timeout 0 = instant skip on every turn).
+
+## Reliability (Phase E fix/003-ops-reliability, 2026-05-02)
+
+This section documents 003's failure-mode behavior. Operator-facing recovery procedures live in `docs/operational-runbook.md`; this section covers the contracts.
+
+### Provider partial-outage behavior
+
+Per FR-021, single-provider failure does NOT halt the session:
+
+1. Provider returns 5xx / connection error → asyncio.TimeoutError or LiteLLM exception
+2. Turn coroutine catches per FR-021, logs `routing_log.reason='dispatch_error'`, advances to next participant
+3. Failed participant's circuit breaker (FR-015) increments; auto-pause after `SACP_BREAKER_THRESHOLD` consecutive failures (default 3)
+4. Other participants on other providers continue normally — loop never halts
+
+Operator playbook: runbook §6.1.
+
+### Multi-provider failover
+
+Phase 1 does NOT support automatic provider failover for a single participant. Each participant has ONE configured provider; if that provider fails, the participant's circuit breaker trips. Manual recovery: operator updates `participants.provider` + `participants.api_key_encrypted` to a new provider, then resets the breaker.
+
+Phase 3 trigger: any deployment with documented per-participant resilience requirements. Implementation surface: per-participant `provider_chain` field (ordered list); on circuit-breaker trip, advance to next provider in chain; track which provider in chain is active in `routing_log`.
+
+### Retry-storm prevention
+
+Bounded retries per FR-016 (≤3 quality retries) × FR-019 (per-attempt timeout) × FR-020 (rate-limit retries respecting Retry-After). FR-031 caps total elapsed at `SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS` (default 600 s). Cross-session retry-storm coordination is NOT supported — each session retries independently.
+
+Phase 3 trigger: any deployment observing rate-limit cascades when ≥10 sessions hit the same upstream provider simultaneously. Implementation surface: a global rate-limit observer that reads `routing_log` aggregate `dispatch_ms` growth and feeds a back-pressure signal into per-session retry decisions.
+
+### Session-state corruption recovery
+
+Mid-persist failure (DB connection drops between message INSERT and routing_log INSERT):
+
+- The surrounding `async with conn.transaction()` rolls back both writes; no partial state
+- Next turn re-evaluates from persisted state; the failed dispatch produces NO row (treated as if the turn never fired from the data-model view)
+- Operator-side observation: a small gap in `routing_log` turn numbers per session (the failed turn skipped without writing)
+
+Phase 3 trigger: any deployment where gap detection in `routing_log` is required for compliance auditing. Implementation surface: a sentinel-row pattern (write `routing_log` first with `reason='dispatch_started'`, update on success or failure) that closes the gap-detection blind spot.
+
+### Graceful degradation
+
+**Under DB latency spike** (persist takes 30 s instead of 100 ms):
+
+- Per-turn timeout (FR-019, default 180 s) provides headroom; persist completes within budget
+- `routing_log.persist_ms` percentiles spike — operator-observable signal
+- If persist exceeds turn timeout, dispatch context cancellation aborts; treated as `dispatch_error`
+
+**Under provider latency spike**:
+
+- Per-turn timeout (FR-019) caps per-attempt latency
+- Quality retry × rate-limit retry × per-attempt timeout = compound elapsed; FR-031 caps total at 600 s default
+- Circuit breaker trips after sustained failures per FR-015
+
+### RTO / RPO
+
+- **RPO**: zero for committed turns. In-flight turns abandoned on crash; no partial state.
+- **RTO**: orchestrator restart-to-first-turn ~5–10 seconds (boot sequence in runbook §1.4). DB failover RTO is operator's HA stack responsibility; SACP's pool reconnects on next request after primary accepts connections.
+
+### Session quarantine
+
+Phase 1 does NOT support per-session quarantine. A session repeatedly hitting `pipeline_error` (007 §FR-013) cannot be isolated without halting the whole orchestrator. Operator workaround: pause the session manually.
+
+Phase 3 trigger: any deployment where one bad session can degrade other sessions' latency. Implementation surface: per-session resource caps + session-level fault-isolation (separate task pool per session).
+
+### Chaos-testing surface
+
+Phase 1 has no fault-injection harness for asyncpg connection drops, advisory-lock unavailability, or FK violations. Phase 3 trigger: when reliability claims (RTO / RPO / FR-021 invariants) require automated verification. Implementation surface: a separate chaos-test harness (`tests/chaos/`) using LiteLLM's mock-provider hooks + asyncpg connection-mock injection. Cross-cutting with 005 + 006 reliability.
+
+### Cross-references
+
+- `docs/operational-runbook.md` §6 (provider degradation), §11 (turn-loop ops)
+- 003 §FR-015 — circuit breaker
+- 003 §FR-019 — per-attempt timeout
+- 003 §FR-021 — loop never halts (canonical reliability invariant)
+- 003 §FR-022, §FR-027 — advisory lock + single-loop-per-session
+- 003 §FR-031, §FR-032 — compound-retry cap + advisory-lock instrumentation
+- 001 Operations section — DB-level ops (sister)
+- 005 Reliability section — fallback-cascade exhaustion (sister; once landed)
+- 006 Reliability section — connection drop, partial DB outage (sister; once landed)
 
 ## Audit closeout (2026-04-29)
 

@@ -191,6 +191,9 @@ Selected operator decision points (the full catalog ships separately):
 | `SACP_RATE_LIMIT_PER_MIN` | Trusted internal deployment; raise to operator-monitored ceiling | Rate-limit 429s appearing on legitimate traffic |
 | `SACP_REVIEW_GATE_TIMEOUT_DEFAULT` | Facilitators can't keep up; raise to give them more time | Stale held drafts piling up |
 | `SACP_TURN_TIMEOUT_DEFAULT` | Slow / heavy-context providers timing out | Quick / cheap providers blocking the queue |
+| `SACP_BREAKER_THRESHOLD` | Tolerant of transient flakes; raise from 3 toward 5–7 | Aggressive auto-pause on flaky providers; lower toward 2 |
+| `SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS` | Sessions tolerating long-running degraded turns | Aggressive cap; protects against cascading hangs |
+| `SACP_ADVISORY_LOCK_WAIT_ALERT_MS` | Loud single-instance deployments raising the alert noise floor | Strict alert on cross-session lock pressure |
 
 ---
 
@@ -207,6 +210,31 @@ When a single provider (e.g., `anthropic`) is unreachable:
 ### 6.2 Retry-storm prevention
 
 The orchestrator uses bounded per-call retries; the breaker provides the second-line protection. There is no global retry-storm-detector — operator must watch `routing_log.dispatch_ms` percentiles for sudden growth.
+
+### 6.3 Multi-provider failover (Phase 3)
+
+Phase 1 does NOT support automatic provider failover for a single participant. Each participant has ONE configured provider; if that provider fails, the participant's circuit breaker trips. Manual recovery: operator updates `participants.provider` + `participants.api_key_encrypted` to a new provider, then resets the breaker. Phase 3 trigger documented in spec 003 Reliability section.
+
+### 6.4 Compound-retry alert escalation (003 §FR-031)
+
+Two operator-monitorable signals from compound-retry instrumentation:
+
+| Signal | `routing_log.reason` | Severity | Action |
+|---|---|---|---|
+| compound_retry_warn | `compound_retry_warn` (turn elapsed > 2× per-attempt timeout, default 360 s) | Informational | Monitor trend; investigate if rate climbs |
+| compound_retry_exhausted | `compound_retry_exhausted` (turn skipped at hard cap, default 600 s) | Actionable | Investigate participant's provider health; consider raising `SACP_BREAKER_THRESHOLD` if transient |
+
+Recommended alert: `compound_retry_exhausted` rate > 1 per session per hour over a rolling 24-hour window.
+
+### 6.5 Advisory-lock contention alert (003 §FR-032)
+
+`routing_log.advisory_lock_wait_ms` captures lock-acquisition latency per turn. Single-instance Phase 1 deployments should normally see sub-10 ms values.
+
+Operator alert: rolling-window mean > `SACP_ADVISORY_LOCK_WAIT_ALERT_MS` (default 100 ms) over 5 minutes indicates cross-session lock pressure. Common causes:
+
+1. Long-running transactions on the same `branch_id` (cross-ref 003 §FR-022 lock scope)
+2. Multi-instance deployment without single-loop-per-session coordination (Phase 1 single-instance assumption violated)
+3. DB primary failover mid-acquisition (lock state lost; next attempt re-acquires)
 
 ---
 
@@ -283,10 +311,50 @@ DB HA stack (Patroni / Crunchy / managed cloud service): SACP does not orchestra
 
 ---
 
-## 11. Cross-references
+## 11. Turn-loop operations
+
+### 11.1 Loop lifecycle (003 §FR-021, §FR-027)
+
+- **SIGTERM** → uvicorn graceful-shutdown cancels the loop coroutine; in-flight turns abandoned (transactional rollback, no partial state)
+- **Startup** → no per-turn resumption; persisted state is the source of truth; sessions with `status='active'` resume on next eligible participant
+- **Single-loop-per-session (FR-027)** → enforced implicitly via single-deployment topology; multi-instance deployments must wait for Phase 3 session-lease coordination
+
+RTO ~5–10 s for orchestrator restart-to-first-turn (boot sequence in §1.4).
+
+### 11.2 Operator override for stuck loops
+
+Phase 1:
+
+1. Pause via facilitator API or `UPDATE sessions SET status='paused' WHERE id=...`
+2. Process restart (RTO ~5–10 s; abandons in-flight turns across ALL sessions)
+
+Phase 3 trigger: any deployment where individual sessions can wedge without affecting others. Implementation: `/tools/admin/kill_loop?session_id=...` admin endpoint.
+
+### 11.3 Interrupt-queue saturation
+
+Phase 1 has no enforced cap on `interrupt_queue` per session; pathological accumulation (1000+ pending) grows per-turn latency O(n).
+
+Operator-side observability: `SELECT session_id, COUNT(*) FROM interrupt_queue WHERE delivered_at IS NULL GROUP BY session_id HAVING COUNT(*) > 100;` flags sessions worth investigating.
+
+Phase 3 trigger: any deployment observing pathological accumulation; implementation: `MAX_PENDING_INTERRUPTS_PER_SESSION` cap + oldest-dropped behavior.
+
+### 11.4 Budget-window edges (003 §FR-028)
+
+Budget enforcement uses rolling trailing windows (`NOW() - INTERVAL '1 hour'` / `NOW() - INTERVAL '1 day'`), NOT calendar-aligned. Midnight has no semantic effect on budget rollover. A turn at 23:59:59 charges against the rolling 24-hour window starting at 23:59:59 yesterday.
+
+Operator implication: budget-utilization dashboards SHOULD use the same rolling window, not calendar-day SUM, to match enforcement semantics.
+
+### 11.5 Cadence-preset runtime switching
+
+Cadence preset (`SACP_CADENCE_PRESET`) read at startup; per-session override via cadence config UI takes effect on next turn (snapshot semantics per 003 §FR-025). Switching from `sprint` to `cruise` mid-session is supported. Facilitator role gate applies at the API layer (002 §FR-010).
+
+---
+
+## 12. Cross-references
 
 - `docs/retention.md` — per-table retention policy; pairs with §2.5
 - `docs/env-vars.md` — canonical env-var catalog; pairs with §1, §5, §10
 - `docs/compliance-mapping.md` — GDPR / NIST mapping; pairs with §4 incident response
 - 001 Operations section — architectural deferrals + Phase 3 triggers (sister)
+- 003 Operations + Reliability sections — turn-loop ops contracts (sister to §11, §6)
 - 003 §FR-022, §FR-027 — advisory lock + single-writer contract
