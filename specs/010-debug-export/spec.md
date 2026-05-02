@@ -7,6 +7,16 @@
 
 ## Clarifications
 
+### Session 2026-05-02 (audit fix/010-compliance — Phase D)
+
+- Q: Is the export response considered PII? → A: Yes, despite being JSON-only. The dump contains every message body, participant display names, routing decisions, cost data, security events. Exporters MUST treat the response file as PII for storage / transmission / retention purposes. SACP does not enforce post-export handling — operator-controlled.
+
+- Q: Can participants self-export their own data via `/tools/debug/export`? → A: No. FR-2 facilitator-only access maps to GDPR controller-only access for the export surface. Participants cannot self-fetch via this endpoint; the endpoint authorizes against the facilitator role, not the requesting participant's data scope. Art. 15 / Art. 20 self-service is deferred to Phase 3.
+
+- Q: How does Phase 1 fulfil Art. 15 SAR / Art. 20 portability today? → A: Operator-mediated. The facilitator (acting as the controller's agent) calls `/tools/debug/export` and manually filters to the requesting participant's content. The boundary between operator debug-export and a future subject-facing Art. 20 endpoint is documented in the Compliance / Privacy section below.
+
+- Q: Is FR-8 audit-log frequency-monitored for exfiltration? → A: No. FR-8 records every export call but doesn't surface the rate. Operators SHOULD configure alerting on `admin_audit_log.action='debug_export'` rate per facilitator. Phase 1 supplies the raw record; rate alerting is operator-controlled.
+
 ### Session 2026-04-15
 
 - Q: Who can call the export endpoint? → A: Facilitator only. Participants get HTTP 403. Enforced by role check against `get_current_participant.role == "facilitator"` and session-id match against the token's session.
@@ -63,6 +73,97 @@ When something goes wrong in a live session — ordering, empty responses, cost 
 | FR-8 (export-as-action audit) | Untraceable exfiltration via export | API10 / V8.3 | AU-2, AU-3, AU-12 |
 
 Sister cross-references: facilitator role check + session binding mirror 002 §FR-010 + §FR-022; embedding strip is the enforcement point for 004 §FR-016; sanitization of message content (so an exported transcript is already free of credential leaks at the source) is 007 §FR-001 / §FR-008.
+
+### GDPR article mapping (Phase D fix/010-compliance, 2026-05-02)
+
+Authoritative project-wide GDPR mapping is in `docs/compliance-mapping.md`. The 010-specific FR-to-article mappings are:
+
+| FR / asset | GDPR article | Mapping |
+|----|----|----|
+| FR-2 (facilitator-only access) | Art. 30, Art. 32(1)(b) | Controller-only access; integrity of processing |
+| FR-4, FR-9, SC-008 (sensitive-field + embedding strip) | Art. 5(1)(c), Art. 32(1)(a) | Data minimization + pseudonymisation |
+| FR-7, SC-006 (config allowlist + secret-name pattern) | Art. 32(1)(b) | Confidentiality of operator secrets |
+| FR-8 (export audit log) | Art. 30, Art. 33 | Records of processing + breach-signal source |
+| Operator-mediated Art. 15 fulfilment | Art. 15 | Subject access (manual filtering in Phase 1) |
+| Phase 3 self-service trigger | Art. 20 | Portability (deferred) |
+| Export response classification | Art. 4(1), Art. 32 | PII classification of operator dump |
+
+## Compliance / Privacy (Phase D fix/010-compliance, 2026-05-02)
+
+This section documents 010's privacy posture around export-as-PII, controller-only access, and Art. 15 / Art. 20 fulfilment. Authoritative project-wide compliance mapping is in `docs/compliance-mapping.md`.
+
+### Export PII classification (Art. 4(1), Art. 32)
+
+The export response is PII despite being JSON-only. The response includes:
+
+- Every message body persisted in the session (Art. 5(1)(c) minimization is at WS broadcast / 011 §SR-011, not at export — operator export sees the raw transcript)
+- Participant display names + role + status
+- Routing decisions per turn (`provider`, `model`, `complexity`, `domain_match`, `reason`)
+- Cost / token counts per turn (`usage_log`)
+- Security events (per-layer findings, risk scores, blocked flags)
+- Convergence / cadence metadata (without embeddings — SC-008)
+- Config snapshot (env-var allowlist; no secrets per FR-7)
+
+Exporters MUST treat the response file as PII for storage, transmission, and retention purposes — disk encryption at rest, secure transport (TLS), retention purge per controller policy. SACP does not enforce post-export handling; that is operator-controlled.
+
+### Access control as controller-only (Art. 30, Art. 32(1)(b))
+
+FR-2 facilitator-only access maps to GDPR **controller-only** access for the export surface. Participants cannot self-export their own data via this endpoint — the endpoint authorizes against the facilitator role, not the requesting participant's data scope. Participant self-service for Art. 15 / Art. 20 is the operator's responsibility (deferred to Phase 3 — see below).
+
+### Subject rights (Art. 15 / Art. 20)
+
+**Art. 15 SAR** — Phase 1 fulfilment is operator-mediated. The facilitator (acting as the controller's agent) calls `/tools/debug/export` and filters the response to a single participant's messages, drafts, proposals, votes. This satisfies the data-subject's right of access, but requires manual filtering — the endpoint dumps the entire session, not a per-participant view. Phase 3 trigger: any deployment serving EU data subjects where SAR volume justifies a self-service endpoint.
+
+**Art. 20 portability** — out of scope for Phase 1 in self-service form. Distinct from the operator debug-export — Art. 20 ships authored content (messages, votes, drafts) to the participant in a "structured, commonly-used, machine-readable" format. Phase 1 fulfilment is the same operator-mediated workflow as Art. 15 (facilitator filters the export), with the operator responsible for delivering the filtered subset to the data subject in JSON. Phase 3 trigger: same as Art. 15.
+
+**Art. 12(3) response window** — 30 days default, extendable to 90 days for complex / multi-system requests. Tracking the request clock is the operator's responsibility (002 Compliance / Privacy section is the authoritative cross-spec note on this).
+
+### Boundary: debug-export vs. Art. 20-export
+
+| Surface | Audience | Access control | Scope | Format |
+|----|----|----|----|----|
+| `/tools/debug/export` | Operator (controller) | FR-2 facilitator-only | Full session state (transcript, logs, config, security events, routing) | JSON |
+| Future Art. 20 endpoint | Data subject | Self-service via subject-bound auth | Participant-authored content only (their messages, votes, drafts) | JSON or CSV — subject's choice per Art. 20(1) |
+
+Phase 1 has no self-service Art. 20 endpoint. Operators fulfil Art. 20 manually by running debug-export and filtering. The boundary is documented so the future endpoint's scope is clear: it is NOT a participant-facing wrapper around debug-export — Art. 20 ships authored content only, not the operator-internal observability surface.
+
+### Data minimization on export (Art. 5(1)(c))
+
+FR-4 + FR-9 + SC-003 + SC-008 enforce data minimization at the field level:
+
+- `_SENSITIVE_FIELDS` strip: `api_key_encrypted`, `auth_token_hash`, `auth_token_lookup`, `bound_ip`
+- Convergence-log embedding bytes stripped (SC-008, cross-ref 004 §FR-016)
+- Config snapshot allowlist + `_SECRET_NAME_PATTERN` filter (FR-7 + SC-006)
+
+What IS included (for DPIA scope clarity):
+
+- Session metadata (id, status, branch_id, facilitator_id, created_at, ended_at)
+- Participant: id, display_name, role, status, model, model_tier, model_family, provider, joined_at, approved_at, departed_at, system_prompt, routing_preference, addressable_names, budget caps, current cost
+- Messages: id, branch_id, turn_number, speaker_id, content, complexity, cost_usd, timestamp, metadata flags
+- Logs: routing_log (full row + per-stage timings), usage_log, convergence_log (without embeddings), admin_audit_log, security_events
+- Config snapshot: allowlisted SACP_* env vars only
+
+This is the DPIA-relevant content scope. The operator's DPIA MUST cover this surface.
+
+### Encryption-at-rest boundary (cross-ref 001 §FR-020)
+
+Per 001 §FR-020, encryption-at-rest is column-level Fernet on `participants.api_key_encrypted` only. Other fields — `display_name`, `system_prompt`, message content — are stored unencrypted at the column level and rely on database-level access control + log scrubbing for confidentiality. The export endpoint is the "decrypted-at-rest" surface for `api_key_encrypted` (the field is stripped via FR-4), but for everything else the export emits the same plaintext that's already in the database. Operators MUST treat the export response with at least the same access controls as the database itself.
+
+### Export frequency monitoring
+
+FR-8 captures every export call in `admin_audit_log` (`action='debug_export'`). The audit log records the call but does NOT surface the rate. High-frequency exports may indicate exfiltration; operators SHOULD configure alerting on `admin_audit_log.action='debug_export'` rate per facilitator (e.g., >10 calls/hour for a single facilitator on a single session is anomalous). Phase 1 supplies the raw record; alerting is operator-controlled. Phase 3 trigger: any production deployment with operator-side anomaly-detection requirements.
+
+### Cross-references
+
+- `docs/compliance-mapping.md` — Art. 15 / Art. 20 / Art. 30 rows authoritative
+- 001 §FR-019 — admin_audit_log retention (Art. 17(3)(b) carve-out)
+- 001 §FR-020 — encryption-at-rest scope (Phase 1 covers `api_key_encrypted` only)
+- 002 §FR-016 — credential overwrite on participant departure
+- 002 Compliance / Privacy section — auth-surface privacy posture (Art. 12(3) response window noted there)
+- 003 Compliance / Privacy section — Art. 28 processor disclosure (sister)
+- 004 §FR-016 — embedding bytes stripped at export
+- 007 §FR-012 — log scrubbing for credential patterns
+- 007 Compliance / Privacy section — Art. 33 breach signalling
 
 ## Audit closeout (2026-04-29)
 
