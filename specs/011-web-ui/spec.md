@@ -8,7 +8,9 @@
 
 ## Clarifications
 
-### Session 2026-05-01
+### Session 2026-05-01 (audit fix/011-testability — Phase B)
+
+- **JS test framework decision**: Playwright (via `pytest-playwright`, already in `[e2e]` extras) is the adopted framework for browser-requiring tests. The frontend is a CDN-loaded React SPA with no build system (`type="text/babel"`, script tags, no package.json), so Jest and Vitest have no module entry point to target. Playwright drives a real browser against the running server, covering the shipping artifact as-is. Server-testable items (SR-010, SR-011, per-directive CSP) land in `tests/test_011_testability.py` (Phase B). Browser-only items (SR-001a frame cap, SR-009 forbidden link schemes, SR-012 malformed-frame full flow, FR-014 auto-reconnect backoff, US-by-US e2e, CDN-failure graceful-degradation) are deferred to Phase F with Playwright. FR-to-test traceability for all 011 FR/SR markers added to `docs/traceability/fr-to-test.md`.
 
 - **Per-IP WS cap (audit H-03)**: The 4429 `CLOSE_TOO_MANY` close code documented in `contracts/websocket-events.md` is now enforced server-side via `SACP_WS_MAX_CONNECTIONS_PER_IP` (default 10). The `WebSocketManager` reserves a slot atomically before `accept()` so a hostile peer cannot win a half-handshake race; the slot is released on `unregister`. Pre-fix the constant was defined but never wired, so a single host could open unbounded WS upgrades and exhaust the manager.
 
