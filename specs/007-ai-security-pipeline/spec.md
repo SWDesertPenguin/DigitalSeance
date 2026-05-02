@@ -7,6 +7,14 @@
 
 ## Clarifications
 
+### Session 2026-05-02 (audit fix/007-compliance — Phase D)
+
+- Q: Does FR-008 PII detection cover names, SSNs, medical codes, financial identifiers? → A: No. Phase 1 PII detection is credential-only (API-key prefixes for OpenAI / Anthropic / Gemini / Groq, JWTs, Fernet tokens). NER, government identifiers, medical / financial codes are documented compliance gaps. Phase 3 trigger: any deployment for regulated-data use cases (healthcare under HIPAA, finance under GLBA/PCI-DSS, EU public-sector data under sectoral rules). See Compliance / Privacy section.
+
+- Q: Does the system fulfil GDPR Art. 33 breach notification on its own? → A: No. SACP emits the raw signal via `security_events` (FR-015) + facilitator notification (FR-016). Connecting that signal to operator alerting infrastructure (Grafana / Sentry / syslog) and assessing Art. 33 obligation are operator responsibilities. The `security_events` schema is sufficient for the 72-hour timing record.
+
+- Q: What are the breach indicators an operator should monitor? → A: Canary leakage (FR-010), credential leakage in AI response (FR-008), system-prompt fragment leakage (FR-011), sustained jailbreak escalation (FR-009). See the breach-indicators table in the Compliance / Privacy section.
+
 ### Session 2026-04-14
 
 - Q: Same-speaker exception for datamarking? → A: Exempt same-speaker AI messages from datamarking (no trust boundary to enforce when reading own output); matches PR #47 shipped code
@@ -214,6 +222,82 @@ Each functional requirement traces to a section of `docs/AI_attack_surface_analy
 | FR-017 (pattern-list maintenance) | Pattern-list staleness as new attacks emerge | §1, §2 | LLM01 | SP 800-53 RA-3, RA-5 |
 | FR-018 (incident response scope) | Premature automation of facilitator decisions | §11 | LLM05 | SP 800-53 IR-4, IR-6 |
 | FR-019 (FPR targets per layer) | Operator alert fatigue | §11 | LLM05 | SP 800-53 SI-4(11) |
+
+### GDPR article mapping (Phase D fix/007-compliance, 2026-05-02)
+
+Authoritative project-wide GDPR mapping is in `docs/compliance-mapping.md`. The 007-specific FR-to-article mappings are:
+
+| FR / asset | GDPR article | Mapping |
+|----|----|----|
+| FR-001, FR-006, FR-007 (sanitization + image/URL strip) | Art. 32(1)(b) | Confidentiality (defense against injection-based exfiltration) |
+| FR-008, FR-012 (credential redaction in responses + logs) | Art. 32(1)(a), Art. 32(1)(b) | Pseudonymisation + ongoing confidentiality |
+| FR-010, FR-011 (canary + system-prompt fragment) | Art. 32(1)(b) | Detection of unauthorized disclosure |
+| FR-013 (fail-closed) | Art. 32(1)(b), Art. 32(1)(c) | Integrity + availability resilience |
+| FR-015 (security_events persistence) | Art. 33 | Breach-notification timing record |
+| FR-016 (facilitator notification) | Art. 33 | Breach-signal surface |
+| FR-017 (pattern-list maintenance) | Art. 32(1)(d) | Process for testing / assessing effectiveness |
+| FR-018 (no auto-block, operator decision) | Art. 14 (sister), Art. 22 | Human-in-the-loop oversight |
+
+PII-detection coverage gap: see "Compliance / Privacy" section, "PII detection coverage" — Phase 1 limit + Phase 3 trigger.
+
+## Compliance / Privacy (Phase D fix/007-compliance, 2026-05-02)
+
+This section documents 007's privacy posture around PII detection, breach signalling, and incident records. Authoritative project-wide compliance mapping is in `docs/compliance-mapping.md`.
+
+### PII detection coverage (Art. 32)
+
+Phase 1 PII detection is **credential-only** (FR-008): API-key prefixes for OpenAI, Anthropic, Gemini, Groq, JWTs, Fernet tokens. The pipeline does NOT detect:
+
+- Names (other than direct `display_name` echoes; no NER)
+- Government identifiers (SSNs, EU national IDs, passport numbers)
+- Medical codes (ICD, CPT, NDC)
+- Financial identifiers (card numbers, IBANs, routing numbers)
+- Free-form addresses
+
+This is a documented compliance gap for use cases involving regulated personal data. GDPR Art. 32(1) expects "appropriate technical measures" to protect personal data; Phase 1's are partial — sufficient for credential-style secrets but not for PII at large.
+
+**Phase 3 trigger**: any deployment for use cases involving regulated personal data (healthcare under HIPAA, finance under GLBA/PCI-DSS, EU public-sector data under sectoral rules) MUST broaden PII detection before opening the deployment. Implementation surface: extend `src/security/exfiltration.py` and `src/security/output_validator.py` with the appropriate PII pattern catalogues; add corresponding entries to FR-008 / SC-004 coverage. The pattern-list update workflow (FR-017 + `docs/pattern-list-update-workflow.md`) is the channel for these additions.
+
+### Breach signalling (Art. 33 / Art. 34)
+
+`security_events` (FR-015) is the canonical **compliance-grade incident record**. The schema — `(session_id, speaker_id, turn_number, layer, risk_score, findings, blocked, timestamp, layer_duration_ms, override_reason, override_actor_id)` — is suitable for the GDPR Art. 33 72-hour breach-notification timing requirement: every incident has an authoritative timestamp + scope (session / speaker) + classification (layer + findings) that an operator-as-data-controller can use to assess notification obligation.
+
+**Breach indicators** — the operator-monitorable signals that warrant Art. 33 assessment:
+
+| Indicator | FR | Detection |
+|----|----|----|
+| Canary leakage | FR-010 | `security_events.layer='output_validator'` with canary-token finding |
+| Credential leakage in AI response | FR-008 | `security_events.layer='exfiltration'` with credential-pattern finding |
+| System-prompt fragment leakage | FR-011 | `security_events.layer='prompt_protector'` with substantial-fragment finding |
+| Sustained jailbreak escalation | FR-009 | Multiple `security_events.layer='jailbreak'` rows in a rolling window |
+
+**Operator obligation**: monitoring `security_events` is the operator's responsibility. SACP emits the raw signal via the facilitator-facing notification (FR-016) and the structured `security_events` row (FR-015). Connecting that signal to the operator's alerting infrastructure (Grafana, Sentry, syslog) is operator-controlled. SACP does NOT emit Art. 33 notifications on its own — Art. 33 is the controller's relationship with the supervisory authority.
+
+**Art. 34 subject notification** (high-risk breaches): also operator-controlled. SACP's role ends at supplying the incident detail; deciding whether the breach poses "high risk to rights and freedoms" requires the controller's risk assessment.
+
+### Confidentiality controls (Art. 32)
+
+The Art. 32 "appropriate technical measures" for confidentiality are layered across multiple specs:
+
+| Control | Spec / FR | Art. 32 mapping |
+|----|----|----|
+| Encryption at rest | 001 §FR-020 (Fernet column-level for `api_key_encrypted`) | Art. 32(1)(a) — encryption |
+| Pseudonymisation of credentials | 002 §FR-A1 (bcrypt-12 token hash) | Art. 32(1)(a) — pseudonymisation |
+| Log scrubbing | 007 §FR-012 (root-logger ScrubFilter + excepthook) | Art. 32(1)(b) — ongoing confidentiality |
+| Fail-closed pipeline | 007 §FR-013 (no silent drop) | Art. 32(1)(b) — ongoing integrity |
+| Append-only audit | 001 §FR-008 (repository invariant) | Art. 32(1)(b) — ongoing integrity |
+| Rate limiting (post-auth) | 009 §FR-002 (token-bucket per participant) | Art. 32(1)(b) — availability under load |
+
+`docs/compliance-mapping.md` carries the authoritative list.
+
+### Cross-references
+
+- `docs/compliance-mapping.md` — Art. 32 / Art. 33 / Art. 34 rows authoritative
+- `docs/pattern-list-update-workflow.md` — channel for adding PII patterns when triggered
+- 001 §FR-020 — encryption-at-rest scope (Phase 1 covers `api_key_encrypted` only)
+- 002 §FR-A1, §FR-004 — bcrypt pseudonymisation + log-scrubbing posture for tokens
+- 003 Compliance / Privacy section — Art. 28 processor disclosure (sister)
+- 010 spec — debug-export tool (operator-mediated SAR fulfilment surface)
 
 ## Audit closeout (2026-04-29)
 
