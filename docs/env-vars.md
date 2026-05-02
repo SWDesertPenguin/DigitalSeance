@@ -143,6 +143,15 @@ out-of-range default.
 - **Validation rule**: `validators.validate_ws_max_connections_per_ip`
 - **Source spec(s)**: 011 close-code 4429; audit H-03
 
+### `SACP_MAX_SUBSCRIBERS_PER_SESSION`
+
+- **Default**: `64`
+- **Type**: positive integer
+- **Valid range**: `> 0`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports; SSE subscriber cap uses hardcoded default if unset
+- **Validation rule**: `validators.validate_max_subscribers_per_session`
+- **Source spec(s)**: 006 §FR-019 (per-session SSE subscriber cap); 006 SC-008
+
 ## Reserved (documented but not yet wired)
 
 These vars appear in `src/mcp_server/tools/debug.py` `_CONFIG_KEYS` allowlist
