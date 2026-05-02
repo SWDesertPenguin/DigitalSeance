@@ -7,6 +7,16 @@
 
 ## Clarifications
 
+### Session 2026-05-02 (audit fix/005-reliability — Phase E)
+
+- Q: What happens on SIGTERM if a summarization task is in flight? → A: Phase 1 abandoned. The fire-and-forget asyncio task (FR-010) is cancelled by uvicorn graceful-shutdown along with the loop coroutine; in-flight summarizations don't await completion. The next orchestrator startup re-evaluates the threshold via FR-001 — if the session has accumulated enough turns, the next eligible turn fires summarization again. No partial summary persists (transactional rollback).
+
+- Q: What if FR-011 sanitize itself raises an exception during the recursive walk? → A: The exception propagates up to `run_checkpoint`'s outer handler and is logged with `WARNING: summarization failed during sanitize`; no summary row persists. This matches the 007 §FR-013 fail-closed contract — sanitize failure is treated identically to model failure. The session continues without a checkpoint; threshold re-evaluates on the next turn.
+
+- Q: What's the operator manual-summarization override surface? → A: Phase 1: no dedicated kill switch / force-summarize / re-summarize-from-turn-N CLI. Operator workaround: facilitator can force a checkpoint by `UPDATE sessions SET last_summary_turn = current_turn - threshold` to make the next turn eligible. Phase 3 trigger: any deployment where operator-driven summarization control matters (e.g., regulatory replay scenarios); implementation: `/tools/admin/force_summarize?session_id=...&from_turn=N` endpoint.
+
+- Q: How are existing pre-sanitize summaries audited? → A: PR #157 closed sanitize-recursion (FR-011) for NEW summaries; pre-sanitize summaries persist in the `messages` table with `speaker_type='summary'`. Operator audit query: `SELECT id, content FROM messages WHERE speaker_type='summary' AND created_at < '<sanitize-landed-date>';`. Re-sanitization of historic summaries is not automatic in Phase 1; Phase 3 trigger: any deployment where historical summary content represents recon risk; implementation: a one-shot script that walks pre-fix summaries through current sanitize and rewrites in-place (with audit-log entry).
+
 ### Session 2026-04-14
 
 - Q: Non-blocking semantics? → A: Async task (asyncio.create_task fire-and-forget; loop proceeds immediately; summary lands whenever it finishes)
@@ -175,6 +185,96 @@ The security-requirements quality audit (`checklists/security.md`) raised 38 fin
 **Spec amendments (this commit)**: CHK001 / CHK003 / CHK007 (FR-011 codifies sanitization mandate), CHK002 (FR-012 documents cheapest-model trust + cost asymmetry as accepted residual), CHK004 (FR-012 names the API-key source — cheapest participant's encrypted key), CHK005 (FR-014 narrative-only fallback wraps entire raw response), CHK008 (FR-013 SQL race guard mandate), CHK009 (FR-015 FK fail-closed on deletion race), CHK030 (Threat-model traceability table), CHK037 (FR-005 corrected to facilitator-id attribution + reason).
 
 **Closed as cross-reference / accepted residual**: CHK006 (lenient JSON parsing — accepted convenience; missing fields default to empty arrays/strings), CHK010 (orphan async tasks — `run_checkpoint` is awaited inside the loop; not fire-and-forget at session-shutdown granularity), CHK011 / CHK013 (immutability + visibility cross-ref to 001 + 010), CHK012 (no per-row tamper hash — accepted residual; cross-row chaining is Phase 3), CHK014 / CHK015 (cheapest-model tie-breaking + threshold scope — implementation detail), CHK016 (JSON schema authoritativeness — pinned in `SUMMARIZATION_PROMPT` constant), CHK017 (summary consumes a turn_number — yes, by design, gives chronological ordering), CHK018 / CHK019 (cross-ref 003 + 007), CHK020 / CHK021 (90%+ valid JSON / cheapest-selection — measurement deferred), CHK022 (negative-path SCs — implicit), CHK023 / CHK024 / CHK025 (recovery / repeat-failure / fallback exhaustion — accepted: failure logged + retry on next turn), CHK026 (input truncation contract — accepted; LiteLLM truncates per-model context window), CHK027 (summary-induced convergence — settled by 004 §FR-018), CHK028 (all-models-fail fallback — accepted: skip checkpoint), CHK029 (adversarial `key_positions` content — settled by FR-011 sanitization), CHK031 / CHK032 (perf SLA / observability — accepted residual), CHK033 (ProviderBridge cost contract — covered by 003 §FR-006), CHK034 (prompt-version pinning — `SUMMARIZATION_PROMPT` constant + `# noqa` history is the version trail), CHK035 (`summary_epoch` overflow — INTEGER type, ~2.1B max; accepted), CHK036 (paid-vs-free preference — `_cost_key` treats `None` as +inf so unpriced participants are last), CHK038 (fallback-warn to security_events — accepted: routed through standard logger; not a security event in the 007 sense).
+
+## Reliability (Phase E fix/005-reliability, 2026-05-02)
+
+This section documents 005's failure-mode behavior for summarization. Operator-facing recovery procedures live in `docs/operational-runbook.md`; this section covers the contracts.
+
+### Fallback-cascade exhaustion (FR-008)
+
+Cheapest-model summarization fails → next-cheapest (FR-008) → repeat until participants exhausted. When ALL participants' models fail:
+
+1. Each attempt logs `WARNING: summarization model X failed`
+2. Final attempt logs `WARNING: summarization fell back to narrative-only` (per FR-009) OR if narrative-only also unparseable, `WARNING: summarization skipped — all models failed`
+3. The loop continues normally — summarization is fire-and-forget per FR-010
+4. The next eligible turn re-evaluates the threshold; if still over, summarization fires again
+
+Operator notification: WARNING-level log emission. No `security_events` row (this is operational, not security). Operator alert: rolling-window summarization-failure rate per session > 50% over 1 hour indicates persistent degradation.
+
+### In-flight checkpoint on session deletion (FR-015)
+
+When a session is deleted between summarization trigger and persistence:
+
+1. The async task continues running (orchestrator-level; no per-task cancellation on session delete)
+2. INSERT INTO messages with `session_id=<deleted>` raises `asyncpg.ForeignKeyViolationError` (cross-ref 001 §FR-009 FK)
+3. `run_checkpoint`'s outer handler catches and logs `WARNING: summarization target session deleted in-flight`
+4. No orphan summary row is created (FK enforcement at the DB layer)
+
+Operator-side observability: a small log volume of these WARNINGs after a session deletion is normal and benign.
+
+### All-providers-fail behavior
+
+Loop continues; summarization skipped (per FR-008 cascade exhaustion). Operator notification per FR-009 WARNING. No automatic retry beyond the in-task cascade — the session simply runs without an updated checkpoint until the next eligible turn.
+
+Phase 3 trigger: any deployment where summarization-skip rate would degrade context quality enough to affect SLAs. Implementation surface: per-session "stale checkpoint" alert via `routing_log` query.
+
+### Concurrent-checkpoint deduplication (FR-013)
+
+Two coroutines crossing the threshold near-simultaneously:
+
+1. Both call `_should_summarize` and observe the threshold met
+2. Both dispatch summarization work → both pay the LLM call cost
+3. The first to complete runs `UPDATE sessions SET last_summary_turn = $1 WHERE id = $2 AND last_summary_turn < $1` — succeeds, message INSERT proceeds
+4. The second runs the same UPDATE — no-op (the condition `last_summary_turn < $1` is now false). Message INSERT NOT skipped — both summary rows persist with `speaker_type='summary'`
+
+Wasted-LLM-call cost: bounded by 2× the per-summary cost (one duplicate per concurrent crossing). Phase 3 trigger: any deployment where the duplicate cost is meaningful at scale; implementation surface: pre-flight dedup via a `summary_in_progress` row lock or advisory lock per session.
+
+### Summary-table corruption recovery
+
+A malformed summary row (e.g., `content` field has invalid JSON despite passing FR-004 retry) is loaded by context assembly:
+
+1. `get_summaries` returns the row
+2. Context assembly's JSON parse fails → falls back to treating `content` as raw narrative (per FR-014 narrative-only contract)
+3. Loop continues; subsequent dispatches proceed with degraded summary context
+
+No automatic recovery in Phase 1. Operator manual recovery: identify the bad row via `SELECT id, length(content), content FROM messages WHERE speaker_type='summary' AND id = ...;`, DELETE the row, force a new checkpoint via the workaround in Clarifications.
+
+### FR-010 fire-and-forget shutdown
+
+On SIGTERM:
+
+1. uvicorn graceful-shutdown signal cancels the loop coroutine
+2. Fire-and-forget summarization tasks (`asyncio.create_task`) are cancelled
+3. Cancelled tasks raise `asyncio.CancelledError`; transactional context rolls back any partial state
+4. No summary row persists for cancelled tasks
+
+Startup recovery: per-task is not resumed; the session's `last_summary_turn` reflects the last successful checkpoint. Threshold re-evaluation on the next turn.
+
+### FR-011 sanitize-recursion failure
+
+If sanitize raises an exception during the recursive walk (regex pathology, encoding error):
+
+1. The exception propagates up to `run_checkpoint`'s outer handler
+2. Logged at WARNING; no summary row persists
+3. Treated identically to model failure (fail-closed per 007 §FR-013)
+4. Threshold re-evaluates on the next turn
+
+Cross-ref 007 Operations "Pipeline-bypass paths" — sanitize-recursion shares the root-logger ScrubFilter with 007 §FR-012 + 008 §FR-010.
+
+### Cross-references
+
+- `docs/operational-runbook.md` — operator playbook (cross-ref §6 provider degradation, §12 security pipeline ops)
+- 001 §FR-009 — `messages.session_id` FK to `sessions(id)` (in-flight delete protection)
+- 003 Reliability section — turn-loop reliability (sister)
+- 003 §FR-021 — loop never halts on single-task failure
+- 005 §FR-008, FR-009 — fallback cascade + narrative-only logging
+- 005 §FR-010 — fire-and-forget task model
+- 005 §FR-011 — sanitize recursion (cross-ref 007)
+- 005 §FR-013 — SQL race-guard for concurrent checkpoints
+- 005 §FR-014 — narrative-only fallback shape
+- 005 §FR-015 — FK-protected in-flight delete
+- 006 Reliability section — MCP-server reliability (sister)
+- 007 §FR-013 — fail-closed pipeline contract
 
 ## Operational notes (Phase F amendment, 2026-05-02)
 
