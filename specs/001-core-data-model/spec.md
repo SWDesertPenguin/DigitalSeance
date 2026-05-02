@@ -7,6 +7,16 @@
 
 ## Clarifications
 
+### Session 2026-05-02 (audit fix/001-operations — Phase E)
+
+- Q: Does the orchestrator enforce `sslmode=require` for DB connections at startup? → A: No. Phase 1 leaves transport-encryption to the operator's connection string; production deployments MUST set it correctly. Phase 3 trigger: any deployment with regulatory transport-encryption requirements (HIPAA, PCI-DSS).
+
+- Q: When does the FR-022 `sacp_app` least-privilege SQL role land? → A: Phase 3, triggered by any production deployment where database compromise via the orchestrator would cascade beyond the SACP schema. Implementation surface: alembic migration creating `sacp_app` with INSERT/UPDATE/DELETE/SELECT only; deploy-time check that the connection string targets that role.
+
+- Q: When does the `SACP_AUDIT_RETENTION_DAYS` purge enforcer land? → A: Phase 3, alongside the other reserved-env-var purge jobs (see `docs/retention.md` §7). Pre-wire, the effective retention is "never delete" regardless of env-var value; operators with hard-cap retention requirements run an external query (see `docs/operational-runbook.md` §2.5).
+
+- Q: Does `alembic upgrade head` require operator confirmation before applying pending migrations at startup? → A: No. Phase 1 deploys auto-apply pending migrations. Defenses: forward-only constraint (FR-017), schema-mirror CI gate, restore-from-backup as the rollback path. Phase 3 trigger: deployment policy requiring manual approval gates between staging and production migration application.
+
 ### Session 2026-04-14
 
 - Q: Audit log retention after session delete? → A: Default indefinite, configurable per deployment
@@ -277,6 +287,58 @@ The security-requirements quality audit (`checklists/security.md`) raised 40 fin
 **Spec amendments (this commit)**: CHK001 / CHK002 / CHK028 / CHK029 (FR-021 codifies "key rotation NOT supported in Phase 1"; participants re-set API key on rotation), CHK003 (Edge Case fail-closed via process exit), CHK004 (Edge Case `uuid.uuid4().hex` overwrite), CHK013 (FR-019 `SACP_AUDIT_RETENTION_DAYS` env var), CHK016 (FR-020 encryption-at-rest scope is `api_key_encrypted` only), CHK030 (Edge Case turn_number overflow accepted out-of-scope), CHK032 (Threat-model traceability table), CHK040 (Edge Case domain_tags accepted as denormalized free-form).
 
 **Closed as cross-reference / accepted residual**: CHK005 (backup encryption — operator concern, out of Phase 1 scope), CHK006 / CHK022 (FR-022 codifies interface-level append-only + planned DB-role enforcement), CHK007 (sacp_cleanup role staged for future deployment — FR-022), CHK008 (DBA direct access — accepted residual via FR-022), CHK009 (`summary_epoch` mutability — interface append-only via MessageRepository), CHK011 (concurrent-read isolation — PostgreSQL READ COMMITTED is the default; mid-deletion reads see partial state, accepted), CHK012 (deletion audit-row schema — `(facilitator_id, action='delete_session', target_id=session_id)`, count not recorded in Phase 1), CHK014 (audit log tamper-evidence — accepted residual; cross-row hash chaining is Phase 3 hardening), CHK015 (audit retention vs erasure — operator policy resolves; FR-019 default is indefinite, regulator-driven TTL via `SACP_AUDIT_RETENTION_DAYS`), CHK017 / CHK020 (cross-ref 002 §FR-A1 bcrypt cost factor), CHK018 (atomic = `async with conn.transaction()`), CHK019 (cross-ref 007 §FR-012 ScrubFilter), CHK021 (FR-007 / FR-008 enforced by same interface-level mechanism), CHK023 / CHK033 / CHK034 (no per-event SC for orphan / encryption / cascade duration — implicit in FR-009 / FR-011), CHK024 (no SC for startup fail-closed — accepted; tested via integration on every deploy), CHK025 (partial-cascade failure rolled back by transaction — `async with conn.transaction()` ensures all-or-nothing), CHK026 (concurrent-write races covered by FR-009 RI + advisory lock per 003), CHK027 (forward-only migration partial-apply — alembic offers `downgrade()` for staging; production is forward-only by Assumption), CHK031 (parent_turn-of-deleted-message — Phase 3 branching concern), CHK035 (DB role enforcement test — staged with FR-022), CHK036 (Fernet AES-128-CBC re-eval — when AES-128 is deprecated by NIST, OR every 5 years), CHK037 (summary content as message — accepted: summary IS a message per 005 FR-005), CHK038 (FR-019 vs erasure — operator policy resolves), CHK039 ("normal application path" = anything routed through repositories).
+
+## Operations (Phase E fix/001-operations, 2026-05-02)
+
+This section documents 001's operator-facing architectural decisions and Phase 3 deferrals. Operator playbook (procedures, drills, env-var triage) lives in `docs/operational-runbook.md`; this section covers the contracts and deferral triggers.
+
+### Encryption at transit
+
+Database connections MUST use TLS in production. Connection-string pattern:
+
+- Production: `postgresql://user:pass@host:5432/db?sslmode=require` (or `sslmode=verify-full` if the operator manages the CA chain)
+- LAN / dev: `sslmode=disable` is acceptable; documented in deployment readme
+
+The orchestrator does NOT enforce `sslmode=require` at the validator layer in Phase 1 — operators are responsible. Phase 3 trigger: any deployment with regulatory transport-encryption requirements MUST validate `sslmode=require` at startup.
+
+### sacp_app SQL role timeline (FR-022)
+
+FR-022 promises a future hardening pass where the orchestrator binds with a least-privileged Postgres role (`sacp_app`) that lacks DDL / DROP privileges. Phase 1 status:
+
+- Today: orchestrator binds with the operator-supplied connection string; typical operator deployments run as the database owner
+- Phase 3 trigger: any production deployment where database compromise via the orchestrator would cascade beyond the SACP schema. Implementation surface: alembic migration creating `sacp_app` role with INSERT/UPDATE/DELETE/SELECT only; deploy-time check that the connection string targets that role
+
+### Audit-log purge enforcer (FR-019, deferred)
+
+`SACP_AUDIT_RETENTION_DAYS` is a reserved env var per FR-019; the purge job itself is deferred to Phase 3 (see `docs/retention.md` §7). Pre-wire, the effective retention is "never delete" regardless of env-var value. Operators that need bounded retention pre-Phase-3 run an external query — see `docs/operational-runbook.md` §2.5.
+
+Phase 3 trigger: any deployment with a hard-cap retention requirement (regulatory or storage-cost driven). Implementation surface: a daily background coroutine that runs `DELETE FROM admin_audit_log WHERE created_at < NOW() - INTERVAL '$SACP_AUDIT_RETENTION_DAYS days'` with a row-deleted counter for retention-monitoring (per `docs/retention.md` §6).
+
+### Deploy-time alembic safety
+
+`alembic upgrade head` runs at orchestrator startup and applies any pending migrations. Phase 1 has no operator approval gate — the deploy applies whatever migrations are pending. This is acceptable because:
+
+1. All migrations are forward-only (FR-017); a destructive migration cannot be rolled back via `alembic downgrade`
+2. The schema-mirror CI gate ensures `tests/conftest.py` raw DDL stays in sync with migrations, so a destructive change without test coverage fails CI before deploy
+3. Restore-from-backup is the documented rollback path (see `docs/operational-runbook.md` §2)
+
+Phase 3 trigger: any operator deployment policy that requires manual approval gates between staging and production migration application. Implementation surface: a `--print-pending-migrations` CLI flag that emits the planned migrations and exits 0; a separate `alembic upgrade head` invocation applies them after operator review.
+
+### Database operations contracts
+
+Phase 1 contract: single logical Postgres database, single writer. The orchestrator's advisory-lock semantics (003 §FR-022) require the writer to be the same instance handling the turn-loop coroutine. Multi-writer / multi-instance deployment is Phase 3 (cross-ref 003 §FR-027).
+
+Operator-facing topology decisions (connection-pool tuning, DB failover behavior, standby / replica strategy, RTO / RPO) live in `docs/operational-runbook.md` §10.
+
+### Cross-references
+
+- `docs/operational-runbook.md` — operator procedures (§1 deploy, §2 backup/restore, §3 key rotation, §10 DB ops)
+- `docs/retention.md` — per-table retention with §FR-019 pattern as canonical
+- 001 §FR-017 — forward-only migration constraint
+- 001 §FR-019 — admin_audit_log retention pattern + reserved env var
+- 001 §FR-020, §FR-021 — encryption-at-rest scope + key-rotation deferral
+- 001 §FR-022 — sacp_app SQL role future hardening
+- 003 §FR-022, §FR-027 — advisory lock + single-loop-per-session deployment requirement
 
 ## Migration safety notes (Phase F amendment, 2026-05-02)
 
