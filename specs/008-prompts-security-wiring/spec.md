@@ -122,6 +122,80 @@ The security-requirements quality audit (`checklists/security.md`) raised 44 fin
 
 **Closed as accepted residual / out-of-scope** (documented in Edge Cases or Assumptions): CHK019 (multi-canary count consistent across spec/clarification/code), CHK026 (`assemble_prompt` defaults guarantee no error path on malformed input), CHK029 / CHK033 (canary / datamark shape collisions are impossible), CHK034 (assembly perf trivial — string concat + 30 chars random), CHK037 (a11y inherited from Phase 3 deferral in 007 CHK036).
 
+## Operational notes (Phase F amendment, 2026-05-02)
+
+These items capture operator-facing decisions that don't change behaviour but
+are required for production deployment readiness. Cross-referenced from
+`AUDIT_PLAN.local.md` Batch 5 → 008 ops.
+
+**Prompt-tier env-var contract.** The four-tier set (`low` / `mid` / `high` /
+`max`) is hardcoded in `src/prompts/tiers.py` at module load. There is NO
+runtime override env var in Phase 1 — `prompt_tier` is read from the
+participant record only. The default for an unset / unrecognized
+`prompt_tier` is `mid` (FR-001). Operators that need per-deployment tier
+overrides MUST treat that as a Phase 3 enhancement and reference the tier-
+content re-evaluation triggers in Assumptions; ad-hoc env-var injection
+into `_TIERS` is unsupported and not stable across releases.
+
+**Canary-storage path (deferred wiring).** FR-003.detect is currently
+unwired because per-session canary persistence has not been implemented.
+The Phase 3 storage path SHALL add either (a) a `canaries TEXT[]` column on
+`sessions` (per-session, all participants share), or (b) a
+`canaries TEXT[]` column on `participants` (per-participant, distinct
+values across the session). Option (a) keeps detection cheap (one set of
+3 values to scan against every AI response in the session) but means a
+participant who extracts another's canaries can claim leakage was theirs.
+Option (b) raises detection cost linearly in participant count. Phase 3
+decision deferred; document chosen path in this section when wired.
+Migration MUST be additive (forward-only per 001 §FR-017) and not require
+backfill — sessions created before the column exists simply have no canary
+detection until the next assembly.
+
+**Tier-text constancy triggers.** Per Assumptions: tier text is constant
+in Phase 1+2. Operator demand re-evaluating this assumption requires:
+(a) ≥3 sessions where operators ask for tier overrides, OR (b) a confirmed
+need for per-use-case tier specialization (e.g. medical, legal, code-
+review variants), OR (c) a use case requiring injection of session-
+specific safety language at construction time. When triggered, the
+implementation surface is a tier-content registry keyed on use-case
+identifier, NOT inline env-var substitution. Refusal-to-add-knobs default
+applies until one of the three triggers fires.
+
+**ReDoS guard CI process (FR-014).** Every PR that adds or modifies a
+regex in `src/security/sanitizer.py`, `exfiltration.py`, `jailbreak.py`,
+`output_validator.py`, `scrubber.py`, or `prompt_protector.py` MUST pass
+the `tests/test_008_testability.py::test_fr014_redos_guard_under_budget`
+suite locally before merge. The current CI budget catches catastrophic
+backtracking (10x-100x blowup); tightening to the 100ms-on-prod-hardware
+threshold from FR-014 is a Phase 3 ReDoS-CI item. Reviewer of any new
+regex MUST eyeball for nested quantifiers (`(a+)+`, `(a|a)*`, etc.) and
+require either a Hypothesis fuzz test or a documented pathological
+input sample alongside the change. Blast radius of failure is global:
+a single ReDoS-vulnerable pattern reachable from `sanitize()` lets any
+participant DoS the orchestrator's per-turn dispatch path.
+
+**Memoization invalidation procedure (FR-011 / FR-012).** When the
+deferred memoization caches land:
+- FR-011 tier-text cache: 4 entries (one per tier), invalidated only on
+  process restart. To force recomputation, restart `mcp_server` and
+  `web_ui`. There is no runtime invalidation hook because tier text is
+  hardcoded source — a tier-text change is a code change is a deploy.
+- FR-012 custom-prompt sanitize cache: keyed on
+  `(participant_id, hash(custom_prompt))`. Invalidated automatically on
+  every participant update (via `update_participant`). Operators do NOT
+  need to manually clear; if a stale entry is suspected, restarting the
+  orchestrator drops the cache wholesale. There is no exposed admin
+  endpoint to flush the sanitize cache by design — the only way a stale
+  entry persists past an update is if `update_participant` is bypassed,
+  which is itself a contract violation.
+
+**Custom-prompt size limits (operational).** The participant-supplied
+`custom_prompt` field is bounded by 002 §FR-A2 input-size limits at the
+auth/registration boundary. 008 imposes no additional cap. Cross-ref
+002 spec for the canonical limit; if 002 raises or lowers the cap, this
+spec inherits the new value automatically (the wiring is the same
+sanitize-then-store path).
+
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 
 **Topologies** (per constitution §3): All seven (1–7). System prompts (tiered, canary-protected) and security pipeline integration apply to all topologies — orchestrator-driven or peer-driven. Canary tokens, sanitization, and spotlighting are topology-neutral defenses.
