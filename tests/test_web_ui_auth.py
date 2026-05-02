@@ -1,16 +1,25 @@
-"""Web UI auth-path error translation (spec 002 / audit H-01).
+"""Web UI auth-path coverage.
 
-Verifies `_authenticate_or_raise` returns only the generic `"IP binding
-mismatch"` detail in the 403 body when `IPBindingMismatchError` fires —
-never echoes the bound IP, the request IP, or any other fragment of
-the underlying exception message.
+Covers:
 
-Pairs with the MCP equivalent in src/mcp_server/middleware.py which has
-always returned the generic string. Closes the asymmetry that audit H-01
-flagged.
+* spec 002 / audit H-01 — `_authenticate_or_raise` returns only the
+  generic `"IP binding mismatch"` detail in the 403 body when
+  `IPBindingMismatchError` fires; never echoes the bound IP, the
+  request IP, or any other fragment of the underlying exception. Pairs
+  with the MCP equivalent in `src/mcp_server/middleware.py`.
+* audit H-02 / M-08 — the signed session cookie carries an opaque sid
+  only; the bearer + (participant_id, session_id) binding lives in
+  the server-side `SessionStore`. The cookie is signature-stable but
+  payload-opaque: a cookie-jar exfiltration recovers no token.
+* audit M-02 — cookie signing uses `SACP_WEB_UI_COOKIE_KEY`, distinct
+  from `SACP_ENCRYPTION_KEY`. Forging a cookie with the encryption
+  key alone fails closed.
 """
 
 from __future__ import annotations
+
+import base64
+import json
 
 import pytest
 from fastapi import HTTPException
@@ -21,7 +30,20 @@ from src.repositories.errors import (
     TokenExpiredError,
     TokenInvalidError,
 )
-from src.web_ui.auth import _authenticate_or_raise
+from src.web_ui.auth import (
+    _authenticate_or_raise,
+    _make_cookie_value,
+    _parse_cookie_value,
+)
+from src.web_ui.session_store import SessionStore
+
+_COOKIE_KEY = "test-cookie-key-with-at-least-thirty-two-chars-of-entropy-xyz"
+_OTHER_KEY = "different-cookie-key-also-thirty-two-chars-or-more-of-entropy"
+
+
+@pytest.fixture(autouse=True)
+def _env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SACP_WEB_UI_COOKIE_KEY", _COOKIE_KEY)
 
 
 class _FakeAuthService:
@@ -91,3 +113,153 @@ async def test_auth_required_translates_to_401() -> None:
         await _authenticate_or_raise(service, "fake-token", _FakeRequest())
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Invalid token"
+
+
+# ---------------------------------------------------------------------------
+# H-02 / M-08 — cookie payload carries no bearer
+# ---------------------------------------------------------------------------
+
+
+def _decode_signed_payload(signed: str) -> dict:
+    """Best-effort decode of an itsdangerous URL-safe-base64 payload.
+
+    itsdangerous concatenates `payload.timestamp.sig`, base64url-encodes
+    each segment, and joins them with `.`. The first segment is the
+    bare JSON payload — recoverable without the signing key, which is
+    exactly the H-02 leak vector we're locking down.
+    """
+    body_seg = signed.split(".", 1)[0]
+    pad = "=" * (-len(body_seg) % 4)
+    raw = base64.urlsafe_b64decode(body_seg + pad)
+    return json.loads(raw)
+
+
+def test_cookie_payload_contains_only_opaque_sid() -> None:
+    """Audit H-02: the cookie does not carry the bearer in any form.
+
+    A signed (but not encrypted) cookie payload is base64-readable to
+    anyone with the cookie value. After this fix the only plaintext
+    field is the opaque sid; the bearer never enters the cookie.
+    """
+    cookie = _make_cookie_value("opaque-sid-xyz")
+    payload = _decode_signed_payload(cookie)
+
+    assert payload == {"sid": "opaque-sid-xyz"}
+    assert "tok" not in payload
+    assert "token" not in payload
+    assert "bearer" not in payload
+    assert "pid" not in payload
+    assert "participant_id" not in payload
+
+
+def test_cookie_round_trip_returns_same_sid() -> None:
+    """A cookie minted with sid X parses back to X."""
+    cookie = _make_cookie_value("sid-roundtrip")
+    assert _parse_cookie_value(cookie) == "sid-roundtrip"
+
+
+def test_cookie_signed_with_encryption_key_fails_to_parse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Audit M-02: cookies signed with the wrong key are rejected.
+
+    Pre-fix the cookie signer reused `SACP_ENCRYPTION_KEY`; an attacker
+    who lifted the encryption key (e.g. for at-rest decryption) could
+    also forge cookies. After M-02 the cookie key is independent —
+    cookies signed with any other key fail signature verification.
+    """
+    monkeypatch.setenv("SACP_WEB_UI_COOKIE_KEY", _OTHER_KEY)
+    forged = _make_cookie_value("forged-sid")
+    monkeypatch.setenv("SACP_WEB_UI_COOKIE_KEY", _COOKIE_KEY)
+
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_cookie_value(forged)
+    assert exc_info.value.status_code == 401
+
+
+def test_cookie_with_missing_sid_raises_401() -> None:
+    """A signed cookie whose payload omits sid is rejected (defense in depth)."""
+    import itsdangerous
+
+    signer = itsdangerous.URLSafeTimedSerializer(_COOKIE_KEY, salt="sacp-ui-cookie-v2")
+    cookie = signer.dumps({"unrelated": "field"})
+
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_cookie_value(cookie)
+    assert exc_info.value.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Session store unit coverage
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_session_store_create_get_delete_roundtrip() -> None:
+    """Create returns an opaque sid; get returns the entry; delete drops it."""
+    store = SessionStore()
+    sid = await store.create("pid-1", "ses-1", "bearer-1")
+    assert isinstance(sid, str)
+    assert len(sid) >= 32  # token_urlsafe(32) is always >= 43 chars
+
+    entry = await store.get(sid)
+    assert entry is not None
+    assert entry.participant_id == "pid-1"
+    assert entry.session_id == "ses-1"
+    assert entry.bearer == "bearer-1"
+
+    await store.delete(sid)
+    assert await store.get(sid) is None
+
+
+@pytest.mark.asyncio
+async def test_session_store_delete_is_idempotent() -> None:
+    """Deleting an unknown sid is a no-op."""
+    store = SessionStore()
+    await store.delete("never-existed")  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_session_store_expires_past_ttl() -> None:
+    """An entry past TTL is purged on next get and returns None."""
+    store = SessionStore(ttl_seconds=0)
+    sid = await store.create("pid", "ses", "bearer")
+    # ttl=0 → any access counts as expired → entry purged + None returned.
+    assert await store.get(sid) is None
+
+
+# ---------------------------------------------------------------------------
+# H-02 — /me + /login no longer hand the bearer to JS
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_whoami_response_omits_bearer() -> None:
+    """Audit H-02: /me must not return the bearer token to JS.
+
+    With the same-origin proxy carrying the bearer server-side, the
+    SPA never needs the bearer in JS memory. /me's response must
+    therefore not include any token-shaped field that an XSS could
+    exfiltrate.
+    """
+    from types import SimpleNamespace
+
+    from src.web_ui.auth import whoami
+
+    fake_participant = SimpleNamespace(
+        id="pid-7",
+        session_id="ses-7",
+        role="facilitator",
+    )
+    payload = await whoami(participant=fake_participant)
+
+    assert payload["participant_id"] == "pid-7"
+    assert payload["session_id"] == "ses-7"
+    assert payload["role"] == "facilitator"
+    assert "token" not in payload
+    assert "bearer" not in payload
+    # No field carries the bearer under any name.
+    for value in payload.values():
+        assert value != "any-token-value"
+        if isinstance(value, str):
+            assert not value.startswith("Bearer ")

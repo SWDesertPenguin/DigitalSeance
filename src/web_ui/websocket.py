@@ -29,6 +29,7 @@ from src.repositories.errors import (
 )
 from src.web_ui.auth import _INACTIVE_STATUSES, _parse_cookie_value
 from src.web_ui.events import pong_event, state_snapshot_event
+from src.web_ui.session_store import SessionStore, get_session_store
 from src.web_ui.snapshot import build_state_snapshot
 
 log = logging.getLogger(__name__)
@@ -280,40 +281,61 @@ async def _accept_with_ip_cap(websocket: WebSocket, client_ip: str) -> bool:
     return True
 
 
+def _ws_session_store(websocket: WebSocket) -> SessionStore:
+    """Return the per-app SessionStore, falling back to the singleton."""
+    store = getattr(websocket.app.state, "session_store", None)
+    if isinstance(store, SessionStore):
+        return store
+    return get_session_store()
+
+
 async def _authenticate_ws(websocket: WebSocket, session_id: str) -> dict[str, Any] | None:
     """Resolve the cookie + Origin; close on failure.
 
     Constitution §9 + SR-004 require Origin validation on every WebSocket
-    upgrade to prevent cross-site WebSocket hijacking. We reject upgrades
-    whose Origin does not match the UI's own origin or an explicit
-    env-configured allowlist.
-
-    Also re-validates the embedded bearer via AuthService so a cookie
-    whose signature is still inside its 8-hour TTL but whose backing
-    token was rotated/revoked (or whose participant was removed) fails
-    closed.
+    upgrade to prevent cross-site WebSocket hijacking; we reject upgrades
+    whose Origin does not match an env-configured allowlist. The cookie
+    carries an opaque sid only — the bearer + session binding live in
+    the server-side session store. We re-validate the stored bearer via
+    AuthService so a cookie whose signature is still inside its 8-hour
+    TTL but whose backing token was rotated/revoked (or whose participant
+    was removed) fails closed.
     """
     if not _origin_allowed(websocket):
         await websocket.close(code=CLOSE_FORBIDDEN, reason="origin not allowed")
         return None
+    entry = await _resolve_ws_session_entry(websocket)
+    if entry is None:
+        return None
+    if entry.session_id != session_id:
+        await websocket.close(code=CLOSE_FORBIDDEN, reason="wrong session")
+        return None
+    participant = await _ws_revalidate_bearer(websocket, entry.bearer)
+    if participant is None:
+        return None
+    return {
+        "pid": entry.participant_id,
+        "sid": entry.session_id,
+        "role": participant.role,
+        "status": participant.status,
+    }
+
+
+async def _resolve_ws_session_entry(websocket: WebSocket):
+    """Cookie sid → store entry; close 4401 on missing / bad / unknown."""
     cookie = websocket.cookies.get("sacp_ui_token")
     if not cookie:
         await websocket.close(code=CLOSE_UNAUTHENTICATED, reason="no cookie")
         return None
     try:
-        payload = _parse_cookie_value(cookie)
+        sid = _parse_cookie_value(cookie)
     except Exception:  # noqa: BLE001 — bad sig / expired → same 4401
         await websocket.close(code=CLOSE_UNAUTHENTICATED, reason="bad cookie")
         return None
-    if payload.get("sid") != session_id:
-        await websocket.close(code=CLOSE_FORBIDDEN, reason="wrong session")
-        return None
-    participant = await _ws_revalidate_bearer(websocket, payload.get("tok", ""))
-    if participant is None:
-        return None
-    payload["role"] = participant.role
-    payload["status"] = participant.status
-    return payload
+    entry = await _ws_session_store(websocket).get(sid)
+    if entry is None:
+        await websocket.close(code=CLOSE_UNAUTHENTICATED, reason="unknown session")
+    return entry
 
 
 async def _ws_revalidate_bearer(websocket: WebSocket, token: str):
