@@ -242,6 +242,26 @@ Operator alert: rolling-window mean > `SACP_ADVISORY_LOCK_WAIT_ALERT_MS` (defaul
 
 Short version: incident → single-PR pull (corpus + regression test + pattern + runbook update) → zero-regression check → land within one cycle. The operator's role is to capture incidents as they appear in `security_events` and route them into this workflow.
 
+### 7.1 Roles
+
+- **Pattern reviewer** — maintains `src/security/*.py` modules; reviews each PR for pattern correctness + regression-test coverage
+- **Red-team runbook maintainer** — appends incident entries to `docs/red-team-runbook.md` (local-only) when patterns ship
+- **Cadence** — incident-driven (no scheduled review); 007 §FR-017 mandates within-one-cycle landing after a confirmed incident
+
+### 7.2 Regression-test requirement
+
+Every pattern-list PR MUST:
+
+1. Add a regression test against `tests/fixtures/adversarial_corpus.txt` for the new pattern
+2. Verify zero new false positives against `tests/fixtures/benign_corpus.txt`
+3. Re-run the existing corpus-regression test suite (no-regression invariant)
+
+Canonical workflow: `docs/pattern-list-update-workflow.md` (012 US8 deliverable). The corpora are the canonical regression-test surface.
+
+### 7.3 False-positive feedback loop
+
+Operator observes elevated `security_events.blocked=false` rate per layer (§4.1 alert) → opens a tracking issue → routes the offending pattern through this workflow. The regression-test requirement ensures the revision doesn't regress existing patterns.
+
 ---
 
 ## 8. Audit follow-through process
@@ -350,11 +370,70 @@ Cadence preset (`SACP_CADENCE_PRESET`) read at startup; per-session override via
 
 ---
 
-## 12. Cross-references
+## 12. Security pipeline operations
+
+### 12.1 Alert thresholds (007 ops)
+
+| Alert | Source | Threshold | Action |
+|---|---|---|---|
+| FP rate spike per layer | `security_events WHERE blocked=false` insert rate | 5× rolling 24h baseline | Triage §4.1 |
+| Layer-error spike | `security_events WHERE layer='pipeline_error'` insert rate | ≥3 per session per hour | Triage §4.2 |
+| Canary leakage | `security_events WHERE layer='output_validator' AND findings ~ 'canary'` | Any | Triage §4.3 (high severity) |
+| pipeline_total_ms P95 | `routing_log.pipeline_total_ms` rolling P95 | > 100 ms over 5 minutes | Investigate per-layer breakdown via `security_events.layer_duration_ms` |
+
+### 12.2 security_events query patterns
+
+Common operator queries:
+
+```sql
+-- High-FP layer in the last hour
+SELECT layer, COUNT(*) FROM security_events
+WHERE timestamp > NOW() - INTERVAL '1 hour' AND blocked=false
+GROUP BY layer ORDER BY COUNT(*) DESC;
+
+-- Per-session blocked-response rate (last 24h)
+SELECT session_id, COUNT(*) FROM security_events
+WHERE timestamp > NOW() - INTERVAL '24 hours' AND blocked=true
+GROUP BY session_id ORDER BY COUNT(*) DESC LIMIT 20;
+
+-- Canary-leakage candidates (high severity)
+SELECT session_id, speaker_id, turn_number, findings
+FROM security_events
+WHERE layer='output_validator' AND findings::text LIKE '%canary%'
+ORDER BY timestamp DESC;
+```
+
+Facilitator UI access: per-session findings surface via the review-gate UI (007 §FR-016). Operator post-incident: query `security_events` directly. Automated alerting: operator's choice of Grafana / Sentry / syslog.
+
+### 12.3 Pipeline-bypass invariants (007 SC-007)
+
+Production AI dispatch always flows through `_validate_and_persist`. Operator-side checks:
+
+- Any new `/tools/*` endpoint that triggers an LLM call: verify it routes through `_validate_and_persist` before persisting any AI output
+- Code review check: `grep -r "litellm.acompletion" src/` should show zero call sites outside the orchestrator's dispatch path
+
+### 12.4 LLM-as-judge feature flag (Phase 3 trigger)
+
+Activation surface (when wired):
+
+- `SACP_LLM_JUDGE_ENABLED` (boolean) — gates the layer
+- `SACP_LLM_JUDGE_MODEL` — judge model identifier
+- `SACP_LLM_JUDGE_TIMEOUT_MS` — per-call timeout (default 1500 ms)
+
+Triggers documented in spec 007 Operations section.
+
+---
+
+## 13. Cross-references
 
 - `docs/retention.md` — per-table retention policy; pairs with §2.5
-- `docs/env-vars.md` — canonical env-var catalog; pairs with §1, §5, §10
+- `docs/env-vars.md` — canonical env-var catalog; pairs with §1, §5, §10, §11
 - `docs/compliance-mapping.md` — GDPR / NIST mapping; pairs with §4 incident response
+- `docs/pattern-list-update-workflow.md` — canonical pattern-update flow; pairs with §7
+- `docs/red-team-runbook.md` (local-only) — incident catalog feeding pattern updates; pairs with §9
 - 001 Operations section — architectural deferrals + Phase 3 triggers (sister)
-- 003 Operations + Reliability sections — turn-loop ops contracts (sister to §11, §6)
+- 003 Operations + Reliability sections — turn-loop ops contracts (sister to §6, §11)
 - 003 §FR-022, §FR-027 — advisory lock + single-writer contract
+- 007 Operations section — security-pipeline ops contracts (sister to §4, §7, §12)
+- 007 §FR-013 — fail-closed pipeline invariant
+- 007 §FR-017 — pattern-list maintenance contract
