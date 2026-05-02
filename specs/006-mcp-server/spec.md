@@ -7,6 +7,20 @@
 
 ## Clarifications
 
+### Session 2026-05-02 (audit fix/006-reliability — Phase E)
+
+- Q: How does the SSE stream behave during a partial DB outage (orchestrator can't reach DB for 30 s)? → A: The SSE connection stays open via FastAPI's keepalive (the connection itself is independent of DB I/O). However, no events are broadcast during the outage because the orchestrator's turn-loop coroutine blocks on DB I/O and stops producing events. On recovery, broadcast resumes; clients see no events for the outage window. Phase 3 trigger: any deployment requiring a "DB unavailable" client signal — implementation: a periodic heartbeat event injected by the orchestrator separate from turn events, with a `connection_status='degraded'` flag during DB-unavailable periods.
+
+- Q: What's the aggregate behavior under sustained SSE wedging beyond cap? → A: Per-consumer drop is documented (FR-013). Aggregate behavior: each wedged consumer's queue fills (256 events) and stops accepting events; the broadcast loop's `put_nowait` silently drops on full queue; the wedged consumer eventually times out at the TCP layer (uvicorn keepalive ~75 s default) and is removed from the subscriber list. Memory ceiling: FR-019's 64-subscriber cap × 256 events × ~1KB ≈ 16 MB per session; this is the bounded resource cost regardless of how many wedged consumers exist.
+
+- Q: Does FR-014's exception handler intercept correctly under FastAPI's handler ordering? → A: Yes. The global `Exception` handler registered via `app.add_exception_handler(Exception, handler)` in `src/mcp_server/app.py:_add_exception_handlers` is evaluated AFTER FastAPI's built-in `HTTPException` handler. HTTPException-raised errors return their typed response; uncaught Python exceptions hit the global Exception handler and get the FR-014 generic 500. Validators raising `RequestValidationError` use FastAPI's default 422 handler before reaching the global. No earlier handler intercepts uncaught exceptions.
+
+- Q: What's the graceful-shutdown behavior on SIGTERM? → A: uvicorn graceful-shutdown signals: in-flight HTTP requests finish (uvicorn's `--timeout-graceful-shutdown` default 30 s); SSE streams receive their final TCP FIN when uvicorn closes the listener; clients see the connection close and reconnect via 011 §FR-014 backoff. The orchestrator's loop coroutines are cancelled (cross-ref 003 §FR-021 + 003 Reliability "Loop lifecycle"). RTO for restart-to-first-event ~5–10 s.
+
+- Q: Do `/healthz` / `/readyz` endpoints exist in Phase 1? → A: `/health` exists per FR-018 / runbook §1.5; differentiated `/healthz` (liveness) and `/readyz` (readiness — DB pool ready + alembic head matches) are deferred to Phase 3. Trigger: any deployment with k8s-style health probes that require liveness vs. readiness distinction. Implementation: split `/health` into `/healthz` (always 200 if process alive) + `/readyz` (200 only after `_validate_and_persist` smoke-test passes against the DB).
+
+- Q: What's the network-partition behavior surface? → A: Two distinct partitions: (a) orchestrator reachable, DB unreachable → 5xx on every API call until DB recovers; SSE stays open but no events; (b) orchestrator unreachable, DB OK → client reconnects via 011 §FR-014 backoff once orchestrator is reachable; partial DB writes are rolled back transactionally. Both are operator-observable via `/health` endpoint (Phase 1) or future `/readyz` (Phase 3).
+
 ### Session 2026-04-14
 
 - Q: SSE streaming reality check? → A: Keep spec as SSE; current code uses polling — this is a gap. Open follow-up work to implement real SSE streaming.
@@ -220,6 +234,115 @@ A participant can export the conversation transcript as markdown or JSON. The ex
 | FR-017 (per-participant SSE caps deferred) | (accepted residual: no per-participant limit Phase 1) | — | — |
 
 Sister cross-references: token validation (FR-002) uses 002 §FR-001 + 002 §FR-022; rate limiting on tool calls is 009 §FR-006; output validation on AI responses runs in the turn loop, not the MCP layer (007); debug-export sensitive-field stripping is 010 §FR-4; security headers for HTML responses are 011 §SR-001 / SR-002 (Web UI only in Phase 1).
+
+## Reliability (Phase E fix/006-reliability, 2026-05-02)
+
+This section documents 006's failure-mode behavior for the MCP server. Operator-facing recovery procedures live in `docs/operational-runbook.md`; this section covers the contracts.
+
+### Connection-drop recovery
+
+WebSocket / SSE connection drops mid-stream:
+
+1. Client detects drop via TCP-layer close OR keepalive timeout
+2. Client reconnects per 011 §FR-014 (exponential backoff, max ~30 s)
+3. On reconnect, the orchestrator emits `state_snapshot` (per 011 §FR-005) with full session state at the new connection's TURN_AT_CONNECT
+4. Client UI silently re-renders from the snapshot; no missed events surface as user-visible gaps (the snapshot is the source of truth)
+
+Operator observability: `routing_log` per-turn rows are unaffected by client connection state — turn dispatch continues regardless of subscribers.
+
+### Partial DB outage
+
+Orchestrator unable to reach DB for a sustained window (e.g., 30 s):
+
+- SSE / WS connections stay OPEN (TCP-layer alive; FastAPI keepalive)
+- No turn events broadcast (turn-loop coroutine blocks on DB I/O per 003 §FR-021)
+- API tool calls receive 5xx responses (FastAPI exception handler per FR-014)
+- On recovery: turn-loop resumes; clients see fresh events without reconnect
+
+Phase 3 trigger: any deployment requiring a "DB unavailable" client signal. Implementation: periodic heartbeat event with `connection_status='degraded'` flag during DB-unavailable periods.
+
+### SSE wedging beyond cap
+
+Bounded resource cost per FR-019 + FR-013:
+
+- Subscriber cap: 64 per session (FR-019)
+- Per-subscriber queue cap: 256 events (FR-013)
+- Per-event size: ~1 KB
+- **Memory ceiling**: 64 × 256 × 1 KB ≈ 16 MB per session
+
+Aggregate behavior under sustained wedging: each wedged consumer's queue fills; broadcast `put_nowait` silently drops; consumer eventually times out at TCP layer (uvicorn keepalive ~75 s default) and is removed from subscriber list. New connections within the cap proceed normally.
+
+### Graceful shutdown
+
+On SIGTERM:
+
+1. uvicorn graceful-shutdown signal (default `--timeout-graceful-shutdown 30s`)
+2. In-flight HTTP requests finish or abort at deadline
+3. SSE streams receive TCP FIN when listener closes
+4. Clients reconnect via 011 §FR-014 backoff once a new instance accepts connections
+5. Loop coroutines cancelled (cross-ref 003 §FR-021 + 003 Reliability "Loop lifecycle")
+
+RTO for MCP-server restart-to-first-event ~5–10 s (boot sequence in runbook §1.4).
+
+### Subscriber-count behavior on restart
+
+All SSE / WS connections close on shutdown. Subscriber-count counters (in-process) reset to zero on startup. Clients reconnect; each reconnection triggers a fresh `state_snapshot` (no stale-counter handoff between instances).
+
+Phase 3 multi-instance trigger: subscriber-count externalization to Redis OR sticky-session affinity ensures clients reach the same instance across deploy.
+
+### FastAPI exception-handler ordering (FR-014)
+
+Verified ordering under FastAPI's handler resolution:
+
+1. `RequestValidationError` → FastAPI's default 422 handler
+2. `HTTPException` → FastAPI's typed-response handler (returns the configured status code + detail)
+3. Any other `Exception` → 006 FR-014 global handler (generic 500 + ScrubFilter-routed traceback log)
+
+No earlier handler intercepts uncaught exceptions. The global Exception handler is the catch-all per FR-014.
+
+### Network-partition behavior
+
+| Partition | Symptom | Recovery |
+|---|---|---|
+| Orchestrator OK, DB unreachable | 5xx on API calls; SSE stays open but no events | Resumes when DB recovers; no client action needed |
+| DB OK, orchestrator unreachable | Client reconnect attempts fail | Resumes when orchestrator recovers; client backoff per 011 §FR-014 |
+| Both reachable, network-glitch between client and orchestrator | Client reconnects via 011 §FR-014 | Transparent to user |
+
+Operator observability: `/health` endpoint returns 200 only when both orchestrator and DB are reachable (Phase 1). Future `/readyz` (Phase 3) provides finer-grained signal.
+
+### Healthz / readyz (Phase 3)
+
+Phase 1 ships `/health` (FR-018 / runbook §1.5). Differentiated endpoints deferred:
+
+- `/healthz` — liveness (always 200 if process alive). For k8s liveness probes.
+- `/readyz` — readiness (200 only after DB pool ready + alembic head matches + `_validate_and_persist` smoke-test passes). For k8s readiness probes.
+
+Phase 3 trigger: any deployment requiring k8s-style health probes that need liveness vs. readiness distinction. Implementation: split `/health` into the two endpoints with the documented contracts.
+
+### Chaos-testing surface
+
+Phase 1 has no fault-injection harness for MCP-server failure modes. Cross-cutting with 003 + 005 reliability — see 003 Reliability "Chaos-testing surface" for the consolidated Phase 3 trigger.
+
+### RTO / RPO
+
+- **RTO**: ~5–10 s MCP-server restart-to-first-event (boot sequence runbook §1.4)
+- **RPO**: zero for committed turns. In-flight requests abandoned on shutdown; transactional rollback ensures no partial state.
+- DB failover RTO: operator's HA stack responsibility (cross-ref 001 Operations + runbook §10.4)
+
+### Cross-references
+
+- `docs/operational-runbook.md` — operator playbook (§10 DB ops, §13 Web UI ops cover overlap)
+- 001 Operations section — DB-level ops (sister)
+- 003 Reliability section — turn-loop reliability (sister)
+- 003 §FR-021 — loop never halts
+- 005 Reliability section — summarization reliability (sister)
+- 006 FR-013 — SSE per-subscriber bounded queue
+- 006 FR-014 — uncaught-exception generic-500 contract
+- 006 FR-018 — request log + `/health` endpoint
+- 006 FR-019 — per-session subscriber cap
+- 006 FR-020 — request_id correlation
+- 011 §FR-005 — state_snapshot on reconnect
+- 011 §FR-014 — WebSocket auto-reconnect
 
 ## Audit closeout (2026-04-29)
 
