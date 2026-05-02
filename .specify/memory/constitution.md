@@ -1,6 +1,27 @@
 <!--
 Sync Impact Report (most recent first)
 
+  Version change: 0.7.3 → 0.7.4 (2026-05-01)
+  Change type: PATCH — constitution-adherence audit sweep; ADR 0001 materialised; spec 012 topology section added
+  Modified principles: none
+  Added references:
+    - docs/adr/0001-fire-and-forget-summarization.md (first ADR; listed in §13 since v0.7.2, now created)
+  Added sections: none
+  Removed sections: none
+  Audit findings (fix/constitution-adherence):
+    - §3 topology: 11/12 specs compliant; spec 012 was missing — resolved in this PR
+    - §8 AI-specific security: all relevant specs reference §8 or its downstream specs (007, 008) — compliant
+    - §9 security boundaries: 002, 006, 009, 011 document security boundaries — compliant
+    - §10 classifier scope: 003 §FR-017 aligns with §10 pattern-matching-only constraint — compliant
+    - §11 line/arg limits: spot-checked; no violations in Phase B amendments — compliant
+    - §13 doc references: docs/adr/0001 was listed but not created — resolved; all other §13 docs exist
+    - §14 Phase boundaries: Phase 2→3 boundary documented in §10 and §14.7; gating active — compliant
+    - V14 coverage: 003/007 hot paths have per-stage timing (PRs #172/#186/#209) — compliant
+    - V15 coverage: 007 §FR-013 fail-closed, 008 canary fail-closed — compliant
+    - V16 coverage: 13 validators in src/config/validators.py cover all consumed vars; SACP_CONVERGENCE_THRESHOLD + SACP_TURN_TIMEOUT_SECONDS deferred to Phase E (documented gaps, not blocking)
+    - Amendment traceability: §4.9 resolution reflected in 007 §FR-005 and 012 Clarifications — compliant
+    - Phase 3 readiness gate: §14.7 gating active; no Phase 3 deliverables declared yet (deferred to Phase H closeout)
+
   Version change: 0.7.2 → 0.7.3 (2026-05-01)
   Change type: PATCH — §4.9 placeholder qualifier removed; approach (b) recorded
   Modified principles:
@@ -62,7 +83,7 @@ Sync Impact Report (most recent first)
 
 # SACP Constitution
 
-**Version**: 0.7.3 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-05-01
+**Version**: 0.7.4 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-05-01
 
 ---
 
