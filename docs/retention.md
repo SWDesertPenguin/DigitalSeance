@@ -100,3 +100,70 @@ These metrics are operator-observable; SACP itself does not emit retention-failu
 | `SACP_ROUTING_LOG_RETENTION_DAYS` | Reserved | unset (never delete) | Purge job filters `routing_log` rows older than N days |
 
 All four are reserved env vars — documented but not yet wired to a purge job. The purge job itself lands as a Phase 3+ deliverable; current deployments that need bounded retention run their own external purge query.
+
+The 90-day default cited by 007 SC-009 (security_events) applies once the purge job is wired. Pre-wire, the effective retention is "never delete" regardless of the env var value — Section 1 reflects the as-of-Phase-1 reality.
+
+---
+
+## 8. Content vs. metadata retention
+
+Retention granularity per row vs. column: in some compliance scenarios, a row's content (message body, prompt text, AI response) requires shorter retention than its metadata (timestamp, speaker_id, routing decision) which may be retained longer for analytics.
+
+Phase 1 retention is **per-row**: when a `messages` row is deleted, both the body and the metadata go together. There is no built-in mechanism to scrub `messages.content` while keeping `messages.id`, `messages.speaker_id`, `messages.timestamp`, `messages.cost_usd`, `messages.complexity`. Operators that need this pattern (e.g., "de-identify after N days but keep the audit trail") implement it externally — a scheduled UPDATE that nulls or replaces sensitive columns while leaving the row.
+
+Tables where content-vs-metadata distinction is relevant:
+
+| Table | Content columns | Metadata columns | De-identification feasible? |
+|---|---|---|---|
+| `messages` | `content` | `id`, `branch_id`, `turn_number`, `speaker_id`, `timestamp`, `cost_usd`, `complexity` | Yes — operator UPDATE that nulls `content` |
+| `routing_log` | `reason` (free-form), `error_message` | All routing fields + timings | Yes — operator UPDATE on free-form columns |
+| `summaries` | `decisions`, `open_questions`, `key_positions`, `narrative` | `id`, `session_id`, `created_at`, `turn_window` | Yes — operator UPDATE on text columns |
+| `security_events` | `findings` (JSON list of findings) | `session_id`, `speaker_id`, `turn_number`, `layer`, `risk_score`, `blocked`, `timestamp`, `layer_duration_ms` | Yes — operator UPDATE on `findings` |
+
+Phase 3 trigger: any deployment with regulatory de-identification requirements (e.g., healthcare retention rules requiring de-identification at 6 years, full deletion at 7). Phase 1 deployments treat the row as the retention unit.
+
+---
+
+## 9. Retention test fixtures
+
+Time-traveling tests verify that purge logic correctly identifies rows past their retention TTL. Phase 1 status:
+
+- **Fixture pattern**: a pytest fixture seeds rows with `created_at` set to a past datetime (`datetime.now(UTC) - timedelta(days=N+1)`) where N is the retention TTL.
+- **Test pattern**: invoke the purge query / job, then assert (a) rows older than the TTL are deleted, (b) rows within the TTL survive, (c) the parent table's row count matches expectations.
+- **Coverage status**: NOT YET WIRED in Phase 1 — the purge jobs themselves do not exist (Section 7), so test fixtures are deferred until the jobs land. Phase 3 trigger: alongside the first purge-job implementation.
+- **Anti-pattern**: never use `time.sleep` or wall-clock manipulation to age rows. Backdate `created_at` directly via INSERT — deterministic and fast.
+
+Recommended location when wired: `tests/fixtures/retention/<table>_aged_seed.py` with a parameterized age delta.
+
+---
+
+## 10. Constitution + spec cross-references
+
+The "indefinite by default + operator-driven purge with reserved env var" pattern originated in **001 §FR-019** for `admin_audit_log`. Tables that follow this pattern (the "001 §FR-019 retention pattern"):
+
+| Table | Pattern source | Reserved env var |
+|---|---|---|
+| `admin_audit_log` | Canonical (001 §FR-019) | `SACP_AUDIT_RETENTION_DAYS` |
+| `security_events` | Inherits (007 SC-009) | `SACP_SECURITY_EVENTS_RETENTION_DAYS` |
+| `usage_log` | Inherits | `SACP_USAGE_LOG_RETENTION_DAYS` |
+| `routing_log` | Inherits | `SACP_ROUTING_LOG_RETENTION_DAYS` |
+
+Tables that intentionally DO NOT follow this pattern:
+
+| Table | Why not |
+|---|---|
+| `convergence_log` | Session-scoped diagnostic data; retention beyond the session has no analytics value worth the storage cost |
+| `messages` | Canonical transcript; treated as the unit-of-truth for the session — bound to session lifetime |
+| `summaries` | Derived from messages; same lifecycle |
+| `participants`, `branches`, `votes`, `proposals`, `interrupt_queue`, `review_gate_drafts`, `invites` | Operational state; tied to session lifetime via FK cascade |
+
+Per-spec retention sections that reference this doc:
+
+- 001 §FR-019 — admin_audit_log retention pattern (canonical)
+- 001 §FR-020 — encryption-at-rest scope (Phase 1 covers `api_key_encrypted` only)
+- 002 Compliance / Privacy → "Personal data inventory" (auth-token + bound_ip retention)
+- 003 Compliance / Privacy → "Retention" (routing_log + usage_log)
+- 007 SC-009 → security_events 90-day default (post-wire) + reserved env var
+- 007 Compliance / Privacy → Art. 33 breach-notification timing record (security_events as canonical)
+- 010 Compliance / Privacy → encryption-at-rest boundary + export-as-PII handling
+- 011 Compliance / Privacy → CSP-report log retention
