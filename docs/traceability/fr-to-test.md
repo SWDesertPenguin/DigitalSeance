@@ -164,3 +164,24 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-021 | tests/test_corpus_fixtures.py | Adversarial corpus coverage per category |
 | FR-022 | untested | pipeline_total_ms metric deferred to Phase 3 operations audit |
 | FR-023 | untested | LLM-as-judge deferred (Phase 3); trigger: when NoOpJudge replaced |
+
+---
+
+## 009-rate-limiting
+
+| FR | Test path(s) | Notes |
+|---|---|---|
+| FR-001 | tests/test_rate_limiter.py | Sliding window per-participant; within-limit passes |
+| FR-002 | tests/test_rate_limiter.py, tests/test_009_testability.py | 429 raised over limit; SC-004 body-shape pinned (no internal state leaked) |
+| FR-003 | tests/test_rate_limiter.py, tests/test_009_testability.py | Retry-After present + delta-seconds form; reflects oldest-timestamp expiry not full window |
+| FR-004 | tests/test_rate_limiter.py | Per-participant isolation: A's limit does not affect B |
+| FR-005 | untested | In-memory only by construction (no persistence layer); restart resets all buckets |
+| FR-006 | tests/test_009_testability.py | Limiter only invoked from get_current_participant; auth-gated paths only |
+| FR-007 | tests/test_rate_limiter.py, tests/test_009_testability.py | Cap + lazy stale-bucket eviction; only stale buckets evicted; recent ones survive |
+| FR-008 | tests/test_009_testability.py | Concurrent check() under asyncio gather respects limit exactly (atomicity smoke) |
+| FR-009 | tests/test_009_testability.py | Bucket persists across simulated token rotation (keyed on participant_id) |
+| FR-010 | tests/test_009_testability.py | Health-check / unauthenticated paths bypass limiter by routing |
+| FR-011 | untested | Per-check latency P95 ≤ 1ms is a perf SLO; trigger: Phase 3 perf benchmark gate |
+| FR-012 | tests/test_009_testability.py | 429-counter capture deferred; marker pins activation trigger (rate_limit_429_total attribute) |
+| FR-013 | tests/test_009_testability.py | Sweep ≤1/sec throttle deferred; marker pins activation trigger (_last_sweep_ts attribute) |
+| FR-014 | untested | Memory-ceiling estimate (10MB at default cap); trigger: Phase E ops capacity-planning audit |
