@@ -7,6 +7,18 @@
 
 ## Clarifications
 
+### Session 2026-05-02 (audit fix/007-operations — Phase E)
+
+- Q: How is the `security_events` retention purge job scheduled? → A: Phase 1 has no scheduled purge — `SACP_SECURITY_EVENTS_RETENTION_DAYS` is reserved (see `docs/retention.md` §7); the SC-009 90-day default applies post-wire. Pre-wire, operators with hard-cap retention run an external query (runbook §2.5).
+
+- Q: What's the deploy-time validation for pattern-list integrity? → A: Phase 1 pattern modules import at orchestrator startup (`from src.security.sanitizer import ...`); a regex compile error fails import and the orchestrator exits non-zero before binding any port. There is no separate "validate patterns" CLI flag. Phase 3 trigger: any deployment wanting explicit pre-flight validation; implementation: a `--validate-patterns-only` flag analogous to `--validate-config-only`.
+
+- Q: How is LLM-as-judge enabled / disabled per deployment? → A: Phase 1 ships `NoOpJudge` (default) per Assumptions; the active-judge implementation is deferred. When wired (FR-023), the activation surface will be `SACP_LLM_JUDGE_ENABLED` + per-deployment judge-model config (`SACP_LLM_JUDGE_MODEL`). Until then, the layer is structurally present but always returns `risk_score=0`. Trigger: any FR-019 false-positive-rate breach OR cost-of-judge-call drop below ~$0.001 / evaluation.
+
+- Q: What's the false-positive feedback loop? → A: Operator observes elevated `security_events.blocked=false` rate per layer (runbook §4.1 alert), opens a tracking issue, and routes the offending pattern through the documented update workflow (`docs/pattern-list-update-workflow.md`). The workflow's regression-test requirement ensures the revision doesn't regress existing patterns.
+
+- Q: What pipeline-bypass paths exist? → A: Production AI dispatch flows through `_validate_and_persist`; the pipeline always runs on that path (FR-013, SC-007). Out-of-scope bypasses: (a) direct DB INSERTs (operator-controlled), (b) the 010 debug-export endpoint (read-only, no AI dispatch), (c) test fixtures (per-test isolation). Operators MUST NOT extend production code paths in ways that bypass `_validate_and_persist`. Cross-ref 008 §FR-010 sanitize-recursion path runs through the same root-logger ScrubFilter.
+
 ### Session 2026-05-02 (audit fix/007-compliance — Phase D)
 
 - Q: Does FR-008 PII detection cover names, SSNs, medical codes, financial identifiers? → A: No. Phase 1 PII detection is credential-only (API-key prefixes for OpenAI / Anthropic / Gemini / Groq, JWTs, Fernet tokens). NER, government identifiers, medical / financial codes are documented compliance gaps. Phase 3 trigger: any deployment for regulated-data use cases (healthcare under HIPAA, finance under GLBA/PCI-DSS, EU public-sector data under sectoral rules). See Compliance / Privacy section.
@@ -298,6 +310,77 @@ The Art. 32 "appropriate technical measures" for confidentiality are layered acr
 - 002 §FR-A1, §FR-004 — bcrypt pseudonymisation + log-scrubbing posture for tokens
 - 003 Compliance / Privacy section — Art. 28 processor disclosure (sister)
 - 010 spec — debug-export tool (operator-mediated SAR fulfilment surface)
+
+## Operations (Phase E fix/007-operations, 2026-05-02)
+
+This section documents 007's operator-facing decisions for the security pipeline. Operator playbook lives in `docs/operational-runbook.md` §4 (incident response), §7 (pattern-list workflow), and §13 (security pipeline ops, new).
+
+### security_events monitoring
+
+Operator alert thresholds (advisory; operator's alerting infrastructure enforces):
+
+| Alert | Source | Threshold | Action |
+|---|---|---|---|
+| FP rate spike per layer | `security_events WHERE blocked=false` insert rate | 5× rolling 24h baseline | Triage runbook §4.1 |
+| Layer-error spike | `security_events WHERE layer='pipeline_error'` insert rate | ≥3 per session per hour | Triage runbook §4.2 |
+| Canary leakage | `security_events WHERE layer='output_validator' AND findings ~ 'canary'` | Any | Triage runbook §4.3 (high severity) |
+| Retention growth | row-count growth without configured purge | per `docs/retention.md` §6 | Confirm purge job (or accept indefinite) |
+
+Retention purge: SC-009 90-day default applies post-wire only; pre-wire reality is "never delete" (see `docs/retention.md` §10 cross-references). Operator-driven query example in runbook §2.5.
+
+### Pattern-list update workflow (FR-017)
+
+Canonical workflow: `docs/pattern-list-update-workflow.md` (012 US8 deliverable). Roles:
+
+- **Pattern reviewer**: maintains `src/security/*.py` modules; reviews each PR for pattern correctness + regression-test coverage
+- **Red-team runbook maintainer**: appends incident entries to `docs/red-team-runbook.md` (local-only) when patterns ship
+- **Cadence**: incident-driven (no scheduled review); FR-017 mandates "within one PR cycle" of a confirmed incident
+
+Regression-test requirement: every pattern-list PR MUST add a regression test against `tests/fixtures/adversarial_corpus.txt` (012 US1) AND verify zero new false positives against `tests/fixtures/benign_corpus.txt`. The corpora are the canonical regression-test surface.
+
+### Pipeline-bypass paths
+
+Production AI dispatch flows through `_validate_and_persist`; the pipeline always runs on that path (FR-013, SC-007). Out-of-scope bypasses:
+
+| Path | Status | Rationale |
+|---|---|---|
+| Direct DB INSERTs | Operator-controlled | Outside SACP's enforcement boundary |
+| 010 debug-export | Read-only | No AI dispatch; trust-at-source via 007 §FR-008 redaction |
+| Test fixtures | Per-test isolation | Production code does not import test fixtures |
+| 008 sanitize-recursion path | Same root-logger ScrubFilter | Cross-ref 008 §FR-010 |
+| 005 summary sanitize-recursion | Same root-logger ScrubFilter | Cross-ref 005 §FR-011 |
+
+Operators MUST NOT extend production code paths that dispatch AI without going through `_validate_and_persist`. This is a Phase 1 invariant; future architectural changes must preserve it.
+
+### LLM-as-judge feature flag (FR-023, deferred)
+
+Phase 1 ships `NoOpJudge` (returns `risk_score=0` always). Activation surface (when wired):
+
+- `SACP_LLM_JUDGE_ENABLED` (boolean) — gates the layer
+- `SACP_LLM_JUDGE_MODEL` — judge model identifier (e.g., `claude-haiku-4-5`)
+- `SACP_LLM_JUDGE_TIMEOUT_MS` — per-call timeout (default 1500 ms)
+
+Triggers (any of):
+
+1. FR-019 false-positive rate exceeds budget for ≥2 consecutive measurement cycles on benign-corpus
+2. Cost-per-judge-call drops below ~$0.001 at projected production volume
+3. ≥3 confirmed pattern-bypass incidents in any rolling 90-day window (Assumption re-eval triggers)
+
+Aggregate latency contract: pipeline target expands from <50 ms to <2 s when LLM-as-judge is wired (FR-023).
+
+### Pipeline-total-ms metric (FR-022)
+
+`routing_log.pipeline_total_ms` aggregates 007 pipeline + 005 recursive-sanitize + 008 per-message sanitize cost. Operator alert: rolling-window P95 > 100 ms over 5 minutes (Phase 1 budget = 50 ms aggregate; SC-008 per-layer budgets sum to that).
+
+### Cross-references
+
+- `docs/operational-runbook.md` — §4 incident response, §7 pattern-list workflow, §13 security-pipeline ops (new)
+- `docs/pattern-list-update-workflow.md` — canonical workflow (FR-017 + 012 US8)
+- `docs/retention.md` §10 — security_events cross-spec retention pattern
+- 005 §FR-011 — sister sanitize-recursion path
+- 008 §FR-010 — sister sanitize-recursion path
+- 007 §FR-013 — fail-closed contract
+- 007 §FR-014 — layer precedence
 
 ## Audit closeout (2026-04-29)
 
