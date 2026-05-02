@@ -164,3 +164,25 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-021 | tests/test_corpus_fixtures.py | Adversarial corpus coverage per category |
 | FR-022 | untested | pipeline_total_ms metric deferred to Phase 3 operations audit |
 | FR-023 | untested | LLM-as-judge deferred (Phase 3); trigger: when NoOpJudge replaced |
+
+---
+
+## 005-summarization-checkpoints
+
+| FR | Test path(s) | Notes |
+|---|---|---|
+| FR-001 | tests/test_summarizer.py | Threshold trigger fires at and above the configured boundary |
+| FR-002 | tests/test_summarizer.py | Structured JSON output schema enforced before persistence |
+| FR-003 | tests/test_summarizer.py | Cumulative-mode summary appends; audited by message_repo append-only contract |
+| FR-004 | tests/test_summarizer.py | Three-attempt JSON-validity loop in _summarize_with |
+| FR-005 | tests/test_005_testability.py | Facilitator-id attribution; speaker_id is keyword-only kwarg, never literal "system" |
+| FR-006 | tests/test_summarizer.py | Watermark advance to MAX dispatched-turn |
+| FR-007 | tests/test_005_testability.py | Cost-sort puts paid models first; null-cost participants ranked last |
+| FR-008 | tests/test_005_testability.py | Fallback cascade walks cost-sorted candidates on ProviderDispatchError |
+| FR-009 | tests/test_summarizer.py | Watermark advances after successful checkpoint |
+| FR-010 | tests/test_005_testability.py | Loop integration shape: run_checkpoint awaited inside the loop coroutine |
+| FR-011 | tests/test_005_testability.py | Sanitize-recursion across nested JSON; credentials redacted in narrative |
+| FR-012 | tests/test_005_testability.py | Cheapest-participant API key used; cost asymmetry pinned via cost_key contract |
+| FR-013 | tests/test_005_testability.py | UPDATE carries `last_summary_turn < $1` race-guard predicate |
+| FR-014 | tests/test_005_testability.py | Narrative-only fallback shape: empty arrays + raw content as narrative |
+| FR-015 | tests/test_005_testability.py | FK fail-closed on session-deleted-mid-checkpoint deferred to integration audit |
