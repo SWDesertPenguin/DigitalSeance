@@ -50,6 +50,16 @@ out-of-range default.
 - **Source spec(s)**: 002 audit C-02 (HMAC-keyed token lookup)
 - **Note**: Distinct from `SACP_ENCRYPTION_KEY`. Used as the HMAC key for `participants.auth_token_lookup`. Rotate by re-issuing every active token (force re-login).
 
+### `SACP_WEB_UI_COOKIE_KEY`
+
+- **Default**: `<required>`
+- **Type**: high-entropy random string (>= 32 chars)
+- **Valid range**: `len() >= 32` AND not equal to any documented placeholder
+- **Blast radius on invalid**: orchestrator refuses to bind ports; Web UI cannot sign session cookies
+- **Validation rule**: `validators.validate_web_ui_cookie_key`
+- **Source spec(s)**: 011 audit M-02 (independent cookie-signing key)
+- **Note**: Distinct from `SACP_ENCRYPTION_KEY`. A leak of either secret no longer compromises both at-rest API-key encryption AND session-cookie integrity. Rotate by invalidating all active cookies (force re-login) — process restarts already do this since the server-side session store is in-memory.
+
 ### `SACP_CONTEXT_MAX_TURNS`
 
 - **Default**: `20`
