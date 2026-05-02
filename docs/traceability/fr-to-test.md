@@ -5,7 +5,36 @@ each opt-in spec maps to ≥1 named test path, or carries an `untested` tag with
 a non-empty trigger note. Specs absent from this file are skipped by the CI
 gate (incremental hand-curation per T021).
 
-Format per row: `| FR-NN | test path(s) or `untested: <trigger>` |`
+Format per row: `| FR-NN | test path(s) | Notes |`
+
+---
+
+## 001-core-data-model
+
+| FR | Test path(s) | Notes |
+|---|---|---|
+| FR-001 | tests/test_session_crud.py | Session creation + main branch atomicity |
+| FR-002 | tests/test_session_crud.py | Facilitator participant created on session create |
+| FR-003 | tests/test_participant.py | Participant record persistence |
+| FR-004 | tests/test_participant.py | API key encrypted at rest; decrypt_value round-trip |
+| FR-005 | tests/test_participant.py | Auth token hashed (bcrypt); hash stored not plaintext |
+| FR-006 | tests/test_messages.py | Sequential turn numbering + advisory-lock serialization |
+| FR-007 | tests/test_001_testability.py | MessageRepository has no update_*/delete_* methods |
+| FR-008 | tests/test_001_testability.py | LogRepository has no update_*/delete_* methods |
+| FR-009 | untested | FK constraints enforced in schema; trigger: add FK violation scenario test in Phase E |
+| FR-010 | tests/test_lifecycle.py, tests/test_001_testability.py | All valid transitions tested; invalid transitions raise InvalidTransitionError |
+| FR-011 | tests/test_lifecycle.py | Atomic deletion removes messages + participants; audit log preserved |
+| FR-012 | tests/test_invites.py | Invite token hashed; plaintext returned once |
+| FR-013 | untested | Proposal + voting schema present; trigger: add proposal lifecycle tests in fix/001-testability Phase F |
+| FR-014 | untested | Interrupt queue schema present; trigger: fix/001-testability Phase F |
+| FR-015 | untested | Review gate draft schema present; trigger: fix/011-testability covers the review-gate flow |
+| FR-016 | tests/test_departure.py | depart_participant overwrites api_key_encrypted + nulls token |
+| FR-017 | tests/test_001_testability.py | Migration 008 forward-only pass downgrade; all migrations define downgrade() |
+| FR-018 | untested | Message tree (parent_turn, branch_id) schema present; trigger: branching feature Phase 3 |
+| FR-019 | tests/test_lifecycle.py | admin_audit_log survives delete_session (denormalized, no FK) |
+| FR-020 | tests/test_encryption.py | encrypt_value + decrypt_value; EncryptionKeyMissingError on missing key |
+| FR-021 | tests/test_001_testability.py | Wrong-key decrypt raises cryptography.fernet.InvalidToken |
+| FR-022 | tests/test_001_testability.py | MessageRepository + LogRepository have no mutation methods |
 
 ---
 
