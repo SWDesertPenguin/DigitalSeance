@@ -2,17 +2,27 @@
 
 The UI never stores bearer tokens in JS-accessible storage. On login
 the server validates the token via Phase 1's AuthService, then issues
-an HttpOnly + Secure + SameSite=Strict cookie bound to
-(participant_id, session_id, expiry). Subsequent requests read the
-cookie, look up the participant, and enforce the CSRF header
-``X-SACP-Request: 1`` on every mutation.
+an HttpOnly + Secure + SameSite=Strict cookie carrying an opaque
+session id. The bearer + (participant_id, session_id) binding lives
+in a process-local server-side store keyed by that sid; the cookie
+itself is signed for integrity but contains no participant data and
+no bearer.
+
+Audit H-02 / M-08: pre-fix the cookie payload was a base64-readable
+JSON blob containing the bearer. Cookie-jar exfiltration (compromised
+endpoint, malicious extension, downgraded-link intercept) lifted the
+bearer directly. Audit M-02: the signing key reused
+``SACP_ENCRYPTION_KEY`` (the at-rest API-key encryption secret), so a
+leak of either key gave an attacker both forgery and decryption
+capabilities.
+
+Subsequent requests read the cookie, look up the sid, and enforce the
+CSRF header ``X-SACP-Request: 1`` on every mutation.
 """
 
 from __future__ import annotations
 
-import json
 import os
-from datetime import UTC, datetime
 from typing import Annotated
 
 import itsdangerous
@@ -26,6 +36,7 @@ from src.repositories.errors import (
     TokenExpiredError,
     TokenInvalidError,
 )
+from src.web_ui.session_store import SessionEntry, SessionStore, get_session_store
 
 COOKIE_NAME = "sacp_ui_token"
 COOKIE_MAX_AGE_SECONDS = 60 * 60 * 8  # 8h session window; refresh on each login
@@ -41,49 +52,54 @@ class _LoginBody(BaseModel):
 
 
 def _signer() -> itsdangerous.URLSafeTimedSerializer:
-    """Cookie signer seeded from the orchestrator encryption key.
+    """Cookie signer seeded from the dedicated Web UI cookie key.
 
-    Why: reusing the existing SACP_ENCRYPTION_KEY means there is no new
-    secret to manage. The cookie value still doesn't contain the
-    participant's bearer token — only their id + session binding.
+    Why: SACP_WEB_UI_COOKIE_KEY is independent from SACP_ENCRYPTION_KEY
+    so a leak of either secret does not compromise both the at-rest
+    API-key encryption and session-cookie integrity. Audit M-02.
     """
-    secret = os.environ.get("SACP_ENCRYPTION_KEY")
+    secret = os.environ.get("SACP_WEB_UI_COOKIE_KEY")
     if not secret:
-        raise RuntimeError("SACP_ENCRYPTION_KEY must be set for Web UI cookies")
-    return itsdangerous.URLSafeTimedSerializer(secret, salt="sacp-ui-cookie-v1")
+        raise RuntimeError("SACP_WEB_UI_COOKIE_KEY must be set for Web UI cookies")
+    return itsdangerous.URLSafeTimedSerializer(secret, salt="sacp-ui-cookie-v2")
 
 
-def _make_cookie_value(participant_id: str, session_id: str, token: str) -> str:
-    """Sign a cookie payload binding the browser to participant+session+bearer.
+def _make_cookie_value(sid: str) -> str:
+    """Sign a cookie payload that carries only the opaque sid.
 
-    Storing the bearer in the signed+HttpOnly+Secure+SameSite=Strict cookie
-    lets /me restore the SPA's in-memory token after refresh without
-    rotating the persistent bearer. Rotating on /me invalidated the
-    user's original token, so after logout they couldn't log back in.
+    The payload is a dict (rather than the raw sid string) so future
+    additions (e.g. an issued-at marker) don't require a third format
+    migration; clients that decode the signature still get a stable
+    shape. URLSafeTimedSerializer JSON-encodes the dict before signing.
     """
-    payload = {
-        "pid": participant_id,
-        "sid": session_id,
-        "tok": token,
-        "issued_at": datetime.now(tz=UTC).isoformat(),
-    }
-    return _signer().dumps(json.dumps(payload))
+    return _signer().dumps({"sid": sid})
 
 
-def _parse_cookie_value(signed: str) -> dict:
-    """Verify signature + TTL, return decoded payload, else raise."""
+def _parse_cookie_value(signed: str) -> str:
+    """Verify signature + TTL, return the sid, else raise HTTPException."""
     try:
-        raw = _signer().loads(signed, max_age=COOKIE_MAX_AGE_SECONDS)
+        payload = _signer().loads(signed, max_age=COOKIE_MAX_AGE_SECONDS)
     except itsdangerous.SignatureExpired as e:
         raise HTTPException(401, "Session cookie expired") from e
     except itsdangerous.BadSignature as e:
         raise HTTPException(401, "Invalid session cookie") from e
-    return json.loads(raw)
+    sid = payload.get("sid") if isinstance(payload, dict) else None
+    if not isinstance(sid, str) or not sid:
+        raise HTTPException(401, "Invalid session cookie")
+    return sid
 
 
 def _secure_cookie_flag() -> bool:
     """Mark cookies Secure unless explicitly overridden for local dev."""
     return os.environ.get("SACP_WEB_UI_INSECURE_COOKIES", "0") != "1"
+
+
+def _resolve_session_store(request: Request) -> SessionStore:
+    """Return the per-app SessionStore, falling back to the singleton."""
+    store = getattr(request.app.state, "session_store", None)
+    if isinstance(store, SessionStore):
+        return store
+    return get_session_store()
 
 
 @router.post("/login")
@@ -97,7 +113,9 @@ async def login(
     if auth_service is None:
         raise HTTPException(503, "Auth service not available")
     participant = await _authenticate_or_raise(auth_service, body.token, request)
-    _set_session_cookie(response, participant.id, participant.session_id, body.token)
+    store = _resolve_session_store(request)
+    sid = await store.create(participant.id, participant.session_id, body.token)
+    _set_session_cookie(response, sid)
     return {
         "participant_id": participant.id,
         "session_id": participant.session_id,
@@ -128,16 +146,11 @@ async def _authenticate_or_raise(
         raise HTTPException(403, "IP binding mismatch") from None
 
 
-def _set_session_cookie(
-    response: Response,
-    participant_id: str,
-    session_id: str,
-    token: str,
-) -> None:
+def _set_session_cookie(response: Response, sid: str) -> None:
     """Issue the HttpOnly + Secure + SameSite=Strict session cookie."""
     response.set_cookie(
         key=COOKIE_NAME,
-        value=_make_cookie_value(participant_id, session_id, token),
+        value=_make_cookie_value(sid),
         max_age=COOKIE_MAX_AGE_SECONDS,
         httponly=True,
         secure=_secure_cookie_flag(),
@@ -147,8 +160,19 @@ def _set_session_cookie(
 
 
 @router.post("/logout")
-async def logout(response: Response) -> dict:
-    """Clear the session cookie (same attrs as on issue)."""
+async def logout(
+    request: Request,
+    response: Response,
+    sacp_ui_token: Annotated[str | None, Cookie()] = None,
+) -> dict:
+    """Drop the server-side session entry and clear the cookie."""
+    if sacp_ui_token:
+        try:
+            sid = _parse_cookie_value(sacp_ui_token)
+        except HTTPException:
+            sid = None
+        if sid:
+            await _resolve_session_store(request).delete(sid)
     response.delete_cookie(
         key=COOKIE_NAME,
         path="/",
@@ -162,26 +186,38 @@ async def logout(response: Response) -> dict:
 _INACTIVE_STATUSES = frozenset({"removed", "offline", "reset"})
 
 
+async def _resolve_session_entry(
+    request: Request,
+    sacp_ui_token: str | None,
+) -> SessionEntry:
+    """Cookie sid → store entry, with closed-fail translation to 401."""
+    if not sacp_ui_token:
+        raise HTTPException(401, "Not authenticated")
+    sid = _parse_cookie_value(sacp_ui_token)
+    entry = await _resolve_session_store(request).get(sid)
+    if entry is None:
+        raise HTTPException(401, "Session expired")
+    return entry
+
+
 async def get_current_ui_participant(
     request: Request,
     sacp_ui_token: Annotated[str | None, Cookie()] = None,
 ) -> Participant:
-    """FastAPI dependency: resolve the cookie to a Participant row.
+    """FastAPI dependency: resolve the cookie + sid to a Participant row.
 
-    Re-validates the embedded bearer + IP binding on every request. A
-    cookie's signature can stay valid for up to 8 hours, but a token
-    rotated via ``rotate_token``, revoked via ``revoke_token``, or whose
-    participant was removed must fail closed immediately rather than
-    grant access until cookie TTL elapses.
+    Re-validates the stored bearer + IP binding on every request. The
+    sid lookup is cheap, but a bearer rotated via ``rotate_token``,
+    revoked via ``revoke_token``, or whose participant was removed
+    must fail closed immediately rather than grant access until the
+    cookie TTL elapses.
     """
-    if not sacp_ui_token:
-        raise HTTPException(401, "Not authenticated")
-    payload = _parse_cookie_value(sacp_ui_token)
+    entry = await _resolve_session_entry(request, sacp_ui_token)
     auth_service = getattr(request.app.state, "auth_service", None)
     if auth_service is None:
         raise HTTPException(503, "Auth service not available")
-    participant = await _authenticate_or_raise(auth_service, payload["tok"], request)
-    if participant.session_id != payload["sid"]:
+    participant = await _authenticate_or_raise(auth_service, entry.bearer, request)
+    if participant.session_id != entry.session_id:
         raise HTTPException(401, "Cookie does not match a current participant")
     if participant.status in _INACTIVE_STATUSES:
         raise HTTPException(401, "Participant is no longer active")
@@ -193,21 +229,24 @@ UiParticipant = Annotated[Participant, Depends(get_current_ui_participant)]
 
 @router.get("/me")
 async def whoami(
+    request: Request,
     sacp_ui_token: Annotated[str | None, Cookie()] = None,
     participant: Participant = Depends(get_current_ui_participant),
 ) -> dict:
     """Restore session state on page refresh.
 
-    The HttpOnly cookie carries the bearer so the SPA can re-hydrate
-    after F5 without rotating the user's persistent token. Previous
-    behavior rotated on every /me which invalidated the user's copy of
-    the token — so after logout they could not log back in.
+    The bearer field is sourced from the server-side session store —
+    the cookie itself no longer carries the token. The SPA still needs
+    the bearer in JS memory for cross-origin MCP API calls; eliminating
+    that dependency requires a same-origin proxy refactor (deferred).
+    Until then /me returning the stored bearer keeps the F5 hydration
+    path working without rotating the user's persistent token.
     """
-    payload = _parse_cookie_value(sacp_ui_token) if sacp_ui_token else {}
+    entry = await _resolve_session_entry(request, sacp_ui_token)
     return {
         "participant_id": participant.id,
         "session_id": participant.session_id,
         "role": participant.role,
-        "token": payload.get("tok", ""),
+        "token": entry.bearer,
         "expires_in": COOKIE_MAX_AGE_SECONDS,
     }
