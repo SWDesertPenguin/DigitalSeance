@@ -9,7 +9,13 @@ from typing import Any
 
 @dataclass(frozen=True, slots=True)
 class RoutingLog:
-    """Turn-by-turn routing decision record."""
+    """Turn-by-turn routing decision record.
+
+    Per-stage timing fields (003 §FR-030 + §FR-032) are nullable: they
+    are NULL on skip-path rows that never reach dispatch, on rows written
+    before the instrumentation landed, and for ``advisory_lock_wait_ms``
+    on turns that acquired the lock without contention (sub-millisecond).
+    """
 
     id: int
     session_id: str
@@ -21,6 +27,11 @@ class RoutingLog:
     domain_match: bool
     reason: str
     timestamp: datetime
+    route_ms: int | None = None
+    assemble_ms: int | None = None
+    dispatch_ms: int | None = None
+    persist_ms: int | None = None
+    advisory_lock_wait_ms: int | None = None
 
     @classmethod
     def from_record(cls, record: Any) -> RoutingLog:
@@ -70,8 +81,15 @@ class SecurityEvent:
     Persists what each layer caught on a given turn, so attacks can be
     reviewed post-hoc without re-running the pipeline. ``layer`` is one
     of: ``output_validator``, ``exfiltration``, ``jailbreak``,
-    ``prompt_protector``, ``pipeline_error``. ``findings`` is a JSON-
-    encoded list of finding/flag/reason names from the layer.
+    ``prompt_protector``, ``pipeline_error``, ``facilitator_override``.
+    ``findings`` is a JSON-encoded list of finding/flag/reason names from
+    the layer.
+
+    Spec 012 FR-006 (§4.9 approach (b)): when a facilitator explicitly
+    overrides a flagged draft, a row is appended with
+    ``layer="facilitator_override"``, ``blocked=False``,
+    ``override_reason`` (the stated justification), and
+    ``override_actor_id`` (the facilitator's participant id).
     """
 
     id: int
@@ -83,6 +101,9 @@ class SecurityEvent:
     findings: str
     blocked: bool
     timestamp: datetime
+    layer_duration_ms: int | None = None
+    override_reason: str | None = None
+    override_actor_id: str | None = None
 
     @classmethod
     def from_record(cls, record: Any) -> SecurityEvent:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -10,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
 from src.orchestrator.branch import get_main_branch_id
+from src.orchestrator.loop import run_security_pipeline
 
 router = APIRouter(prefix="/tools/facilitator", tags=["facilitator"])
 
@@ -1139,9 +1141,16 @@ async def list_drafts(
 
 
 class _DraftIdBody(BaseModel):
-    """Request body referencing a staged draft."""
+    """Request body for approving a staged draft verbatim.
+
+    ``override_reason`` is required when the draft content re-flags the
+    security pipeline on re-validation (spec 012 FR-006 / Constitution
+    §4.9 approach (b)). The endpoint returns 422 when the content still
+    flags and no justification is supplied.
+    """
 
     draft_id: str
+    override_reason: str | None = Field(None, max_length=1024)
 
 
 class _RejectDraftBody(BaseModel):
@@ -1152,10 +1161,17 @@ class _RejectDraftBody(BaseModel):
 
 
 class _EditDraftBody(BaseModel):
-    """Request body for editing a draft before approval."""
+    """Request body for editing a draft before approval.
+
+    ``override_reason`` is required when the *edited* content still
+    re-flags the pipeline after the facilitator's changes (spec 012
+    FR-006). If the edit removes the flagged content the endpoint
+    proceeds without a justification.
+    """
 
     draft_id: str
     edited_content: str = Field(..., min_length=1, max_length=_MAX_FACILITATOR_EDIT_CHARS)
+    override_reason: str | None = Field(None, max_length=1024)
 
 
 @router.post("/approve_draft")
@@ -1164,8 +1180,20 @@ async def approve_draft(
     body: _DraftIdBody,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Approve a staged draft: write to transcript, resolve as approved."""
+    """Approve a staged draft; re-run the security pipeline first.
+
+    Spec 012 FR-006 / Constitution §4.9 approach (b): defenses do not
+    cease at role boundary. The draft content is re-validated before
+    persisting. If it re-flags:
+      - No override_reason → 422 (facilitator must justify or reject)
+      - override_reason present → persist + log facilitator_override row
+    If it passes the pipeline on re-run → persist normally (no override
+    row needed).
+    """
     draft = await _require_pending_draft(request, body.draft_id, participant.session_id)
+    await _repipeline_or_raise(
+        request, participant, draft.draft_content, draft, body.override_reason
+    )
     gate_repo = request.app.state.review_gate_repo
     await gate_repo.resolve(draft.id, resolution="approved")
     msg = await _append_draft_to_transcript(request, draft, draft.draft_content)
@@ -1201,22 +1229,70 @@ async def edit_draft(
     body: _EditDraftBody,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Edit and approve a staged draft: write edited content to transcript."""
+    """Edit and approve a staged draft; re-run the pipeline on edited content.
+
+    Spec 012 FR-006 / Constitution §4.9 approach (b): the edited content
+    is re-validated before persisting. If it still flags and the
+    facilitator supplies override_reason, the override is logged and the
+    content is persisted. If it still flags with no justification → 422.
+    If the edit resolves the flags, the content is persisted as cleaned.
+    """
     draft = await _require_pending_draft(request, body.draft_id, participant.session_id)
+    content_to_persist = await _repipeline_or_raise(
+        request, participant, body.edited_content, draft, body.override_reason
+    )
     gate_repo = request.app.state.review_gate_repo
-    await gate_repo.resolve(draft.id, resolution="edited", edited_content=body.edited_content)
-    msg = await _append_draft_to_transcript(request, draft, body.edited_content)
+    await gate_repo.resolve(draft.id, resolution="edited", edited_content=content_to_persist)
+    msg = await _append_draft_to_transcript(request, draft, content_to_persist)
     await _log_gate_action(
         request,
         participant,
         "review_gate_edit",
         draft.id,
-        {"previous": draft.draft_content, "new": body.edited_content},
+        {"previous": draft.draft_content, "new": content_to_persist},
     )
     _skip_in_rotation(request, draft)
     await _restore_routing_after_gate(request, draft, participant.session_id)
     await _emit_resolved(participant.session_id, draft.id, "edited", msg.turn_number)
     return {"status": "edited", "draft_id": draft.id, "turn_number": msg.turn_number}
+
+
+async def _repipeline_or_raise(
+    request: Request,
+    participant: Participant,
+    content: str,
+    draft: object,
+    override_reason: str | None,
+) -> str:
+    """Re-run security pipeline; raise 422 or log override; return content.
+
+    Implements Constitution §4.9 approach (b):
+    * Pipeline passes → return cleaned content (sanitization preserved).
+    * Pipeline flags + no override_reason → 422.
+    * Pipeline flags + override_reason → log facilitator_override row,
+      return original content (facilitator owns the decision).
+    """
+    validation, cleaned, _, _, _ = run_security_pipeline(content)
+    if not validation.blocked:
+        return cleaned
+    if not override_reason:
+        raise HTTPException(
+            422,
+            "Content re-flags the security pipeline; supply override_reason to proceed",
+        )
+    log_repo = request.app.state.log_repo
+    await log_repo.log_security_event(
+        session_id=draft.session_id,
+        speaker_id=participant.id,
+        turn_number=draft.turn_number,
+        layer="facilitator_override",
+        findings=json.dumps(list(validation.findings)),
+        risk_score=validation.risk_score,
+        blocked=False,
+        override_reason=override_reason,
+        override_actor_id=participant.id,
+    )
+    return content
 
 
 async def _restore_routing_after_gate(request: Request, draft: object, session_id: str) -> None:
