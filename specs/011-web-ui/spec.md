@@ -301,6 +301,94 @@ The security-requirements quality audit (`checklists/security.md`) raised 47 fin
 
 **Closed as cross-reference / accepted residual**: CHK002 (CSP `connect-src` operator-config — operators set `SACP_WEB_UI_MCP_ORIGIN`; covered in SR-001), CHK004 (precompile-at-build alternative — accepted residual; SR-001 documents trigger), CHK007 / CHK008 (token storage + rotation timing — covered by 002 §FR-008 + this spec FR-003), CHK010 (token-reveal modal one-time-only — accepted residual; user can re-rotate to recover), CHK011 (WS Origin exact-match — confirmed at `src/web_ui/websocket.py`), CHK012 (close-code semantics — FR-014 enumerates), CHK014 (rotation gap — same as CHK008), CHK015 / CHK017 / CHK018 / CHK046 (markdown defense-in-depth — server (007) + UI (FR-006) layered intentionally), CHK021 (pending → participant escalation timing — covered by `participant_update` WS event + `state_snapshot` re-sync on reconnect), CHK024 (CSRF custom header on mutations only — WS frames don't need it; Origin validation defends), CHK025 (SR-007 own vs other system_prompt — accepted: NO participant sees any system_prompt via WS; allow-list strips them all), CHK026 (markdown XSS test corpus — accepted residual; comprehensive XSS-corpus testing requires JS test framework not in Phase 1+2 scope; manual red-team via `docs/red-team-runbook.md`), CHK027 (own row strip — confirmed at `_participant_dict` allow-list), CHK028 (whitespace-in-token sign-in — accepted residual; token validation handles edge cases), CHK029 (rotation SSOT — covered by 002 §FR-008 + this spec FR-003), CHK030 (XSS test fixture — same as CHK026), CHK031 (WS reconnect under packet loss — covered by FR-014 exponential backoff), CHK034 (multi-tab — accepted residual; cookie shared, last-WS-wins), CHK035 / CHK036 (large / adversarial markdown DoS — accepted residual; client-side bound by browser), CHK037 (clipboard-readText cross-origin — browser policy enforces, not our concern), CHK038 (whitespace-in-token-paste — token validation handles), CHK040 (CDN failure fallback — accepted residual already in Assumptions), CHK041 (a11y deferred — Assumptions trigger documented), CHK042 / CHK043 (Babel Standalone reliance — accepted; precompile trigger documented), CHK044 (US11 / US12 onboarding security review — implicit in this audit), CHK047 (CSRF cross-origin custom header — accepted: browsers prevent custom headers cross-origin; rationale in SR-006).
 
+## Performance budgets (Phase F amendment, 2026-05-02)
+
+These targets pin the Web UI's perceived-latency and rendering contract.
+Cross-referenced from `AUDIT_PLAN.local.md` Batch 4 → 011 web-vitals.
+The full budget configuration is checked in at `.lighthouserc.json` at
+the repo root; it documents the contract and is ready to run via
+`lhci autorun` once the staging fixture lands.
+
+**Core Web Vitals targets.**
+- Largest Contentful Paint (LCP) ≤ 2.5s ("good"); ≤ 4.0s
+  ("needs improvement"); > 4.0s fails the budget.
+- Interaction to Next Paint (INP) ≤ 200ms ("good"); ≤ 500ms
+  ("needs improvement").
+- Cumulative Layout Shift (CLS) ≤ 0.1 ("good"); ≤ 0.25 ("needs
+  improvement").
+
+**Other targets.**
+- First Contentful Paint (FCP) ≤ 1.8s.
+- Time to First Byte (TTFB) ≤ 800ms (LAN deployments will be
+  much lower).
+- Total Blocking Time (TBT) ≤ 200ms.
+- Speed Index ≤ 3.4s.
+- Lighthouse performance / a11y / best-practices score ≥ 0.9.
+
+**Babel Standalone JIT compilation cost.** The SPA uses Babel
+Standalone to transpile JSX in the browser at load time. Cold-load
+cost on a representative laptop: ~400-800ms wall-clock for a single-
+file `app.jsx` of ~2000 lines. This dominates the FCP budget. If the
+file grows past ~3500 lines OR the FCP budget is breached on the
+LAN-deploy reference hardware, the precompile-at-build trigger fires
+(see Assumptions / CHK004). Phase 3+ may move to a precompiled bundle.
+
+**CDN-fetch latency.** The SPA loads Babel Standalone, React, and
+ReactDOM from `cdn.jsdelivr.net` and `unpkg.com`. CDN unavailability
+is an accepted residual: the SPA fails to load, the user sees a
+blank page. Operators with CDN-block constraints MUST self-host the
+three scripts under `/static/vendor/` and update `index.html`; that
+is supported by the existing static-file route but is not the
+default. The CDN add-up budget against TTFB is bounded by browser
+caching after first load.
+
+**Single-file JSX rendering cost.** `app.jsx` ships as one ~2000-line
+file. React's diffing keeps re-render cost bounded by visible-virtual-
+DOM size (not full tree size), so the practical cost is dominated by
+state-snapshot rendering on WS-message arrival. Splitting into
+multiple `<script type="text/babel">` files is a Phase 3 enhancement
+gated on file growing past ~3500 lines OR LCP budget breach.
+
+**WebSocket steady-state perf.** Target: message-arrives-to-rendered
+latency ≤ 100ms P95 on the reference hardware. State-snapshot
+re-renders for unrelated participants should NOT trigger; this is
+enforced by React keys on participant array elements. A regression
+here surfaces as INP budget breach.
+
+**Scroll perf on 200-message transcript.** The Assumption-cap
+transcript size is 200 messages. Scroll perf at this size is
+acceptable without virtualization on a desktop browser. Beyond 200
+messages (Phase 3 trigger), virtualization (e.g., `react-window`)
+becomes mandatory. The perf cliff lands roughly at 400-500 messages
+on a representative laptop.
+
+**Large state-snapshot rendering cost.** A facilitator with 50
+participants + 200 messages + 5 active drafts is the upper-bound
+"realistic large session" shape. Initial render cost on this shape:
+~150-300ms wall-clock against React 18's concurrent renderer. State-
+snapshot diffing on subsequent updates is bounded by what changed
+(usually 1-2 participants OR 1-2 messages), so the steady-state cost
+stays well under the INP budget.
+
+**Sparkline rendering cost (FR-011).** Convergence sparkline today is
+SVG with ~20 data points per session. Cost is negligible (< 5ms per
+render). Canvas was considered and deferred — SVG keeps the dev
+ergonomics (CSS-able, accessible) and the data point count is far
+below the SVG-vs-canvas crossover (~500 points).
+
+**Image-handling perf (FR-006).** The 007 §FR-007 exfiltration filter
+strips markdown images at message persistence; FR-006 of 011 does NOT
+re-render images client-side. Per-message strip cost is constant-time
+regex (~1ms even for very long messages), well within the steady-
+state INP budget.
+
+**Activation trigger.** Lighthouse CI runs are not yet wired into the
+GitHub Actions workflow. Activation requires a staging fixture that
+brings up `web_ui.app` with a seeded session; this is a cross-spec
+integration audit deliverable (Phase 4 / 012 successor). Until then
+operators run `lhci autorun --config=.lighthouserc.json` manually
+against a local instance.
+
 ## Topology and Use Case Coverage (V12/V13)
 
 **Topologies**: Serves topologies 1-6 (orchestrator-driven). Topology 7 (MCP-to-MCP) would use the same WebSocket events but with different auth flow — deferred to Phase 3.
