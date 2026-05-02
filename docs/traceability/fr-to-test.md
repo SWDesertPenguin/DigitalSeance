@@ -186,3 +186,75 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-013 | tests/test_005_testability.py | UPDATE carries `last_summary_turn < $1` race-guard predicate |
 | FR-014 | tests/test_005_testability.py | Narrative-only fallback shape: empty arrays + raw content as narrative |
 | FR-015 | tests/test_005_testability.py | FK fail-closed on session-deleted-mid-checkpoint deferred to integration audit |
+## 004-convergence-cadence
+
+| FR | Test path(s) | Notes |
+|---|---|---|
+| FR-001 | tests/test_loop_integration.py, tests/test_004_testability.py | Embedding computed on AI turns; process_turn returns synchronously |
+| FR-002 | tests/test_logs.py | log_convergence persists embedding + similarity + flags |
+| FR-003 | tests/test_004_testability.py | Window floor of 3; below floor returns 0.0; at/above floor produces real score |
+| FR-004 | tests/test_convergence.py | Threshold-based convergence detection |
+| FR-005 | tests/test_convergence.py, tests/test_004_testability.py | Divergence prompt fires on first sustained convergence; full state-machine walk |
+| FR-006 | tests/test_convergence.py, tests/test_004_testability.py | Escalation after divergence prompt; flag clears on low similarity |
+| FR-007 | tests/test_logs.py | divergence_prompted + escalated_to_human flags persisted |
+| FR-008 | tests/test_cadence.py, tests/test_004_testability.py | Cadence delay monotonic in similarity |
+| FR-009 | tests/test_cadence.py, tests/test_004_testability.py | Sprint (2-15s) and cruise (5-60s) bounds; idle=0 |
+| FR-010 | tests/test_cadence.py, tests/test_004_testability.py | Interjection resets to floor for whichever preset is active |
+| FR-011 | tests/test_adversarial.py, tests/test_004_testability.py | Rotation index walks modulo participant count; zero-participants safe |
+| FR-012 | untested | Routing-log adversarial-rotation row; trigger: cross-spec integration audit |
+| FR-013 | tests/test_004_testability.py | use_safetensors=True kwarg pinned in load_model source; failure leaves _model None |
+| FR-014 | tests/test_004_testability.py | process_turn awaits the executor; no orphan tasks |
+| FR-015 | tests/test_quality.py | N-gram repetition detection (degenerate-output quality signal) |
+| FR-016 | tests/test_004_testability.py | Embedding bytes excluded from debug-export convergence subdump (column-list query in debug.py) |
+| FR-017 | tests/test_004_testability.py | Divergence + adversarial prompt strings pinned; phase-1 overlap accepted residual |
+| FR-018 | tests/test_004_testability.py | Window source is convergence_log only (AI-turn-exclusive) |
+| FR-019 | tests/test_004_testability.py | process_turn returns tuple synchronously (no Task / coroutine leakage) |
+## 010-debug-export
+
+| FR | Test path(s) | Notes |
+|---|---|---|
+| FR-1 | tests/test_mcp_e2e.py | Endpoint reachable as GET /tools/debug/export with session_id |
+| FR-2 | tests/test_mcp_e2e.py | Facilitator-only enforcement; non-facilitator participant returns 403 |
+| FR-3 | untested | Facilitator-A token + session-B id 403; trigger: cross-spec integration audit |
+| FR-4 | tests/test_mcp_e2e.py, tests/test_010_testability.py | Sensitive participant fields stripped; strip-list contents pinned |
+| FR-5 | tests/test_010_testability.py | Empty dicts/lists serialize unchanged via _jsonify |
+| FR-6 | tests/test_010_testability.py | Read-only invariant: SELECT-only queries; one log_admin_action call site |
+| FR-7 | tests/test_010_testability.py | Secret-name pattern guard drops _KEY/_SECRET/_TOKEN/_PASSWORD/_CREDENTIAL/_PASSPHRASE allowlist entries |
+| FR-8 | tests/test_010_testability.py | Audit action string "debug_export" pinned; one call site |
+| FR-9 | tests/test_mcp_app.py, tests/test_010_testability.py | CI heuristic guard + canonical strip-list contents |
+## 009-rate-limiting
+
+| FR | Test path(s) | Notes |
+|---|---|---|
+| FR-001 | tests/test_rate_limiter.py | Sliding window per-participant; within-limit passes |
+| FR-002 | tests/test_rate_limiter.py, tests/test_009_testability.py | 429 raised over limit; SC-004 body-shape pinned (no internal state leaked) |
+| FR-003 | tests/test_rate_limiter.py, tests/test_009_testability.py | Retry-After present + delta-seconds form; reflects oldest-timestamp expiry not full window |
+| FR-004 | tests/test_rate_limiter.py | Per-participant isolation: A's limit does not affect B |
+| FR-005 | untested | In-memory only by construction (no persistence layer); restart resets all buckets |
+| FR-006 | tests/test_009_testability.py | Limiter only invoked from get_current_participant; auth-gated paths only |
+| FR-007 | tests/test_rate_limiter.py, tests/test_009_testability.py | Cap + lazy stale-bucket eviction; only stale buckets evicted; recent ones survive |
+| FR-008 | tests/test_009_testability.py | Concurrent check() under asyncio gather respects limit exactly (atomicity smoke) |
+| FR-009 | tests/test_009_testability.py | Bucket persists across simulated token rotation (keyed on participant_id) |
+| FR-010 | tests/test_009_testability.py | Health-check / unauthenticated paths bypass limiter by routing |
+| FR-011 | untested | Per-check latency P95 ≤ 1ms is a perf SLO; trigger: Phase 3 perf benchmark gate |
+| FR-012 | tests/test_009_testability.py | 429-counter capture deferred; marker pins activation trigger (rate_limit_429_total attribute) |
+| FR-013 | tests/test_009_testability.py | Sweep ≤1/sec throttle deferred; marker pins activation trigger (_last_sweep_ts attribute) |
+| FR-014 | untested | Memory-ceiling estimate (10MB at default cap); trigger: Phase E ops capacity-planning audit |
+## 008-prompts-security-wiring
+
+| FR | Test path(s) | Notes |
+|---|---|---|
+| FR-001 | tests/test_prompt_tiers.py, tests/test_008_testability.py | 4-tier assembly + cumulative-delta containment proof (low subset of mid subset of high subset of max) |
+| FR-002 | tests/test_prompt_tiers.py, tests/test_008_testability.py | Custom-prompt sanitize at participant-update boundary; parametrized matrix over every canonical injection pattern |
+| FR-003 | tests/test_prompt_tiers.py, tests/test_prompt_protector.py, tests/test_008_testability.py | Three 16-char base32 canaries, unique per assembly, anchored start/middle/end, rotated across assemblies |
+| FR-004 | tests/test_sanitizer.py | Sanitization at runtime-message context-assembly boundary (canonical pattern set in 007 §FR-001) |
+| FR-005 | tests/test_spotlighting.py, tests/test_008_testability.py | Same-speaker exemption: AI reading own prior output is sanitized but not tagged or datamarked |
+| FR-006 | tests/test_output_validator.py, tests/test_008_testability.py | Output validation runs in production path via run_security_pipeline; ValidationResult schema |
+| FR-007 | tests/test_exfiltration.py, tests/test_008_testability.py | Exfiltration filter runs in production path; credential redacted by run_security_pipeline |
+| FR-008 | tests/test_review_gate.py, tests/test_review_gate_repipeline.py | High-risk responses staged for review; approve/edit re-pipelines (012 US4) |
+| FR-009 | tests/test_007_security_pipeline_testability.py | Layer evaluation order + fail-closed contract inherited from 007 |
+| FR-010 | untested | Bypass-path scope is structural (production paths flow through _validate_and_persist); trigger: cross-spec integration audit |
+| FR-011 | tests/test_008_testability.py | Tier-text memoization implementation deferred; marker test pins activation trigger (_TIER_CACHE attribute appearance) — replace with cache-hit/miss assertions when impl lands |
+| FR-012 | tests/test_008_testability.py | Custom-prompt sanitize memoization implementation deferred; marker test pins activation trigger (_SANITIZE_CACHE attribute appearance) — replace with cache-hit/miss assertions when impl lands |
+| FR-013 | tests/test_007_security_pipeline_testability.py | Per-stage timing capture inherited from 007 §FR-020 |
+| FR-014 | tests/test_008_testability.py | ReDoS guard: every regex in src/security/ stays under budget on 10KB pathological input (catches catastrophic backtracking; 100ms-on-prod CI gate is Phase 3) |

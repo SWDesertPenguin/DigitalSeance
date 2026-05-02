@@ -278,6 +278,68 @@ The security-requirements quality audit (`checklists/security.md`) raised 40 fin
 
 **Closed as cross-reference / accepted residual**: CHK005 (backup encryption — operator concern, out of Phase 1 scope), CHK006 / CHK022 (FR-022 codifies interface-level append-only + planned DB-role enforcement), CHK007 (sacp_cleanup role staged for future deployment — FR-022), CHK008 (DBA direct access — accepted residual via FR-022), CHK009 (`summary_epoch` mutability — interface append-only via MessageRepository), CHK011 (concurrent-read isolation — PostgreSQL READ COMMITTED is the default; mid-deletion reads see partial state, accepted), CHK012 (deletion audit-row schema — `(facilitator_id, action='delete_session', target_id=session_id)`, count not recorded in Phase 1), CHK014 (audit log tamper-evidence — accepted residual; cross-row hash chaining is Phase 3 hardening), CHK015 (audit retention vs erasure — operator policy resolves; FR-019 default is indefinite, regulator-driven TTL via `SACP_AUDIT_RETENTION_DAYS`), CHK017 / CHK020 (cross-ref 002 §FR-A1 bcrypt cost factor), CHK018 (atomic = `async with conn.transaction()`), CHK019 (cross-ref 007 §FR-012 ScrubFilter), CHK021 (FR-007 / FR-008 enforced by same interface-level mechanism), CHK023 / CHK033 / CHK034 (no per-event SC for orphan / encryption / cascade duration — implicit in FR-009 / FR-011), CHK024 (no SC for startup fail-closed — accepted; tested via integration on every deploy), CHK025 (partial-cascade failure rolled back by transaction — `async with conn.transaction()` ensures all-or-nothing), CHK026 (concurrent-write races covered by FR-009 RI + advisory lock per 003), CHK027 (forward-only migration partial-apply — alembic offers `downgrade()` for staging; production is forward-only by Assumption), CHK031 (parent_turn-of-deleted-message — Phase 3 branching concern), CHK035 (DB role enforcement test — staged with FR-022), CHK036 (Fernet AES-128-CBC re-eval — when AES-128 is deprecated by NIST, OR every 5 years), CHK037 (summary content as message — accepted: summary IS a message per 005 FR-005), CHK038 (FR-019 vs erasure — operator policy resolves), CHK039 ("normal application path" = anything routed through repositories).
 
+## Migration safety notes (Phase F amendment, 2026-05-02)
+
+These items capture the operational stance around schema evolution and
+reference the FR-017 forward-only invariant. Cross-referenced from
+`AUDIT_PLAN.local.md` Batch 4 → 001 migration-safety.
+
+**Forward-only codification boundary.** FR-017 is enforced from
+revision 008 onward. Migrations 001-007 shipped with real `downgrade()`
+bodies before FR-017 was codified and are grandfathered. Every
+migration with revision >= 008 MUST have a `downgrade()` body that is
+exactly `pass` (with a docstring). The CI guard
+`tests/test_migration_safety.py::test_fr017_post_codification_migrations_have_pass_downgrade`
+fails the build on any violation. Migration 009's downgrade was
+re-emptied to `pass` in this branch after slipping past FR-017 review.
+
+**Migration catalog.** The currently-shipped migrations and their risk
+classification:
+
+| Revision | File | Risk | Notes |
+|---|---|---|---|
+| 001 | `001_initial_schema.py` | schema-only | Initial create; grandfathered downgrade. |
+| 002 | `002_add_token_expiry.py` | additive | New columns; grandfathered downgrade. |
+| 003 | `003_increase_turn_timeout.py` | data-only | Default change; grandfathered downgrade. |
+| 004 | `004_convergence_log_composite_pk.py` | structural | PK reshape; grandfathered downgrade. |
+| 005 | `005_session_review_gate_pause_scope.py` | additive | New column; grandfathered downgrade. |
+| 006 | `006_security_events.py` | additive | New table; grandfathered downgrade. |
+| 007 | `007_audit_log_survives_deletion.py` | structural | FK removal; grandfathered downgrade. |
+| 008 | `008_security_events_instrumentation.py` | additive | Forward-only `pass` downgrade. |
+| 009 | `009_auth_token_lookup_index.py` | additive | Forward-only `pass` downgrade. |
+
+**Migration ordering across alembic + conftest DDL.** Schema changes
+land in two places: `alembic/versions/<rev>_*.py` (production migration)
+AND `tests/conftest.py` raw DDL (test fixture). Both MUST be updated in
+the same commit; the CI gate `scripts/check_schema_mirror.py` (012 US7)
+catches drift between the two. The author of a new migration is
+responsible for both updates; reviewers verify the DDL match before
+merge.
+
+**Migration rollout strategy.** Phase 1 single-instance topology:
+migrations run at process startup via the Dockerfile CMD
+`alembic upgrade head && python -m src.run_apps`. The `&&` short-circuit
+prevents app start on migration failure. Phase 3 multi-instance topology
+will require an explicit migration-locking contract (see deferred test
+marker `test_migration_locking_under_concurrent_startup_deferred`);
+Phase 1 relies on the implicit "exactly one orchestrator process per
+session" invariant (003 §FR-027).
+
+**Destructive-migration approval gate.** Migrations 008+ are forward-
+only. Any new migration whose `upgrade()` introduces a `DROP TABLE` or
+`DROP COLUMN` MUST include an inline approval comment
+(`# approved by <reviewer-name>`) above the destructive statement. The
+CI guard
+`tests/test_migration_safety.py::test_upgrade_destructive_ops_are_documented_at_revision_boundary`
+enforces this. Intent: destructive schema changes are operationally
+significant and require a human reviewer's explicit sign-off in source.
+
+**Migration-replay / partial-failure / idempotency / restore-from-old-
+backup tests.** All four are DB-backed and require a Postgres fixture.
+Skipped markers in `tests/test_migration_safety.py` pin the activation
+triggers; the cross-spec integration audit (Batch 4) is the natural home
+once it ships its Postgres fixture catalog.
+
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 
 **Topologies** (per constitution §3): All seven (1–7). The core data model is topology-agnostic — it persists sessions, participants, and messages equally whether the orchestrator drives turns (1–6) or participants run AI client-side (7 MCP-to-MCP). Schema support for branches and tree structure (parent_turn) is intentionally topology-neutral.
