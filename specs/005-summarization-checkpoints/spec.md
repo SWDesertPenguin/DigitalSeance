@@ -176,6 +176,78 @@ The security-requirements quality audit (`checklists/security.md`) raised 38 fin
 
 **Closed as cross-reference / accepted residual**: CHK006 (lenient JSON parsing — accepted convenience; missing fields default to empty arrays/strings), CHK010 (orphan async tasks — `run_checkpoint` is awaited inside the loop; not fire-and-forget at session-shutdown granularity), CHK011 / CHK013 (immutability + visibility cross-ref to 001 + 010), CHK012 (no per-row tamper hash — accepted residual; cross-row chaining is Phase 3), CHK014 / CHK015 (cheapest-model tie-breaking + threshold scope — implementation detail), CHK016 (JSON schema authoritativeness — pinned in `SUMMARIZATION_PROMPT` constant), CHK017 (summary consumes a turn_number — yes, by design, gives chronological ordering), CHK018 / CHK019 (cross-ref 003 + 007), CHK020 / CHK021 (90%+ valid JSON / cheapest-selection — measurement deferred), CHK022 (negative-path SCs — implicit), CHK023 / CHK024 / CHK025 (recovery / repeat-failure / fallback exhaustion — accepted: failure logged + retry on next turn), CHK026 (input truncation contract — accepted; LiteLLM truncates per-model context window), CHK027 (summary-induced convergence — settled by 004 §FR-018), CHK028 (all-models-fail fallback — accepted: skip checkpoint), CHK029 (adversarial `key_positions` content — settled by FR-011 sanitization), CHK031 / CHK032 (perf SLA / observability — accepted residual), CHK033 (ProviderBridge cost contract — covered by 003 §FR-006), CHK034 (prompt-version pinning — `SUMMARIZATION_PROMPT` constant + `# noqa` history is the version trail), CHK035 (`summary_epoch` overflow — INTEGER type, ~2.1B max; accepted), CHK036 (paid-vs-free preference — `_cost_key` treats `None` as +inf so unpriced participants are last), CHK038 (fallback-warn to security_events — accepted: routed through standard logger; not a security event in the 007 sense).
 
+## Operational notes (Phase F amendment, 2026-05-02)
+
+These items capture operator-facing decisions for summarization in
+production. Cross-referenced from `AUDIT_PLAN.local.md` Batch 5 → 005 ops.
+
+**Summarizer-model preference order.** FR-007 selects the cheapest paid
+model first; null-cost (e.g., Ollama) participants are ranked last. There
+is NO operator override in Phase 1 — the cost-sort key is structural
+(via `_cost_key` in `src/orchestrator/summarizer.py`). Operators that
+want a specific participant to summarize should ensure that participant
+has the lowest non-null `cost_per_input_token`. Phase 3+ may expose a
+dedicated summarizer participant role.
+
+**Fallback-cascade depth bound.** `_generate_summary` walks every
+cost-sorted candidate on `ProviderDispatchError`. The depth is bounded by
+the participant count; for sessions with 10+ AI participants, a sustained
+provider-side outage could trigger 10+ retries per checkpoint. Each
+attempt does its own LiteLLM 3-retry loop, so worst-case attempt count is
+`participants × 3 × json-validity-retries(3) ≈ 90` model calls per
+failed checkpoint. Operators monitoring sustained failures should
+quarantine bad participants via revoke or pause rather than relying on
+the cascade to drain.
+
+**All-models-fail behaviour.** When every candidate raises
+`ProviderDispatchError` the final exception propagates and `run_checkpoint`
+logs at WARNING. The next turn's threshold check re-fires the checkpoint
+attempt — there is no exponential backoff between failed checkpoints
+because the cost is already bounded by the threshold spacing
+(default 10 turns). Operator visibility: monitor structured logs for
+`Summarizer dispatch failed` warnings; sustained failure = paged signal.
+
+**Operator manual-summarization override.** Phase 1 ships no manual
+trigger — summarization fires only on threshold. There is no
+`/tools/force_summarize` endpoint, no re-summarize-from-turn-N capability.
+Operators wanting to force a checkpoint can advance `current_turn` past
+the threshold via injected messages, OR wait for the natural cadence.
+Phase 3 trigger: any deployment where operators routinely need to force
+checkpoints (e.g., for audit closeout).
+
+**Summary-content audit.** Auto-generated summaries persist as
+immutable messages with `speaker_type='summary'`. Facilitators reviewing
+auto-summaries can use `/tools/debug/export` (010) to dump the session
+and `jq '.messages[] | select(.speaker_type == "summary")'` to extract
+the canonical summary stream. Phase 3 may add a dedicated summary-review
+UI surface in 011 web-ui.
+
+**Threshold tuning (FR-001).** `DEFAULT_THRESHOLD=10` turns ships as the
+Phase 1 default. Lowering toward 5 increases per-checkpoint LLM cost
+(more checkpoints, each with the full window-since-last-summary). Raising
+toward 50 reduces cost but increases the per-summary LLM context-window
+requirement (the summarizer model must hold all unsummarized turns).
+Operators with cheap, large-context models (e.g., Gemini Pro 2M) can
+raise; operators with expensive small-context models should keep the
+default.
+
+**Narrative-only fallback rate alerting.** FR-014 wraps a non-JSON
+response as narrative-only. A high rate of narrative-only fallbacks
+indicates the summarizer model isn't following the JSON schema — quality
+signal is degraded. Operators should alert on
+`narrative-only-fallback rate > 10%` over 1h sustained. Action:
+investigate whether the cheapest model has changed its instruction-
+following behaviour, or rotate to a different summarizer model.
+
+**Cheapest-participant rate-limit asymmetry.** Per FR-012 the cheapest
+active AI participant's API key pays for every checkpoint. That
+participant is also subject to the standard 009 rate limit (60 req/min).
+Sessions running >60 checkpoints/min would saturate the cheapest
+participant's window — but the threshold spacing makes this practically
+impossible for the default 10-turn threshold (one checkpoint per ~10
+turns is far below the rate ceiling). Operators with custom thresholds
+< 1 should verify the rate-limit interaction.
+
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 
 **Topologies** (per constitution §3): Topologies 1–6 only (orchestrator-driven). Summarization is triggered and executed by the orchestrator after turn N. Topology 7 (client-side AI) has no central summarizer; peer summary coordination is deferred to Phase 2+.
