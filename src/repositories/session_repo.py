@@ -140,7 +140,14 @@ class SessionRepository(BaseRepository):
         return await self.get_session(session_id)  # type: ignore[return-value]
 
     async def delete_session(self, session_id: str) -> None:
-        """Atomically remove all session data except audit log."""
+        """Atomically remove all session data except audit log.
+
+        Idempotent: a second call on an already-deleted session is a no-op.
+        This prevents a NotNullViolationError when _log_deletion tries to read
+        facilitator_id from a session row that no longer exists.
+        """
+        if await self.get_session(session_id) is None:
+            return
         async with self._pool.acquire() as conn, conn.transaction():
             await _log_deletion(conn, session_id)
             await _delete_session_data(conn, session_id)
