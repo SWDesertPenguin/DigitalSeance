@@ -49,6 +49,18 @@ Boot sequence: env-var validation → DB pool init → encryption-key verify →
 - `/ws/sessions/<id>` accepts a WS connection from a logged-in cookie and emits `state_snapshot` within 2 s.
 - `routing_log` accumulates rows when a turn fires; per-stage timing columns (`route_ms` / `assemble_ms` / `dispatch_ms` / `persist_ms`) are populated on success-path rows.
 
+### 1.6 Encryption at transit
+
+Production deployments MUST set `sslmode=require` (or stricter — `verify-full` if the operator manages the CA chain) on the asyncpg connection string. Example:
+
+```bash
+SACP_DATABASE_URL=postgresql://user:pass@host:5432/db?sslmode=require
+```
+
+LAN / dev deployments MAY use `sslmode=disable` — document in the deployment readme.
+
+The orchestrator does NOT enforce `sslmode=require` at startup; operator-controlled. See spec 001 Operations section for the Phase 3 trigger to validate at startup.
+
 ---
 
 ## 2. Backup / restore
@@ -78,6 +90,38 @@ If a participant exercised Art. 17 erasure between the backup and the restore, t
 ### 2.4 Encryption boundary
 
 Encrypted columns (`api_key_encrypted`) restore as ciphertext. They remain decryptable only with the same `SACP_ENCRYPTION_KEY` the backup was taken under. If the key has rotated since (see § 3), restoration of pre-rotation rows requires the prior key.
+
+Backup-at-rest encryption is operator-controlled and SHOULD use a key separate from `SACP_ENCRYPTION_KEY`. The encryption-key chain becomes:
+
+- `SACP_ENCRYPTION_KEY` — Fernet column-level for `api_key_encrypted`
+- Operator's backup-encryption key — pgBackRest / wal-e / native cloud snapshot encryption
+- Operator's transport key — TLS for streaming backups to off-site storage
+
+Compromise of any one key SHOULD NOT cascade to the others; this is the operator's deployment-policy boundary.
+
+### 2.5 Operator-driven retention purge (pre-Phase-3)
+
+The reserved retention env vars (`SACP_AUDIT_RETENTION_DAYS`, `SACP_SECURITY_EVENTS_RETENTION_DAYS`, `SACP_USAGE_LOG_RETENTION_DAYS`, `SACP_ROUTING_LOG_RETENTION_DAYS`) are not yet wired to a purge job. Operators with hard-cap retention requirements run an external query, e.g.:
+
+```sql
+-- Example: purge admin_audit_log rows older than 365 days
+DELETE FROM admin_audit_log WHERE created_at < NOW() - INTERVAL '365 days';
+```
+
+Schedule via cron / pg_cron / operator's scheduling stack. Per `docs/retention.md` §6, monitor row-count growth rate to confirm the purge is running.
+
+### 2.6 Restore-from-old-backup edge case
+
+If a backup was taken at schema version V_old and current code expects V_new (forward-only migrations per 001 §FR-017), `alembic upgrade head` runs at orchestrator startup and migrates the restored DB forward. Risks:
+
+- A migration may rewrite or drop a column that older rows depend on. The forward-only contract means there is no `downgrade()` to undo.
+- The auto-migration is logged but not gated; the orchestrator boots with the migrated schema before any operator can review.
+
+Mitigations:
+
+- Extend the §2.2 quarterly drill to also restore an old (non-latest) backup, not just the most recent — verifies the migration chain is sound.
+- Schema-mirror CI gate ensures the tested DDL matches migrations; a destructive change is caught pre-merge.
+- For high-stakes restores: restore to a side environment, run `alembic upgrade head --sql` to inspect the pending migrations, then promote the restored environment to production after manual review.
 
 ---
 
@@ -183,3 +227,66 @@ The board is local-only by policy, not committed to the repo. Operators running 
 ## 9. Incident catalog
 
 The internal red-team runbook is the cumulative list of red-team incidents and their resolution. New entries land per the pattern-list update workflow. Operator should review the catalog after every upstream-provider model change and after every detector pattern update to confirm the historic incidents still close cleanly against the corrected pipeline.
+
+---
+
+## 10. Database operations
+
+### 10.1 Connection pool tuning
+
+asyncpg pool defaults: `min_size=1, max_size=10`. Tunable via `SACP_DB_POOL_MIN_SIZE` / `SACP_DB_POOL_MAX_SIZE` (reserved env vars; default unset).
+
+Sizing guidance:
+
+- Single-instance deployment, ≤ 10 active sessions: defaults are fine
+- Single-instance, 10–50 active sessions: raise `max_size` to ~30
+- Multi-instance (Phase 3): each instance reserves `max_size` connections; total reserved = `instance_count × max_size`, must stay under Postgres' `max_connections`
+
+Symptoms of pool starvation:
+
+- `routing_log.persist_ms` jumps to 100 ms+ when historical baseline is sub-10 ms
+- asyncpg `PoolTimeoutError` / `TooManyConnectionsError` exceptions in logs
+
+### 10.2 DB failover behavior
+
+Mid-transaction failover (DB drops between INSERT statements during a turn):
+
+- asyncpg raises `ConnectionDoesNotExistError` or `InterfaceError`
+- The turn coroutine catches the exception per 003 §FR-021 (loop never halts), logs `routing_log.reason='dispatch_error'`, advances to next participant
+- The failed participant's circuit breaker increments per 003 §FR-015; auto-pause after 3 consecutive failures
+- Partially-written rows are rolled back via the surrounding transaction (`async with conn.transaction()`); no orphans
+
+Symptoms of sustained DB connectivity issues:
+
+- All sessions show `routing_log.reason='dispatch_error'` over a rolling 5-minute window
+- `/healthz` returns 503 (when the endpoint lands per 006 reliability)
+- `pg_stat_activity` shows zero connections from the orchestrator instance
+
+Recovery: orchestrator restart picks up a fresh pool against the recovered DB; in-flight turns are abandoned (RPO=0 for committed turns; cross-ref §10.4).
+
+### 10.3 Standby / replica strategy
+
+Phase 1 contract: **single logical Postgres, single writer**. The orchestrator's advisory-lock semantics (003 §FR-022) require the writer to be the same instance handling the turn-loop coroutine.
+
+Read-replica strategy for read-only operations:
+
+- Phase 1: not supported — all reads go through the primary
+- Phase 3 trigger: any deployment where read load justifies replica offload. Implementation surface: a separate `SACP_DATABASE_READ_URL` env var routing read-only queries (010 debug-export, GET endpoints) to the replica; writes always to primary. The advisory-lock writer remains the primary.
+
+DB HA stack (Patroni / Crunchy / managed cloud service): SACP does not orchestrate failover — the operator's HA stack is responsible. The orchestrator's connection pool reconnects on its next request after the new primary accepts connections.
+
+### 10.4 RTO / RPO
+
+- **RPO** (recovery point objective): zero for committed turns. Every turn that returns success has its `messages` row, `routing_log` row, and `usage_log` row durable. In-flight turns interrupted by orchestrator crash are abandoned (no partial state — transactional rollback).
+- **RTO** (recovery time objective): orchestrator restart-to-first-turn ~5–10 seconds. Boot sequence: env-var validation (~1 s) + DB pool init (~1 s) + alembic check (1–3 s) + port bind (instant). First turn dispatches when a session connects and the loop coroutine wakes.
+- Database failover RTO depends on the operator's Postgres HA stack; SACP does not orchestrate DB failover.
+
+---
+
+## 11. Cross-references
+
+- `docs/retention.md` — per-table retention policy; pairs with §2.5
+- `docs/env-vars.md` — canonical env-var catalog; pairs with §1, §5, §10
+- `docs/compliance-mapping.md` — GDPR / NIST mapping; pairs with §4 incident response
+- 001 Operations section — architectural deferrals + Phase 3 triggers (sister)
+- 003 §FR-022, §FR-027 — advisory lock + single-writer contract
