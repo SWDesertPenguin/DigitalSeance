@@ -36,6 +36,46 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 
 ---
 
+## 011-web-ui
+
+| FR/SR | Test path(s) | Notes |
+|---|---|---|
+| FR-001 | tests/test_web_ui_app.py | FastAPI app factory; /healthz without DB |
+| FR-002 | tests/test_web_ui_app.py | frontend/ static files served at / |
+| FR-003 | tests/test_web_ui_websocket.py | WS auth close codes (missing cookie, unknown sid, wrong session) |
+| FR-004 | tests/test_web_ui_websocket.py | WS Origin validation; missing/bad origin closes 4403 |
+| FR-005 | untested | state_snapshot delivery on WS connect needs full WS auth; trigger: Phase F Playwright or integration |
+| FR-006 | tests/test_011_testability.py | SR-010 pending snapshot includes human participants only |
+| FR-007 | untested | WS ping/keepalive; trigger: Phase F Playwright or integration |
+| FR-008 | untested | WS broadcast fan-out to >1 subscriber; trigger: Phase F or integration |
+| FR-009 | tests/test_web_ui_app.py, tests/test_web_ui_proxy.py | /login + MCP proxy; /logout clears cookie |
+| FR-010 | untested | Session-bound token (cookie→bearer); trigger: integration test Phase F |
+| FR-011 | untested | Convergence sparkline in snapshot; trigger: Phase F |
+| FR-012 | tests/test_web_ui_auth.py | Cookie opaque sid; bearer not in cookie (H-02/M-08) |
+| FR-013 | tests/test_web_ui_app.py | CORS strict default; SACP_WEB_UI_ALLOWED_ORIGINS override |
+| FR-014 | untested | Auto-reconnect backoff is client-side JS timer; trigger: Phase F Playwright |
+| FR-015 | tests/test_web_ui_app.py | SACP_ENABLE_DOCS gate not applicable to Web UI (MCP-server feature); healthz always on |
+| FR-016 | tests/test_web_ui_proxy.py | Same-origin /api/mcp/* proxy injects bearer server-side |
+| FR-017 | tests/test_web_ui_auth.py | SACP_WEB_UI_COOKIE_KEY independent of SACP_ENCRYPTION_KEY (M-02) |
+| FR-018 | tests/test_web_ui_auth.py | IP binding mismatch returns generic 403, no IP echo (H-01) |
+| FR-019 | untested | CSP violation report forwarding to aggregator is Phase 3 deferred |
+| FR-020 | untested | Invite-redeem flow; trigger: fix/002-compliance Phase D |
+| SR-001 | tests/test_web_ui_app.py, tests/test_011_testability.py | Security headers present; CSP report-uri; per-directive coverage (14 fragments) |
+| SR-001a | untested | WS frame cap (256KB); WS layer max_size not yet wired; trigger: Phase E ops |
+| SR-002 | tests/test_web_ui_app.py | Strict-Transport-Security header present |
+| SR-003 | tests/test_web_ui_app.py | X-Frame-Options: DENY present |
+| SR-004 | tests/test_web_ui_websocket.py | WS Origin header validation; missing/bad origin → 4403 |
+| SR-005 | tests/test_web_ui_app.py | Cache-Control: no-store present |
+| SR-006 | tests/test_web_ui_app.py | CSRF: POST without X-SACP-Request → 403; with header → passes |
+| SR-007 | untested | No API keys/system prompts serialised by SPA is behavioural; trigger: Phase F Playwright snapshot check |
+| SR-008 | tests/test_web_ui_app.py | Permissions-Policy header present |
+| SR-009 | untested | Forbidden link schemes require browser rendering; trigger: Phase F Playwright |
+| SR-010 | tests/test_011_testability.py | Pending snapshot filters to humans only; empty messages/drafts/proposals |
+| SR-011 | tests/test_011_testability.py | _participant_dict excludes api_key_encrypted, auth_token_hash, auth_token_lookup, token_expires_at, bound_ip |
+| SR-012 | untested | Malformed-frame discard + connection-survives needs full WS auth; trigger: Phase F integration |
+
+---
+
 ## 002-participant-auth
 
 | FR | Test path(s) | Notes |
