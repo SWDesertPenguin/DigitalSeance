@@ -248,6 +248,30 @@ def validate_auth_lookup_key() -> ValidationFailure | None:
     return None
 
 
+def validate_web_ui_cookie_key() -> ValidationFailure | None:
+    """SACP_WEB_UI_COOKIE_KEY: required signing key for Web UI session cookies.
+
+    Distinct from SACP_ENCRYPTION_KEY so a leak of the at-rest API-key
+    encryption key does not also let an attacker forge session cookies,
+    and vice-versa. Audit M-02 closes the prior reuse.
+    """
+    val = os.environ.get("SACP_WEB_UI_COOKIE_KEY")
+    if not val:
+        return ValidationFailure("SACP_WEB_UI_COOKIE_KEY", "required but not set")
+    placeholder = _contains_placeholder(val)
+    if placeholder:
+        return ValidationFailure(
+            "SACP_WEB_UI_COOKIE_KEY",
+            f"contains placeholder {placeholder!r} -- generate a real random secret",
+        )
+    if len(val) < 32:
+        return ValidationFailure(
+            "SACP_WEB_UI_COOKIE_KEY",
+            f"must be >= 32 chars of high-entropy randomness; got {len(val)} chars",
+        )
+    return None
+
+
 VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_database_url,
     validate_encryption_key,
@@ -262,6 +286,7 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_ws_max_connections_per_ip,
     validate_max_subscribers_per_session,
     validate_auth_lookup_key,
+    validate_web_ui_cookie_key,
 )
 
 

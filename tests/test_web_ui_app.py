@@ -19,12 +19,14 @@ from fastapi.testclient import TestClient
 
 # Fresh key per test session — avoids committing a literal "secret".
 _SECURE_KEY = Fernet.generate_key().decode()
+_COOKIE_KEY = "test-cookie-key-with-at-least-thirty-two-chars-of-entropy-xyz"
 
 
 @pytest.fixture(autouse=True)
 def _env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Seed the env vars the Web UI reads at request time."""
     monkeypatch.setenv("SACP_ENCRYPTION_KEY", _SECURE_KEY)
+    monkeypatch.setenv("SACP_WEB_UI_COOKIE_KEY", _COOKIE_KEY)
     # Insecure cookie flag lets TestClient (HTTP) verify the cookie is set.
     monkeypatch.setenv("SACP_WEB_UI_INSECURE_COOKIES", "1")
 
@@ -82,6 +84,28 @@ def test_csp_includes_report_uri() -> None:
     with TestClient(_fresh_app()) as client:
         response = client.get("/healthz")
     assert "report-uri /csp-report" in response.headers["Content-Security-Policy"]
+
+
+def test_csp_connect_src_excludes_cross_origin_mcp(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Audit H-02 follow-up: MCP origin is server-side only, not in CSP.
+
+    With the same-origin proxy in place the SPA never connects to the
+    MCP server directly. Listing the MCP origin in `connect-src` would
+    leave a cross-origin exfiltration channel open if XSS ever slipped
+    past DOMPurify. The variable still exists (the proxy reads it for
+    upstream forwarding) but no longer drives the browser CSP.
+    """
+    monkeypatch.setenv("SACP_WEB_UI_MCP_ORIGIN", "http://upstream.example:8750")
+    # Re-import security so the module-level CSP rebuilds with the new env.
+    import importlib
+
+    from src.web_ui import security
+
+    importlib.reload(security)
+    csp = security._build_csp()  # noqa: SLF001 — module-level under test
+
+    assert "upstream.example" not in csp
+    assert "connect-src 'self'" in csp
 
 
 def test_csp_report_endpoint_accepts_post_without_csrf_header() -> None:
@@ -173,11 +197,16 @@ def test_cookie_attrs_on_successful_login_path(monkeypatch: pytest.MonkeyPatch) 
     assert "path=/" in set_cookie
 
 
-def test_missing_encryption_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If SACP_ENCRYPTION_KEY is absent, cookie signer refuses to sign."""
-    monkeypatch.delenv("SACP_ENCRYPTION_KEY", raising=False)
+def test_missing_cookie_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If SACP_WEB_UI_COOKIE_KEY is absent the cookie signer refuses to sign.
+
+    Audit M-02: cookie signing key is independent from SACP_ENCRYPTION_KEY,
+    so its absence must fail closed regardless of whether the encryption
+    key is set.
+    """
+    monkeypatch.delenv("SACP_WEB_UI_COOKIE_KEY", raising=False)
     monkeypatch.setenv("SACP_WEB_UI_INSECURE_COOKIES", "1")
     from src.web_ui.auth import _make_cookie_value  # local import after env mutation
 
     with pytest.raises(RuntimeError):
-        _make_cookie_value("pid", "sid", "tok")
+        _make_cookie_value("opaque-sid")

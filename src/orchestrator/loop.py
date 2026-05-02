@@ -484,12 +484,16 @@ def _has_new_input(context: list) -> bool:
     return True
 
 
-def _run_pipeline(content: str) -> tuple[object, str, list[str], int, int]:
+def run_security_pipeline(content: str) -> tuple[object, str, list[str], int, int]:
     """Run validate + exfiltration with per-layer timing (007 §FR-020).
 
     Returns (validation, cleaned, exfil_flags, validator_ms, exfil_ms).
     Per-layer durations are captured even if a downstream layer raises;
     raise propagates to the caller's fail-closed handler.
+
+    Public so the facilitator layer (spec 012 FR-006) can re-run the
+    pipeline on approve / edit before persisting without importing a
+    private symbol.
     """
     validator_start = time.monotonic()
     validation = validate_output(content)
@@ -563,7 +567,7 @@ async def _validate_and_persist(
     breaker failure — the bug is ours, not the participant's.
     """
     try:
-        validation, cleaned, exfil_flags, validator_ms, exfil_ms = _run_pipeline(
+        validation, cleaned, exfil_flags, validator_ms, exfil_ms = run_security_pipeline(
             response.content,
         )
     except Exception:  # noqa: BLE001 — fail-closed on any pipeline error
@@ -626,8 +630,26 @@ async def _persist_turn(
     response: ProviderResponse,
 ) -> TurnResult:
     """Persist response as message and log routing + usage."""
+    msg = await _append_message_timed(ctx, speaker, decision, response)
+    await _log_routing(
+        ctx.log_repo, ctx.session_id, decision, turn_number=msg.turn_number, timings=get_timings()
+    )
+    await _log_usage(ctx.log_repo, speaker, msg.turn_number, response)
+    await _sync_current_turn(ctx.pool, ctx.session_id, msg.turn_number)
+    await _emit_persist_signals(ctx, speaker, msg, response)
+    return _turn_result(ctx.session_id, msg.turn_number, speaker, decision, response)
+
+
+async def _append_message_timed(
+    ctx: _TurnContext,
+    speaker: object,
+    decision: object,
+    response: ProviderResponse,
+) -> object:
+    """Append AI turn message; capture persist + advisory_lock_wait timings."""
     persist_start = time.monotonic()
     branch_id = await get_main_branch_id(ctx.pool, ctx.session_id)
+    lock_out: dict[str, int] = {}
     msg = await ctx.msg_repo.append_message(
         session_id=ctx.session_id,
         branch_id=branch_id,
@@ -637,19 +659,12 @@ async def _persist_turn(
         token_count=response.input_tokens + response.output_tokens,
         complexity_score=decision.complexity,
         cost_usd=response.cost_usd,
+        _lock_wait_ms_out=lock_out,
     )
     record_stage("persist", int((time.monotonic() - persist_start) * 1000))
-    await _log_routing(
-        ctx.log_repo,
-        ctx.session_id,
-        decision,
-        turn_number=msg.turn_number,
-        timings=get_timings(),
-    )
-    await _log_usage(ctx.log_repo, speaker, msg.turn_number, response)
-    await _sync_current_turn(ctx.pool, ctx.session_id, msg.turn_number)
-    await _emit_persist_signals(ctx, speaker, msg, response)
-    return _turn_result(ctx.session_id, msg.turn_number, speaker, decision, response)
+    if "lock_wait_ms" in lock_out:
+        record_stage("advisory_lock_wait", lock_out["lock_wait_ms"])
+    return msg
 
 
 async def _emit_persist_signals(

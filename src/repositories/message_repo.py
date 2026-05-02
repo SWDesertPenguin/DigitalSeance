@@ -5,6 +5,8 @@ No update or delete methods. Immutability enforced by interface.
 
 from __future__ import annotations
 
+import time
+
 import asyncpg
 
 from src.models.message import Message
@@ -29,15 +31,23 @@ class MessageRepository(BaseRepository):
         parent_turn: int | None = None,
         delegated_from: str | None = None,
         summary_epoch: int | None = None,
+        _lock_wait_ms_out: dict[str, int] | None = None,
     ) -> Message:
         """Append a message, auto-assigning the next turn number.
 
         Uses a transaction-scoped advisory lock keyed on branch_id to
         serialize concurrent appends (AI turn + human interjection race)
         so turn_number reflects true arrival order without PK collisions.
+
+        ``_lock_wait_ms_out``: optional single-key dict for callers that
+        need the advisory-lock contention metric (003 §FR-032). When
+        provided, ``_lock_wait_ms_out["lock_wait_ms"]`` is populated with
+        the milliseconds spent waiting for the lock before the transaction
+        body ran. Only the turn-loop persist path uses this; all other
+        callers leave it as None.
         """
         async with self._pool.acquire() as conn, conn.transaction():
-            record = await _append_locked(
+            record, lock_wait_ms = await _append_locked(
                 conn,
                 session_id=session_id,
                 branch_id=branch_id,
@@ -51,6 +61,8 @@ class MessageRepository(BaseRepository):
                 delegated_from=delegated_from,
                 summary_epoch=summary_epoch,
             )
+        if _lock_wait_ms_out is not None:
+            _lock_wait_ms_out["lock_wait_ms"] = lock_wait_ms
         return Message.from_record(record)
 
     async def get_recent(
@@ -147,10 +159,10 @@ async def _append_locked(
     parent_turn: int | None,
     delegated_from: str | None,
     summary_epoch: int | None,
-) -> asyncpg.Record:
-    """Verify session, lock branch, insert row, return fresh record."""
+) -> tuple[asyncpg.Record, int]:
+    """Verify session, lock branch, insert row; return (record, lock_wait_ms)."""
     await _verify_session_active(conn, session_id)
-    await _lock_branch(conn, branch_id)
+    lock_wait_ms = await _lock_branch(conn, branch_id)
     turn = await _next_turn_number(conn, session_id, branch_id)
     await _insert_message(
         conn,
@@ -167,18 +179,27 @@ async def _append_locked(
         delegated_from=delegated_from,
         summary_epoch=summary_epoch,
     )
-    return await conn.fetchrow(_SELECT_MESSAGE_SQL, turn, session_id, branch_id)
+    record = await conn.fetchrow(_SELECT_MESSAGE_SQL, turn, session_id, branch_id)
+    return record, lock_wait_ms
 
 
 async def _lock_branch(
     conn: asyncpg.Connection,
     branch_id: str,
-) -> None:
-    """Acquire a transaction-scoped advisory lock on the branch."""
+) -> int:
+    """Acquire a transaction-scoped advisory lock; return wait time in ms.
+
+    The lock serializes concurrent appends so turn_number reflects true
+    arrival order without PK collisions. The returned duration backs
+    003 §FR-032 advisory-lock contention tracking via ``advisory_lock_wait_ms``
+    in ``routing_log``.
+    """
+    lock_start = time.monotonic()
     await conn.execute(
         "SELECT pg_advisory_xact_lock(hashtext($1))",
         branch_id,
     )
+    return int((time.monotonic() - lock_start) * 1000)
 
 
 async def _next_turn_number(

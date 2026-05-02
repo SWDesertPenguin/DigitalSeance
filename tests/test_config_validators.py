@@ -33,6 +33,7 @@ def _valid_env() -> dict[str, str]:
         "SACP_DATABASE_URL": _VALID_DB,
         "SACP_ENCRYPTION_KEY": _VALID_FERNET,
         "SACP_AUTH_LOOKUP_KEY": "x" * 48,
+        "SACP_WEB_UI_COOKIE_KEY": "y" * 48,
     }
 
 
@@ -196,6 +197,40 @@ def test_auth_lookup_key_accepts_strong(_restore_env: None):
 
     os.environ["SACP_AUTH_LOOKUP_KEY"] = "x" * 48
     assert validate_auth_lookup_key() is None
+
+
+def test_web_ui_cookie_key_required(_restore_env: None):
+    from src.config.validators import validate_web_ui_cookie_key
+
+    os.environ.pop("SACP_WEB_UI_COOKIE_KEY", None)
+    failure = validate_web_ui_cookie_key()
+    assert failure is not None
+    assert "required but not set" in failure.reason
+
+
+def test_web_ui_cookie_key_rejects_short(_restore_env: None):
+    from src.config.validators import validate_web_ui_cookie_key
+
+    os.environ["SACP_WEB_UI_COOKIE_KEY"] = "tooshort"
+    failure = validate_web_ui_cookie_key()
+    assert failure is not None
+    assert ">= 32 chars" in failure.reason
+
+
+def test_web_ui_cookie_key_rejects_placeholder(_restore_env: None):
+    from src.config.validators import validate_web_ui_cookie_key
+
+    os.environ["SACP_WEB_UI_COOKIE_KEY"] = "REPLACE_ME_BEFORE_FIRST_RUN_padding_padding_padding"
+    failure = validate_web_ui_cookie_key()
+    assert failure is not None
+    assert "placeholder" in failure.reason
+
+
+def test_web_ui_cookie_key_accepts_strong(_restore_env: None):
+    from src.config.validators import validate_web_ui_cookie_key
+
+    os.environ["SACP_WEB_UI_COOKIE_KEY"] = "y" * 48
+    assert validate_web_ui_cookie_key() is None
 
 
 def test_url_list_validator_rejects_bad_entry(_restore_env: None):

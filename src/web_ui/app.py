@@ -27,6 +27,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 
 from src.web_ui.auth import router as auth_router
+from src.web_ui.proxy import router as proxy_router
 from src.web_ui.security import add_csrf_header_check, add_security_headers, add_strict_cors
 from src.web_ui.shared import (
     SharedServices,
@@ -71,6 +72,7 @@ def create_web_app() -> FastAPI:
     _add_healthcheck(app)
     _add_csp_report_endpoint(app)
     app.include_router(auth_router)
+    app.include_router(proxy_router)
     app.include_router(ws_router)
     _mount_static(app)
     return app
