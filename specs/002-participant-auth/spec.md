@@ -28,6 +28,14 @@
 
 - Q: How does `_find_by_token` resolve a plaintext bearer to its participant without bcrypt-scanning every row? → A: An HMAC-keyed lookup column. Migration 009 adds `participants.auth_token_lookup TEXT` (partial index where NOT NULL) populated at write time as `HMAC-SHA256(SACP_AUTH_LOOKUP_KEY, plaintext)`. `_find_by_token` probes the indexed column first (O(log N)), then bcrypt-verifies the matched row — bcrypt verify is still required so a leaked HMAC key alone never authenticates, only narrows. Falls back to the legacy bcrypt-scan only for grandfathered rows whose lookup is NULL (tokens issued before migration 009); every rotation populates the column, so the fallback path drains naturally. SACP_AUTH_LOOKUP_KEY is distinct from SACP_ENCRYPTION_KEY — different threat model, separate rotation cadence. V16 validator refuses to bind ports if it's missing, < 32 chars, or carries a placeholder. (Audit finding C-02.)
 
+### Session 2026-05-02 (audit fix/002-compliance — Phase D)
+
+- Q: Is `lawful_basis` (GDPR Art. 6) stored per participant? → A: No. Lawful basis is determined at the operator's deployment-policy layer (research/debate → consent; consulting/auth → contract; security audit → legitimate interest) and surfaced through the operator's own consent / onboarding flow before the participant presents a token. SACP enforces authentication and authorization but does not enumerate or store lawful basis. See the "Compliance / Privacy" section below + `docs/compliance-mapping.md`.
+
+- Q: Is there an Art. 15 SAR self-service path? → A: Deferred to Phase 3. Today, fulfilling an SAR is operator-mediated via 010 debug-export, optionally filtered to a single participant. Phase 3 trigger: any deployment serving EU data subjects where the controller-processor relationship becomes formal. Response window when activated: GDPR Art. 12(3) default (30 days, extendable to 90 days for complex requests).
+
+- Q: Does the personal-data inventory include `bound_ip` and the auth-token hash? → A: Yes. `bound_ip` (FR-016) is PII in EU jurisdictions per GDPR recital 30 and is retained for the `participants` row lifetime. `auth_token_hash` (bcrypt-12) and `auth_token_lookup` (HMAC-SHA256, migration 009) are pseudonymous but reversible-via-bruteforce so are treated as PII-equivalent. FR-016 covers credential overwrite on departure (api_key, auth_token); `display_name` and `bound_ip` are NOT zeroed on departure — they remain until session deletion or facilitator-issued reject. See `docs/retention.md`.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Token Authentication (Priority: P1)
@@ -258,6 +266,72 @@ This spec's auth controls map to standard catalogs (OWASP ASVS L2 v4.0.3, NIST S
 | FR-024 (brute-force OOS) | (deferred to Phase 3) | V2.2.1 | SP 800-53 AC-7 |
 
 Sister cross-references: log scrubbing for tokens (FR-004) is enforced by the same root-logger ScrubFilter mandated by 007 §FR-012; rate limiting on post-auth tool calls (back-pressure for repeated probing) is 009 §FR-002.
+
+### GDPR article mapping (Phase D fix/002-compliance, 2026-05-02)
+
+Authoritative project-wide GDPR mapping is in `docs/compliance-mapping.md`. The 002-specific FR-to-article mappings are:
+
+| FR / asset | GDPR article | Mapping |
+|----|----|----|
+| FR-001, FR-A1 (token + bcrypt) | Art. 32(1)(a) | Pseudonymisation of personal data |
+| FR-004, FR-022 (no plaintext / no URL tokens) | Art. 5(1)(f), Art. 32 | Confidentiality |
+| FR-014 + 001 §FR-019 (audit log) | Art. 30 | Records of processing activities |
+| FR-016, FR-017, FR-023 (IP binding) | Art. 5(1)(c), Art. 32 | Data minimization, security of processing |
+| FR-020 (pending scope) | Art. 5(1)(c) | Data minimization on pre-approval state |
+| FR-008, FR-009, FR-A1 (rotation + revocation) | Art. 32(1)(b) | Ongoing confidentiality / integrity |
+| Compliance / Privacy section | Art. 25 | Data protection by design and by default |
+| Departure path (FR-016 + 001 §FR-011) | Art. 17 | Right to erasure (with admin_audit_log carve-out per Art. 17(3)(b)) |
+
+## Compliance / Privacy (Phase D fix/002-compliance, 2026-05-02)
+
+This section documents 002's privacy posture and GDPR-relevant data handling. Authoritative project-wide compliance mapping is in `docs/compliance-mapping.md`; per-table retention in `docs/retention.md`.
+
+### Lawful basis (Art. 6)
+
+SACP does NOT store `lawful_basis` per participant. Lawful basis is determined by the operator's deployment use case:
+
+- Research / debate / collaborative session: consent (Art. 6(1)(a))
+- Consulting / authenticated service: contract (Art. 6(1)(b))
+- Security audit / red-team session: legitimate interest (Art. 6(1)(f))
+- Operator-internal session: legitimate interest (Art. 6(1)(f))
+
+Operators document lawful basis at the deployment-policy level and surface it through their own consent / onboarding flow before participants present a token. The 002 surface enforces authentication and authorization; lawful basis is upstream of the auth boundary. (See `docs/compliance-mapping.md` Art. 6 row.)
+
+### Personal data inventory (Art. 30)
+
+The 002 surface processes the following personal data per participant row:
+
+| Column | Classification | Retention |
+|----|----|----|
+| `display_name` | Direct identifier | `participants` row lifetime |
+| `bound_ip` (FR-016) | PII (GDPR recital 30) | `participants` row lifetime |
+| `auth_token_hash` (FR-A1) | PII-equivalent (bcrypt-12; reversible-via-bruteforce) | Cleared on rotation / revocation; row survives until deletion |
+| `auth_token_lookup` (migration 009) | PII-equivalent (HMAC-SHA256) | Cleared on rotation / revocation; row survives until deletion |
+
+FR-016 covers credential overwrite on participant departure (`api_key_encrypted`, auth token columns); `display_name` and `bound_ip` are NOT zeroed on departure — they remain in the `participants` row until session deletion (cascade) or facilitator-issued reject (hard-delete). See `docs/retention.md` for the canonical per-table retention table.
+
+### Subject rights (Art. 15 / 17 / 20)
+
+**Art. 15 SAR — deferred to Phase 3.** Phase 1 fulfilment is operator-mediated via 010 debug-export, optionally filtered to a single participant. Phase 3 trigger: any deployment serving EU data subjects where the controller-processor relationship is formal.
+
+**Art. 17 erasure** — see 001 §FR-011 (atomic session deletion) and 001 §FR-019 (admin_audit_log carve-out under Art. 17(3)(b)). Facilitator action records survive session deletion as the canonical processing record. The retained admin_audit_log entries are pseudonymized via denormalized `session_id` + `facilitator_id` columns (no FK to deleted participant rows).
+
+**Art. 20 portability** — out of scope for 002 (covered by 010 debug-export's machine-readable JSON output). Distinct from Art. 15: Art. 20 ships authored content (messages, votes) to the participant; 002 governs the auth surface that allows the participant to request it.
+
+**Response window** — GDPR Art. 12(3) default applies (30 days, extendable to 90 days for complex / multi-system requests). Tracking the request clock is the operator's responsibility; SACP supplies the data-extraction primitives (010) and identity-resolution surface (002 token-bound `participant_id`) but not the request-tracking workflow.
+
+### bound_ip data residency (Art. 5(1)(c) / Art. 30)
+
+`bound_ip` is captured at first authentication (FR-016) and retained for the `participants` row lifetime. For operators in EU jurisdictions: this is Art. 30 records-of-processing-eligible PII. The orchestrator does not transmit `bound_ip` across regional boundaries; cross-region replication is operator-controlled (see `docs/operational-runbook.md`).
+
+### Cross-references
+
+- `docs/compliance-mapping.md` — project-wide GDPR / NIST CSF / 800-53B / EU AI Act mapping
+- `docs/retention.md` — per-table retention inventory
+- 001 §FR-011 — atomic session deletion (Art. 17 cascade root)
+- 001 §FR-019 — admin_audit_log carve-out (Art. 17(3)(b) compliance carve-out)
+- 001 §FR-020 — encryption-at-rest scope (Fernet column-level for `api_key_encrypted`)
+- 010 spec — debug-export tool (Art. 15 / Art. 20 fulfilment surface)
 
 ## Audit closeout (2026-04-29)
 
