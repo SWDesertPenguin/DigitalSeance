@@ -167,6 +167,29 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 
 ---
 
+## 004-convergence-cadence
+
+| FR | Test path(s) | Notes |
+|---|---|---|
+| FR-001 | tests/test_loop_integration.py, tests/test_004_testability.py | Embedding computed on AI turns; process_turn returns synchronously |
+| FR-002 | tests/test_logs.py | log_convergence persists embedding + similarity + flags |
+| FR-003 | tests/test_004_testability.py | Window floor of 3; below floor returns 0.0; at/above floor produces real score |
+| FR-004 | tests/test_convergence.py | Threshold-based convergence detection |
+| FR-005 | tests/test_convergence.py, tests/test_004_testability.py | Divergence prompt fires on first sustained convergence; full state-machine walk |
+| FR-006 | tests/test_convergence.py, tests/test_004_testability.py | Escalation after divergence prompt; flag clears on low similarity |
+| FR-007 | tests/test_logs.py | divergence_prompted + escalated_to_human flags persisted |
+| FR-008 | tests/test_cadence.py, tests/test_004_testability.py | Cadence delay monotonic in similarity |
+| FR-009 | tests/test_cadence.py, tests/test_004_testability.py | Sprint (2-15s) and cruise (5-60s) bounds; idle=0 |
+| FR-010 | tests/test_cadence.py, tests/test_004_testability.py | Interjection resets to floor for whichever preset is active |
+| FR-011 | tests/test_adversarial.py, tests/test_004_testability.py | Rotation index walks modulo participant count; zero-participants safe |
+| FR-012 | untested | Routing-log adversarial-rotation row; trigger: cross-spec integration audit |
+| FR-013 | tests/test_004_testability.py | use_safetensors=True kwarg pinned in load_model source; failure leaves _model None |
+| FR-014 | tests/test_004_testability.py | process_turn awaits the executor; no orphan tasks |
+| FR-015 | tests/test_quality.py | N-gram repetition detection (degenerate-output quality signal) |
+| FR-016 | tests/test_004_testability.py | Embedding bytes excluded from debug-export convergence subdump (column-list query in debug.py) |
+| FR-017 | tests/test_004_testability.py | Divergence + adversarial prompt strings pinned; phase-1 overlap accepted residual |
+| FR-018 | tests/test_004_testability.py | Window source is convergence_log only (AI-turn-exclusive) |
+| FR-019 | tests/test_004_testability.py | process_turn returns tuple synchronously (no Task / coroutine leakage) |
 ## 010-debug-export
 
 | FR | Test path(s) | Notes |
