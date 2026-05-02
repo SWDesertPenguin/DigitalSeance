@@ -33,6 +33,41 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-018 | untested | Per-tool latency capture deferred per performance checklist; trigger: Phase E ops PR |
 | FR-019 | tests/test_006_mcp_testability.py | SSE subscriber cap enforcement; subscriber_count() introspection; cap env var defaults |
 | FR-020 | tests/test_006_mcp_testability.py | ContextVar boundary tests validate the propagation primitive; full request-id wiring deferred per performance checklist; trigger: Phase E ops PR |
+
+---
+
+## 002-participant-auth
+
+| FR | Test path(s) | Notes |
+|---|---|---|
+| FR-001 | tests/test_auth_service.py | Valid token authenticates; invalid + missing tokens rejected |
+| FR-002 | tests/test_002_testability.py | Expired token raises TokenExpiredError; valid-before-expiry accepted |
+| FR-003 | tests/test_auth_service.py | Missing + empty token raises AuthRequiredError |
+| FR-004 | untested | Plaintext-in-log prevention is covered by 007 ScrubFilter; dedicated token-pattern log test deferred to Phase E |
+| FR-005 | tests/test_approval.py | Approve changes role to participant + sets approved_at |
+| FR-006 | tests/test_approval.py | Reject removes participant record |
+| FR-007 | untested | auto_approve exercised in fixtures; dedicated auto-approve flow test deferred to Phase F |
+| FR-008 | tests/test_auth_service.py, tests/test_auth_token_lookup.py | Self-rotate returns new token; old token rejected; HMAC lookup column populated |
+| FR-009 | tests/test_auth_service.py | Facilitator revoke invalidates token |
+| FR-010 | tests/test_approval.py, tests/test_002_testability.py | Non-facilitator approve rejected; non-facilitator transfer rejected |
+| FR-011 | tests/test_002_testability.py | Transfer swaps roles atomically; session.facilitator_id updated; pending target rejected |
+| FR-012 | tests/test_002_testability.py | token_expires_at set to future after rotation |
+| FR-013 | tests/test_002_testability.py | Rotation resets expiry timestamp |
+| FR-014 | tests/test_002_testability.py, tests/test_approval.py | All five facilitator actions logged (approve, reject, remove, revoke, transfer) |
+| FR-015 | untested | Pending endpoint guard (inject_message + add_ai); trigger: endpoint matrix Phase B fix/011-testability |
+| FR-016 | tests/test_002_testability.py | First auth binds bound_ip; subsequent same-IP accepted |
+| FR-017 | tests/test_002_testability.py | Mismatched IP raises IPBindingMismatchError |
+| FR-018 | tests/test_002_testability.py | Token rotation clears bound_ip; new token re-binds to new IP |
+| FR-019 | tests/test_approval.py | Self-removal rejected |
+| FR-020 | untested | Pending scope Phase 1 single default; trigger: per-session scope override Phase 3 |
+| FR-021 | untested | Endpoint-boundary pending guard; trigger: endpoint matrix Phase B fix/011-testability |
+| FR-022 | untested | HTTPBearer() enforces Authorization header form; malformed-header matrix deferred to Phase B |
+| FR-023 | tests/test_002_testability.py | TRUST_PROXY=0 uses direct client.host; TRUST_PROXY=1 uses rightmost XFF |
+| FR-024 | tests/test_002_testability.py | Documented absence: 5 wrong tokens do not lock out the valid one (brute-force OOS Phase 1) |
+| FR-A1 | tests/test_002_testability.py | Rotated token matches URL-safe base64 pattern; length >= 40 chars |
+
+---
+
 ## 001-core-data-model
 
 | FR | Test path(s) | Notes |
