@@ -188,6 +188,80 @@ The security-requirements quality audit (`checklists/security.md`) raised 36 fin
 
 **Closed as accepted residual / out-of-scope**: CHK002 (model checksum / signature — accepted; HuggingFace's existing artifact controls are the trust anchor; pin via Phase 3+ if needed), CHK003 (model-load fail-open from a convergence standpoint — accepted: "no convergence detected" is the safer fallback than halting the loop), CHK006 (embedding-storage encryption-at-rest — accepted residual; embedding bytes are not user-supplied content, low leakage value), CHK007 (similarity scores in audit logs — accepted: similarity is operationally important; embedding bytes are stripped per FR-016), CHK009 (sanitization of divergence prompt — FR-017 settles via system-trust exemption), CHK014 (async embedding wording vs awaited reality — FR-019 settles), CHK015 (adversarial interval per-session — implicit single-session counter, no cross-session collision), CHK016 (cadence + rate-limit interaction — math: 60s cruise ceiling = 1 req/min, well under 60 req/min — no constraint), CHK017 (cadence reset interaction with interrupt queue priority — covered by 003 §FR-013), CHK019 / CHK020 ("20% reduction" / "exactly once before cycling" — measurability deferred to integration test suite), CHK021 (model crash mid-session — Edge Case state covers), CHK022 (concurrent embedding ordering — single-await-per-turn enforces order), CHK024 (adversarial input designed to game similarity — accepted residual; mitigation requires LLM-judge layer per 007 FR-003.detect deferred), CHK025 (very-short responses — embeddings still computed; quality detector handles via FR-015), CHK026 (all-paused at adversarial fire — covered by Edge Case), CHK029 (observability — convergence_log + similarity score is the audit; alerting deferred), CHK030 (asyncio embedding budget — accepted residual since FR-019 awaits result), CHK031 (model deprecation trigger — when sentence-transformers >= 4.0 ships, OR when MiniLM-L6-v2 is yanked, OR every 24 months), CHK032 (in-memory state — accepted; restart loosening is briefly observable but bounded), CHK036 (FR-008 vs FR-010 race — interjection always wins per 003 §FR-013).
 
+## Operational notes (Phase F amendment, 2026-05-02)
+
+These items capture operator-facing decisions for convergence detection
+and cadence in production. Cross-referenced from
+`AUDIT_PLAN.local.md` Batch 5 → 004 ops.
+
+**Model-load failure handling.** `load_model` swallows transformer
+exceptions (`Failed to load embedding model — skipping`) and leaves
+`_model = None`. `process_turn` short-circuits to `(0.0, False)` when
+the model is absent — no convergence detection runs for that session.
+Operators should monitor session creation logs for the warning; sustained
+failures indicate a missing model cache, network unavailability (during
+first-load), or a SafeTensors-lacking model release. Recovery: restore
+network access OR pre-cache the model in `~/.cache/huggingface/hub/`,
+then restart.
+
+**Embedding-cache disk monitoring.** SentenceTransformer caches model
+weights at `~/.cache/huggingface/hub/`. The `all-MiniLM-L6-v2` model
+is ~90MB; cache is shared across sessions and grows only when models
+are added. Operators should monitor disk usage; the cache rarely
+crosses 1GB in Phase 1 single-model deployment.
+
+**Air-gapped deployment workflow.** Pre-cache the model offline:
+1. On a host with network: run a one-shot Python that imports
+   `SentenceTransformer("all-MiniLM-L6-v2")` to populate the cache.
+2. Tar the cache directory.
+3. Untar to the production host's `$HOME/.cache/huggingface/hub/`.
+4. Set `HF_HUB_OFFLINE=1` in the production env so subsequent loads
+   never reach the network.
+This is required for any deployment with no outbound HTTPS to
+huggingface.co at startup (per Edge Case in spec).
+
+**SafeTensors enforcement at startup.** FR-013 enforces SafeTensors-
+only via `model_kwargs={"use_safetensors": True}`. If the published
+model lacks SafeTensors weights, the load fails hard — the same path as
+network failure. Operators upgrading to a new model release MUST
+verify SafeTensors files are present BEFORE rolling out.
+
+**Degraded-mode behaviour.** When the model is unavailable, the session
+runs without convergence detection: no divergence prompts fire, no
+escalations happen, similarity scores are 0.0. Adaptive cadence still
+works (it interpolates over the 0.0 value, yielding floor delays). The
+operator visibility surface is the warning log line on load failure.
+
+**Model-update procedure.** Changing the embedding model (e.g.,
+`all-MiniLM-L6-v2` → `all-mpnet-base-v2`) invalidates all stored
+embeddings — they are model-specific vectors. Procedure: drain or
+archive existing sessions, deploy the new model, accept that historical
+similarity comparisons across the boundary are meaningless. Phase 3+ may
+introduce a `convergence_log.embedding_model_version` column for
+explicit segmentation.
+
+**Divergence-prompt content tuning.** Per FR-017 the canonical text
+lives in `src/orchestrator/convergence.py:DIVERGENCE_PROMPT` (and the
+adversarial-rotation twin in `adversarial.py:ADVERSARIAL_PROMPT`). Both
+strings are hardcoded operator-controlled content. Phase 1 ships
+identical wording (accepted residual); divergent text is a Phase 3
+follow-up gated on operator usage data.
+
+**Adversarial-rotation cadence.** `DEFAULT_INTERVAL=12` turns between
+adversarial injections (FR-011). Operators can override per-rotator-
+instance via the `interval=` kwarg; there is no env-var override in
+Phase 1. Tuning guidance: lower the interval (e.g., 6) for high-
+contention conversations where groupthink risk is high; raise it
+(e.g., 24) for long, exploratory sessions where the prompt would
+become noise.
+
+**Convergence threshold tuning.** `DEFAULT_THRESHOLD=0.75`. Lowering
+toward 0.6 increases divergence-prompt false-positive rate (the AIs
+get poked even when conversation is genuinely productive); raising
+toward 0.85 risks missing slow-drift convergence. Tuning is per-
+deployment via the `threshold=` constructor kwarg; Phase 3+ may expose
+`SACP_CONVERGENCE_THRESHOLD`.
+
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 
 **Topologies** (per constitution §3): Topologies 1–6 only (orchestrator-driven). Embedding-based convergence detection, adaptive cadence, and adversarial rotation are orchestrator functions executed after each turn. Topology 7 (client-side peer AI) has no orchestrator to compute embeddings or inject divergence prompts; convergence must be detected peer-side in Phase 2+.
