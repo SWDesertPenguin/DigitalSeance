@@ -167,6 +167,19 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 
 ---
 
+## 010-debug-export
+
+| FR | Test path(s) | Notes |
+|---|---|---|
+| FR-1 | tests/test_mcp_e2e.py | Endpoint reachable as GET /tools/debug/export with session_id |
+| FR-2 | tests/test_mcp_e2e.py | Facilitator-only enforcement; non-facilitator participant returns 403 |
+| FR-3 | untested | Facilitator-A token + session-B id 403; trigger: cross-spec integration audit |
+| FR-4 | tests/test_mcp_e2e.py, tests/test_010_testability.py | Sensitive participant fields stripped; strip-list contents pinned |
+| FR-5 | tests/test_010_testability.py | Empty dicts/lists serialize unchanged via _jsonify |
+| FR-6 | tests/test_010_testability.py | Read-only invariant: SELECT-only queries; one log_admin_action call site |
+| FR-7 | tests/test_010_testability.py | Secret-name pattern guard drops _KEY/_SECRET/_TOKEN/_PASSWORD/_CREDENTIAL/_PASSPHRASE allowlist entries |
+| FR-8 | tests/test_010_testability.py | Audit action string "debug_export" pinned; one call site |
+| FR-9 | tests/test_mcp_app.py, tests/test_010_testability.py | CI heuristic guard + canonical strip-list contents |
 ## 009-rate-limiting
 
 | FR | Test path(s) | Notes |
