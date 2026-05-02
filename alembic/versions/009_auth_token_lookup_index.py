@@ -37,6 +37,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Remove auth_token_lookup column + index."""
-    op.execute("DROP INDEX IF EXISTS idx_participants_auth_token_lookup")
-    op.execute("ALTER TABLE participants DROP COLUMN IF EXISTS auth_token_lookup")
+    """Forward-only per Constitution §6 + 001 §FR-017."""
+    pass
