@@ -116,9 +116,10 @@ async def test_execute_turn_populates_per_stage_timings(
 ):
     """Per-stage timings on routing_log are populated end-to-end (US6 / V14).
 
-    Verifies T048: route_ms / assemble_ms / dispatch_ms / persist_ms are
-    captured on the success-path routing_log row. advisory_lock_wait_ms
-    remains NULL until 003 §FR-032 gets its lock-wait observer.
+    Verifies T048: route_ms / assemble_ms / dispatch_ms / persist_ms and
+    advisory_lock_wait_ms are all captured on the success-path routing_log
+    row. advisory_lock_wait_ms is 0 when the lock is acquired in under 1ms
+    (the common case on a lightly loaded CI runner).
     """
     session, _, _, _ = session_with_participant
     loop = _make_loop(pool)
@@ -133,7 +134,8 @@ async def test_execute_turn_populates_per_stage_timings(
     assert routing["dispatch_ms"] >= 0
     assert routing["persist_ms"] is not None
     assert routing["persist_ms"] >= 0
-    assert routing["advisory_lock_wait_ms"] is None
+    assert routing["advisory_lock_wait_ms"] is not None
+    assert routing["advisory_lock_wait_ms"] >= 0
 
 
 async def test_execute_turn_populates_security_layer_duration(
