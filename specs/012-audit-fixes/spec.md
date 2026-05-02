@@ -214,6 +214,21 @@ A future maintainer needs to understand: how Phase 2 architectural decisions wer
 - **SC-007**: 100% of new SACP_* env vars introduced in any future spec arrive with documented type/range/fail-closed semantics on first PR (verified by spec-review checklist).
 - **SC-008**: Per-stage instrumentation captures non-null `route_ms`, `assemble_ms`, `dispatch_ms`, `persist_ms` (003) and `layer_duration_ms` (007) on 100% of production-path turns.
 
+## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-05-01)
+
+**Topologies** (per constitution §3): All seven (1–7). The cross-cutting deliverables
+in this spec — test corpora, env-var startup validation, FR-to-test traceability, per-stage
+instrumentation, §4.9 secure-by-design override semantics, and process artifacts — are
+foundational audit infrastructure. They apply uniformly regardless of topology because they
+strengthen the invariants and observability that every topology depends on.
+
+**Use cases** (per constitution §1): All seven use cases. The audit work here targets
+correctness, security, and operational visibility properties that are prerequisites for every
+use case, including the high-stakes zero-trust cross-org and professional-debate scenarios
+where a correctness failure or a missed security gap would have the greatest impact.
+
+---
+
 ## Assumptions
 
 - A local working plan (gitignored) tracks batch progress; this spec does not replace it but consumes its cross-cutting and doc-deliverable items.
