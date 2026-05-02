@@ -108,7 +108,13 @@ async def login(
     request: Request,
     response: Response,
 ) -> dict:
-    """Exchange a bearer token for a signed HttpOnly session cookie."""
+    """Exchange a bearer token for a signed HttpOnly session cookie.
+
+    Audit H-02: the response no longer echoes the submitted bearer.
+    The SPA already has it (the user just pasted it) and won't need
+    it again — MCP calls now flow through the same-origin proxy at
+    `/api/mcp/<path>` using the cookie session.
+    """
     auth_service = getattr(request.app.state, "auth_service", None)
     if auth_service is None:
         raise HTTPException(503, "Auth service not available")
@@ -120,7 +126,6 @@ async def login(
         "participant_id": participant.id,
         "session_id": participant.session_id,
         "role": participant.role,
-        "token": body.token,
         "expires_in": COOKIE_MAX_AGE_SECONDS,
     }
 
@@ -186,11 +191,16 @@ async def logout(
 _INACTIVE_STATUSES = frozenset({"removed", "offline", "reset"})
 
 
-async def _resolve_session_entry(
+async def get_current_session_entry(
     request: Request,
-    sacp_ui_token: str | None,
+    sacp_ui_token: Annotated[str | None, Cookie()] = None,
 ) -> SessionEntry:
-    """Cookie sid → store entry, with closed-fail translation to 401."""
+    """FastAPI dependency: resolve the cookie sid → server-side entry.
+
+    Returns the raw `SessionEntry` (which carries the bearer). The MCP
+    proxy uses this to attach the bearer to upstream requests without
+    ever exposing it to JS.
+    """
     if not sacp_ui_token:
         raise HTTPException(401, "Not authenticated")
     sid = _parse_cookie_value(sacp_ui_token)
@@ -202,7 +212,7 @@ async def _resolve_session_entry(
 
 async def get_current_ui_participant(
     request: Request,
-    sacp_ui_token: Annotated[str | None, Cookie()] = None,
+    entry: Annotated[SessionEntry, Depends(get_current_session_entry)],
 ) -> Participant:
     """FastAPI dependency: resolve the cookie + sid to a Participant row.
 
@@ -212,7 +222,6 @@ async def get_current_ui_participant(
     must fail closed immediately rather than grant access until the
     cookie TTL elapses.
     """
-    entry = await _resolve_session_entry(request, sacp_ui_token)
     auth_service = getattr(request.app.state, "auth_service", None)
     if auth_service is None:
         raise HTTPException(503, "Auth service not available")
@@ -228,25 +237,17 @@ UiParticipant = Annotated[Participant, Depends(get_current_ui_participant)]
 
 
 @router.get("/me")
-async def whoami(
-    request: Request,
-    sacp_ui_token: Annotated[str | None, Cookie()] = None,
-    participant: Participant = Depends(get_current_ui_participant),
-) -> dict:
+async def whoami(participant: UiParticipant) -> dict:
     """Restore session state on page refresh.
 
-    The bearer field is sourced from the server-side session store —
-    the cookie itself no longer carries the token. The SPA still needs
-    the bearer in JS memory for cross-origin MCP API calls; eliminating
-    that dependency requires a same-origin proxy refactor (deferred).
-    Until then /me returning the stored bearer keeps the F5 hydration
-    path working without rotating the user's persistent token.
+    Audit H-02: the bearer is no longer returned to JS. MCP tool calls
+    now go through the same-origin proxy at `/api/mcp/<path>`, which
+    attaches the server-side bearer from the session store. The SPA
+    consequently never needs the bearer in JS memory.
     """
-    entry = await _resolve_session_entry(request, sacp_ui_token)
     return {
         "participant_id": participant.id,
         "session_id": participant.session_id,
         "role": participant.role,
-        "token": entry.bearer,
         "expires_in": COOKIE_MAX_AGE_SECONDS,
     }
