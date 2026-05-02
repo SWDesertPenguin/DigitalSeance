@@ -18,6 +18,16 @@
 - Q: How do we avoid `turn_number` collisions between the concurrent inject write and the AI-turn persist? → A: A transaction-scoped PostgreSQL advisory lock on `hashtext(branch_id)` serializes `SELECT MAX(turn_number) + 1` + `INSERT` within `MessageRepository.append_message`.
 - Q: On small/CPU-hosted models, prompt-eval latency grew every turn because history kept accumulating. What's the bound? → A: `_fill_history` now reads `SACP_CONTEXT_MAX_TURNS` (default 20, clamped to at least `MVC_FLOOR_TURNS=3`) and passes it as the limit to `MessageRepository.get_recent`. Token budget still applies; this is a secondary cap that protects latency when the token window is too generous for the actual model hardware.
 
+### Session 2026-05-02 (audit fix/003-compliance — Phase D)
+
+- Q: Which 003 record is the Art. 28(3)(h) processor-disclosure trail? → A: `routing_log` (FR-011). Every turn records which provider received which content; combined with FR-007 (key decrypt at dispatch only) and 001 §FR-008 (append-only repository invariant), this is the canonical sub-processor audit trail. Operators are responsible for documenting Art. 28 DPA / SCC contracts with each enabled AI provider (Anthropic, OpenAI, Google, Groq, Ollama).
+
+- Q: For EU data subjects, does litellm dispatch trigger Art. 44 cross-border transfer? → A: Yes for cloud providers (Anthropic US, OpenAI US, Google US, Groq US). Ollama on operator-controlled infrastructure is the only Phase 1 option that avoids transfer. Per-region routing policy is deferred to Phase 3; trigger: any deployment with a data-residency requirement not met by switching to Ollama.
+
+- Q: Are `routing_log` and `usage_log` purge jobs wired? → A: No. `SACP_ROUTING_LOG_RETENTION_DAYS` and `SACP_USAGE_LOG_RETENTION_DAYS` are reserved env vars in `docs/env-vars.md` but no purge job exists in Phase 1. Erasure is via session / participant cascade only. Phase 3 trigger: any deployment with a regulatory retention cap below indefinite.
+
+- Q: Does `usage_log` duplicate message content? → A: No. Only the accounting columns are persisted (cost_usd, input_tokens, output_tokens, timestamp). This is Art. 5(1)(c) data minimization at the budget-tracking boundary; the content lives in `messages`.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Single Turn Execution (Priority: P1)
@@ -301,6 +311,69 @@ When a participant uses review_gate mode, their AI's response is staged as a dra
 | FR-029 (MVC floor) | Context-too-small dispatch error | — | SC-5 |
 
 Sister cross-references: log scrubbing (007 §FR-012) covers any traceback emitted by `_validate_and_persist` because exception logs go through the root-logger ScrubFilter; pipeline ordering (007 §FR-014) is the layer-precedence rule used inside `_run_pipeline`; per-layer detection persistence (007 §FR-015) is the schema FR-023 writes into on pipeline error.
+
+### GDPR article mapping (Phase D fix/003-compliance, 2026-05-02)
+
+Authoritative project-wide GDPR mapping is in `docs/compliance-mapping.md`. The 003-specific FR-to-article mappings are:
+
+| FR / asset | GDPR article | Mapping |
+|----|----|----|
+| FR-006, FR-007, FR-024 (provider dispatch) | Art. 28 | Sub-processor relationship; operator-mediated DPA / SCC |
+| FR-011 (routing_log) | Art. 28(3)(h), Art. 30 | Processor disclosure record + records of processing |
+| FR-006 (litellm cross-border) | Art. 44 | International transfer (operator's SCC requirement) |
+| FR-014, FR-028 (budget) | Art. 5(1)(c) | Data minimization in usage_log columns |
+| FR-007, FR-024 (key residency) | Art. 32(1)(a) | Pseudonymisation of access credentials |
+| FR-022, FR-027 (advisory lock + single loop) | Art. 5(1)(f), Art. 32(1)(b) | Integrity of processing |
+| FR-021 (no halt on single failure) | Art. 32(1)(c) | Availability of processing systems |
+
+## Compliance / Privacy (Phase D fix/003-compliance, 2026-05-02)
+
+This section documents 003's privacy posture around provider dispatch, routing logs, and budget accounting. Authoritative project-wide compliance mapping is in `docs/compliance-mapping.md`; per-table retention in `docs/retention.md`.
+
+### Processor relationships (Art. 28)
+
+`routing_log` is the canonical processor-disclosure record for SACP's orchestrator role: every turn records which provider received which content. For an operator acting as data controller, this is the Art. 28(3)(h) audit-trail evidence for the sub-processor relationship between the operator and each AI provider.
+
+The processor relationship is mediated through `participants.invited_by` (the sponsor that supplied the third-party API key) and `routing_log.provider` / `routing_log.model` (the dispatch target). FR-011 + FR-007 + 001 §FR-008 (append-only repository invariant) together form the Art. 28(3)(h) record.
+
+**Operator obligation**: operators MUST document Art. 28 contracts (DPAs / standard contractual clauses) with each AI provider they enable for participants — Anthropic, OpenAI, Google, Groq, Ollama (self-hosted), litellm-supported others. SACP does not enumerate these contracts; the orchestrator only records the dispatch.
+
+### Cross-border transfer (Art. 44)
+
+LiteLLM dispatch carries personal data (message content, system prompts, participant display names embedded in content) to provider endpoints. For Phase 1, the cloud provider matrix is:
+
+| Provider | Default region | Art. 44 mechanism |
+|----|----|----|
+| Anthropic | US | Operator's SCC / DPA with Anthropic |
+| OpenAI | US | Operator's SCC / DPA with OpenAI |
+| Google (Vertex AI / Gemini) | US (multi-region available) | Operator's SCC / DPA with Google Cloud |
+| Groq | US | Operator's SCC / DPA with Groq |
+| Ollama | Operator-controlled (self-hosted) | No transfer (data stays in operator's region) |
+
+For operators serving EU data subjects, every cloud-provider dispatch is a third-country transfer under Art. 44 and requires an appropriate transfer mechanism (typically Standard Contractual Clauses). Ollama on operator-controlled infrastructure is the only Phase 1 option that avoids cross-border transfer entirely.
+
+**Operator guidance**: if participants are EU residents, you (the operator) are the data controller; AI providers are processors. Document the Art. 28 contract with each enabled provider before opening the deployment to those participants. SACP's role is to faithfully record what was dispatched (`routing_log`) — not to enforce per-region routing constraints. Per-region routing policy is a Phase 3 feature; trigger: any deployment with a documented data-residency requirement that cannot be met by switching to Ollama.
+
+### Budget data as minimization (Art. 5(1)(c))
+
+Budget enforcement (FR-014, FR-028) persists only the cost data necessary to enforce the per-participant ceiling: `usage_log.cost_usd`, `usage_log.input_tokens`, `usage_log.output_tokens`, dispatch timestamp. No prompt content or response content is duplicated into `usage_log`. This is data minimization at the budget-tracking boundary — `messages` holds the content; `usage_log` holds only the accounting columns.
+
+### Retention
+
+Per `docs/retention.md`:
+- `routing_log` retention: indefinite by default; configurable via reserved env var `SACP_ROUTING_LOG_RETENTION_DAYS`. Purge job NOT YET WIRED in Phase 1; FK cascade from `sessions` covers session-scoped erasure (Art. 17).
+- `usage_log` retention: indefinite by default; configurable via reserved env var `SACP_USAGE_LOG_RETENTION_DAYS`. Purge job NOT YET WIRED in Phase 1; FK cascade from `participants` covers participant-scoped erasure.
+
+Both env vars are documented in `docs/env-vars.md` as reserved. The Phase 3 trigger for wiring the purge jobs is "any deployment with a regulatory retention cap below indefinite" (e.g., HIPAA-aligned 7-year cap, sector-specific retention limits). Until then, operators relying on session-deletion cascade for retention must be aware that `routing_log` and `usage_log` rows survive only as long as the parent `sessions` / `participants` row.
+
+### Cross-references
+
+- `docs/compliance-mapping.md` — project-wide GDPR mapping (Art. 28 + Art. 44 rows authoritative)
+- `docs/retention.md` — per-table retention (`routing_log`, `usage_log` entries)
+- `docs/env-vars.md` — `SACP_ROUTING_LOG_RETENTION_DAYS`, `SACP_USAGE_LOG_RETENTION_DAYS` reserved-var entries
+- 001 §FR-008 — append-only repository invariant (Art. 28(3)(h) audit-trail integrity)
+- 001 §FR-019 — admin_audit_log retention pattern (Art. 17(3)(b) carve-out)
+- 002 Compliance / Privacy section — auth-surface privacy posture (sister)
 
 ## Audit closeout (2026-04-29)
 
