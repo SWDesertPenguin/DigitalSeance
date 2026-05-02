@@ -30,6 +30,7 @@ from src.repositories.message_repo import MessageRepository
 from src.repositories.participant_repo import ParticipantRepository
 from src.repositories.review_gate_repo import ReviewGateRepository
 from src.repositories.session_repo import SessionRepository
+from src.web_ui.session_store import SessionStore, get_session_store
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ class SharedServices:
     interrupt_repo: InterruptRepository
     review_gate_repo: ReviewGateRepository
     log_repo: LogRepository
+    session_store: SessionStore
 
 
 def build_services(pool: asyncpg.Pool, encryption_key: str) -> SharedServices:
@@ -63,6 +65,7 @@ def build_services(pool: asyncpg.Pool, encryption_key: str) -> SharedServices:
         interrupt_repo=InterruptRepository(pool),
         review_gate_repo=ReviewGateRepository(pool),
         log_repo=LogRepository(pool),
+        session_store=get_session_store(),
     )
 
 
@@ -78,6 +81,7 @@ def attach_to_app(app: FastAPI, services: SharedServices) -> None:
     app.state.interrupt_repo = services.interrupt_repo
     app.state.review_gate_repo = services.review_gate_repo
     app.state.log_repo = services.log_repo
+    app.state.session_store = services.session_store
 
 
 async def build_standalone_services() -> SharedServices:
@@ -110,5 +114,6 @@ def prime_from_mcp_app(web_app: FastAPI, mcp_app: FastAPI) -> None:
         interrupt_repo=mcp_app.state.interrupt_repo,
         review_gate_repo=mcp_app.state.review_gate_repo,
         log_repo=mcp_app.state.log_repo,
+        session_store=get_session_store(),
     )
     attach_to_app(web_app, services)

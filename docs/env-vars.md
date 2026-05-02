@@ -50,6 +50,16 @@ out-of-range default.
 - **Source spec(s)**: 002 audit C-02 (HMAC-keyed token lookup)
 - **Note**: Distinct from `SACP_ENCRYPTION_KEY`. Used as the HMAC key for `participants.auth_token_lookup`. Rotate by re-issuing every active token (force re-login).
 
+### `SACP_WEB_UI_COOKIE_KEY`
+
+- **Default**: `<required>`
+- **Type**: high-entropy random string (>= 32 chars)
+- **Valid range**: `len() >= 32` AND not equal to any documented placeholder
+- **Blast radius on invalid**: orchestrator refuses to bind ports; Web UI cannot sign session cookies
+- **Validation rule**: `validators.validate_web_ui_cookie_key`
+- **Source spec(s)**: 011 audit M-02 (independent cookie-signing key)
+- **Note**: Distinct from `SACP_ENCRYPTION_KEY`. A leak of either secret no longer compromises both at-rest API-key encryption AND session-cookie integrity. Rotate by invalidating all active cookies (force re-login) — process restarts already do this since the server-side session store is in-memory.
+
 ### `SACP_CONTEXT_MAX_TURNS`
 
 - **Default**: `20`
@@ -89,12 +99,13 @@ out-of-range default.
 
 ### `SACP_WEB_UI_MCP_ORIGIN`
 
-- **Default**: empty (same-origin)
-- **Type**: URL
+- **Default**: `http://localhost:8750`
+- **Type**: URL (single http(s):// entry; first http(s):// in a space-separated list wins)
 - **Valid range**: scheme `http` / `https` / `ws` / `wss`; non-empty netloc
-- **Blast radius on invalid**: Web UI cannot reach MCP server; CORS preflights fail
+- **Blast radius on invalid**: Web UI proxy cannot reach MCP server; SPA's `/api/mcp/*` calls fail with 502
 - **Validation rule**: `validators.validate_web_ui_mcp_origin`
-- **Source spec(s)**: 011 §FR-002 connect-src wiring
+- **Source spec(s)**: 011 audit H-02 (same-origin MCP proxy upstream)
+- **Note**: After the H-02 same-origin proxy landed this var is server-side only — read by `src/web_ui/proxy.py` to decide where to forward MCP tool calls. The browser never connects to this origin directly; the CSP `connect-src` no longer lists it.
 
 ### `SACP_WEB_UI_WS_ORIGIN`
 
