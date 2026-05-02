@@ -1,6 +1,14 @@
 <!--
 Sync Impact Report (most recent first)
 
+  Version change: 0.7.2 → 0.7.3 (2026-05-01)
+  Change type: PATCH — §4.9 placeholder qualifier removed; approach (b) recorded
+  Modified principles:
+    - §4.9 Secure by design: "under architectural review" text replaced with
+      the chosen resolution (approach (b)) and its implementation surface
+  Added sections: none
+  Removed sections: none
+
   Version change: 0.7.1 → 0.7.2 (2026-04-30)
   Change type: MINOR — new §14.8 spec versioning convention + 3 new §13 references
   Modified principles: none
@@ -47,7 +55,6 @@ Sync Impact Report (most recent first)
     - ✓ CORS restricted from wildcard to LAN+env (spec 006)
     - ✓ Canary tokens hardened to multi-canary random base32 (spec 008)
   Follow-up TODOs (new this version):
-    - §4.9 secure-by-design implementation: 007 §FR-005 currently encodes "operator authority overrides defenses by design" (drift). Architectural review pending; see AUDIT_PLAN cross-cutting item "secure-by-design override semantics".
     - V14 perf-budget contracts: PR #163 codified the spec contracts; instrumentation implementation outstanding (per-stage timing capture, memoization caches, retention purge job, subscriber-cap enforcement, request-id middleware, benchmark + CI regression gate).
     - V16 env-var validation: AUDIT_PLAN batch 5 config-validation audit will catalog every SACP_* var with type/range/fail-closed semantics.
     - Constitution adherence audit (AUDIT_PLAN batch 5): full review may surface additional amendments; this v0.7.0 is interim.
@@ -55,7 +62,7 @@ Sync Impact Report (most recent first)
 
 # SACP Constitution
 
-**Version**: 0.7.2 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-04-30
+**Version**: 0.7.3 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-05-01
 
 ---
 
@@ -127,7 +134,7 @@ These resolve ambiguity when the design doc doesn't have a specific answer.
 
 **4.8 — Defense in depth, not silver bullets.** No single defense solves prompt injection, exfiltration, or cross-model poisoning. SACP uses six coordinated defense layers: network, application, data, AI/ML, operational, and governance. Every security decision must identify its layer and whether adjacent layers provide backup. (Framework: attack surface analysis §14)
 
-**4.9 — Secure by design.** Defenses do not cease at role boundary. The security pipeline (§8) MUST validate every AI response on every persistence path; no role — including facilitator — silently bypasses defenses. The facilitator's role is to direct workflow, not to disable security. Implementation of this principle for the held-response review-gate flow (specifically 007 §FR-005, which currently encodes "operator authority overrides defenses by design" — a position this principle reverses) is under architectural review; the resolution chooses among (a) re-pipeline on approve, (b) re-pipeline + explicit-override with logged justification, (c) defense-absolute (no override). The principle is binding regardless of which resolution lands; only the implementation surface is open. (Tracked in `AUDIT_PLAN.local.md` cross-cutting item "secure-by-design override semantics".)
+**4.9 — Secure by design.** Defenses do not cease at role boundary. The security pipeline (§8) MUST validate every AI response on every persistence path; no role — including facilitator — silently bypasses defenses. The facilitator's role is to direct workflow, not to disable security. Resolution (spec 012 FR-006, 2026-05-01): approach (b) — re-pipeline + explicit-override-with-logged-justification. Approved and edited review-gate drafts re-enter the pipeline before persisting; if content re-flags the facilitator must supply an `override_reason` or reject the draft. Approved overrides are logged to `security_events` with `layer='facilitator_override'` and `override_actor_id`. 007 §FR-005 amended accordingly.
 
 ---
 

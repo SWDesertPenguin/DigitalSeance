@@ -199,13 +199,18 @@ class LogRepository(BaseRepository):
         risk_score: float | None = None,
         blocked: bool = False,
         layer_duration_ms: int | None = None,
+        override_reason: str | None = None,
+        override_actor_id: str | None = None,
     ) -> SecurityEvent:
         """Append a security pipeline detection record (CHK008).
 
         ``layer_duration_ms`` records the wall-clock time the named
-        layer spent inspecting the response (007 §FR-020); populated by
-        the turn-loop pipeline-runner (012 US6) and NULL on rows that
-        predate the instrumentation or on pipeline_error fast-paths.
+        layer spent inspecting the response (007 §FR-020).
+
+        ``override_reason`` and ``override_actor_id`` are populated
+        only when ``layer='facilitator_override'`` (spec 012 FR-006
+        §4.9 approach (b)): a facilitator explicitly approved a draft
+        that re-flagged the pipeline.
         """
         record = await self._fetch_one(
             _INSERT_SECURITY_EVENT_SQL,
@@ -217,6 +222,8 @@ class LogRepository(BaseRepository):
             findings,
             blocked,
             layer_duration_ms,
+            override_reason,
+            override_actor_id,
         )
         return SecurityEvent.from_record(record)
 
@@ -340,8 +347,8 @@ _AUDIT_LOG_SQL = """
 _INSERT_SECURITY_EVENT_SQL = """
     INSERT INTO security_events
         (session_id, speaker_id, turn_number, layer, risk_score, findings, blocked,
-         layer_duration_ms)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         layer_duration_ms, override_reason, override_actor_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     RETURNING *
 """
 
