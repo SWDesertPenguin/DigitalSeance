@@ -1,6 +1,13 @@
 <!--
 Sync Impact Report (most recent first)
 
+  Version change: 0.7.4 → 0.7.5 (2026-05-01)
+  Change type: PATCH — api-versioning.md added to §13 reference registry
+  Modified principles: none
+  Added §13 references:
+    - docs/api-versioning.md (API versioning and deprecation policy; Phase G audit deliverable)
+  Removed sections: none
+
   Version change: 0.7.3 → 0.7.4 (2026-05-01)
   Change type: PATCH — constitution-adherence audit sweep; ADR 0001 materialised; spec 012 topology section added
   Modified principles: none
@@ -83,7 +90,7 @@ Sync Impact Report (most recent first)
 
 # SACP Constitution
 
-**Version**: 0.7.4 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-05-01
+**Version**: 0.7.5 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-05-01
 
 ---
 
@@ -374,6 +381,7 @@ Every feature spec must pass these checks. Failure requires revision before impl
 | `docs/pattern-list-update-workflow.md` | Pattern-list update workflow | Four-step workflow (capture → PR within one cycle → corpus + regression test + pattern + runbook update → land within one cycle) for promoting red-team incidents to detection patterns per 007 §FR-017 |
 | `docs/threat-model-review-process.md` | Threat-model freshness review | Per-Phase-boundary cadence + four trigger conditions (new red-team category, new participant capability, dependency major version, provider regression) + ownership |
 | `docs/adr/` | Architectural decision records | MADR 4.0 lightweight format, one file per decision (NNNN-short-title.md). Decisions outside §14.5 Constitution scope (single-file refactor patterns, fire-and-forget summarization rationale, etc.) |
+| `docs/api-versioning.md` | API versioning and deprecation policy | Current state (no versioning Phase 1/2), MCP protocol divergence, Phase 3 strategy, breaking-change definition, operator compatibility window, feature-flag registry, rollback approach |
 
 ### Regulatory & Frameworks
 
