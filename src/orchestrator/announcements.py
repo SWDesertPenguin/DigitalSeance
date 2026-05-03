@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.api_bridge.tokenizer import default_estimator
 from src.orchestrator.branch import get_main_branch_id
 
 
@@ -44,7 +45,7 @@ async def announce_departure(
         speaker_id=speaker_id,
         speaker_type="system",
         content=content,
-        token_count=max(len(content) // 4, 1),
+        token_count=max(default_estimator().count_tokens(content), 1),
         complexity_score="n/a",
     )
     payload = {
@@ -87,7 +88,7 @@ async def announce_arrival(
         speaker_id=speaker_id,
         speaker_type="system",
         content=content,
-        token_count=max(len(content) // 4, 1),
+        token_count=max(default_estimator().count_tokens(content), 1),
         complexity_score="n/a",
     )
     payload = {
