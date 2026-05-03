@@ -89,12 +89,12 @@ out-of-range default.
 
 ### `SACP_WEB_UI_INSECURE_COOKIES`
 
-- **Default**: `0`
+- **Default**: unset (auto-detect from request scheme)
 - **Type**: bool-string enum
 - **Valid range**: `"0"` or `"1"`
-- **Blast radius on invalid**: HttpOnly / Secure cookie flags become undefined
+- **Blast radius on invalid**: cookie Secure flag may downgrade in production
 - **Validation rule**: `validators.validate_web_ui_insecure_cookies`
-- **Note**: Setting `1` is a LAN/dev escape hatch. Production MUST use `0` (HTTPS).
+- **Note**: The cookie Secure flag is auto-detected from the request scheme — HTTPS gets Secure, HTTP does not. Behind a TLS-terminating reverse proxy, set `SACP_TRUST_PROXY=1` so the orchestrator honors `X-Forwarded-Proto`. Setting this var to `1` is a force-off override; unnecessary for normal LAN/HTTP use after auto-detect, kept for explicit operator control.
 - **Source spec(s)**: 011 §SR cookie classification
 
 ### `SACP_WEB_UI_MCP_ORIGIN`

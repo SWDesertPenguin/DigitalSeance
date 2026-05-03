@@ -418,7 +418,7 @@ This section documents 011's operator-facing decisions for Web UI deployment. Op
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `SACP_WEB_UI_INSECURE_COOKIES` | LAN/dev escape hatch (omits Secure flag on session cookie) | `0` (secure) |
+| `SACP_WEB_UI_INSECURE_COOKIES` | Force-off override for cookie Secure flag (auto-detected from request scheme by default) | unset |
 | `SACP_WEB_UI_MCP_ORIGIN` | Origin string used in CSP `connect-src` for MCP API calls | (operator-supplied) |
 | `SACP_WEB_UI_WS_ORIGIN` | Origin string used in CSP `connect-src` for WebSocket | (operator-supplied) |
 | `SACP_WEB_UI_ALLOWED_ORIGINS` | CSV of accepted Origin headers on WS upgrade (SR-004) | same-origin |
@@ -437,10 +437,14 @@ Cross-ref `docs/env-vars.md` for the canonical catalog.
 
 ### HTTP vs HTTPS posture
 
-- **Production**: HTTPS required. `SACP_WEB_UI_INSECURE_COOKIES` MUST be unset (or `0`); session cookie includes the `Secure` flag and SameSite=Strict.
-- **LAN / dev**: `SACP_WEB_UI_INSECURE_COOKIES=1` permits HTTP-only deployment for local testing. The cookie loses its `Secure` flag; SameSite=Strict still applies.
+The session cookie's `Secure` flag is auto-detected from the inbound request scheme: HTTPS requests get `Secure`, HTTP requests do not. SameSite=Strict and HttpOnly apply unconditionally.
 
-The orchestrator does NOT auto-detect the deployment scheme; operator-controlled. Misconfiguration (HTTPS deploy with `INSECURE_COOKIES=1`) silently downgrades cookie security — runbook §13 includes a deploy-time sanity check.
+- **Production direct-TLS**: HTTPS reaches the orchestrator directly. The request scheme is `https`, the cookie carries `Secure`. No env vars required.
+- **Production behind TLS-terminating reverse proxy**: set `SACP_TRUST_PROXY=1` so the orchestrator honors `X-Forwarded-Proto` from the proxy; the cookie still gets `Secure` even though the inner request is HTTP. Same env var that governs IP-binding trust, so the trust decision is co-located.
+- **LAN / dev**: HTTP-only deployment works out of the box. Auto-detect sees `http` and omits `Secure` so the cookie round-trips as expected.
+- **Explicit override**: `SACP_WEB_UI_INSECURE_COOKIES=1` forces the flag off regardless of scheme. Kept for operator control and back-compat; unnecessary for the LAN/HTTP case after auto-detect.
+
+Pre-fix the flag defaulted to on, so a LAN/HTTP deploy silently broke after login: the browser stored the cookie but refused to send it back, deadlocking every cookie-authed call (proxy 401, WebSocket 4401). Runbook §13's deploy-time sanity check (HTTPS deploy with `INSECURE_COOKIES=1` warning) still applies.
 
 ### CDN dependency
 
