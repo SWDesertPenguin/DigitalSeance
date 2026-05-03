@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 _MARKDOWN_IMAGES = re.compile(r"!\[([^\]]*)\]\([^)]+\)")
-_HTML_SRC = re.compile(r'<[^>]+\bsrc\s*=\s*["\'][^"\']+["\'][^>]*>', re.IGNORECASE)
+_HTML_SRC = re.compile(r'<[^<>]+\bsrc\s*=\s*["\'][^"\']+["\'][^<>]*>', re.IGNORECASE)
 _DATA_URLS = re.compile(
     r"https?://[^\s]+[?&](?:data|token|secret|key|password)=",
     re.IGNORECASE,
@@ -49,10 +49,18 @@ _SACP_TAGS = re.compile(r"</?sacp:(?:human|ai)>|@sacp:(?:human|ai)\b")
 # by PromptProtector.check_leakage rather than stripped by regex.
 _CANARY_LEGACY = re.compile(r"\[Internal:\s*CANARY_[0-9a-f]+\]")
 
+# Bound regex runtime against pathological inputs (polynomial worst case on
+# repeated leading delimiters). Realistic LLM output is ~100 KB; cap is well
+# above that and below where the negated-class regexes degrade noticeably.
+_MAX_FILTER_INPUT = 1_048_576
+
 
 def filter_exfiltration(text: str) -> tuple[str, list[str]]:
     """Strip exfiltration patterns. Returns (cleaned, flags)."""
     flags: list[str] = []
+    if len(text) > _MAX_FILTER_INPUT:
+        text = text[:_MAX_FILTER_INPUT]
+        flags.append("input_truncated_oversize")
     result = text
     result = _strip_images(result, flags)
     result = _strip_html_src(result, flags)
