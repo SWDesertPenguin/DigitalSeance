@@ -225,3 +225,113 @@ async def test_proxy_csrf_rejects_post_without_header() -> None:
         assert upstream_called is False
     finally:
         await store.delete(sid)
+
+
+_BOOTSTRAP_PATHS = [
+    "tools/session/create",
+    "tools/session/request_join",
+    "tools/session/redeem_invite",
+]
+
+
+@pytest.mark.parametrize("path", _BOOTSTRAP_PATHS)
+def test_proxy_bootstrap_paths_forward_without_cookie(path: str) -> None:
+    """The pre-auth landing-screen calls forward without an Authorization.
+
+    The SPA invokes these from the unauthenticated landing screen — no
+    cookie exists yet. Gating them behind a session deadlocks the
+    bootstrap. The upstream MCP routes are public by design.
+    """
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"auth_token": "issued-by-upstream"})
+
+    with (
+        _patched_proxy_client(httpx.MockTransport(handler)),
+        TestClient(_app()) as client,
+    ):
+        response = client.post(
+            f"/api/mcp/{path}",
+            json={"display_name": "Facilitator-test"},
+            headers={"X-SACP-Request": "1"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"auth_token": "issued-by-upstream"}
+    assert len(captured) == 1
+    assert "authorization" not in {k.lower() for k in captured[0].headers}
+    assert captured[0].url.path == f"/{path}"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tools/session/create/extra",
+        "tools/session/createX",
+        "tools/session/create/",
+        "tools/session/Create",
+        "prefix/tools/session/create",
+    ],
+)
+def test_proxy_bootstrap_allowlist_is_exact_match(path: str) -> None:
+    """Near-miss paths must NOT inherit the unauthenticated bootstrap pass.
+
+    The allowlist is a frozenset of exact strings. This test pins that
+    semantic so a future refactor (e.g. swapping `in` for `startswith`)
+    cannot silently turn `/api/mcp/tools/session/create/anything` into
+    a public endpoint.
+    """
+    upstream_called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal upstream_called
+        upstream_called = True
+        return httpx.Response(200)
+
+    with (
+        _patched_proxy_client(httpx.MockTransport(handler)),
+        TestClient(_app()) as client,
+    ):
+        response = client.post(
+            f"/api/mcp/{path}",
+            json={},
+            headers={"X-SACP-Request": "1"},
+        )
+
+    assert response.status_code == 401
+    assert upstream_called is False
+
+
+@pytest.mark.parametrize("path", _BOOTSTRAP_PATHS)
+def test_proxy_bootstrap_paths_strip_client_authorization(path: str) -> None:
+    """A client-supplied Authorization on a bootstrap path is stripped.
+
+    Otherwise the proxy could be used as an oracle: attacker fires a
+    stolen bearer at `/api/mcp/tools/session/create` and reads the
+    upstream response to confirm the bearer is valid. Strip it on the
+    way through so the upstream sees the same shape as a legitimate
+    pre-auth call.
+    """
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"auth_token": "ok"})
+
+    with (
+        _patched_proxy_client(httpx.MockTransport(handler)),
+        TestClient(_app()) as client,
+    ):
+        response = client.post(
+            f"/api/mcp/{path}",
+            json={"display_name": "Facilitator-test"},
+            headers={
+                "X-SACP-Request": "1",
+                "Authorization": "Bearer attacker-supplied",
+            },
+        )
+
+    assert response.status_code == 200
+    assert "authorization" not in {k.lower() for k in captured[0].headers}
