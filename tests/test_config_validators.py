@@ -338,3 +338,89 @@ def test_encryption_key_accepts_real_fernet(_restore_env: None):
 
     os.environ["SACP_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
     assert validate_encryption_key() is None
+
+
+# ---------------------------------------------------------------------------
+# Spec 003 §FR-033 — provider-native cache directives env vars
+# ---------------------------------------------------------------------------
+
+
+def test_anthropic_cache_ttl_unset_ok(_restore_env: None):
+    from src.config.validators import validate_anthropic_cache_ttl
+
+    os.environ.pop("SACP_ANTHROPIC_CACHE_TTL", None)
+    assert validate_anthropic_cache_ttl() is None
+
+
+def test_anthropic_cache_ttl_accepts_5m(_restore_env: None):
+    from src.config.validators import validate_anthropic_cache_ttl
+
+    os.environ["SACP_ANTHROPIC_CACHE_TTL"] = "5m"
+    assert validate_anthropic_cache_ttl() is None
+
+
+def test_anthropic_cache_ttl_accepts_1h(_restore_env: None):
+    from src.config.validators import validate_anthropic_cache_ttl
+
+    os.environ["SACP_ANTHROPIC_CACHE_TTL"] = "1h"
+    assert validate_anthropic_cache_ttl() is None
+
+
+def test_anthropic_cache_ttl_rejects_garbage(_restore_env: None):
+    from src.config.validators import validate_anthropic_cache_ttl
+
+    os.environ["SACP_ANTHROPIC_CACHE_TTL"] = "30m"
+    failure = validate_anthropic_cache_ttl()
+    assert failure is not None
+    assert failure.var_name == "SACP_ANTHROPIC_CACHE_TTL"
+    assert "must be '5m' or '1h'" in failure.reason
+
+
+def test_caching_enabled_unset_ok(_restore_env: None):
+    from src.config.validators import validate_caching_enabled
+
+    os.environ.pop("SACP_CACHING_ENABLED", None)
+    assert validate_caching_enabled() is None
+
+
+def test_caching_enabled_rejects_yes(_restore_env: None):
+    from src.config.validators import validate_caching_enabled
+
+    os.environ["SACP_CACHING_ENABLED"] = "yes"
+    failure = validate_caching_enabled()
+    assert failure is not None
+    assert failure.var_name == "SACP_CACHING_ENABLED"
+    assert "must be '0' or '1'" in failure.reason
+
+
+def test_openai_cache_retention_unset_ok(_restore_env: None):
+    from src.config.validators import validate_openai_cache_retention
+
+    os.environ.pop("SACP_OPENAI_CACHE_RETENTION", None)
+    assert validate_openai_cache_retention() is None
+
+
+def test_openai_cache_retention_accepts_24h(_restore_env: None):
+    from src.config.validators import validate_openai_cache_retention
+
+    os.environ["SACP_OPENAI_CACHE_RETENTION"] = "24h"
+    assert validate_openai_cache_retention() is None
+
+
+def test_openai_cache_retention_rejects_garbage(_restore_env: None):
+    from src.config.validators import validate_openai_cache_retention
+
+    os.environ["SACP_OPENAI_CACHE_RETENTION"] = "1h"
+    failure = validate_openai_cache_retention()
+    assert failure is not None
+    assert "must be 'default' or '24h'" in failure.reason
+
+
+def test_v16_cache_vars_in_validators_tuple():
+    """Make sure the new validators are wired into the iter_failures path."""
+    from src.config import validators as v
+
+    callables = [c.__name__ for c in v.VALIDATORS]
+    assert "validate_anthropic_cache_ttl" in callables
+    assert "validate_caching_enabled" in callables
+    assert "validate_openai_cache_retention" in callables

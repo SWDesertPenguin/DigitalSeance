@@ -248,6 +248,48 @@ def validate_auth_lookup_key() -> ValidationFailure | None:
     return None
 
 
+def validate_anthropic_cache_ttl() -> ValidationFailure | None:
+    """SACP_ANTHROPIC_CACHE_TTL: '5m' or '1h', default '1h'.
+
+    Default is '1h' per the 2026-03-06 silent-default change (Anthropic
+    dropped the implicit 1h TTL to 5m without notice; SACP defaults
+    explicitly to '1h' so multi-minute session cadence retains hits).
+    See spec 003 §FR-033.
+    """
+    val = os.environ.get("SACP_ANTHROPIC_CACHE_TTL")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("5m", "1h"):
+        return ValidationFailure(
+            "SACP_ANTHROPIC_CACHE_TTL",
+            f"must be '5m' or '1h'; got {val!r}",
+        )
+    return None
+
+
+def validate_caching_enabled() -> ValidationFailure | None:
+    """SACP_CACHING_ENABLED: '0' or '1', default '1'. See spec 003 §FR-033."""
+    return _validate_bool_enum("SACP_CACHING_ENABLED", default="1")
+
+
+def validate_openai_cache_retention() -> ValidationFailure | None:
+    """SACP_OPENAI_CACHE_RETENTION: 'default' or '24h', default 'default'.
+
+    24h activates Extended Prompt Caching only on models in the
+    bridge-side allowlist (empty in Phase 1; future work adds
+    GPT-5.5+ family on production confirmation). Spec 003 §FR-033.
+    """
+    val = os.environ.get("SACP_OPENAI_CACHE_RETENTION")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("default", "24h"):
+        return ValidationFailure(
+            "SACP_OPENAI_CACHE_RETENTION",
+            f"must be 'default' or '24h'; got {val!r}",
+        )
+    return None
+
+
 def validate_web_ui_cookie_key() -> ValidationFailure | None:
     """SACP_WEB_UI_COOKIE_KEY: required signing key for Web UI session cookies.
 
@@ -286,6 +328,9 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_ws_max_connections_per_ip,
     validate_max_subscribers_per_session,
     validate_auth_lookup_key,
+    validate_anthropic_cache_ttl,
+    validate_caching_enabled,
+    validate_openai_cache_retention,
     validate_web_ui_cookie_key,
 )
 

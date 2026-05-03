@@ -126,6 +126,19 @@
 
 ---
 
+## Phase 11: FR-033 Provider-native cache directives (audit fix/api-bridge-caching, 2026-05-02)
+
+- [X] T027 Implement `src/api_bridge/caching.py` — CacheDirectives type, BreakpointPosition enum, apply_directives translator, build_session_cache_directives default-policy builder
+- [X] T028 Extend `src/api_bridge/provider.py` dispatch + dispatch_with_retry with `cache_directives` kwarg; thread through `_call_litellm` to apply translation. Default None preserves byte-identical payload.
+- [X] T029 Wire `src/orchestrator/loop.py` `_dispatch_to_provider` to construct directives via `build_session_cache_directives(session_id, model)` per turn
+- [X] T030 Add three V16 validators (SACP_CACHING_ENABLED, SACP_ANTHROPIC_CACHE_TTL, SACP_OPENAI_CACHE_RETENTION) to `src/config/validators.py`; register in VALIDATORS tuple
+- [X] T031 Document the three new env vars in `docs/env-vars.md`
+- [X] T032 Add unit tests `tests/test_provider_caching.py` covering directive construction, per-provider translation, kill-switch, and default-None regression
+- [X] T033 Add integration test `tests/integration/test_caching_e2e.py` asserting cache_control + prompt_cache_key + cached_content reach litellm.acompletion via the mock_litellm fixture
+- [X] T034 Add validator tests in `tests/test_config_validators.py` for the three new env vars
+
+---
+
 ## Dependencies & Execution Order
 
 - **Setup (1)**: No dependencies
