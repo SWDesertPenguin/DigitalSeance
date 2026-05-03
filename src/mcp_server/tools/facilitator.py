@@ -8,6 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
+from src.api_bridge.tokenizer import default_estimator
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
 from src.orchestrator.branch import get_main_branch_id
@@ -1382,7 +1383,7 @@ async def _append_draft_to_transcript(
         speaker_id=draft.participant_id,
         speaker_type="ai",
         content=content,
-        token_count=max(len(content) // 4, 1),
+        token_count=max(default_estimator().count_tokens(content), 1),
         complexity_score="n/a",
     )
 

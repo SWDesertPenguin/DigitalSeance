@@ -139,6 +139,18 @@
 
 ---
 
+## Phase 12: FR-034 Per-provider tokenizer adapter (audit fix/api-bridge-tokenizer-adapter, 2026-05-03)
+
+- [X] T035 Implement `src/api_bridge/tokenizer.py` — TokenizerAdapter Protocol; OpenAI, Anthropic, Gemini concrete adapters; default-estimator singleton; per-participant cached factory; reconcile function
+- [X] T036 Migrate token-counting call sites in `src/orchestrator/{context,loop,summarizer,announcements}.py` and `src/mcp_server/tools/{participant,facilitator}.py`
+- [X] T037 Spec amendment + Clarifications + tasks.md update + traceability row
+- [X] T038 Unit tests for each adapter (count + truncate + name); factory + caching tests
+- [X] T039 Drift test (English prose across all three adapters within margin)
+- [X] T040 Fallback test (mocked SDK ImportError on reconcile path falls back to in-process count)
+- [X] T041 Reconciliation test (known stored count vs API count produces drift report)
+
+---
+
 ## Dependencies & Execution Order
 
 - **Setup (1)**: No dependencies

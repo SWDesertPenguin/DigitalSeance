@@ -7,6 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from src.api_bridge.tokenizer import default_estimator
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
 from src.orchestrator.branch import get_main_branch_id
@@ -77,7 +78,7 @@ async def _try_persist_injection(
             speaker_id=participant.id,
             speaker_type="human",
             content=body.content,
-            token_count=max(len(body.content) // 4, 1),
+            token_count=max(default_estimator().count_tokens(body.content), 1),
             complexity_score="n/a",
         )
     except SessionNotActiveError:

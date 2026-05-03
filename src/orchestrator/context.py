@@ -6,6 +6,7 @@ import os
 
 import asyncpg
 
+from src.api_bridge.tokenizer import default_estimator, get_tokenizer_for_model
 from src.models.message import Message
 from src.models.participant import Participant
 from src.orchestrator.branch import get_main_branch_id
@@ -145,16 +146,30 @@ def _reorder_chronologically(context: list[ContextMessage]) -> list[ContextMessa
 
 
 def _available_budget(participant: Participant) -> int:
-    """Calculate available token budget for context."""
+    """Calculate available token budget for context.
+
+    Uses the participant's per-provider tokenizer adapter (spec 003
+    §FR-034) so the prompt-estimate landed against the actual target
+    tokenizer rather than a generic char/4 heuristic.
+    """
     window = participant.context_window
     reserve = participant.max_tokens_per_turn or RESPONSE_RESERVE
-    prompt_est = _estimate_tokens(participant.system_prompt)
+    tokenizer = get_tokenizer_for_model(participant.model)
+    prompt_est = tokenizer.count_tokens(participant.system_prompt or "")
     return max(window - reserve - prompt_est, 0)
 
 
 def _estimate_tokens(text: str) -> int:
-    """Rough token estimate (~4 chars per token)."""
-    return max(len(text) // 4, 1) if text else 0
+    """Token estimate via the default tiktoken adapter (spec 003 §FR-034).
+
+    Used by helper paths that lack per-participant scope (interjection
+    + proposal accumulation, history-fill against a chronological
+    sort). The participant-specific adapter still gates the budget
+    floor in `_available_budget`.
+    """
+    if not text:
+        return 0
+    return max(default_estimator().count_tokens(text), 1)
 
 
 def _add_system_prompt(

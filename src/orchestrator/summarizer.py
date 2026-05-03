@@ -9,6 +9,7 @@ import asyncpg
 
 from src.api_bridge.format import to_provider_messages
 from src.api_bridge.provider import dispatch_with_retry
+from src.api_bridge.tokenizer import default_estimator
 from src.models.participant import Participant
 from src.orchestrator.branch import get_main_branch_id
 from src.orchestrator.types import ContextMessage
@@ -307,7 +308,7 @@ async def _store_summary(
         speaker_id=speaker_id,
         speaker_type="summary",
         content=cleaned_json,
-        token_count=len(cleaned_json) // 4,
+        token_count=default_estimator().count_tokens(cleaned_json),
         complexity_score="low",
         summary_epoch=current_turn,
     )
