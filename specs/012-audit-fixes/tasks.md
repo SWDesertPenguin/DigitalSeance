@@ -208,12 +208,12 @@ description: "Task list for feature 012-audit-fixes implementation"
 
 **Purpose**: Verification that the feature as a whole satisfies its success criteria; closeout artifacts.
 
-- [ ] T065 Walk through [quickstart.md](./quickstart.md) end-to-end on a clean checkout: validate config, look up an FR in traceability, run schema-mirror, exercise §4.9 override path, consult each new doc.
-- [ ] T066 Run full test suite `pytest tests/unit/ && pytest -m integration`; assert no regressions vs. main.
-- [ ] T067 Update the local working plan's cross-cutting checkboxes for items delivered via this feature (mark `[x]` for benign+adversarial corpus, FR-to-test traceability, conftest schema-mirror gate, per-test FastAPI app fixture, env-var contract consolidation, pattern-list update workflow, per-stage instrumentation, audit follow-through tracking, §4.9 secure-by-design implementation).
-- [ ] T068 Add closeout entries in `AUDIT_FOLLOWTHROUGH.local.md` for each cross-cutting item delivered, including resolution PR + verifying test references.
-- [ ] T069 [P] Sanity-check all CI gates green on a synthetic green PR: env_vars, traceability, schema_mirror, doc_deliverables.
-- [ ] T070 Update spec status: change `**Status**: Draft` to `**Status**: Implemented` on `specs/012-audit-fixes/spec.md`.
+- [X] T065 Walk through [quickstart.md](./quickstart.md) end-to-end on a clean checkout: validate config (4 required vars surface; OK with stub Fernet key), traceability + schema-mirror + env-vars + doc-deliverables CI gates all green; §4.9 override path documented in 007 §FR-005 + 011 §SR-007 (functional verification via tests/test_007_*.py).
+- [X] T066 Run full test suite `pytest tests/unit/ && pytest -m integration` — 578 unit pass / 168 skip (DB-gated); 2 integration skip (DB-gated); zero failures, zero regressions.
+- [X] T067 Cross-cutting checkboxes in `AUDIT_PLAN.local.md` updated: §4.9 secure-by-design ticked (PR #208); error-code catalog ticked (PR #232); glossary ticked (PR #232). All other 9 cross-cutting items already ticked in prior phases.
+- [X] T068 Closeout entries added to `AUDIT_FOLLOWTHROUGH.local.md` for §4.9, roles-permissions reclassification, error-codes, glossary, state-machines, ws-events, compliance-mapping, operational-runbook, retention; plus Batch 2 / Batch 3 cross-cutting consolidations.
+- [X] T069 [P] CI gates green: `check_env_vars.py` OK (14 vars / 16 docs), `check_traceability.py` OK (10 spec sections), `check_schema_mirror.py` OK (14 tables), `check_doc_deliverables.py` OK (8 docs / codes + events covered). Phase H closeout discovery: `check_doc_deliverables.py` was gitignored as a US5-drafting artifact and never wired into CI. Resolved this session: removed `.gitignore` line, added the script to `.github/workflows/test.yml` (post-env-vars gate), aligned CANONICAL_DOCS to the 7-doc reality (`roles-permissions.md` is operator-internal per FR-010 reclassification).
+- [X] T070 Spec status flipped: `**Status**: Draft` → `**Status**: Implemented (2026-05-02 via Phase H closeout — fix/012-phase-h-closeout)`.
 
 ---
 
