@@ -20,6 +20,15 @@ What this router does NOT do:
     and use `client.stream(...)`.
   * WebSocket forwarding — the WS endpoint is on the Web UI itself
     (`/ws/{session_id}`), the proxy only handles MCP tool HTTP calls.
+
+Bootstrap allowlist:
+  Three MCP endpoints exist precisely because the caller has no token
+  yet — the SPA invokes them from the unauthenticated landing screen.
+  Gating them behind a session cookie deadlocks the bootstrap (no
+  cookie → 401 → user can never create or join a session). Those paths
+  forward without an Authorization header; the upstream MCP routes do
+  not declare ``Depends(get_current_participant)`` so the absent header
+  is correct, not a bypass.
 """
 
 from __future__ import annotations
@@ -29,15 +38,25 @@ from collections.abc import Iterable
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Cookie, HTTPException, Request, Response
 
 from src.web_ui.auth import get_current_session_entry
-from src.web_ui.session_store import SessionEntry
 
 router = APIRouter(tags=["web_ui_proxy"])
 
 _DEFAULT_MCP_ORIGIN = "http://localhost:8750"
 _PROXY_TIMEOUT_S = 30.0
+
+# Pre-auth MCP endpoints. The SPA hits these from the landing screen
+# before any session cookie exists; the upstream routes accept them
+# without an Authorization header by design.
+_UNAUTHENTICATED_PATHS = frozenset(
+    {
+        "tools/session/create",
+        "tools/session/request_join",
+        "tools/session/redeem_invite",
+    }
+)
 
 # Hop-by-hop headers must not be forwarded between client → proxy → upstream
 # or upstream → proxy → client. Plus a few that httpx / FastAPI re-derive.
@@ -102,19 +121,23 @@ def _filtered_headers(items: Iterable[tuple[str, str]], strip: frozenset[str]) -
 async def proxy(
     path: str,
     request: Request,
-    entry: Annotated[SessionEntry, Depends(get_current_session_entry)],
+    sacp_ui_token: Annotated[str | None, Cookie()] = None,
 ) -> Response:
     """Forward an MCP tool call upstream with the session-stored bearer.
 
-    The dependency resolves the cookie sid → SessionEntry; if the cookie
-    is missing or the sid is unknown, FastAPI raises 401 before this
-    body runs (so the upstream call never fires for unauthenticated
-    requests). On the return path the upstream response is repackaged
-    after stripping hop-by-hop and any `Set-Cookie` header.
+    For authenticated paths the cookie sid resolves to a SessionEntry
+    and the bearer is attached server-side; if the cookie is missing
+    or the sid is unknown, the upstream call never fires (401). For
+    the bootstrap allowlist (`_UNAUTHENTICATED_PATHS`) the request is
+    forwarded with no Authorization header — the upstream routes are
+    public by design. On the return path the upstream response is
+    repackaged after stripping hop-by-hop and any `Set-Cookie` header.
     """
     upstream_url = f"{_mcp_origin()}/{path}"
     forwarded = _filtered_headers(request.headers.items(), _CLIENT_STRIP)
-    forwarded["authorization"] = f"Bearer {entry.bearer}"
+    if path not in _UNAUTHENTICATED_PATHS:
+        entry = await get_current_session_entry(request, sacp_ui_token)
+        forwarded["authorization"] = f"Bearer {entry.bearer}"
     body = await request.body()
     try:
         async with httpx.AsyncClient(timeout=_PROXY_TIMEOUT_S) as client:
