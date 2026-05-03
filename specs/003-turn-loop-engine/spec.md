@@ -3,6 +3,7 @@
 **Feature Branch**: `003-turn-loop-engine`
 **Created**: 2026-04-11
 **Status**: Draft
+**Spec Version**: 1.1.0 | **Last Amended**: 2026-05-02 | **Amended In**: fix/api-bridge-caching (FR-033 provider-native cache directives)
 **Input**: User description: "Turn loop engine — serialized conversation execution with context assembly, 8-mode routing, LiteLLM provider dispatch, budget enforcement, circuit breaker, and interrupt processing"
 
 ## Clarifications
@@ -31,6 +32,20 @@
 - Q: Does the budget-enforcement window handle 23:59:59 turn boundaries correctly? → A: Yes. FR-028 uses `NOW() - INTERVAL '1 hour'` / `NOW() - INTERVAL '1 day'` as a rolling trailing window, NOT calendar-aligned. A turn fired at 23:59:59 charges against the rolling 24-hour window, not the calendar day; midnight has no semantic effect.
 
 - Q: What is interrupt-queue saturation behavior under 1000+ pending interrupts? → A: Phase 1 has no enforced cap — a session with 1000 pending interrupts scans all of them per turn, growing per-turn latency O(n). Phase 3 trigger: any deployment observing pathological interrupt accumulation; implementation: enforce `MAX_PENDING_INTERRUPTS_PER_SESSION` cap, oldest dropped with `routing_log.reason='interrupt_queue_saturated'`.
+
+### Session 2026-05-02 (audit fix/api-bridge-caching)
+
+- Q: Why pass `cache_directives` through dispatch instead of having the bridge pick a default policy unconditionally? → A: Sovereignty + audit-log integrity. The orchestrator owns the policy; the bridge owns the per-provider translation. A future Phase 3 may let participants opt out of caching for compliance reasons (cache writes are still data egress); the dispatch parameter keeps that decision at the orchestrator layer rather than burying it in the bridge.
+
+- Q: Why default `SACP_ANTHROPIC_CACHE_TTL` to `1h` rather than the new Anthropic default `5m`? → A: Multi-minute session cadence is the SACP norm (turn budgets, review-gate latency, human-in-the-loop pauses). The 2x cache-write surcharge for `1h` is recovered after the third read; for sprint cadence specifically operators can set `SACP_ANTHROPIC_CACHE_TTL=5m` to match the workload.
+
+- Q: Why `prompt_cache_key=session_id` rather than `participant_id` for OpenAI? → A: Sessions, not participants, share the cached prefix (system prompt + tool defs + history). Keying by participant_id would fan out cache state across backends within the same session and lose hit rate. session_id keeps a session's per-participant fan-out routed to one backend.
+
+- Q: Why is the OpenAI 24h-retention allowlist empty in Phase 1? → A: `prompt_cache_retention="24h"` only meaningfully applies to Extended Prompt Caching models (GPT-5.5+ family). Phase 1 ships the parameter wiring so the env var is honoured, but model activation waits for production-traffic confirmation per the prompt's "out of scope" call. Operators can set `SACP_OPENAI_CACHE_RETENTION=24h` today; the request-side passthrough fires only on allowlisted models.
+
+- Q: When `cache_directives` is None, what changes about the dispatched payload? → A: Nothing. Byte-identical to pre-amendment behaviour: messages stay as `{role, content: str}` dicts, no `cache_control` blocks, no `prompt_cache_key`/`cached_content` kwargs. Existing call sites (e.g., `summarizer.py`) inherit the no-op default.
+
+- Q: Does compression-vs-cache tension apply in Phase 1? → A: No. Phase 1 ships caching only — hard compression is deferred to Phase 2 (per local research bundle §7). The cache breakpoint policy assumes the prefix is byte-stable across turns; the rolling-summary checkpoint already preserves prefix stability by becoming part of the cached head once written.
 
 ### Session 2026-05-02 (audit fix/003-compliance — Phase D)
 
@@ -266,6 +281,7 @@ When a participant uses review_gate mode, their AI's response is staged as a dra
 - **FR-030**: Per-stage turn timing MUST be captured into `routing_log` (additional columns or a sibling `turn_timings` table): `routing_ms`, `context_assembly_ms`, `dispatch_ms` (LLM round-trip), `persist_ms`, `post_pipeline_ms` (security pipeline; cross-ref 007 §FR-014). The end-to-end total MUST equal the sum of stage timings within ±5%. This makes regression detection per-stage rather than aggregate-only and replaces today's "where did the time go" investigation pattern with a queryable record.
 - **FR-031**: Compound-retry worst-case duration MUST be bounded. The compounding of FR-016 quality retries (≤3) × FR-019 per-attempt timeout (default 180s) × FR-020 rate-limit retries (≤3 per attempt) admits a 27-minute worst case; this is unacceptable for Phase 1+. (a) When total-elapsed for a turn exceeds 2× per-attempt timeout (default 360s), `routing_log` MUST record `reason='compound_retry_warn'` with the cumulative elapsed value so operators can diagnose pathological cascades. (b) A hard total-elapsed cap MUST short-circuit further retries: configurable per participant via `compound_retry_total_max_seconds` (default 600s = 10 minutes), exceeding it skips the turn with `reason='compound_retry_exhausted'` per FR-021. The cap is independent of FR-019's per-attempt timeout.
 - **FR-032**: Advisory-lock contention waits (FR-022) MUST be captured into `routing_log.advisory_lock_wait_ms` per acquisition. Sustained values > 100ms indicate cross-session lock pressure that single-instance Phase 1 deployments shouldn't normally exhibit; operators SHOULD alert on rolling-window means. The lock itself remains untimed at the application layer (FR-022 unchanged); only the wait duration is observed.
+- **FR-033**: Provider dispatch (FR-006) MUST accept an optional `cache_directives` parameter of type `CacheDirectives` carrying per-provider cache hints (Anthropic breakpoint positions + TTL, OpenAI `prompt_cache_key`, Gemini `cachedContent` reference). The bridge layer translates the directive to the matching provider request shape inside `_call_litellm`. When `cache_directives` is None OR `SACP_CACHING_ENABLED='0'`, the dispatched payload MUST be byte-identical to pre-FR-033 behaviour (no `cache_control` blocks, no extra kwargs). Default policy: the orchestrator constructs directives via `build_session_cache_directives(session_id, model)` per turn — Anthropic gets `AFTER_SYSTEM` + `AFTER_HISTORY_OLD` breakpoints with `ttl=SACP_ANTHROPIC_CACHE_TTL` (default `1h`), OpenAI gets `prompt_cache_key=session_id`, Gemini relies on implicit caching. Three new validated env vars (`SACP_CACHING_ENABLED`, `SACP_ANTHROPIC_CACHE_TTL`, `SACP_OPENAI_CACHE_RETENTION`) per V16 — see `docs/env-vars.md`. Cache hit-rate telemetry and OpenAI Extended Prompt Caching (24h TTL) model activation are deferred to Phase 3.
 
 ### Key Entities
 
