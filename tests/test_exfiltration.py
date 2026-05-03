@@ -180,3 +180,19 @@ def test_placeholder_anthropic_example_preserved() -> None:
     result, flags = filter_exfiltration(text)
     assert "sk-ant-example-12345" in result
     assert "credential_redacted" not in flags
+
+
+def test_oversize_input_truncated() -> None:
+    """Inputs exceeding the regex-runtime cap are truncated and flagged."""
+    text = "x" * (1_048_576 + 100)
+    result, flags = filter_exfiltration(text)
+    assert len(result) <= 1_048_576
+    assert "input_truncated_oversize" in flags
+
+
+def test_undersize_input_not_truncated() -> None:
+    """Inputs at or below the cap pass through without the truncation flag."""
+    text = "x" * 100_000
+    result, flags = filter_exfiltration(text)
+    assert result == text
+    assert "input_truncated_oversize" not in flags
