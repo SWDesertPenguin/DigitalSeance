@@ -2,7 +2,7 @@
 
 **Feature Branch**: `012-audit-fixes`
 **Created**: 2026-04-30
-**Status**: Draft
+**Status**: Implemented (2026-05-02 via Phase H closeout — fix/012-phase-h-closeout)
 **Input**: User description: "audit fixes"
 
 Phase 2 closed 2026-04-29; the pre-Phase-3 audit window is open. Per Constitution §14.7.5, per-spec amendments derived from audit findings ship as standalone `fix/<slug>` branches and do NOT consume numbered feature slots. **This feature owns only the work that legitimately spans multiple specs and therefore does not fit any one of them**: cross-cutting consolidations, new canonical doc deliverables, CI/test infrastructure shared by multiple specs, and process artifacts that establish conventions for Phase 3 onward.
@@ -100,7 +100,7 @@ A new contributor (or future maintainer, or compliance reviewer) wants a one-pla
 4. **Given** a frontend developer is building a new WebSocket consumer, **When** they consult `docs/ws-events.md`, **Then** every event has its payload schema documented with field types and ordering guarantees.
 5. **Given** a compliance reviewer is mapping GDPR articles to controls, **When** they consult `docs/compliance-mapping.md`, **Then** GDPR articles 5/6/15/17/20/28/30/32/33/34/44 each map to specific FRs across specs.
 6. **Given** an operator is responding to a 4xx error from the API, **When** they consult `docs/error-codes.md`, **Then** the status code maps to a documented JSON body shape.
-7. **Given** a designer is adding a new role, **When** they consult `docs/roles-permissions.md`, **Then** the role × permission matrix shows what each existing role can do.
+7. **Given** a designer is adding a new role, **When** they consult the operator-internal role × permission reference, **Then** the matrix shows what each existing role can do (aggregate matrix maintained as operator-internal carveout per FR-010 reclassification; per-spec authorization rules remain in 002, 006, 010, 011 spec.md files).
 8. **Given** an on-call operator hits an unfamiliar incident, **When** they consult `docs/operational-runbook.md`, **Then** the relevant playbook is documented or explicitly deferred with trigger.
 
 ---
@@ -177,15 +177,15 @@ A future maintainer needs to understand: how Phase 2 architectural decisions wer
 - **FR-007**: Project MUST implement per-stage instrumentation backing 003 §FR-030 (stage timings into `routing_log`), 007 §FR-020 (layer durations into `security_events`), and 008 §FR-013 (per-stage budget capture).
 - **FR-008**: Project MUST add a CI guard that fails build when an alembic migration adds a column not reflected in `tests/conftest.py` raw DDL.
 - **FR-009**: Project MUST codify a per-test FastAPI app instance fixture in `tests/conftest.py` to prevent middleware state leaks between tests.
-- **FR-010**: Project MUST publish each canonical doc deliverable in `docs/`:
+- **FR-010**: Project MUST publish each canonical doc deliverable. Public deliverables ship to `docs/`; one deliverable was reclassified mid-window:
   - `docs/glossary.md` (terminology consolidation across specs)
   - `docs/retention.md` (per-table retention policies)
   - `docs/state-machines.md` (state machine catalog)
   - `docs/ws-events.md` (WebSocket event schemas)
   - `docs/error-codes.md` (HTTP status → JSON body shape catalog)
-  - `docs/roles-permissions.md` (role × permission matrix)
   - `docs/compliance-mapping.md` (GDPR / regulatory traceability aggregation)
   - `docs/operational-runbook.md` (operator-facing decisions across specs)
+  - **role × permission matrix**: reclassified to operator-internal carveout. The aggregate matrix concentrates recon value (single-page roadmap of "what to attempt as each role") and is therefore maintained as an operator-internal reference rather than a public deliverable. Decided 2026-05-02 during US5 review; cross-references from other US5 docs strip transitive disclosure.
 - **FR-011**: Project MUST add a lightweight audit-follow-through tracking artifact (column on existing closeouts OR `AUDIT_FOLLOWTHROUGH.local.md`) so audit-finding → resolution-PR → verifying-test linkage is preserved beyond the closing of an individual audit.
 - **FR-012**: Project MUST publish a pattern-list update workflow contributing doc covering 007 §FR-017's incident → PR-within-one-cycle → red-team-runbook entry cycle.
 - **FR-013**: Project MUST establish an ADR / decision log convention (`docs/adr/` or `docs/decisions.md`) and capture at least one Phase 2 retrospective decision as the reference example.

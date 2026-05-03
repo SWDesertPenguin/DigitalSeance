@@ -67,9 +67,6 @@ AUDIT_RECONCILIATION_*.local.md
 # you want to keep them locally.
 local/
 
-# === Local doc deliverables (US5 drafts — moved to local/docs/) ===
-scripts/check_doc_deliverables.py
-
 # === Local exploratory transcripts (working notes; redact before publishing) ===
 docs/sacp-shakedown-threat-model-session.md
 
