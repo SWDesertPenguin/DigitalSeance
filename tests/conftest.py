@@ -119,6 +119,9 @@ def _get_schema_sql() -> list[str]:
 
 
 def _sessions_ddl() -> str:
+    # density_baseline_window REAL[] added in alembic 010 for spec 004
+    # §FR-020 — rolling 20-turn density values for in-process anomaly
+    # comparison.
     return """
         CREATE TABLE sessions (
             id TEXT PRIMARY KEY,
@@ -137,7 +140,8 @@ def _sessions_ddl() -> str:
             min_model_tier TEXT DEFAULT 'low',
             acceptance_mode TEXT DEFAULT 'unanimous',
             review_gate_pause_scope TEXT NOT NULL DEFAULT 'session'
-                CHECK (review_gate_pause_scope IN ('session', 'participant'))
+                CHECK (review_gate_pause_scope IN ('session', 'participant')),
+            density_baseline_window REAL[] DEFAULT '{}'
         )
     """
 
@@ -275,15 +279,22 @@ def _usage_log_ddl() -> str:
 
 
 def _convergence_log_ddl() -> str:
+    # tier + density_value + baseline_value + nullable embedding/similarity
+    # added in alembic 010 for spec 004 §FR-020 density-anomaly logging.
+    # PK extended to (turn_number, session_id, tier) so convergence and
+    # density-anomaly rows coexist on the same turn.
     return """
         CREATE TABLE convergence_log (
             turn_number INTEGER NOT NULL,
             session_id TEXT NOT NULL REFERENCES sessions(id),
-            embedding BYTEA NOT NULL,
-            similarity_score REAL NOT NULL,
+            embedding BYTEA,
+            similarity_score REAL,
             divergence_prompted BOOLEAN DEFAULT FALSE,
             escalated_to_human BOOLEAN DEFAULT FALSE,
-            PRIMARY KEY (turn_number, session_id)
+            tier TEXT NOT NULL DEFAULT 'convergence',
+            density_value REAL,
+            baseline_value REAL,
+            PRIMARY KEY (turn_number, session_id, tier)
         )
     """
 

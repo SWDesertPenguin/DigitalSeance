@@ -3,6 +3,7 @@
 **Feature Branch**: `004-convergence-cadence`
 **Created**: 2026-04-11
 **Status**: Draft
+**Spec Version**: 1.1.0 | **Last Amended**: 2026-05-03 | **Amended In**: fix/quality-density-signal (FR-020 information-density anomaly signal)
 **Input**: User description: "Convergence detection with embedding similarity, adaptive cadence pacing, and adversarial rotation for consensus drift prevention"
 
 ## Clarifications
@@ -11,6 +12,20 @@
 
 - Q: Cruise cadence ceiling? → A: 60s (reduced from 300s via PR #47; 5-minute freezes unusable in active conversation)
 - Q: Minimum window for meaningful convergence? → A: ≥3 prior turns required before computing non-zero similarity (prevents false convergence on turn 2)
+
+### Session 2026-05-03 (audit fix/quality-density-signal)
+
+- Q: Why a separate density signal alongside convergence? → A: Convergence catches semantic repetition (high embedding similarity over the window); density catches the inverse failure mode — high word count with low semantic load (terse-register drift, content-free agreement, the collusion-on-paper pattern from `comm-design/03-shorthand-and-emergent.md`). They detect different drift shapes; the convergence detector alone misses content-free verbosity.
+
+- Q: Why log to `convergence_log` with `tier='density_anomaly'` rather than a separate table? → A: Same per-turn write surface, same per-session lifecycle, same audit retention story. The PK extension to `(turn_number, session_id, tier)` lets a single turn carry both a convergence row and a density-anomaly row when both fire. `get_convergence_window` filters `tier='convergence'` so the embedding sliding window stays clean.
+
+- Q: Why store the rolling baseline on `sessions.density_baseline_window REAL[]` instead of recomputing from logs? → A: The baseline read happens on every AI turn inside `process_turn`, BEFORE the next dispatch can fire. Recomputing from logs would add a per-turn aggregation query; storing the rolling 20-element array on the session row is one read + one write per turn with no JOIN. The window size is bounded so the column never grows unboundedly.
+
+- Q: Why default `SACP_DENSITY_ANOMALY_RATIO=1.5` rather than tune against production data first? → A: Phase 1 ships an observational signal (log-only, no escalation action) so a wrong default doesn't degrade conversation quality — it produces noisy log entries at worst. The calibration artifact `tests/calibration/density_distribution.json` is the seed for Phase 3 retuning once production sessions accumulate enough data to fit a real distribution.
+
+- Q: Why is the signal observational in Phase 1 (no escalation)? → A: The threshold is uncalibrated and the false-positive cost on a circuit-breaker action would be high. Observational logging lets operators inspect anomalies (and the participant's actual content) before any automated action ships in Phase 3. This mirrors the convergence detector's progression (FR-001 logs first, FR-005/006 add action later).
+
+- Q: Why reuse the convergence detector's embedding rather than a second model load? → A: The all-MiniLM-L6-v2 model is already loaded for FR-013; computing density from the SAME embedding the detector just wrote keeps both signals consistent (same semantic basis) and avoids ~300ms per turn of redundant encoding. `compute_density(text, embedding)` accepts the array directly; convergence.py's `_maybe_log_density` reuses the bytes via `np.frombuffer` (sub-millisecond).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -133,6 +148,7 @@ Beyond embedding similarity, the convergence detector checks for nonsense output
 - **FR-017**: The divergence prompt content (FR-005) and the adversarial prompt content (FR-011) are operator-controlled system text injected into AI context. Their canonical strings live in `src/orchestrator/convergence.py:DIVERGENCE_PROMPT` and `src/orchestrator/adversarial.py:ADVERSARIAL_PROMPT`. Both prompts are EXEMPT from the sanitization pipeline (007 §FR-001) because they are system-trust content, not participant-supplied input. Phase 1 ships both with the same text ("Identify the weakest assumption..."); the prompts are conceptually distinct (FR-005 fires on convergence detection, FR-011 fires on rotation interval) but the wording overlap is accepted residual until adversarial-rotation usage data justifies divergent text.
 - **FR-018**: The sliding window (FR-003) operates over `convergence_log` rows only. `convergence_log` rows are written exclusively for AI turns (humans, system messages, and summaries do not produce embeddings), so the window naturally excludes those speaker types. There is no interleaving of human / system content into the window even though the spec wording could be read either way.
 - **FR-019**: Async embedding tasks MUST complete before the next turn's routing decision. `process_turn` is awaited synchronously inside the turn loop after persistence (`src/orchestrator/loop.py`); it is NOT fire-and-forget. The "asynchronous" framing in FR-001 means "off the main asyncio coroutine via `run_in_executor`" — the loop awaits the executor result before advancing. This avoids orphan tasks at session shutdown and ordering ambiguity in `convergence_log`.
+- **FR-020**: Every AI turn MUST compute an information-density signal alongside convergence. Density is `word_count / (1 + entropy(|embedding|))` using the same all-MiniLM-L6-v2 embedding the detector already computed for FR-001. A rolling 20-turn baseline is stored on `sessions.density_baseline_window REAL[]` (alembic 010). When the baseline holds at least 20 samples AND the current density exceeds `SACP_DENSITY_ANOMALY_RATIO` (default 1.5) × baseline mean, a `tier='density_anomaly'` row is appended to `convergence_log` with `density_value` and `baseline_value` populated; embedding/similarity remain NULL on density rows. Phase 1 is observational (log only — no circuit-breaker action, no turn skip, no escalation). Phase 3 retuning consumes `tests/calibration/density_distribution.json` to fit a real distribution before any escalation policy ships. Catches the three failure modes from `comm-design/03-shorthand-and-emergent.md`: terse-register drift, content-free agreement, collusion-on-paper.
 
 ### Key Entities
 

@@ -8,6 +8,11 @@ from functools import partial
 
 import numpy as np
 
+from src.orchestrator.density import (
+    compute_density,
+    is_anomaly,
+    update_baseline,
+)
 from src.repositories.log_repo import LogRepository
 
 log = logging.getLogger(__name__)
@@ -30,8 +35,10 @@ class ConvergenceDetector:
         *,
         window_size: int = DEFAULT_WINDOW,
         threshold: float = DEFAULT_THRESHOLD,
+        session_repo: object | None = None,
     ) -> None:
         self._log_repo = log_repo
+        self._session_repo = session_repo
         self._window = window_size
         self._threshold = threshold
         self._model = None
@@ -79,9 +86,42 @@ class ConvergenceDetector:
             return similarity, False
         diverge = self.should_diverge(similarity)
         await self._log_result(turn_number, session_id, embedding, similarity, diverge)
+        await self._maybe_log_density(turn_number, session_id, content, embedding)
         if diverge:
             self.mark_divergence_prompted()
         return similarity, diverge
+
+    async def _maybe_log_density(
+        self,
+        turn_number: int,
+        session_id: str,
+        content: str,
+        embedding_bytes: bytes,
+    ) -> None:
+        """Compute density signal, log anomaly if any, update baseline.
+
+        Spec 004 §FR-020: every turn computes a density score; anomalies
+        (score > ratio × baseline_mean over the last 20 turns) get a
+        `tier='density_anomaly'` row in convergence_log. Baseline grows
+        every turn; the first ~20 turns produce no anomaly check.
+        Skipped when no session_repo was wired (legacy callers).
+        """
+        if self._session_repo is None:
+            return
+        embedding = np.frombuffer(embedding_bytes, dtype=np.float32)
+        density = compute_density(content, embedding)
+        baseline = await self._session_repo.get_density_baseline(session_id)
+        if is_anomaly(density, baseline):
+            mean = float(np.mean(baseline)) if baseline else 0.0
+            await self._log_repo.log_density_anomaly(
+                turn_number=turn_number,
+                session_id=session_id,
+                density_value=density,
+                baseline_value=mean,
+            )
+        await self._session_repo.replace_density_baseline(
+            session_id, update_baseline(baseline, density)
+        )
 
     def is_converging(self, similarity: float) -> bool:
         """Check if similarity exceeds convergence threshold."""
