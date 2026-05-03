@@ -73,6 +73,9 @@ jobs:
       - name: Env-vars gate (SACP_* code/docs/validators coverage)
         run: python scripts/check_env_vars.py
 
+      - name: Doc-deliverables gate (canonical docs + HTTP/WS code coverage)
+        run: python scripts/check_doc_deliverables.py
+
       - name: Run unit tests (fast tier)
         run: pytest -v --tb=short -m "not integration"
 
