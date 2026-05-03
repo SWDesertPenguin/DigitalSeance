@@ -9,6 +9,7 @@ from typing import Any
 
 import litellm
 
+from src.api_bridge.caching import CacheDirectives, apply_directives
 from src.database.encryption import decrypt_value
 from src.orchestrator.types import ProviderResponse
 from src.repositories.errors import ProviderDispatchError
@@ -26,12 +27,13 @@ litellm.disable_aiohttp_transport = True
 async def dispatch(
     *,
     model: str,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     api_key_encrypted: str | None,
     encryption_key: str,
     api_base: str | None = None,
     timeout: int = 60,
     max_tokens: int | None = None,
+    cache_directives: CacheDirectives | None = None,
 ) -> ProviderResponse:
     """Send payload to provider via LiteLLM."""
     api_key = _decrypt_key(api_key_encrypted, encryption_key)
@@ -46,6 +48,7 @@ async def dispatch(
             api_base=api_base,
             timeout=timeout,
             max_tokens=max_tokens,
+            cache_directives=cache_directives,
         )
         elapsed = int(time.monotonic() - start)
         log.info("%s responded in %ds", model, elapsed)
@@ -58,13 +61,14 @@ async def dispatch(
 async def dispatch_with_retry(
     *,
     model: str,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     api_key_encrypted: str | None,
     encryption_key: str,
     api_base: str | None = None,
     timeout: int = 60,
     max_tokens: int | None = None,
     max_retries: int = 3,
+    cache_directives: CacheDirectives | None = None,
 ) -> ProviderResponse:
     """Dispatch with exponential backoff on rate limits."""
     last_error: Exception | None = None
@@ -78,17 +82,15 @@ async def dispatch_with_retry(
                 api_base=api_base,
                 timeout=timeout,
                 max_tokens=max_tokens,
+                cache_directives=cache_directives,
             )
         except litellm.RateLimitError as e:
             last_error = e
             delay = _backoff_delay(attempt)
             await asyncio.sleep(delay)
-        except (litellm.Timeout, TimeoutError) as e:
-            last_error = e
-            break  # Don't retry timeouts
         except Exception as e:
             last_error = e
-            break  # Don't retry unknown errors
+            break  # Timeouts + unknown errors aren't retried
     raise ProviderDispatchError(
         f"Provider dispatch failed after {attempt + 1} attempts: {last_error}",
     )
@@ -107,14 +109,20 @@ def _decrypt_key(
 async def _call_litellm(
     *,
     model: str,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     api_key: str | None,
     api_base: str | None,
     timeout: int,
     max_tokens: int | None,
+    cache_directives: CacheDirectives | None = None,
 ) -> Any:
     """Call litellm.acompletion with the given parameters."""
     model = _normalize_ollama_model(model)
+    messages, cache_kwargs = apply_directives(
+        model=model,
+        messages=messages,
+        directives=cache_directives,
+    )
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": messages,
@@ -126,6 +134,7 @@ async def _call_litellm(
         kwargs["api_base"] = api_base
     if max_tokens:
         kwargs["max_tokens"] = max_tokens
+    kwargs.update(cache_kwargs)
     return await litellm.acompletion(**kwargs)
 
 

@@ -152,6 +152,36 @@ out-of-range default.
 - **Validation rule**: `validators.validate_max_subscribers_per_session`
 - **Source spec(s)**: 006 §FR-019 (per-session SSE subscriber cap); 006 SC-008
 
+### `SACP_CACHING_ENABLED`
+
+- **Default**: `1`
+- **Type**: bool-string enum
+- **Valid range**: `"0"` or `"1"` (anything else is invalid)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports; runtime fallback (if env mutates post-validation) treats unrecognised values as enabled
+- **Validation rule**: `validators.validate_caching_enabled`
+- **Source spec(s)**: 003 §FR-033 (provider-native cache wiring)
+- **Note**: When disabled, dispatch is byte-identical to pre-cache behaviour — no `cache_control` blocks, no `prompt_cache_key`, no `cachedContent` reference. Set to `0` to A/B compare or to disable cache writes during a probe.
+
+### `SACP_ANTHROPIC_CACHE_TTL`
+
+- **Default**: `1h`
+- **Type**: enum
+- **Valid range**: `"5m"` or `"1h"`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports; runtime fallback uses `1h`
+- **Validation rule**: `validators.validate_anthropic_cache_ttl`
+- **Source spec(s)**: 003 §FR-033
+- **Note**: Default is `1h` per the 2026-03-06 silent-default change (Anthropic dropped the implicit 1h TTL to 5m without notice). Multi-minute session cadence retains warm cache hits at the 2x cache-write surcharge, recovered after the third read.
+
+### `SACP_OPENAI_CACHE_RETENTION`
+
+- **Default**: `default`
+- **Type**: enum
+- **Valid range**: `"default"` or `"24h"`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports; runtime fallback uses `default`
+- **Validation rule**: `validators.validate_openai_cache_retention`
+- **Source spec(s)**: 003 §FR-033
+- **Note**: `24h` is OpenAI Extended Prompt Caching (`prompt_cache_retention="24h"`); only applied to models in the bridge-side allowlist. The Phase 1 allowlist is empty by design — parameter wiring ships now; model activation lands when production traffic confirms availability.
+
 ## Reserved (documented but not yet wired)
 
 These vars appear in `src/mcp_server/tools/debug.py` `_CONFIG_KEYS` allowlist
