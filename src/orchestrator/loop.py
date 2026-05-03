@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 import asyncpg
 
+from src.api_bridge.caching import build_session_cache_directives
 from src.api_bridge.format import to_provider_messages
 from src.api_bridge.provider import dispatch_with_retry
 from src.orchestrator.branch import get_main_branch_id
@@ -423,7 +424,9 @@ async def _assemble_and_dispatch(
         return None, "no_new_input"
     messages = to_provider_messages(context)
     try:
-        return await _dispatch_to_provider(speaker, messages, ctx.encryption_key), None
+        return await _dispatch_to_provider(
+            speaker, messages, ctx.encryption_key, session_id=ctx.session_id
+        ), None
     except ProviderDispatchError as e:
         log.warning("Provider dispatch failed for %s: %s", speaker.id, e)
         await _record_failure_and_announce(ctx, breaker, speaker)
@@ -610,8 +613,14 @@ async def _dispatch_to_provider(
     speaker: object,
     messages: list[dict[str, str]],
     encryption_key: str,
+    *,
+    session_id: str,
 ) -> ProviderResponse:
     """Dispatch context to the speaker's AI provider."""
+    directives = build_session_cache_directives(
+        session_id=session_id,
+        model=speaker.model,
+    )
     return await dispatch_with_retry(
         model=speaker.model,
         messages=messages,
@@ -620,6 +629,7 @@ async def _dispatch_to_provider(
         api_base=speaker.api_endpoint,
         timeout=speaker.turn_timeout_seconds,
         max_tokens=speaker.max_tokens_per_turn,
+        cache_directives=directives,
     )
 
 
