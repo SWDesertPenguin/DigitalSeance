@@ -163,7 +163,11 @@ async def test_fr019_process_turn_returns_tuple_not_task() -> None:
     log_repo = MagicMock()
     log_repo.get_convergence_window = AsyncMock(return_value=[])
     log_repo.log_convergence = AsyncMock()
-    detector = ConvergenceDetector(log_repo=log_repo)
+    log_repo.log_density_anomaly = AsyncMock()
+    session_repo = MagicMock()
+    session_repo.get_density_baseline = AsyncMock(return_value=[])
+    session_repo.replace_density_baseline = AsyncMock()
+    detector = ConvergenceDetector(log_repo=log_repo, session_repo=session_repo)
     # Stub the model so the test doesn't pull sentence_transformers.
     detector._model = MagicMock()
     detector._model.encode.return_value = MagicMock(tobytes=lambda: b"\x00" * 384 * 4)

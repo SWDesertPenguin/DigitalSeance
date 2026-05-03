@@ -209,6 +209,8 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-017 | tests/test_004_testability.py | Divergence + adversarial prompt strings pinned; phase-1 overlap accepted residual |
 | FR-018 | tests/test_004_testability.py | Window source is convergence_log only (AI-turn-exclusive) |
 | FR-019 | tests/test_004_testability.py | process_turn returns tuple synchronously (no Task / coroutine leakage) |
+| FR-020 | tests/test_density.py, tests/integration/test_density_signal.py, tests/calibration/test_density_distribution.py | Information-density signal: compute, anomaly check, baseline rolling window, calibration artifact emit |
+
 ## 010-debug-export
 
 | FR | Test path(s) | Notes |

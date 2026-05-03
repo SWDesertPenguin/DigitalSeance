@@ -152,6 +152,34 @@ class SessionRepository(BaseRepository):
             await _log_deletion(conn, session_id)
             await _delete_session_data(conn, session_id)
 
+    async def get_density_baseline(self, session_id: str) -> list[float]:
+        """Read the rolling density baseline window (spec 004 §FR-020)."""
+        record = await self._fetch_one(
+            "SELECT density_baseline_window FROM sessions WHERE id = $1",
+            session_id,
+        )
+        if record is None:
+            return []
+        raw = record["density_baseline_window"] or []
+        return [float(v) for v in raw]
+
+    async def replace_density_baseline(
+        self,
+        session_id: str,
+        baseline_window: list[float],
+    ) -> None:
+        """Overwrite the rolling density baseline window for a session.
+
+        Sessions table is mutable (status updates, name updates exist),
+        so this UPDATE is consistent with existing patterns. Lives here
+        rather than on LogRepository which is append-only by invariant.
+        """
+        await self._execute(
+            "UPDATE sessions SET density_baseline_window = $1 WHERE id = $2",
+            baseline_window,
+            session_id,
+        )
+
 
 def _generate_ids() -> dict[str, str]:
     """Generate unique IDs for session creation."""

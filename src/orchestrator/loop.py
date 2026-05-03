@@ -37,6 +37,7 @@ from src.repositories.interrupt_repo import InterruptRepository
 from src.repositories.log_repo import LogRepository
 from src.repositories.message_repo import MessageRepository
 from src.repositories.review_gate_repo import ReviewGateRepository
+from src.repositories.session_repo import SessionRepository
 from src.security.exfiltration import filter_exfiltration
 from src.security.output_validator import validate as validate_output
 
@@ -75,7 +76,9 @@ class ConversationLoop:
         self._log_repo = LogRepository(pool)
         self._gate_repo = ReviewGateRepository(pool)
         self._cadence = CadenceController()
-        self._convergence = ConvergenceDetector(self._log_repo)
+        self._convergence = ConvergenceDetector(
+            self._log_repo, session_repo=SessionRepository(pool)
+        )
         self._convergence.load_model()
         self._summarizer = SummarizationManager(pool, encryption_key=encryption_key)
         self._cadence_presets: dict[str, str] = {}
