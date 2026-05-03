@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import re
 
-_MARKDOWN_IMAGES = re.compile(r"!\[([^\]]*)\]\([^)]+\)")
+_MARKDOWN_IMAGES = re.compile(r"!\[([^\]]*+)\]\([^)]++\)")
 _HTML_SRC = re.compile(r'<[^<>]+\bsrc\s*=\s*["\'][^"\']+["\'][^<>]*>', re.IGNORECASE)
 _DATA_URLS = re.compile(
-    r"https?://[^\s]+[?&](?:data|token|secret|key|password)=",
+    r"https?://[^\s?&]++[?&](?:data|token|secret|key|password)=",
     re.IGNORECASE,
 )
 _API_KEYS = re.compile(r"sk-[a-zA-Z0-9_-]{20,}")
