@@ -2813,12 +2813,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   const approveDraft = async (draftId, overrideReason) => {
     const body = { draft_id: draftId };
     if (overrideReason) body.override_reason = overrideReason;
-    await mcpCall("/tools/facilitator/approve_draft", auth.token, { method: "POST", body });
-  // US5 review-gate actions.
-  const approveDraft = async (draftId) => {
-    await mcpCall("/tools/facilitator/approve_draft", {
-      method: "POST", body: { draft_id: draftId },
-    });
+    await mcpCall("/tools/facilitator/approve_draft", { method: "POST", body });
   };
   const rejectDraft = async (draftId) => {
     await mcpCall("/tools/facilitator/reject_draft", {
@@ -2828,11 +2823,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   const editDraftSave = async (draftId, editedContent, overrideReason) => {
     const body = { draft_id: draftId, edited_content: editedContent };
     if (overrideReason) body.override_reason = overrideReason;
-    await mcpCall("/tools/facilitator/edit_draft", auth.token, { method: "POST", body });
-  const editDraftSave = async (draftId, editedContent) => {
-    await mcpCall("/tools/facilitator/edit_draft", {
-      method: "POST", body: { draft_id: draftId, edited_content: editedContent },
-    });
+    await mcpCall("/tools/facilitator/edit_draft", { method: "POST", body });
   };
   const togglePauseScope = async (scope) => {
     await mcpCall("/tools/facilitator/set_review_gate_pause_scope", {
