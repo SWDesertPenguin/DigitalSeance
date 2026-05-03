@@ -98,7 +98,9 @@ def test_emit_density_distribution_artifact():
         artifact[name] = _summarize(densities)
     artifact["threshold_default"] = 1.5
     artifact["window_size"] = 20
-    ARTIFACT_PATH.write_text(json.dumps(artifact, indent=2), encoding="utf-8")
+    # Trailing newline matches the end-of-file-fixer pre-commit hook so
+    # the committed artifact doesn't oscillate every time the test runs.
+    ARTIFACT_PATH.write_text(json.dumps(artifact, indent=2) + "\n", encoding="utf-8")
     assert ARTIFACT_PATH.exists()
     payload = json.loads(ARTIFACT_PATH.read_text(encoding="utf-8"))
     # Sanity: both corpora produced data
