@@ -35,16 +35,24 @@ RUN pip install --no-cache-dir --prefix=/install \
 ENV PYTHONPATH=/install/lib/python3.14/site-packages
 
 # Generate a hash-pinned requirements file from uv.lock, excluding torch
-# (handled above). The exported file lists every transitive dependency
-# with the exact wheel hash recorded in uv.lock; --require-hashes refuses
-# to install any wheel whose content doesn't match, closing the supply-
-# chain class flagged by the LiteLLM 1.82.7-1.82.8 compromise.
+# (handled above) plus the GPU stack (nvidia-*, cuda-*, triton) that
+# uv.lock pins as torch transitive deps even though our torch wheel is
+# CPU-only. Leaving them in adds ~3.5 GB to the image and pushed the
+# GHCR upload past its EOF threshold. The exported file lists every
+# remaining transitive dependency with the exact wheel hash recorded in
+# uv.lock; --require-hashes refuses to install any wheel whose content
+# doesn't match, closing the supply-chain class flagged by the LiteLLM
+# 1.82.7-1.82.8 compromise.
 RUN uv export \
         --no-dev \
         --no-emit-project \
         --format requirements-txt \
         --output-file /tmp/requirements-all.txt && \
-    awk '/^[a-zA-Z]/ { skip = ($1 ~ /^torch==/) ? 1 : 0 } !skip' \
+    awk '/^[a-zA-Z]/ { \
+            name = $1; sub(/==.*/, "", name); \
+            skip = (name == "torch" || name == "triton" || \
+                    name ~ /^nvidia-/ || name ~ /^cuda-/) ? 1 : 0 \
+         } !skip' \
         /tmp/requirements-all.txt > /tmp/requirements.txt
 
 # Hash-verified install of every other dep from uv.lock. Without the
