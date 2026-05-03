@@ -190,6 +190,85 @@ def test_cookie_with_missing_sid_raises_401() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Cookie Secure flag — auto-detect from request scheme
+# ---------------------------------------------------------------------------
+
+
+class _SchemeRequest:
+    """Minimal Request stand-in for `_secure_cookie_flag` unit coverage."""
+
+    def __init__(self, scheme: str, forwarded_proto: str | None = None) -> None:
+        from types import SimpleNamespace
+
+        self.url = SimpleNamespace(scheme=scheme)
+        self.headers = {"x-forwarded-proto": forwarded_proto} if forwarded_proto else {}
+
+
+def test_secure_flag_set_over_https() -> None:
+    """A request that arrived as HTTPS gets a Secure cookie."""
+    from src.web_ui.auth import _secure_cookie_flag
+
+    assert _secure_cookie_flag(_SchemeRequest("https")) is True
+
+
+def test_secure_flag_omitted_over_http() -> None:
+    """A LAN/HTTP request gets a non-Secure cookie so the browser will send it.
+
+    Pre-fix the Secure flag was on by default; an HTTP-on-LAN deploy
+    set the cookie but the browser refused to return it, deadlocking
+    every cookie-authed call (proxy 401, WS 4401).
+    """
+    from src.web_ui.auth import _secure_cookie_flag
+
+    assert _secure_cookie_flag(_SchemeRequest("http")) is False
+
+
+def test_secure_flag_env_override_forces_insecure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SACP_WEB_UI_INSECURE_COOKIES=1 wins over an HTTPS request."""
+    from src.web_ui.auth import _secure_cookie_flag
+
+    monkeypatch.setenv("SACP_WEB_UI_INSECURE_COOKIES", "1")
+    assert _secure_cookie_flag(_SchemeRequest("https")) is False
+
+
+def test_secure_flag_honors_x_forwarded_proto_when_trust_proxy_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reverse-proxy TLS termination: inner request is HTTP, XFP says HTTPS."""
+    from src.web_ui.auth import _secure_cookie_flag
+
+    monkeypatch.setenv("SACP_TRUST_PROXY", "1")
+    request = _SchemeRequest("http", forwarded_proto="https")
+    assert _secure_cookie_flag(request) is True
+
+
+def test_secure_flag_ignores_x_forwarded_proto_without_trust_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without TRUST_PROXY a hostile client cannot upgrade the perceived scheme."""
+    from src.web_ui.auth import _secure_cookie_flag
+
+    monkeypatch.delenv("SACP_TRUST_PROXY", raising=False)
+    request = _SchemeRequest("http", forwarded_proto="https")
+    assert _secure_cookie_flag(request) is False
+
+
+def test_secure_flag_xfp_takes_rightmost_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Proxies append to XFF/XFP; the rightmost value reflects the trusted hop."""
+    from src.web_ui.auth import _secure_cookie_flag
+
+    monkeypatch.setenv("SACP_TRUST_PROXY", "1")
+    # An attacker upstream of the trusted proxy claims https; the proxy then
+    # appends its actual view (http). Rightmost wins, so result is False.
+    request = _SchemeRequest("http", forwarded_proto="https, http")
+    assert _secure_cookie_flag(request) is False
+
+
+# ---------------------------------------------------------------------------
 # Session store unit coverage
 # ---------------------------------------------------------------------------
 
