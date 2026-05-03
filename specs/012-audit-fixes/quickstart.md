@@ -109,7 +109,7 @@ Open `docs/traceability/fr-to-test.md` and find the relevant spec section. Every
 
 ### Auditing role × permission
 
-Open `docs/roles-permissions.md`. Every permission-gated operation is in the matrix; cells indicate access per role with footnoted caveats.
+The aggregate role × permission matrix is maintained as an operator-internal reference rather than a public deliverable (per FR-010 reclassification — concentrated recon value). Per-spec authorization rules live in 002, 006, 010, and 011 spec.md files. Operators with deployment access can consult their internal copy of the matrix.
 
 ### Auditing compliance
 
