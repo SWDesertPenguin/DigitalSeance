@@ -141,13 +141,40 @@ class LogRepository(BaseRepository):
         session_id: str,
         window_size: int,
     ) -> list[ConvergenceLog]:
-        """Fetch recent convergence measurements."""
+        """Fetch recent convergence measurements (tier='convergence' only).
+
+        density-anomaly rows (tier='density_anomaly', spec 004 §FR-020)
+        live in the same table but are filtered out here so the embedding
+        sliding window only sees actual convergence measurements.
+        """
         rows = await self._fetch_all(
             _CONVERGENCE_WINDOW_SQL,
             session_id,
             window_size,
         )
         return [ConvergenceLog.from_record(r) for r in reversed(rows)]
+
+    async def log_density_anomaly(
+        self,
+        *,
+        turn_number: int,
+        session_id: str,
+        density_value: float,
+        baseline_value: float,
+    ) -> None:
+        """Append a density-anomaly row to convergence_log.
+
+        Spec 004 §FR-020: Phase 1 observational signal, no escalation
+        action. embedding + similarity_score stay NULL (this turn's
+        embedding lives on the sibling tier='convergence' row).
+        """
+        await self._execute(
+            _INSERT_DENSITY_ANOMALY_SQL,
+            turn_number,
+            session_id,
+            density_value,
+            baseline_value,
+        )
 
     # --- Admin Audit Log ---
 
@@ -327,7 +354,15 @@ _INSERT_CONVERGENCE_SQL = """
 _CONVERGENCE_WINDOW_SQL = """
     SELECT * FROM convergence_log
     WHERE session_id = $1
+      AND tier = 'convergence'
     ORDER BY turn_number DESC LIMIT $2
+"""
+
+_INSERT_DENSITY_ANOMALY_SQL = """
+    INSERT INTO convergence_log
+        (turn_number, session_id, tier, density_value, baseline_value)
+    VALUES ($1, $2, 'density_anomaly', $3, $4)
+    ON CONFLICT (turn_number, session_id, tier) DO NOTHING
 """
 
 _INSERT_AUDIT_SQL = """

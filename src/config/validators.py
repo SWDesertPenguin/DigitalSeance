@@ -272,6 +272,32 @@ def validate_caching_enabled() -> ValidationFailure | None:
     return _validate_bool_enum("SACP_CACHING_ENABLED", default="1")
 
 
+def validate_density_anomaly_ratio() -> ValidationFailure | None:
+    """SACP_DENSITY_ANOMALY_RATIO: float in [1.0, 5.0], default 1.5.
+
+    Spec 004 §FR-020 information-density anomaly threshold (multiplier
+    over the rolling 20-turn baseline mean). Values outside the range
+    indicate operator confusion (1.0 = always-anomaly; > 5.0 silences
+    the signal entirely); refuse to bind.
+    """
+    val = os.environ.get("SACP_DENSITY_ANOMALY_RATIO")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = float(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_DENSITY_ANOMALY_RATIO",
+            f"must be a float; got {val!r}",
+        )
+    if not 1.0 <= num <= 5.0:
+        return ValidationFailure(
+            "SACP_DENSITY_ANOMALY_RATIO",
+            f"must be in [1.0, 5.0]; got {num}",
+        )
+    return None
+
+
 def validate_openai_cache_retention() -> ValidationFailure | None:
     """SACP_OPENAI_CACHE_RETENTION: 'default' or '24h', default 'default'.
 
@@ -330,6 +356,7 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_auth_lookup_key,
     validate_anthropic_cache_ttl,
     validate_caching_enabled,
+    validate_density_anomaly_ratio,
     validate_openai_cache_retention,
     validate_web_ui_cookie_key,
 )
