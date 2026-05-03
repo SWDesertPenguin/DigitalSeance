@@ -1,6 +1,22 @@
 <!--
 Sync Impact Report (most recent first)
 
+  Version change: 0.7.5 → 0.7.6 (2026-05-02)
+  Change type: PATCH — voice-mediated participants explicitly out of scope at all phases
+  Modified principles:
+    - §2 What SACP Is Not: new exclusion paragraph for voice-mediated
+      participants (orchestrator-side wire is text; voice transport,
+      raw-audio MCP tools, and acoustic protocol negotiation excluded
+      at any phase)
+    - §10 Phase Boundaries: Phase 3+ deferred-decisions note added
+      listing the six architectural commitments (STT canonicalization,
+      TTS re-synthesis from canonical text, refusal of in-band
+      protocol negotiation, voice participant trust tier, no raw-audio
+      federation, voice participant disclosure) that would govern any
+      future voice-participant admission
+  Added sections: none
+  Removed sections: none
+
   Version change: 0.7.4 → 0.7.5 (2026-05-01)
   Change type: PATCH — api-versioning.md added to §13 reference registry
   Modified principles: none
@@ -90,7 +106,7 @@ Sync Impact Report (most recent first)
 
 # SACP Constitution
 
-**Version**: 0.7.5 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-05-01
+**Version**: 0.7.6 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-05-02
 
 ---
 
@@ -111,6 +127,8 @@ SACP is not a task-execution engine. It does not decompose goals into subtasks, 
 SACP is not a model router. Each participant chooses their own model and pays for it.
 
 SACP is not a prompt optimization layer. The tiered system prompts establish collaboration norms — they do not attempt to make any participant's AI "better" at its domain.
+
+Voice-mediated participants are out of scope. Participants communicate as text. The bridge layer translates between participant-side AI providers and the orchestrator, but the orchestrator-side wire is text. Voice transport, raw-audio MCP tools, and acoustic protocol negotiation are not part of SACP at any phase.
 
 ---
 
@@ -299,6 +317,8 @@ Each phase is a complete, usable system. No phase depends on a future phase to f
 **Phase 3:** 3–5 participants. Branching and rollback with UI. Sub-sessions with conclusion merging. External memory integration. Relevance-based routing, broadcast mode. Ollama/vLLM local model support. OAuth 2.1 with PKCE replaces static tokens. Step-up authorization. Artifact store enhancements. Git-backed decision tracking.
 
 **Phase 4:** A2A federation. Agent Card discovery. Hierarchical sub-sessions. Data retention policies. Formal protocol spec. Evaluate Inter-Agent Trust Protocol for multi-sovereign trust.
+
+**Voice-mediated participants (Phase 3+, deferred):** Voice participant evaluation deferred. If admitted, the architectural commitments in `local/comm-design/` govern: STT canonicalization on every hop, TTS re-synthesis from canonical text, refusal of in-band protocol negotiation, voice participant trust tier, no raw-audio federation, voice participant disclosure.
 
 A feature spec that references capabilities from a later phase is out of scope and must be flagged. Phase boundaries are hard scope limits.
 
