@@ -13,6 +13,7 @@ import asyncpg
 from src.api_bridge.caching import build_session_cache_directives
 from src.api_bridge.format import to_provider_messages
 from src.api_bridge.provider import dispatch_with_retry
+from src.api_bridge.tokenizer import default_estimator
 from src.orchestrator.branch import get_main_branch_id
 from src.orchestrator.budget import BudgetEnforcer
 from src.orchestrator.cadence import CadenceController
@@ -318,7 +319,7 @@ class ConversationLoop:
             speaker_id=fid,
             speaker_type="human",
             content=DIVERGENCE_PROMPT,
-            token_count=max(len(DIVERGENCE_PROMPT) // 4, 1),
+            token_count=max(default_estimator().count_tokens(DIVERGENCE_PROMPT), 1),
             complexity_score="n/a",
         )
         await self._int_repo.enqueue(
