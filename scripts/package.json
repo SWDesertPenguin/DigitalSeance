@@ -1,0 +1,9 @@
+{
+  "name": "sacp-scripts",
+  "private": true,
+  "description": "Node tooling for SACP CI gates. Kept under scripts/ so the repo root stays Python-only.",
+  "type": "module",
+  "dependencies": {
+    "@babel/parser": "7.26.2"
+  }
+}

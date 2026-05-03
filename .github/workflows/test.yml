@@ -50,6 +50,22 @@ jobs:
           # on older interpreters; CI just tests against prod's Python.
           python-version: "3.14"
 
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: scripts/package-lock.json
+
+      - name: Install frontend-syntax-gate deps
+        working-directory: scripts
+        run: npm ci
+
+      - name: Frontend JSX syntax gate
+        # Catches the Babel-Standalone-only failure mode where app.jsx
+        # ships raw to the browser. A syntax error otherwise hangs the
+        # SPA at "Loading…" with no server-side log signal.
+        run: node scripts/check_frontend_syntax.mjs
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
