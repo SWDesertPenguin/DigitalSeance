@@ -182,6 +182,16 @@ out-of-range default.
 - **Source spec(s)**: 003 §FR-033
 - **Note**: `24h` is OpenAI Extended Prompt Caching (`prompt_cache_retention="24h"`); only applied to models in the bridge-side allowlist. The Phase 1 allowlist is empty by design — parameter wiring ships now; model activation lands when production traffic confirms availability.
 
+### `SACP_DENSITY_ANOMALY_RATIO`
+
+- **Default**: `1.5`
+- **Type**: float
+- **Valid range**: `[1.0, 5.0]`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports; runtime fallback uses `1.5`
+- **Validation rule**: `validators.validate_density_anomaly_ratio`
+- **Source spec(s)**: 004 §FR-020 (information-density anomaly threshold)
+- **Note**: Multiplier over the rolling 20-turn density baseline mean. A value of 1.5 means "flag turns whose density is more than 1.5× the recent average." Phase 1 retuning will be informed by `tests/calibration/density_distribution.json` once production sessions accumulate.
+
 ## Reserved (documented but not yet wired)
 
 These vars appear in `src/mcp_server/tools/debug.py` `_CONFIG_KEYS` allowlist

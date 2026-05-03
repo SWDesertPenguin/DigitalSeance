@@ -424,3 +424,65 @@ def test_v16_cache_vars_in_validators_tuple():
     assert "validate_anthropic_cache_ttl" in callables
     assert "validate_caching_enabled" in callables
     assert "validate_openai_cache_retention" in callables
+
+
+# ---------------------------------------------------------------------------
+# Spec 004 §FR-017 — density anomaly ratio env var
+# ---------------------------------------------------------------------------
+
+
+def test_density_anomaly_ratio_unset_ok(_restore_env: None):
+    from src.config.validators import validate_density_anomaly_ratio
+
+    os.environ.pop("SACP_DENSITY_ANOMALY_RATIO", None)
+    assert validate_density_anomaly_ratio() is None
+
+
+def test_density_anomaly_ratio_accepts_default(_restore_env: None):
+    from src.config.validators import validate_density_anomaly_ratio
+
+    os.environ["SACP_DENSITY_ANOMALY_RATIO"] = "1.5"
+    assert validate_density_anomaly_ratio() is None
+
+
+def test_density_anomaly_ratio_accepts_range_endpoints(_restore_env: None):
+    from src.config.validators import validate_density_anomaly_ratio
+
+    os.environ["SACP_DENSITY_ANOMALY_RATIO"] = "1.0"
+    assert validate_density_anomaly_ratio() is None
+    os.environ["SACP_DENSITY_ANOMALY_RATIO"] = "5.0"
+    assert validate_density_anomaly_ratio() is None
+
+
+def test_density_anomaly_ratio_rejects_below_range(_restore_env: None):
+    from src.config.validators import validate_density_anomaly_ratio
+
+    os.environ["SACP_DENSITY_ANOMALY_RATIO"] = "0.5"
+    failure = validate_density_anomaly_ratio()
+    assert failure is not None
+    assert "must be in [1.0, 5.0]" in failure.reason
+
+
+def test_density_anomaly_ratio_rejects_above_range(_restore_env: None):
+    from src.config.validators import validate_density_anomaly_ratio
+
+    os.environ["SACP_DENSITY_ANOMALY_RATIO"] = "10.0"
+    failure = validate_density_anomaly_ratio()
+    assert failure is not None
+    assert "must be in [1.0, 5.0]" in failure.reason
+
+
+def test_density_anomaly_ratio_rejects_non_float(_restore_env: None):
+    from src.config.validators import validate_density_anomaly_ratio
+
+    os.environ["SACP_DENSITY_ANOMALY_RATIO"] = "garbage"
+    failure = validate_density_anomaly_ratio()
+    assert failure is not None
+    assert "must be a float" in failure.reason
+
+
+def test_v16_density_in_validators_tuple():
+    from src.config import validators as v
+
+    callables = [c.__name__ for c in v.VALIDATORS]
+    assert "validate_density_anomaly_ratio" in callables
