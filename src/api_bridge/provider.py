@@ -12,7 +12,7 @@ import litellm
 from src.api_bridge.caching import CacheDirectives, apply_directives
 from src.database.encryption import decrypt_value
 from src.orchestrator.types import ProviderResponse
-from src.repositories.errors import ProviderDispatchError
+from src.repositories.errors import ContextWindowOverflowError, ProviderDispatchError
 
 log = logging.getLogger(__name__)
 
@@ -84,16 +84,29 @@ async def dispatch_with_retry(
                 max_tokens=max_tokens,
                 cache_directives=cache_directives,
             )
+        except litellm.ContextWindowExceededError as e:
+            _raise_overflow(e)
         except litellm.RateLimitError as e:
             last_error = e
-            delay = _backoff_delay(attempt)
-            await asyncio.sleep(delay)
+            await asyncio.sleep(_backoff_delay(attempt))
         except Exception as e:
             last_error = e
             break  # Timeouts + unknown errors aren't retried
     raise ProviderDispatchError(
         f"Provider dispatch failed after {attempt + 1} attempts: {last_error}",
     )
+
+
+def _raise_overflow(e: BaseException) -> None:
+    """Map LiteLLM's overshoot exception to ContextWindowOverflowError.
+
+    Doesn't retry — the next attempt would send the same payload and
+    overshoot again. The distinct error class lets RoutingLog record
+    the overshoot rather than a generic provider_error.
+    """
+    raise ContextWindowOverflowError(
+        f"Provider rejected request: context window exceeded ({e})",
+    ) from e
 
 
 def _decrypt_key(

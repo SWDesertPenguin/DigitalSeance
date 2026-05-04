@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 import asyncpg
 
+from src.api_bridge.model_limits import known_max_input_tokens
 from src.api_bridge.tokenizer import default_estimator, get_tokenizer_for_model
 from src.models.message import Message
 from src.models.participant import Participant
@@ -17,6 +19,8 @@ from src.repositories.message_repo import MessageRepository
 from src.repositories.proposal_repo import ProposalRepository
 from src.security.sanitizer import sanitize
 from src.security.spotlighting import should_spotlight, spotlight
+
+log = logging.getLogger(__name__)
 
 INTERJECTION_BUDGET = 500
 PROPOSAL_BUDGET = 500
@@ -145,14 +149,37 @@ def _reorder_chronologically(context: list[ContextMessage]) -> list[ContextMessa
     return system + others
 
 
+_clamp_warned: set[tuple[str, str]] = set()
+
+
 def _available_budget(participant: Participant) -> int:
     """Calculate available token budget for context.
 
     Uses the participant's per-provider tokenizer adapter (spec 003
-    §FR-034) so the prompt-estimate landed against the actual target
-    tokenizer rather than a generic char/4 heuristic.
+    §FR-034) so the prompt-estimate is landed against the actual
+    target tokenizer rather than a generic char/4 heuristic.
+
+    Defends against operator-supplied `context_window` values that
+    exceed the model's actual provider limit (spec 003 §FR-035) by
+    clamping against the known-models catalog. A single warning per
+    (session, participant) records the misconfiguration without
+    spamming the log on every turn.
     """
-    window = participant.context_window
+    declared = participant.context_window
+    catalog = known_max_input_tokens(participant.model)
+    if catalog is not None and declared > catalog:
+        key = (participant.session_id, participant.id)
+        if key not in _clamp_warned:
+            _clamp_warned.add(key)
+            log.warning(
+                "declared context_window %d exceeds catalog %d for %s; clamping",
+                declared,
+                catalog,
+                participant.model,
+            )
+        window = catalog
+    else:
+        window = declared
     reserve = participant.max_tokens_per_turn or RESPONSE_RESERVE
     tokenizer = get_tokenizer_for_model(participant.model)
     prompt_est = tokenizer.count_tokens(participant.system_prompt or "")
