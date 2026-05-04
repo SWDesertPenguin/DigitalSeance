@@ -27,7 +27,7 @@ from src.repositories.errors import (
     TokenExpiredError,
     TokenInvalidError,
 )
-from src.web_ui.auth import _INACTIVE_STATUSES, _parse_cookie_value
+from src.web_ui.auth import _INACTIVE_STATUSES, _parse_cookie_value, extract_client_ip
 from src.web_ui.events import pong_event, state_snapshot_event
 from src.web_ui.session_store import SessionStore, get_session_store
 from src.web_ui.snapshot import build_state_snapshot
@@ -344,7 +344,7 @@ async def _ws_revalidate_bearer(websocket: WebSocket, token: str):
     if auth_service is None:
         await websocket.close(code=CLOSE_UNAUTHENTICATED, reason="auth unavailable")
         return None
-    client_ip = websocket.client.host if websocket.client else "unknown"
+    client_ip = extract_client_ip(websocket)
     try:
         participant = await auth_service.authenticate(token, client_ip)
     except (AuthRequiredError, TokenInvalidError, TokenExpiredError):

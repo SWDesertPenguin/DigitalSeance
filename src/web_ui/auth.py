@@ -129,6 +129,33 @@ def _request_scheme(request: Request) -> str:
     return request.url.scheme
 
 
+def extract_client_ip(connection: object) -> str:
+    """Extract the client IP from a Request or WebSocket consistently.
+
+    Pre-fix `/login` and the `/ws` upgrade both read `connection.client.host`
+    directly without honoring `SACP_TRUST_PROXY`. Behind a fronting reverse
+    proxy that becomes the proxy's IP, not the user's, while MCP-via-proxy
+    correctly extracted the browser IP from XFF — so the bound IP at login
+    never matched MCP's view, 403'ing every authenticated tool call. This
+    helper unifies the trust decision across all three surfaces.
+
+    Honors `X-Forwarded-For` only when `SACP_TRUST_PROXY=1` (operator
+    explicitly says "I'm behind a reverse proxy I control"). Loopback is
+    NOT auto-trusted here — `/login` and `/ws` are user-facing surfaces
+    never legitimately reached over loopback in production, so an
+    on-host attacker who could spoof XFF gains no leverage worth opening
+    that door. The MCP middleware's loopback-trust is a separate, narrow
+    concession for the in-container Web-UI-proxy hop.
+    """
+    client = getattr(connection, "client", None)
+    direct = client.host if client is not None else "unknown"
+    if os.environ.get("SACP_TRUST_PROXY") != "1":
+        return direct
+    forwarded = connection.headers.get("x-forwarded-for", "")
+    parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+    return parts[-1] if parts else direct
+
+
 def _resolve_session_store(request: Request) -> SessionStore:
     """Return the per-app SessionStore, falling back to the singleton."""
     store = getattr(request.app.state, "session_store", None)
@@ -171,7 +198,7 @@ async def _authenticate_or_raise(
     request: Request,
 ) -> Participant:
     """Call AuthService.authenticate and translate errors to HTTPException."""
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = extract_client_ip(request)
     try:
         return await auth_service.authenticate(token, client_ip)  # type: ignore[attr-defined]
     except (AuthRequiredError, TokenInvalidError):
