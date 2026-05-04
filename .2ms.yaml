@@ -1,0 +1,23 @@
+log-level: info
+stdout-format: yaml
+ignore-on-exit: errors
+
+# Suppress known-fake placeholder values used in .env.example, roles.sql,
+# and design docs. Values match the _PLACEHOLDER_PATTERNS list in
+# src/config/validators.py — startup will refuse-to-bind on these anyway.
+# Do not blanket-ignore by rule ID; only specific fake values go here.
+allowed-values:
+  - "EXAMPLE_FERNET_KEY"
+  - "REPLACE_ME"
+  - "REPLACE_ME_BEFORE_FIRST_RUN"
+  - "REPLACE_ME_BEFORE_FIRST_RUN_APP"
+  - "REPLACE_ME_BEFORE_FIRST_RUN_CLEANUP"
+  - "your-secret-here"
+  - "changeme"
+  - "generate-with-python-fernet"
+  # Synthetic fixture in tests/test_mcp_app.py — test asserts this string is NOT
+  # leaked in error responses, so the literal must remain in the source.
+  - "sk-leaked-key-12345abcdef"
+
+git:
+  all-branches: true

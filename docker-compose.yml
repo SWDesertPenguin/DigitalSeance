@@ -9,6 +9,7 @@ services:
       # `:?` form refuses to start if the env var is unset or empty.
       # Prevents the "I forgot to set POSTGRES_PASSWORD" path that would
       # otherwise silently boot Postgres on a default credential.
+      # kics-scan ignore-line
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env or environment}
       POSTGRES_DB: ${POSTGRES_DB:-sacp}
     volumes:
@@ -43,7 +44,9 @@ services:
     env_file:
       - .env
     environment:
+      # kics-scan ignore-line
       SACP_DATABASE_URL: postgresql://${POSTGRES_USER:-sacp}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env or environment}@postgres:5432/${POSTGRES_DB:-sacp}
+      # kics-scan ignore-line
       SACP_ENCRYPTION_KEY: ${SACP_ENCRYPTION_KEY:?SACP_ENCRYPTION_KEY must be set in .env or environment}
       SACP_AUTH_LOOKUP_KEY: ${SACP_AUTH_LOOKUP_KEY:?SACP_AUTH_LOOKUP_KEY must be set in .env or environment}
       SACP_WEB_UI_COOKIE_KEY: ${SACP_WEB_UI_COOKIE_KEY:?SACP_WEB_UI_COOKIE_KEY must be set in .env or environment}
