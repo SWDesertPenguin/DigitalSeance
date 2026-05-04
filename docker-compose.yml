@@ -35,9 +35,18 @@ services:
     ports:
       - "${SACP_MCP_PORT:-8750}:8750"
       - "${SACP_WEB_UI_PORT:-8751}:8751"
+    # env_file passes every key in .env through to the container, so an
+    # operator who adds e.g. SACP_ENABLE_DOCS=1 to .env doesn't also have
+    # to thread it through the environment: block below. The explicit
+    # entries that follow stay in place so compose still pre-flights the
+    # required secrets via the `:?` form before any container starts.
+    env_file:
+      - .env
     environment:
       SACP_DATABASE_URL: postgresql://${POSTGRES_USER:-sacp}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env or environment}@postgres:5432/${POSTGRES_DB:-sacp}
       SACP_ENCRYPTION_KEY: ${SACP_ENCRYPTION_KEY:?SACP_ENCRYPTION_KEY must be set in .env or environment}
+      SACP_AUTH_LOOKUP_KEY: ${SACP_AUTH_LOOKUP_KEY:?SACP_AUTH_LOOKUP_KEY must be set in .env or environment}
+      SACP_WEB_UI_COOKIE_KEY: ${SACP_WEB_UI_COOKIE_KEY:?SACP_WEB_UI_COOKIE_KEY must be set in .env or environment}
       POOL_MIN_SIZE: ${POOL_MIN_SIZE:-2}
       POOL_MAX_SIZE: ${POOL_MAX_SIZE:-10}
       STATEMENT_TIMEOUT_MS: ${STATEMENT_TIMEOUT_MS:-30000}
