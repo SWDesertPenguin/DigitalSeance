@@ -335,3 +335,107 @@ def test_proxy_bootstrap_paths_strip_client_authorization(path: str) -> None:
 
     assert response.status_code == 200
     assert "authorization" not in {k.lower() for k in captured[0].headers}
+
+
+# ---------------------------------------------------------------------------
+# X-Forwarded-For: surface the real client IP so MCP IP-binding sees it
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_proxy_attaches_x_forwarded_for_with_client_ip() -> None:
+    """Without forwarded-* headers, MCP saw every proxied call as 127.0.0.1.
+
+    The IP-binding check in `src/auth/service.py` then 403'd because the
+    bound browser IP recorded at /login never matched the loopback hop.
+    The proxy now sets XFF + XFP so MCP's middleware (which trusts XFF
+    from a loopback caller) reconstructs the original client IP.
+    """
+    store = get_session_store()
+    sid = await store.create("pid-xff", "ses-xff", "bearer-xff")
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    try:
+        with (
+            _patched_proxy_client(httpx.MockTransport(handler)),
+            TestClient(_app()) as client,
+        ):
+            client.cookies.set("sacp_ui_token", _make_cookie_value(sid))
+            response = client.get("/api/mcp/tools/anything")
+
+        assert response.status_code == 200
+        forwarded = captured[0].headers
+        assert forwarded.get("x-forwarded-for") == "testclient"
+        assert forwarded.get("x-forwarded-proto") == "http"
+    finally:
+        await store.delete(sid)
+
+
+@pytest.mark.asyncio
+async def test_proxy_strips_client_supplied_xff_when_trust_proxy_off() -> None:
+    """A hostile client cannot pre-seed XFF to spoof its bound IP.
+
+    Default deployment has SACP_TRUST_PROXY unset, so the proxy ignores
+    inbound forwarded-* and rebuilds them from its own observation of
+    the immediate caller.
+    """
+    store = get_session_store()
+    sid = await store.create("pid-xff2", "ses-xff2", "bearer-xff2")
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    try:
+        with (
+            _patched_proxy_client(httpx.MockTransport(handler)),
+            TestClient(_app()) as client,
+        ):
+            client.cookies.set("sacp_ui_token", _make_cookie_value(sid))
+            response = client.get(
+                "/api/mcp/tools/anything",
+                headers={"X-Forwarded-For": "10.0.0.1, 10.0.0.2"},
+            )
+
+        assert response.status_code == 200
+        # Only the proxy's own observation reaches upstream.
+        assert captured[0].headers.get("x-forwarded-for") == "testclient"
+    finally:
+        await store.delete(sid)
+
+
+@pytest.mark.asyncio
+async def test_proxy_chains_xff_when_trust_proxy_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Behind a trusted upstream proxy, preserve the chain and append our hop."""
+    monkeypatch.setenv("SACP_TRUST_PROXY", "1")
+    store = get_session_store()
+    sid = await store.create("pid-xff3", "ses-xff3", "bearer-xff3")
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    try:
+        with (
+            _patched_proxy_client(httpx.MockTransport(handler)),
+            TestClient(_app()) as client,
+        ):
+            client.cookies.set("sacp_ui_token", _make_cookie_value(sid))
+            response = client.get(
+                "/api/mcp/tools/anything",
+                headers={"X-Forwarded-For": "203.0.113.5"},
+            )
+
+        assert response.status_code == 200
+        # Inbound chain preserved on the left, our hop appended right.
+        assert captured[0].headers.get("x-forwarded-for") == "203.0.113.5, testclient"
+    finally:
+        await store.delete(sid)

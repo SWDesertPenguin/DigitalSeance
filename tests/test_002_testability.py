@@ -290,6 +290,48 @@ def test_trust_proxy_on_uses_rightmost_xff(monkeypatch: pytest.MonkeyPatch) -> N
     assert _get_client_ip(req) == "5.6.7.8"
 
 
+def test_loopback_caller_trusts_xff_without_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A loopback hop is the in-container Web UI proxy; honor its XFF.
+
+    Pre-fix the same-origin proxy (audit H-02) forwarded MCP calls from
+    `127.0.0.1` and the IP-binding check 403'd against the bound browser
+    IP. Loopback callers are by definition on-host, so honoring their
+    XFF doesn't weaken the off-host threat model IP binding defends.
+    """
+    monkeypatch.delenv("SACP_TRUST_PROXY", raising=False)
+    req = _mock_request("127.0.0.1", xff="192.168.86.213")
+    assert _get_client_ip(req) == "192.168.86.213"
+
+
+def test_loopback_ipv6_caller_also_trusts_xff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IPv6 loopback `::1` is treated the same as `127.0.0.1`."""
+    monkeypatch.delenv("SACP_TRUST_PROXY", raising=False)
+    req = _mock_request("::1", xff="192.168.86.213")
+    assert _get_client_ip(req) == "192.168.86.213"
+
+
+def test_loopback_caller_without_xff_falls_back_to_direct(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A loopback hop without XFF still returns loopback (no spoof avenue)."""
+    monkeypatch.delenv("SACP_TRUST_PROXY", raising=False)
+    req = _mock_request("127.0.0.1")
+    assert _get_client_ip(req) == "127.0.0.1"
+
+
+def test_non_loopback_xff_ignored_when_trust_proxy_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Off-host caller with XFF still gets the direct IP without TRUST_PROXY."""
+    monkeypatch.delenv("SACP_TRUST_PROXY", raising=False)
+    req = _mock_request("203.0.113.5", xff="198.51.100.7")
+    assert _get_client_ip(req) == "203.0.113.5"
+
+
 # ---------------------------------------------------------------------------
 # Facilitator transfer (FR-011, FR-014)
 # ---------------------------------------------------------------------------
