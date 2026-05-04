@@ -269,6 +269,78 @@ def test_secure_flag_xfp_takes_rightmost_value(
 
 
 # ---------------------------------------------------------------------------
+# Shared client-IP extraction — applies to /login + WS upgrade
+# ---------------------------------------------------------------------------
+
+
+class _ConnectionLike:
+    """Duck-typed Request / WebSocket: has .client.host and .headers."""
+
+    def __init__(self, host: str | None, xff: str | None = None) -> None:
+        from types import SimpleNamespace
+
+        self.client = SimpleNamespace(host=host) if host is not None else None
+        self.headers = {"x-forwarded-for": xff} if xff is not None else {}
+
+
+def test_extract_client_ip_returns_direct_without_trust_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default deployment: ignore XFF, use the real socket peer."""
+    from src.web_ui.auth import extract_client_ip
+
+    monkeypatch.delenv("SACP_TRUST_PROXY", raising=False)
+    conn = _ConnectionLike("192.168.86.213", xff="9.9.9.9")
+    assert extract_client_ip(conn) == "192.168.86.213"
+
+
+def test_extract_client_ip_uses_rightmost_xff_with_trust_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Behind a trusted reverse proxy, XFF carries the real user IP."""
+    from src.web_ui.auth import extract_client_ip
+
+    monkeypatch.setenv("SACP_TRUST_PROXY", "1")
+    conn = _ConnectionLike("172.20.0.5", xff="192.168.86.213, 10.0.0.1")
+    assert extract_client_ip(conn) == "10.0.0.1"
+
+
+def test_extract_client_ip_falls_back_to_direct_with_empty_xff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TRUST_PROXY=1 but no/empty XFF: still return the direct peer."""
+    from src.web_ui.auth import extract_client_ip
+
+    monkeypatch.setenv("SACP_TRUST_PROXY", "1")
+    assert extract_client_ip(_ConnectionLike("172.20.0.5")) == "172.20.0.5"
+    assert extract_client_ip(_ConnectionLike("172.20.0.5", xff="")) == "172.20.0.5"
+
+
+def test_extract_client_ip_handles_missing_client_attr() -> None:
+    """A connection with no client (e.g. asgi lifespan tests) returns 'unknown'."""
+    from src.web_ui.auth import extract_client_ip
+
+    assert extract_client_ip(_ConnectionLike(None)) == "unknown"
+
+
+def test_extract_client_ip_does_not_auto_trust_loopback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Web UI auth surfaces (login, WS) are user-facing; loopback is never legit.
+
+    Distinct from the MCP middleware which DOES auto-trust loopback because
+    its loopback caller is the in-container proxy hop. /login and /ws are
+    only ever reached by the browser; on-host XFF spoofing here would let
+    an on-host attacker forge the bound IP at /login, so don't open it.
+    """
+    from src.web_ui.auth import extract_client_ip
+
+    monkeypatch.delenv("SACP_TRUST_PROXY", raising=False)
+    conn = _ConnectionLike("127.0.0.1", xff="192.168.86.213")
+    assert extract_client_ip(conn) == "127.0.0.1"
+
+
+# ---------------------------------------------------------------------------
 # Session store unit coverage
 # ---------------------------------------------------------------------------
 
