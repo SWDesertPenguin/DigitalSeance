@@ -59,6 +59,16 @@ class ProviderDispatchError(RuntimeError):
     """LiteLLM provider call failed after retries."""
 
 
+class ContextWindowOverflowError(ProviderDispatchError):
+    """Provider rejected the request because it exceeded the model's context window.
+
+    Distinct from generic dispatch failures so RoutingLog can record
+    the failure mode and operators can see overshoots in shakedowns
+    without grepping error strings. Subclasses ProviderDispatchError
+    so existing `except ProviderDispatchError` paths keep working.
+    """
+
+
 class ResponseQualityError(ValueError):
     """AI response failed quality checks (empty, duplicate, repetitive)."""
 

@@ -31,6 +31,7 @@ from src.orchestrator.timing import (
 from src.orchestrator.types import ProviderResponse, TurnResult
 from src.repositories.errors import (
     AllParticipantsExhaustedError,
+    ContextWindowOverflowError,
     ProviderDispatchError,
     SessionNotActiveError,
 )
@@ -431,6 +432,11 @@ async def _assemble_and_dispatch(
         return await _dispatch_to_provider(
             speaker, messages, ctx.encryption_key, session_id=ctx.session_id
         ), None
+    except ContextWindowOverflowError as e:
+        log.warning("Context window overflow for %s: %s", speaker.id, e)
+        await _record_failure_and_announce(ctx, breaker, speaker)
+        await _broadcast_provider_error(ctx.session_id, speaker, e)
+        return None, "context_window_overflow"
     except ProviderDispatchError as e:
         log.warning("Provider dispatch failed for %s: %s", speaker.id, e)
         await _record_failure_and_announce(ctx, breaker, speaker)
