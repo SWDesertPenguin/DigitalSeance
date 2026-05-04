@@ -77,8 +77,16 @@ _HOP_BY_HOP = frozenset(
 
 # Headers we never forward FROM the client to upstream. Authorization is
 # added server-side from the session store; cookie carries the Web UI
-# session and has no meaning to MCP.
-_CLIENT_STRIP = _HOP_BY_HOP | {"authorization", "cookie"}
+# session and has no meaning to MCP. The forwarded-* headers are stripped
+# on the way in so a hostile client cannot pre-seed the chain — the proxy
+# rebuilds them itself with the values it actually observed.
+_CLIENT_STRIP = _HOP_BY_HOP | {
+    "authorization",
+    "cookie",
+    "x-forwarded-for",
+    "x-forwarded-proto",
+    "x-forwarded-host",
+}
 
 # Headers we never forward FROM upstream back to the client. set-cookie
 # would let MCP clobber the Web UI session cookie; we reject it on the
@@ -114,6 +122,33 @@ def _filtered_headers(items: Iterable[tuple[str, str]], strip: frozenset[str]) -
     return out
 
 
+def _attach_forwarded_for(headers: dict[str, str], request: Request) -> None:
+    """Set X-Forwarded-For + X-Forwarded-Proto on the upstream request.
+
+    Pre-fix the proxy forwarded MCP calls without any forwarded-* headers,
+    so MCP saw every request as coming from `127.0.0.1` (the proxy itself
+    on loopback). The IP-binding check then compared the bound browser IP
+    set at /login against `127.0.0.1` and 403'd every authenticated tool
+    call. We attach the proxy's view of the immediate client and let the
+    MCP middleware decide whether to honor it (`SACP_TRUST_PROXY=1` or a
+    loopback caller — the latter is exactly this in-container hop).
+
+    The standard convention is rightmost-is-most-trusted, so when this
+    proxy itself sits behind a trusted upstream (operator opted in via
+    `SACP_TRUST_PROXY=1`) we preserve the inbound chain and append our
+    hop. Otherwise we ignore any inbound forwarded-* headers (which a
+    hostile client could pre-seed) and start the chain fresh.
+    """
+    client_host = request.client.host if request.client else "unknown"
+    headers["x-forwarded-proto"] = request.url.scheme
+    if os.environ.get("SACP_TRUST_PROXY") == "1":
+        inbound = request.headers.get("x-forwarded-for", "").strip()
+        if inbound:
+            headers["x-forwarded-for"] = f"{inbound}, {client_host}"
+            return
+    headers["x-forwarded-for"] = client_host
+
+
 @router.api_route(
     "/api/mcp/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
@@ -135,22 +170,11 @@ async def proxy(
     """
     upstream_url = f"{_mcp_origin()}/{path}"
     forwarded = _filtered_headers(request.headers.items(), _CLIENT_STRIP)
+    _attach_forwarded_for(forwarded, request)
     if path not in _UNAUTHENTICATED_PATHS:
         entry = await get_current_session_entry(request, sacp_ui_token)
         forwarded["authorization"] = f"Bearer {entry.bearer}"
-    body = await request.body()
-    try:
-        async with httpx.AsyncClient(timeout=_PROXY_TIMEOUT_S) as client:
-            upstream = await client.request(
-                method=request.method,
-                url=upstream_url,
-                headers=forwarded,
-                params=request.query_params,
-                content=body,
-            )
-    except httpx.RequestError as exc:
-        raise HTTPException(502, f"MCP upstream unreachable: {exc.__class__.__name__}") from exc
-
+    upstream = await _send_upstream(request, upstream_url, forwarded)
     response_headers = _filtered_headers(upstream.headers.items(), _UPSTREAM_STRIP)
     return Response(
         content=upstream.content,
@@ -158,3 +182,23 @@ async def proxy(
         headers=response_headers,
         media_type=upstream.headers.get("content-type"),
     )
+
+
+async def _send_upstream(
+    request: Request,
+    url: str,
+    headers: dict[str, str],
+) -> httpx.Response:
+    """Forward the request to the MCP origin; translate transport errors to 502."""
+    body = await request.body()
+    try:
+        async with httpx.AsyncClient(timeout=_PROXY_TIMEOUT_S) as client:
+            return await client.request(
+                method=request.method,
+                url=url,
+                headers=headers,
+                params=request.query_params,
+                content=body,
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(502, f"MCP upstream unreachable: {exc.__class__.__name__}") from exc

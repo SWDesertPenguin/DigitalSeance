@@ -52,6 +52,9 @@ async def get_current_participant(
     return participant
 
 
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1"})
+
+
 def _get_client_ip(request: Request) -> str:
     """Extract client IP, optionally honoring X-Forwarded-For.
 
@@ -61,14 +64,23 @@ def _get_client_ip(request: Request) -> str:
     to defend against bearer-token theft on shared networks; an
     attacker-controllable header trivially nullifies that defense.
 
-    By default we use ``request.client.host``. Operators who run SACP
-    behind a reverse proxy that overwrites XFF can opt in by setting
-    ``SACP_TRUST_PROXY=1``; we then take the *rightmost* XFF value
-    (the proxy's view of the immediate client) since proxies append
-    to the header rather than prepend.
+    Two cases trust XFF:
+      * `SACP_TRUST_PROXY=1` — operator runs SACP behind a reverse
+        proxy that overwrites XFF.
+      * Caller is loopback (`127.0.0.1` / `::1`) — the in-container
+        Web UI same-origin proxy hops to MCP via loopback, and IP
+        binding only defends against off-host attackers anyway. An
+        on-host caller already has filesystem/secret access that
+        sidesteps the binding check entirely, so honoring XFF from
+        loopback adds no new attack surface.
+
+    Either way we take the *rightmost* XFF value (the trusted proxy's
+    view of its immediate client) since proxies append to the header
+    rather than prepend.
     """
     direct = request.client.host if request.client else "unknown"
-    if os.environ.get("SACP_TRUST_PROXY", "0") != "1":
+    trust_xff = os.environ.get("SACP_TRUST_PROXY", "0") == "1" or direct in _LOOPBACK_HOSTS
+    if not trust_xff:
         return direct
     forwarded = request.headers.get("x-forwarded-for")
     if not forwarded:
