@@ -89,9 +89,44 @@ def _parse_cookie_value(signed: str) -> str:
     return sid
 
 
-def _secure_cookie_flag() -> bool:
-    """Mark cookies Secure unless explicitly overridden for local dev."""
-    return os.environ.get("SACP_WEB_UI_INSECURE_COOKIES", "0") != "1"
+def _secure_cookie_flag(request: Request) -> bool:
+    """Decide whether the session cookie carries the Secure flag.
+
+    Auto-detect from the request scheme so a LAN/HTTP deployment works
+    out of the box: a Secure cookie sent over plain HTTP is stored by
+    the browser but never sent back, deadlocking every subsequent
+    cookie-authed call (proxy 401, WebSocket 4401, no-op session_set
+    silently failing). HTTPS deployments still get Secure cookies
+    because the request scheme is `https`.
+
+    Operator overrides:
+      * `SACP_WEB_UI_INSECURE_COOKIES=1` — force Secure off regardless
+        of scheme. Kept for explicit control and back-compat with
+        deployments that already set it.
+      * `SACP_TRUST_PROXY=1` — honor `X-Forwarded-Proto` from a fronting
+        reverse-proxy doing TLS termination (the inner request looks
+        HTTP but the user is on HTTPS). Same env var that governs IP
+        binding trust, so the trust decision is co-located.
+    """
+    if os.environ.get("SACP_WEB_UI_INSECURE_COOKIES") == "1":
+        return False
+    return _request_scheme(request) == "https"
+
+
+def _request_scheme(request: Request) -> str:
+    """Return `https` or `http` for the inbound request.
+
+    Honors `X-Forwarded-Proto` only when `SACP_TRUST_PROXY=1`; otherwise
+    a hostile client could downgrade or upgrade the perceived scheme by
+    setting the header themselves. Proxies append to XFF, so the
+    rightmost value reflects the proxy's view of its immediate client.
+    """
+    if os.environ.get("SACP_TRUST_PROXY") == "1":
+        forwarded = request.headers.get("x-forwarded-proto", "")
+        parts = [p.strip().lower() for p in forwarded.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
+    return request.url.scheme
 
 
 def _resolve_session_store(request: Request) -> SessionStore:
@@ -121,7 +156,7 @@ async def login(
     participant = await _authenticate_or_raise(auth_service, body.token, request)
     store = _resolve_session_store(request)
     sid = await store.create(participant.id, participant.session_id, body.token)
-    _set_session_cookie(response, sid)
+    _set_session_cookie(response, request, sid)
     return {
         "participant_id": participant.id,
         "session_id": participant.session_id,
@@ -151,14 +186,18 @@ async def _authenticate_or_raise(
         raise HTTPException(403, "IP binding mismatch") from None
 
 
-def _set_session_cookie(response: Response, sid: str) -> None:
-    """Issue the HttpOnly + Secure + SameSite=Strict session cookie."""
+def _set_session_cookie(response: Response, request: Request, sid: str) -> None:
+    """Issue the HttpOnly + Secure + SameSite=Strict session cookie.
+
+    Secure flag is auto-detected from the request scheme so a
+    LAN/HTTP deployment isn't silently broken. See `_secure_cookie_flag`.
+    """
     response.set_cookie(
         key=COOKIE_NAME,
         value=_make_cookie_value(sid),
         max_age=COOKIE_MAX_AGE_SECONDS,
         httponly=True,
-        secure=_secure_cookie_flag(),
+        secure=_secure_cookie_flag(request),
         samesite="strict",
         path="/",
     )
@@ -182,7 +221,7 @@ async def logout(
         key=COOKIE_NAME,
         path="/",
         httponly=True,
-        secure=_secure_cookie_flag(),
+        secure=_secure_cookie_flag(request),
         samesite="strict",
     )
     return {"status": "logged_out"}
