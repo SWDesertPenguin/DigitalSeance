@@ -112,3 +112,39 @@ async def test_cost_fallback_to_zero(mock_litellm):
     mock_litellm.completion_cost.side_effect = Exception("unknown model")
     result = await dispatch(**_base_kwargs())
     assert result.cost_usd == 0.0
+
+
+async def test_context_window_exceeded_surfaces_distinct_error(mock_litellm):
+    """LiteLLM ContextWindowExceededError → ContextWindowOverflowError, not retried."""
+    import litellm as _litellm
+
+    from src.api_bridge.provider import dispatch_with_retry
+    from src.repositories.errors import ContextWindowOverflowError
+
+    mock_litellm.acompletion.side_effect = _litellm.ContextWindowExceededError(
+        message="maximum context length is 16385 tokens",
+        model="gpt-3.5-turbo",
+        llm_provider="openai",
+    )
+    with pytest.raises(ContextWindowOverflowError):
+        await dispatch_with_retry(**_base_kwargs())
+    # Single attempt — must NOT retry. The next call would send the same
+    # oversized payload and overshoot again.
+    assert mock_litellm.acompletion.await_count == 1
+
+
+async def test_context_window_overflow_is_provider_dispatch_error(mock_litellm):
+    """ContextWindowOverflowError keeps the ProviderDispatchError ancestry."""
+    import litellm as _litellm
+
+    from src.api_bridge.provider import dispatch_with_retry
+    from src.repositories.errors import ProviderDispatchError
+
+    mock_litellm.acompletion.side_effect = _litellm.ContextWindowExceededError(
+        message="maximum context length is 16385 tokens",
+        model="gpt-3.5-turbo",
+        llm_provider="openai",
+    )
+    # Existing handlers that catch ProviderDispatchError must still fire.
+    with pytest.raises(ProviderDispatchError):
+        await dispatch_with_retry(**_base_kwargs())
