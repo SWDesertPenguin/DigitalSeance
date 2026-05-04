@@ -71,7 +71,10 @@ repos:
         language: system
         types_or: [yaml, toml, ini]
         files: \.(env|env\..*|conf|cfg)$|\.(ya?ml|toml|ini)$
-        exclude: ^\.env\.example$
+        # .env.example: canonical placeholder home.
+        # .2ms.yaml: secret-scanner allowlist that legitimately enumerates
+        # the placeholder strings to suppress them in scanner output.
+        exclude: ^(\.env\.example|\.2ms\.yaml)$
         pass_filenames: true
 
   # --- Coding standards enforcement (25-line/5-arg) ---
