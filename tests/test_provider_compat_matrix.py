@@ -86,6 +86,7 @@ async def test_per_provider_rate_limit_triggers_retry(
         mock_litellm.acompletion = AsyncMock(side_effect=err)
         mock_litellm.RateLimitError = litellm.RateLimitError
         mock_litellm.Timeout = litellm.Timeout
+        mock_litellm.ContextWindowExceededError = litellm.ContextWindowExceededError
         mock_litellm.suppress_debug_info = True
         with (
             patch("src.api_bridge.provider.asyncio.sleep", new=AsyncMock()),
@@ -122,6 +123,7 @@ async def test_per_provider_auth_error_does_not_retry(
         mock_litellm.acompletion = AsyncMock(side_effect=err)
         mock_litellm.RateLimitError = litellm.RateLimitError
         mock_litellm.Timeout = litellm.Timeout
+        mock_litellm.ContextWindowExceededError = litellm.ContextWindowExceededError
         mock_litellm.suppress_debug_info = True
         with pytest.raises(ProviderDispatchError):
             await dispatch_with_retry(**_base_kwargs(model=model), max_retries=3)
