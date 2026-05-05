@@ -1,0 +1,59 @@
+# KICS IaC scanner config.
+#
+# Pre-push hook (.git/hooks/pre-push) and the daily TrueNAS scan both run
+# KICS over Dockerfile + docker-compose.yml with --fail-on high,medium.
+# Threshold is intentional: info/low findings surface in the daily report
+# but don't block pushes.
+#
+# Each suppression below is keyed by KICS query UUID with a comment
+# explaining why the rule's premise doesn't apply to our setup. Keep
+# comments specific — "false positive" alone is not enough context for
+# a future maintainer (or reviewer) to re-evaluate.
+
+exclude-queries:
+  # Container Capabilities Unrestricted (DockerCompose, MEDIUM)
+  # Rule fires on any presence of cap_add. The postgres service does
+  # cap_drop:ALL first and adds back only the four caps the postgres
+  # image documents as required (CHOWN, SETUID, SETGID, DAC_READ_SEARCH),
+  # each justified inline. Net cap set is strictly tighter than the
+  # default-cap baseline the rule implicitly assumes.
+  - ce76b7d0-9e77-464d-b86f-c5c48e03e22d
+
+  # Shared Volumes Between Containers (DockerCompose, INFO)
+  # Rule claims pgdata is created and shared between containers. It is
+  # only mounted by services.postgres; services.sacp has no volumes
+  # block. Below the fail-on threshold but suppressed to keep reports
+  # clean.
+  - 8c978947-0ff6-485c-b0c2-0bfca6026466
+
+  # Apt Get Install Pin Version Not Defined (Dockerfile, MEDIUM)
+  # Pinning Debian apt packages would conflict with the bookworm
+  # security-update model the Dockerfile commits to via apt-get upgrade
+  # in the runtime stage. Builder-stage gcc + libpq-dev never ship in
+  # the final image (multi-stage build).
+  - 965a08d7-ef86-4f14-8792-4a3b2098937e
+
+  # Container Traffic Not Bound To Host Interface (DockerCompose, MEDIUM)
+  # SACP is a LAN service deployed via Dockge on TrueNAS. Binding ports
+  # to 127.0.0.1 would make the service unreachable from other LAN
+  # hosts — its intended access pattern. Network exposure is controlled
+  # at the deployment host's firewall.
+  - 451d79dc-0588-476a-ad03-3c7f0320abb3
+
+  # Chown Flag Exists (Dockerfile, LOW)
+  # The runtime stage drops to a non-root sacp user (uid 10001) at
+  # USER 10001:10001. COPY --chown=sacp:sacp aligns file ownership with
+  # the runtime user; root-owned files would need post-hoc chmod
+  # workarounds for runtime writes (e.g. alembic migration runs).
+  - aa93e17f-b6db-4162-9334-c70334e7ac28
+
+  # Unpinned Package Version in Pip Install (Dockerfile, MEDIUM)
+  # Affects two RUN pip install lines: bootstrap of uv (used only to
+  # expand uv.lock into a hash-pinned requirements file, not shipped)
+  # and torch (CPU-only wheel from PyTorch's index, version comes from
+  # uv.lock indirectly). Deferred — to be removed when the Dockerfile
+  # migrates to `uv sync --frozen`, which dissolves both lines into a
+  # single hash-verified sync step. Tracked: roadmap item "uv sync
+  # --frozen migration" — natural next step on the supply-chain
+  # hardening line that started with --require-hashes.
+  - 02d9c71f-3ee8-4986-9c27-1a20d0d19bfc

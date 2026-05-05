@@ -119,4 +119,11 @@ USER 10001:10001
 
 EXPOSE 8750 8751
 
+# Liveness probe via the web-UI /healthz endpoint (no DB touch). Compose
+# overrides this when running under docker-compose; this instruction
+# covers anyone running the image directly. Python stdlib only — slim
+# image has no curl.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8751/healthz', timeout=3).status == 200 else 1)" || exit 1
+
 CMD ["sh", "-c", "alembic upgrade head && python -m src.run_apps"]
