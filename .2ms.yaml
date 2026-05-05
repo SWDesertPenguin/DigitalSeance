@@ -18,6 +18,12 @@ allowed-values:
   # Synthetic fixture in tests/test_mcp_app.py — test asserts this string is NOT
   # leaked in error responses, so the literal must remain in the source.
   - "sk-leaked-key-12345abcdef"
+  # CI test fixture in .github/workflows/test.yml; used for CI test runs only,
+  # never wraps real data. Pinned in the v0.1.0 git history which can't be
+  # modified due to active copyright registration. Current test.yml generates
+  # the key dynamically per-run; this allowlist entry is purely to keep
+  # all-branches scans clean against the locked tag.
+  - "nVEFAqlxNoXayhpZiK-KXwxeto-_y0HXdbtGSGBzSr8="
 
 git:
   all-branches: true
