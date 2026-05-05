@@ -200,6 +200,16 @@ by application code. Operators setting them today will see the value in the
 debug snapshot but no behavioral effect. Validators land when application code
 starts consuming them — likely as part of a per-spec amendment cluster.
 
+### `SACP_SECURITY_EVENTS_RETENTION_DAYS`
+
+- **Default**: unset (the orchestrator never auto-purges; operator-driven)
+- **Type**: integer (days)
+- **Valid range**: `> 0`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports; purge CLI rejects the value
+- **Validation rule**: `validators.validate_security_events_retention_days`
+- **Source spec(s)**: 007 §SC-009 (`security_events` 90-day default)
+- **Note**: Consumed by `scripts/purge_security_events.py`, an operator-scheduled CLI (cron / Ofelia / k8s CronJob — default cadence daily). The orchestrator itself does NOT auto-purge; absence of the env var means "never delete" until the operator runs the script. Default applied by the script when unset is 90 days per 007 §SC-009.
+
 ### `SACP_RATE_LIMIT_PER_MIN`
 
 - **Status**: Reserved
