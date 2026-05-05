@@ -207,6 +207,7 @@ def _add_system_prompt(
     prompt = assemble_prompt(
         prompt_tier=participant.prompt_tier,
         custom_prompt=participant.system_prompt,
+        participant_id=participant.id,
     )
     ctx = ContextMessage("system", prompt, None)
     context.append(ctx)

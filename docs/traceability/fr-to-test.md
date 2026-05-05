@@ -257,6 +257,6 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-009 | tests/test_007_security_pipeline_testability.py | Layer evaluation order + fail-closed contract inherited from 007 |
 | FR-010 | untested | Bypass-path scope is structural (production paths flow through _validate_and_persist); trigger: cross-spec integration audit |
 | FR-011 | tests/test_008_testability.py | Tier-text memoization implementation deferred; marker test pins activation trigger (_TIER_CACHE attribute appearance) — replace with cache-hit/miss assertions when impl lands |
-| FR-012 | tests/test_008_testability.py | Custom-prompt sanitize memoization implementation deferred; marker test pins activation trigger (_SANITIZE_CACHE attribute appearance) — replace with cache-hit/miss assertions when impl lands |
+| FR-012 | tests/test_008_testability.py | Custom-prompt sanitize memoized via lru_cache(maxsize=1024) on _sanitize_for_participant keyed by (participant_id, custom_prompt); per-participant + prompt-change + back-compat-path + correctness tests |
 | FR-013 | tests/test_007_security_pipeline_testability.py | Per-stage timing capture inherited from 007 §FR-020 |
 | FR-014 | tests/test_008_testability.py | ReDoS guard: every regex in src/security/ stays under budget on 10KB pathological input (catches catastrophic backtracking; 100ms-on-prod CI gate is Phase 3) |
