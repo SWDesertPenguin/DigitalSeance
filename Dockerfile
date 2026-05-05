@@ -67,6 +67,17 @@ FROM python:3.14.4-slim-bookworm
 
 WORKDIR /app
 
+# Apply Debian bookworm point-release updates published since the upstream
+# base image was last rebuilt. The python:slim image rebuilds on its own
+# cadence; running upgrade here narrows the window between the base rebuild
+# and our build, picking up any security fixes Debian has shipped in the
+# meantime. Placed before user creation and the COPY layers so it caches
+# independently of app code churn.
+RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Create unprivileged user before copying app files so chown applies cleanly.
 # Numeric uid/gid (10001) is portable across hosts and avoids name lookups.
 # --no-create-home: nothing in $HOME is needed at runtime.
