@@ -69,6 +69,17 @@ class ContextWindowOverflowError(ProviderDispatchError):
     """
 
 
+class CompoundRetryExhaustedError(ProviderDispatchError):
+    """Cumulative dispatch+retry elapsed reached the FR-031 hard cap.
+
+    Distinct from generic dispatch failures so RoutingLog can record
+    `reason='compound_retry_exhausted'` and operators can alert on the
+    actionable subset (per runbook §6.4) rather than the umbrella
+    `provider_error` bucket. Subclasses ProviderDispatchError so existing
+    handlers keep working.
+    """
+
+
 class ResponseQualityError(ValueError):
     """AI response failed quality checks (empty, duplicate, repetitive)."""
 
