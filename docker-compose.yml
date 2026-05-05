@@ -66,6 +66,19 @@ services:
     # Linux/WSL2-without-Desktop where the alias would otherwise NXDOMAIN.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Hits the web-UI /healthz endpoint (FastAPI, no DB touch). start_period
+    # gives alembic upgrade head + app startup room before unhealthy strikes
+    # count. Python stdlib probe avoids needing curl/wget in the slim image.
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8751/healthz', timeout=3).status == 200 else 1)"
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
