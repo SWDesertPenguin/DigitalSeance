@@ -6,6 +6,9 @@
 *.p12
 *.fernet
 
+# Pre-commit 2MS staging dir (created+deleted per scan; never committed)
+.2ms-scan-*/
+
 # === Claude Code ===
 .claude/settings.json
 .claude/settings.local.json

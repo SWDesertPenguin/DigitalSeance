@@ -8,11 +8,23 @@
 
 repos:
   # --- Secret detection (must run first) ---
+  # Two engines: gitleaks (Go, regex+entropy) and 2MS (Checkmarx, broader
+  # rule set, also runs at pre-push against full history). Different
+  # detection logic; one catching what the other misses is the point.
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.2
     hooks:
       - id: gitleaks
         name: gitleaks (block committed secrets)
+
+  - repo: local
+    hooks:
+      - id: scan-staged-secrets-2ms
+        name: 2ms (block committed secrets, staged files only)
+        entry: uv run python scripts/scan_staged_secrets.py
+        language: system
+        pass_filenames: true
+        require_serial: true
 
   # --- Generic hygiene ---
   - repo: https://github.com/pre-commit/pre-commit-hooks
