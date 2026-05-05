@@ -13,6 +13,7 @@
 - Q: Configuration source? → A: Fixed process-level default (60 req/min hardcoded, no override in Phase 1)
 - Q: Scope of enforcement? → A: All authenticated /tools/* endpoints uniformly (reads and writes count equally)
 - Q: Retry-After semantics? → A: Seconds until oldest in-window request expires (precise, computed per participant)
+- FR-012 / FR-013 instrumentation implemented in fix/009-rate-limit-instrumentation (2026-05-05): `RateLimiter.rate_limit_429_total` is a `Counter[participant_id]` incremented on every 429 emit; `rate_limit_429_per_minute_total` is a property over a 60s rolling deque of 429 timestamps; `forget()` clears both the bucket and the per-participant counter. Eviction sweep throttled via `_SWEEP_MIN_INTERVAL=1.0s` and `_last_sweep_ts`; `rate_limit_eviction_sweep_ms` captures the most-recent sweep duration. Every 429 emits a `rate_limit_429` structured-log line with both counters; sweeps emit `rate_limit_eviction_sweep` at debug.
 
 ## User Scenarios & Testing *(mandatory)*
 
