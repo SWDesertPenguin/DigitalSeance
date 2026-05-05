@@ -386,19 +386,41 @@ def test_fr014_redos_guard_under_budget(label: str, target) -> None:
 # attribute appears.
 
 
-def test_fr011_memoization_trigger_marker() -> None:
-    """FR-011 tier-text memoization is deferred; activation trigger pinned here.
-
-    Activation: once ``src.prompts.tiers`` exposes a ``_TIER_CACHE`` (or
-    equivalent) module attribute, replace this test with a cache hit/miss
-    assertion. Until then, FR-011 is "untested with trigger" in the
-    traceability table.
-    """
+def test_fr011_tier_parts_memoized_per_tier() -> None:
+    """FR-011: cumulative-delta tier expansion is cached, keyed on prompt_tier, 4 entries."""
     from src.prompts import tiers
 
-    assert not hasattr(
-        tiers, "_TIER_CACHE"
-    ), "FR-011 memoization landed — replace this marker with a cache-hit test"
+    tiers._TIER_CACHE.cache_clear()
+
+    tiers._tier_parts("low")
+    tiers._tier_parts("mid")
+    tiers._tier_parts("high")
+    tiers._tier_parts("max")
+    info_after_cold = tiers._TIER_CACHE.cache_info()
+    assert info_after_cold.misses == 4
+    assert info_after_cold.hits == 0
+    assert info_after_cold.currsize == 4
+    assert info_after_cold.maxsize == 4
+
+    for tier in ("low", "mid", "high", "max"):
+        tiers._tier_parts(tier)
+    info_after_warm = tiers._TIER_CACHE.cache_info()
+    assert info_after_warm.hits == 4
+    assert info_after_warm.misses == 4
+
+
+def test_fr011_assemble_prompt_uses_cache_but_canaries_rotate() -> None:
+    """FR-011 cache must not freeze canaries (regression guard for line 197 invariant)."""
+    from src.prompts import tiers
+
+    tiers._TIER_CACHE.cache_clear()
+
+    a = assemble_prompt(prompt_tier="mid")
+    b = assemble_prompt(prompt_tier="mid")
+
+    assert a != b, "canaries must rotate even when tier parts are cached"
+    info = tiers._TIER_CACHE.cache_info()
+    assert info.hits >= 1, "second assemble_prompt(mid) must hit the tier cache"
 
 
 def test_fr012_sanitize_memoization_trigger_marker() -> None:

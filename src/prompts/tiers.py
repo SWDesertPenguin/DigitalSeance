@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import functools
 import secrets
 
 from src.security.sanitizer import sanitize
@@ -54,6 +55,14 @@ _TIERS = {
 }
 
 
+@functools.lru_cache(maxsize=4)
+def _tier_parts(prompt_tier: str) -> tuple[str, ...]:
+    return tuple(_TIERS.get(prompt_tier, _TIERS["mid"]))
+
+
+_TIER_CACHE = _tier_parts
+
+
 def assemble_prompt(
     *,
     prompt_tier: str,
@@ -67,8 +76,7 @@ def assemble_prompt(
     PromptProtector.check_leakage (pass canaries= kwarg with the values
     returned by this function when wiring detection into the pipeline).
     """
-    tiers = _TIERS.get(prompt_tier, _TIERS["mid"])
-    parts = list(tiers)
+    parts = list(_tier_parts(prompt_tier))
     if custom_prompt:
         parts.append(sanitize(custom_prompt))
     return _embed_canaries(parts, _generate_canaries())
