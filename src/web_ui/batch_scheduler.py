@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from src.orchestrator.timing import with_stage_timing
+
 # Hard-close slack on top of the configured cadence (spec 013 FR-003 / SC-002).
 _SLACK_S = 5.0
 
@@ -104,16 +106,10 @@ class BatchScheduler:
                 continue
             await self._emit(envelope)
 
+    @with_stage_timing("batch_envelope_emit_ms")
     async def _emit(self, envelope: BatchEnvelope) -> None:
         elapsed_s = time.monotonic() - envelope.open_monotonic
-        if elapsed_s > self._cadence_s + self._slack_s:
-            log.warning(
-                "batch_envelope_slack_breach: session=%s recipient=%s elapsed=%.2fs budget=%.2fs",
-                envelope.session_id,
-                envelope.recipient_id,
-                elapsed_s,
-                self._cadence_s + self._slack_s,
-            )
+        _log_envelope_emit(envelope, elapsed_s, self._cadence_s + self._slack_s)
         if self._broadcast is None:
             return  # tests may inject a no-op
         from src.web_ui.events import batch_envelope_event
@@ -130,3 +126,31 @@ class BatchScheduler:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         self._tasks.clear()
+
+
+def _log_envelope_emit(envelope: BatchEnvelope, elapsed_s: float, budget_s: float) -> None:
+    """Structured log of batch_open_ts / batch_close_ts per spec 003 §FR-030.
+
+    Persistent routing_log column write is a follow-up migration (research
+    §1 holds the no-schema-change line); operators read open/close from
+    these structured records until then.
+    """
+    closed_at = datetime.now(UTC)
+    log.info(
+        "batch_envelope_emit: session=%s recipient=%s "
+        "batch_open_ts=%s batch_close_ts=%s hold_ms=%d turns=%d",
+        envelope.session_id,
+        envelope.recipient_id,
+        envelope.opened_at.isoformat(),
+        closed_at.isoformat(),
+        int(elapsed_s * 1000),
+        len(envelope.messages),
+    )
+    if elapsed_s > budget_s:
+        log.warning(
+            "batch_envelope_slack_breach: session=%s recipient=%s elapsed=%.2fs budget=%.2fs",
+            envelope.session_id,
+            envelope.recipient_id,
+            elapsed_s,
+            budget_s,
+        )

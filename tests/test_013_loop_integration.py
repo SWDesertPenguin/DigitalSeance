@@ -296,6 +296,45 @@ async def test_t042_suppressed_audit_payload_writes_no_role_mutation(
     assert ai_refreshed.role == "participant"
 
 
+async def _drive_one_batch(cadence_s: int = 1) -> list[tuple[str, dict[str, Any]]]:
+    """Enqueue one message and wait for cadence flush; return broadcast capture."""
+    import asyncio
+
+    from src.web_ui.batch_scheduler import BatchScheduler
+
+    capture: list[tuple[str, dict[str, Any]]] = []
+
+    async def _broadcast(session_id: str, event: dict[str, Any]) -> None:
+        capture.append((session_id, event))
+
+    scheduler = BatchScheduler(cadence_s=cadence_s, broadcast=_broadcast)
+    scheduler.enqueue(
+        session_id="s1",
+        recipient_id="human-1",
+        source_turn_id="t0",
+        message={"turn_number": 0, "content": "hi"},
+    )
+    await asyncio.sleep(cadence_s + 0.2)
+    await scheduler.stop()
+    return capture
+
+
+@pytest.mark.asyncio
+async def test_t026_batch_emit_logs_open_close_timestamps(caplog: pytest.LogCaptureFixture) -> None:
+    """spec 003 §FR-030: per-envelope hold instrumentation surfaces in operator logs."""
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="src.web_ui.batch_scheduler"):
+        await _drive_one_batch()
+
+    emit_records = [r for r in caplog.records if "batch_envelope_emit" in r.getMessage()]
+    assert len(emit_records) == 1
+    msg = emit_records[0].getMessage()
+    assert "batch_open_ts=" in msg
+    assert "batch_close_ts=" in msg
+    assert "hold_ms=" in msg
+
+
 def test_t045_evaluate_downgrade_cost_under_thresholds_budget() -> None:
     """O(participants) evaluate_downgrade returns within turn-prep budget at Phase 3 ceiling (5)."""
     import time
