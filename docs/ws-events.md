@@ -49,6 +49,23 @@ All `participants[]` arrays drop credential and binding fields before serializat
 
 The `message` field carries the persisted-row shape: `turn_number`, `speaker_id`, `speaker_type`, `content`, `token_count`, `cost_usd`, `created_at`, `summary_epoch`.
 
+### `batch_envelope`
+
+```json
+{
+  "v": 1,
+  "type": "batch_envelope",
+  "session_id": "<session-id>",
+  "recipient_id": "<participant-id>",
+  "opened_at": "<iso>",
+  "closed_at": "<iso>",
+  "source_turn_ids": ["<turn-id>", "..."],
+  "messages": [{<full message_event>}, "..."]
+}
+```
+
+Spec 013 §FR-001-FR-003. Coalesced AI-to-human delivery — one envelope per `(session_id, recipient_id)` per cadence tick. Each entry in `messages[]` is a complete `message` event with its own envelope; the renderer's existing per-message handler runs once per entry. State-change events (convergence, session-state transitions, participant updates) MUST NOT route through this envelope — they bypass to direct broadcast per FR-004. Emitted only when `SACP_HIGH_TRAFFIC_BATCH_CADENCE_S` is set; absent otherwise (SC-005 regression contract).
+
 ### `turn_skipped`
 
 ```json

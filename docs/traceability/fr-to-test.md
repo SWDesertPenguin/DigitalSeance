@@ -262,3 +262,23 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-012 | tests/test_008_testability.py | Custom-prompt sanitize memoization implementation deferred; marker test pins activation trigger (_SANITIZE_CACHE attribute appearance) — replace with cache-hit/miss assertions when impl lands |
 | FR-013 | tests/test_007_security_pipeline_testability.py | Per-stage timing capture inherited from 007 §FR-020 |
 | FR-014 | tests/test_008_testability.py | ReDoS guard: every regex in src/security/ stays under budget on 10KB pathological input (catches catastrophic backtracking; 100ms-on-prod CI gate is Phase 3) |
+
+## 013-high-traffic-mode
+
+| FR | Test File | Notes |
+|----|-----------|-------|
+| FR-001 | tests/test_013_batching.py | Multi-turn coalesce: 4 turns → one batch_envelope event with all source_turn_ids |
+| FR-002 | tests/test_013_batching.py | Original turn order preserved in messages array of envelope |
+| FR-003 | tests/test_013_batching.py | Slack-budget smoke + cadence-tick close; deeper P95 tightening deferred to Phase 6 polish |
+| FR-004 | tests/test_013_batching.py | State-change bypass: BatchScheduler.enqueue is for messages only; caller's bypass path emits state-change events directly |
+| FR-005 | tests/test_013_convergence_override.py | _convergence_threshold_kwarg passes override into ConvergenceDetector via existing constructor parameter |
+| FR-006 | tests/test_013_convergence_override.py | Override resolved once at session-init; cached on detector as self._threshold (constant-time per-turn read) |
+| FR-007 | tests/test_013_convergence_override.py | V16 fail-closed: out-of-range override rejected by validate_convergence_threshold_override at startup |
+| FR-008 | tests/test_013_observer_downgrade.py | evaluate_downgrade fires when participants OR tpm threshold is crossed |
+| FR-009 | tests/test_013_observer_downgrade.py | Downgrade decision returned with trigger_threshold + observed + configured fields |
+| FR-010 | tests/test_013_observer_downgrade.py | evaluate_restore requires sustained-low-traffic for the full restore_window_s |
+| FR-011 | tests/test_013_observer_downgrade.py | Last-human protection: lone human is Suppressed not Downgraded; multi-human path still downgrades |
+| FR-012 | untested | Per-turn observer_downgrade_eval_ms routing_log capture deferred to Phase 6 polish |
+| FR-013 | tests/test_013_regression_phase2.py | All three mechanisms independently disabled when their env vars are unset (HighTrafficSessionConfig is None) |
+| FR-014 | tests/test_013_regression_phase2.py | V16 deliverable gate: three validators wired into VALIDATORS tuple, three doc sections in docs/env-vars.md |
+| FR-015 | tests/test_013_regression_phase2.py | Additive when unset: SC-005 7-test regression file confirms no behavior change |

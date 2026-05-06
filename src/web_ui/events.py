@@ -29,6 +29,19 @@ def message_event(message: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def batch_envelope_event(envelope: Any) -> dict[str, Any]:
+    """Coalesced AI-to-human delivery (013 §FR-001-FR-003 / batch-envelope contract)."""
+    return _envelope(
+        "batch_envelope",
+        session_id=envelope.session_id,
+        recipient_id=envelope.recipient_id,
+        opened_at=iso(envelope.opened_at),
+        closed_at=iso(datetime.now(UTC)),
+        source_turn_ids=list(envelope.source_turn_ids),
+        messages=[message_event(m) for m in envelope.messages],
+    )
+
+
 def turn_skipped_event(participant_id: str, reason: str, turn_number: int) -> dict[str, Any]:
     """The loop skipped a turn (budget / circuit / review_gate / no_new_input)."""
     return _envelope(
