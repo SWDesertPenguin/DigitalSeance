@@ -44,6 +44,7 @@ from src.repositories.review_gate_repo import ReviewGateRepository
 from src.repositories.session_repo import SessionRepository
 from src.security.exfiltration import filter_exfiltration
 from src.security.output_validator import validate as validate_output
+from src.web_ui.batch_scheduler import BatchScheduler
 
 log = logging.getLogger(__name__)
 
@@ -80,20 +81,24 @@ class ConversationLoop:
         self._log_repo = LogRepository(pool)
         self._gate_repo = ReviewGateRepository(pool)
         self._cadence = CadenceController()
+        self._high_traffic_config = HighTrafficSessionConfig.resolve_from_env()
+        self._batch_scheduler = _maybe_make_batch_scheduler(self._high_traffic_config)
         self._convergence = ConvergenceDetector(
-            self._log_repo, session_repo=SessionRepository(pool)
+            self._log_repo,
+            session_repo=SessionRepository(pool),
+            **_convergence_threshold_kwarg(self._high_traffic_config),
         )
         self._convergence.load_model()
         self._summarizer = SummarizationManager(pool, encryption_key=encryption_key)
         self._cadence_presets: dict[str, str] = {}
         self._pause_scopes: dict[str, str] = {}
         self._last_skip: dict[str, str] = {}  # session → last skip reason
-        # Participant_id → routing_preference captured immediately before a
-        # flip-to-review_gate, so the gate is one-shot: after the draft is
-        # approved / rejected / edited, the AI reverts to its prior mode
-        # instead of staging another draft forever (Test06-Web07).
         self._prior_routing: dict[str, str] = {}
-        self._high_traffic_config = HighTrafficSessionConfig.resolve_from_env()
+
+    @property
+    def batch_scheduler(self) -> BatchScheduler | None:
+        """013 §FR-001: per-session flush task; None when batching env var unset."""
+        return self._batch_scheduler
 
     def remember_prior_routing(self, participant_id: str, prior: str) -> None:
         """Cache prior routing before a flip to review_gate."""
@@ -1043,3 +1048,23 @@ def _with_cleaned_content(
         model=response.model,
         latency_ms=response.latency_ms,
     )
+
+
+def _maybe_make_batch_scheduler(
+    config: HighTrafficSessionConfig | None,
+) -> BatchScheduler | None:
+    """Build a BatchScheduler iff config enables batching (013 §FR-001)."""
+    if config is None or config.batch_cadence_s is None:
+        return None
+    from src.web_ui.websocket import broadcast_to_session
+
+    return BatchScheduler(cadence_s=config.batch_cadence_s, broadcast=broadcast_to_session)
+
+
+def _convergence_threshold_kwarg(
+    config: HighTrafficSessionConfig | None,
+) -> dict[str, float]:
+    """Return ``{}`` (use spec-004 default) or ``{"threshold": override}`` per 013 §FR-005."""
+    if config is None or config.convergence_threshold_override is None:
+        return {}
+    return {"threshold": config.convergence_threshold_override}
