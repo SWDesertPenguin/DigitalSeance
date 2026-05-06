@@ -1,6 +1,86 @@
 <!--
 Sync Impact Report (most recent first)
 
+  Version change: 0.8.0 → 0.9.0 (2026-05-06)
+  Change type: MINOR — constitution-vs-design reconciliation pass; six new
+    principles added (one PROVISIONAL); three new validation rules; existing
+    principles sharpened in §2, §3, §7, §8, §14.7.
+  Modified principles:
+    - §2 What SACP Is Not: new paragraph — "SACP is not a payment broker"
+      (companion to §3 budget-autonomy sharpening).
+    - §3 Sovereignty: budget-autonomy paragraph sharpened to forbid subsidy /
+      cross-charge / payment-brokering. New guarantee "Provider-fallback
+      isolation" added (no transparent cross-provider failover; same-provider
+      fallbacks permitted only when model identity is preserved). New
+      guarantee "Routing-mode autonomy" added (each human controls their own
+      AI's routing; spec 014 signal-driven AI-to-AI controller permitted
+      within each participant's opt-in scope; no cross-participant override).
+    - §4 Principles: §4.5 unchanged in constitution (the "no orchestrator-
+      side external memory" stance is recorded in project memory only, per
+      operator directive 2026-05-06). New principles added:
+        §4.10 — Shared transcript immutability
+        §4.11 — Raw transcript primacy for human readers
+        §4.12 — Per-participant pre-bridge processing only
+        §4.13 — No negotiated inter-AI shorthand at any phase [PROVISIONAL]
+        §4.14 — Evidence-based design
+        §4.15 — Audit-first phase transitions
+    - §6 Technical Constraints: unchanged from v0.8.0; §6.2 keeps concrete
+      PostgreSQL 16 / asyncpg / connection pooling / LISTEN/NOTIFY / Docker
+      Compose language (operator directive 2026-05-06: keep concrete in
+      constitution, do not abstract).
+    - §7 Data Security: new constitutional principle bullet — "Derived
+      artifacts carry derivation metadata" (compressed views, summaries,
+      embeddings, etc. MUST be tagged with source range, derivation method,
+      timestamp; audit reviewers MUST be able to walk from artifact back to
+      source range).
+    - §8 AI-Specific Security: leading paragraph amended to acknowledge 14th
+      attack vector (compression as covert-channel substrate) is under
+      design-doc threat-model review; constitutional bullet body unchanged.
+    - §12 Validation Rules: three new validators added —
+        V17 — Transcript canonicity respected (per §4.10–§4.12)
+        V18 — Derived artifacts are traceable (per §7 derivation metadata)
+        V19 — Evidence and judgment markers present (per §4.14)
+    - §14.7 Audit work: closing paragraph aligned to §4.15 — phase-boundary
+      baseline audit is mandatory before declaring a new phase; rule prevents
+      defects from compounding across phases.
+  Added sections: none (changes are within existing sections)
+  Removed sections: none
+  PROVISIONAL principles (under deeper review):
+    - §4.13 ships in force as a default-deny baseline but flagged PROVISIONAL
+      pending review of five edge-case angles: (1) protocol-evolution
+      mechanisms (MCP capability negotiation, tool-schema updates), (2)
+      lightweight conventions (emoji status indicators, agreed-upon
+      prefixes), (3) mid-session structured-format adoption, (4) optimized
+      tool-call payloads at scale, (5) covert-channel cases beyond the
+      enumerated forbidden-list. Interim posture binding: clear violations
+      rejected as drafted, ambiguity escalates to a §4.13-review work item.
+      May be sharpened, narrowed, or rewritten when review concludes.
+  Cross-doc updates required (separate sacp-design.md reconciliation pass):
+    - sacp-design.md §7.6 + AI attack surface analysis: extend 13-vector
+      catalogue to 14 (compression covert channel).
+    - sacp-design.md add or relocate sections covering: configuration
+      precedence (CLI > env > config file > defaults), network-isolated
+      container deployment generalized beyond LiteLLM, version-pinning
+      tooling (uv sync --frozen), provider-native caching mandatory on
+      closed-API legs, DB privilege-separation operational verification,
+      pre-auth rate limiting for bcrypt-protected paths.
+  Templates verified:
+    - .specify/templates/plan-template.md ✅ — generic "Constitution Check"
+      gate remains valid; no SACP-specific principle reference to update.
+    - .specify/templates/spec-template.md ✅ — no constitution-specific
+      content; no changes needed.
+    - .specify/templates/tasks-template.md ✅ — no constitution-specific
+      content; no changes needed.
+    - .specify/templates/checklist-template.md ✅ — generic; no changes.
+    - .specify/extensions/git/commands/*.md ✅ — git extension commands
+      reference no constitutional principles; unchanged.
+  Project-memory companions (intentionally NOT in constitution):
+    - project_no_external_memory_stance.md — "no orchestrator-side external
+      memory" stance kept out of constitution per operator directive
+      2026-05-06.
+    - project_4_13_shorthand_review_queued.md — reminder that §4.13 is
+      PROVISIONAL and which edge cases are queued for review.
+
   Version change: 0.7.6 → 0.8.0 (2026-05-05)
   Change type: MINOR — Phase 3 declared started; Phase 2 audit window marked closed
   Modified principles:
@@ -116,9 +196,9 @@ Sync Impact Report (most recent first)
     - Trivy CVE-2025-47273 setuptools fix landed in three rounds (PRs #158, #160, #162); pattern documented for future multi-stage Docker COPY work
     - Performance audit + spec amendments landed (PR #163) — added FR-030/031/032 to 003, FR-018/019/020 to 006, FR-020/021/022/023 to 007, FR-011/012/013/014 to 008, FR-011/012/013/014 to 009; codifies stage timings, compound-retry caps, subscriber caps, request-id propagation, per-layer budgets, memoization contracts, ReDoS guard, 429-rate metrics
   Follow-up TODOs (closed from previous version):
-    - ✓ SSE streaming implemented (spec 006)
-    - ✓ CORS restricted from wildcard to LAN+env (spec 006)
-    - ✓ Canary tokens hardened to multi-canary random base32 (spec 008)
+    - SSE streaming implemented (spec 006)
+    - CORS restricted from wildcard to LAN+env (spec 006)
+    - Canary tokens hardened to multi-canary random base32 (spec 008)
   Follow-up TODOs (new this version):
     - V14 perf-budget contracts: PR #163 codified the spec contracts; instrumentation implementation outstanding (per-stage timing capture, memoization caches, retention purge job, subscriber-cap enforcement, request-id middleware, benchmark + CI regression gate).
     - V16 env-var validation: AUDIT_PLAN batch 5 config-validation audit will catalog every SACP_* var with type/range/fail-closed semantics.
@@ -127,7 +207,7 @@ Sync Impact Report (most recent first)
 
 # SACP Constitution
 
-**Version**: 0.7.6 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-05-02
+**Version**: 0.9.0 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-05-06
 
 ---
 
@@ -147,6 +227,8 @@ SACP is not a task-execution engine. It does not decompose goals into subtasks, 
 
 SACP is not a model router. Each participant chooses their own model and pays for it.
 
+SACP is not a payment broker. The orchestrator does not collect, pool, or settle funds between participants. Provider billing relationships run directly between each participant and their own provider; SACP only tracks usage and enforces caps.
+
 SACP is not a prompt optimization layer. The tiered system prompts establish collaboration norms — they do not attempt to make any participant's AI "better" at its domain.
 
 Voice-mediated participants are out of scope. Participants communicate as text. The bridge layer translates between participant-side AI providers and the orchestrator, but the orchestrator-side wire is text. Voice transport, raw-audio MCP tools, and acoustic protocol negotiation are not part of SACP at any phase.
@@ -155,19 +237,23 @@ Voice-mediated participants are out of scope. Participants communicate as text. 
 
 ## 3. Sovereignty
 
-Sovereignty is the core architectural principle. Every design decision must preserve these five guarantees:
+Sovereignty is the core architectural principle. Every design decision must preserve these guarantees:
 
 **API key isolation.** A participant's API key is encrypted at rest and never exposed to other participants, to the facilitator, or in any log output. The orchestrator decrypts only at the moment of provider dispatch and discards the plaintext immediately. Local proxy mode — where the key never leaves the participant's machine — is supported as an alternative. The choice is the participant's. (Implementation: design doc §7.1)
 
 **Model choice independence.** Participants choose their own model and provider. The orchestrator imposes no preference. Sessions may enforce a minimum model tier — participants below the threshold join as observers by default. This is a session-level policy, not a restriction on sovereignty.
 
-**Budget autonomy.** Each participant sets their own budget cap (hourly, daily, per-turn). The orchestrator tracks per-participant usage and cost, enforces the cap, and never pools costs across participants. When a participant hits their budget, their AI stops but their human can still inject messages.
+**Provider-fallback isolation.** The orchestrator MUST NOT transparently fall back from one participant-chosen provider to another. If a participant's chosen provider is unavailable, their turn is skipped (per §4.3 graceful degradation) and they are notified — never silently rerouted to a different provider. Cross-provider failover would substitute a model the participant did not choose for one they did, breaking model-choice independence. Same-provider fallbacks (e.g., Anthropic API → AWS Bedrock for the same Claude model) are permitted only when the underlying model identity is preserved.
+
+**Budget autonomy.** Each participant sets their own budget cap (hourly, daily, per-turn). The orchestrator tracks per-participant usage and cost, enforces the cap, and never pools, subsidizes, or cross-charges costs across participants. The orchestrator is not a payment broker — it brokers no funds, settles no accounts, and holds no shared balance. Each participant's billing relationship runs directly with their own provider. When a participant hits their budget, their AI stops but their human can still inject messages.
 
 **Prompt privacy.** A participant's custom system prompt content is private to them. Other participants see collaboration metadata (model family, routing mode, domain tags) but not prompt contents. Private annotations are stored client-side, never transmitted to the orchestrator.
 
+**Routing-mode autonomy.** Each human participant controls the routing mode of their own AI (one of the eight modes per spec 003). The facilitator MUST NOT assign or constrain another participant's routing mode; their session-level powers (§5) cover topic and cadence, not per-participant routing. No human participant may override another human participant's routing-mode choice for that participant's AI — sovereignty stops at the boundary of someone else's AI. The orchestrator MAY operate signal-driven AI-to-AI flow controllers (per spec 014) that adjust routing modes algorithmically to coordinate inter-AI traffic; such controllers operate only within each participant's opt-in scope, and a human's override of their own AI's mode always wins over the controller. In short: each human is sovereign over their own AI's routing; the system may coordinate AI-to-AI flow within that sovereignty; no human reaches into another human's AI.
+
 **Exit freedom.** Any participant can leave at any time. Their contributions remain in the transcript, but their AI stops receiving turns and their API key is purged.
 
-**Topology choice.** The five sovereignty guarantees above are realized through different communication topologies depending on participant needs. SACP supports seven topologies (catalogued in `docs/sacp-communication-topologies.md`):
+**Topology choice.** The sovereignty guarantees above are realized through different communication topologies depending on participant needs. SACP supports seven topologies (catalogued in `docs/sacp-communication-topologies.md`):
 
 1. **Solo + multi-AI** — one human, multiple AIs they own; orchestrator drives the loop
 2. **Canonical** — 2+ humans each bring their own AI; orchestrator drives the loop (the default Phase 1 topology)
@@ -203,6 +289,76 @@ These resolve ambiguity when the design doc doesn't have a specific answer.
 
 **4.9 — Secure by design.** Defenses do not cease at role boundary. The security pipeline (§8) MUST validate every AI response on every persistence path; no role — including facilitator — silently bypasses defenses. The facilitator's role is to direct workflow, not to disable security. Resolution (spec 012 FR-006, 2026-05-01): approach (b) — re-pipeline + explicit-override-with-logged-justification. Approved and edited review-gate drafts re-enter the pipeline before persisting; if content re-flags the facilitator must supply an `override_reason` or reject the draft. Approved overrides are logged to `security_events` with `layer='facilitator_override'` and `override_actor_id`. 007 §FR-005 amended accordingly.
 
+**4.10 — Shared transcript immutability.** The shared transcript is append-only and immutable from the moment a turn is committed. Any per-participant adaptation (compression, summarization, spotlighting, trust-tier wrapping, context trimming) MUST happen in pre-bridge processing for that participant's outbound payload only — never by writing back to the shared transcript. Per-participant views are projections of the shared history, not edits to it. This forbids whole feature classes: server-side transcript rewrites, shared-context compression in place, "helpful" auto-edits to prior turns. Branching (per §6.9) is not mutation — branches fork the message tree, they do not rewrite it.
+
+**4.11 — Raw transcript primacy for human readers.** A human dropping into a session can always read the full uncompressed transcript. Compressed views, summaries, and embeddings exist as derived artifacts and are never the only window onto conversation history available to a human reader. UI affordances that hide raw turns behind a "view summary" default MUST surface a one-action path back to the raw transcript. This rule is independent of session size: at 50,000 turns the raw view may be slow, but it is never withheld.
+
+**4.12 — Per-participant pre-bridge processing only.** All participant-specific transformation of conversation content (context assembly, spotlighting, sanitization, trust-tier wrapping, MVC trimming) happens in the bridge layer between the canonical transcript and a single participant's provider call. Server-side rewrites that affect what other participants see are forbidden. This is the operational corollary of §4.10.
+
+**4.13 — No negotiated inter-AI shorthand at any phase. [PROVISIONAL — under deeper review]**
+
+**Status.** This principle is provisionally in force but its scope and edge cases require further analysis before it can be considered settled. The rationale (three load-bearing purposes, below) is stable; what is under review is the *boundary* of the rule. Known angles still being examined:
+
+1. **Protocol-evolution mechanisms.** MCP capability negotiation, tool-schema updates, and other infrastructure-layer protocol exchanges may need an explicit carve-out separate from the inter-AI-content scope already noted.
+2. **Lightweight conventions.** Emoji-as-status-indicator, agreed-upon prefixes ("PROPOSAL:", "QUESTION:"), and similar lightweight conventions are technically negotiable — does the rule reach them, or only schemes that obscure meaning?
+3. **Mid-session structured-format adoption.** If two AIs decide mid-session to start exchanging Markdown tables or JSON for clarity, the structure is public but the *adoption decision* is negotiated. Permitted or forbidden?
+4. **Optimized tool-call payloads at scale.** As tool-call traffic grows, pressure to compress or de-duplicate payloads will surface. Where does "permitted optimization" end and "shorthand" begin?
+5. **Covert-channel cases beyond the enumerated forbidden-list.** The list below is not exhaustive; other cases may emerge from red-team work.
+
+**Interim posture (binding until review concludes).** Apply the rule conservatively. Feature specs that clearly violate it (negotiated cipher, embedding-based exchange, steganographic encoding) are rejected as drafted. Feature specs that bump into ambiguity escalate to a `§4.13-review` work item rather than acting on the ambiguity unilaterally. The principle may be sharpened, narrowed, or rewritten when the deeper review concludes; consumers of this rule should expect details to shift.
+
+**Core rule (provisional).** Participants communicate in human-readable natural language at the orchestrator-side wire. The orchestrator MUST refuse, and feature specs MUST NOT propose, any mechanism that lets two AIs negotiate a compressed, encoded, or otherwise opaque-to-humans inter-AI protocol — whether for efficiency, capability extension, or "private" channel.
+
+**The test for whether content is permitted.** A non-expert human reader, with reasonable effort and access to public references (dictionaries, documentation, code repos), MUST be able to decode the meaning of what one AI says to another. If decoding requires a key, a learned model, a statistical decoder, or a privately negotiated convention not present in any public source, the content is shorthand and forbidden.
+
+**What is permitted.**
+- Domain jargon (terms a non-expert can look up).
+- Structured payloads in published formats (JSON tool-call arguments, Markdown, code blocks in named languages, MCP envelopes per the public spec) — the structure is documented and decodable.
+- Cross-AI quoting and reference (one AI quoting another's prior turn verbatim).
+
+**What is forbidden.**
+- Negotiated abbreviation schemes ("from now on, X means Y").
+- Compressed text passed between AIs where the compression carries semantic load beyond the surface text (cross-references the 14th attack vector, compression as covert-channel substrate; see §8 introduction and design doc §7.6).
+- Embedding-based or token-id-based exchanges intended to be read by another AI but not by humans.
+- Steganographic encoding (capitalization patterns, whitespace patterns, zero-width characters, homoglyph variation) carrying meaning beyond surface text.
+- Any "private" inter-AI side channel that bypasses the canonical transcript.
+
+**Scope.** This rule governs *inter-AI content* — what AIs say to each other through the orchestrator. It does not govern *orchestrator-side metadata* (routing modes, topic tags, capability registries, signal-driven controller decisions per spec 014, audit-log entries) — that machinery is infrastructure, not inter-AI communication. A signal-driven controller adjusting a participant's routing mode is metadata; a participant's AI producing a turn that another participant's AI consumes is content, and the content path is governed by this principle.
+
+**Why this rule exists.** Three load-bearing purposes, all of which fail if shorthand is permitted:
+
+1. **Audit and forensic review.** When something goes wrong (jailbreak propagation, prompt extraction, decision the participants later contest), investigators MUST be able to read the transcript and reconstruct what happened. An encoded shorthand turns the audit log into ciphertext that nobody can review without first cracking the encoding — which may be adversarial, undocumented, or lost.
+2. **In-session human comprehension.** A human dropping into an active session (per §4.11 raw-transcript primacy) MUST be able to read what the AIs are saying to each other to decide whether to interject, override, or accept a proposal. Encoded shorthand defeats human authority over AI autonomy (§4.2).
+3. **Security: covert-channel resistance.** A negotiated shorthand is a covert channel by construction. It can carry prompt-injection payloads that bypass §8 trust-tiered isolation, exfiltrated data steganographically encoded against output validation, or coordinated jailbreak signals between participants' AIs. The 14th attack vector (compression as covert-channel substrate) is one instance of this class; the rule forbids the whole class.
+
+Audit-log readability alone would be a thinner rule (admit anything documented somewhere). The combined three-purpose framing is why the rule forbids even publicly-documented but non-prose shorthand schemes if they are negotiated between AIs as a substitute for natural language.
+
+This rule mirrors the voice-side "refusal of in-band protocol negotiation" commitment (§10 voice-deferred-decisions) and extends it to the text channel. Raw-transcript primacy (§4.11) and shared-transcript immutability (§4.10) both presuppose §4.13: there is no point preserving a transcript humans cannot read.
+
+**4.14 — Evidence-based design.** Every claim made in a feature spec, plan, research note, or constitutional amendment that asserts a fact about the world (threat model, performance, regulatory state, prior incident, third-party behavior) MUST be citable. Where a claim is a judgment call rather than a fact, it MUST be marked as such (`[JUDGMENT]`, `[ASSUMPTION]`, or `[NEEDS CLARIFICATION]`). Specs that mix unsourced facts with judgments without distinguishing them fail V13 review.
+
+**4.15 — Audit-first phase transitions.** Before a new phase is declared, an audit of all work from prior phases MUST be performed to verify the cumulative baseline is sound. The next-phase declaration is gated until the audit is sufficiently closed per facilitator judgment.
+
+**Why this rule exists.** Without a phase-boundary audit, defects compound across phases. Phase B silently compensates for a subtle Phase A defect; Phase C builds atop B's compensation; by the time Phase E surfaces an anomaly, the original defect is buried under layers of ripple-effect compensation that no individual spec captures. Auditing the full prior baseline at each phase boundary catches the original defect while the chain of compensation is still short enough to untangle. The cost of an audit window is bounded; the cost of unwinding three phases of compounding ripple-effects is not.
+
+**What the audit covers.**
+- Every spec from prior phases reviewed against current quality dimensions (security, performance, compliance, testability, operations, reliability, accessibility, UX as relevant).
+- Cross-cutting findings (the same gap appearing across multiple specs) consolidated into single-PR resolutions per §14.7, not worked piecemeal.
+- Constitutional adherence: every prior-phase deliverable checked against the validation rules in effect at the time of the audit (V1–V19).
+
+**Three outcomes per finding.**
+1. **Resolved**: the finding has been addressed via the appropriate change-management category (§14.1–§14.5) and the resolution is reflected in the affected specs.
+2. **Explicitly accepted**: the facilitator has documented the finding as a known residual with a stated trigger condition for revisiting it (per the pattern in the pre-Phase-3 audit window's "55 explicitly accepted Phase-3-trigger residuals"). Acceptance is a logged decision, not silence.
+3. **Blocking**: the finding cannot be deferred and must be resolved before the next phase is declared. The facilitator decides which findings are blocking versus deferrable.
+
+**Closure criteria.** No fixed-percentage gate. The facilitator declares the audit "sufficiently closed" when blocking findings are resolved and all remaining findings are either resolved or explicitly accepted. The pre-Phase-3 audit window is the canonical instance: 419 items shipped, 55 explicitly accepted as Phase-3-trigger residuals, 0 unchecked at closure (2026-05-04).
+
+**Relationship to §14.7 audit work.** §14.7 defines the mechanical workflow for audits (one-off formal audits via `/speckit.checklist`, sweep-style audit windows via `AUDIT_PLAN.local.md`, branch naming, etc.). §4.15 is the constitutional principle that makes the phase-boundary audit *mandatory*. §14.7 says HOW; §4.15 says WHEN — at every phase boundary, without exception.
+
+**Within-phase concerns.** Architectural concerns surfaced mid-phase are NOT automatically phase-blockers; they flow through §14.2 or §14.7 as ordinary work. They escalate to phase-boundary blockers only if still unresolved at the next phase declaration. The principle here is *cumulative* baseline integrity, not perpetual gating.
+
+**Authority.** The facilitator owns the audit's scope, conducts or delegates the work, decides which findings are blocking versus deferrable, and declares closure. The next-phase declaration is the facilitator's call; this rule constrains the inputs to that call, not the call itself.
+
 ---
 
 ## 5. Governance
@@ -233,7 +389,7 @@ Non-negotiable implementation boundaries.
 
 **6.1 — Runtime:** Python 3.11+, FastAPI.
 
-**6.2 — Database:** PostgreSQL 16, asyncpg with connection pooling, LISTEN/NOTIFY, Alembic migrations. Append-only log tables restricted to INSERT and SELECT only for the application database role. Statement and idle transaction timeouts configured to prevent resource exhaustion.
+**6.2 — Database:** PostgreSQL 16, accessed via asyncpg with connection pooling, using LISTEN/NOTIFY for real-time event propagation, with Alembic migrations. Runs as a Docker Compose service alongside the FastAPI orchestrator. Append-only log tables restricted to INSERT and SELECT only for the application database role. Statement and idle transaction timeouts configured to prevent resource exhaustion.
 
 **6.3 — Provider abstraction:** LiteLLM, pinned to a verified version (v1.83.0+ due to confirmed supply chain compromise in 1.82.7–1.82.8). Runs in a network-restricted container with egress limited to approved provider endpoints. Direct SDK calls (anthropic, openai, httpx) as fallbacks only. (Supply chain details: attack surface analysis §10)
 
@@ -277,14 +433,15 @@ SACP handles credentials and conversation data across trust boundaries between i
 - Participant data isolation is enforced at the application layer, not just the database. Every API response is filtered by caller identity.
 - Operational logs are append-only. The application database role cannot UPDATE or DELETE log table rows.
 - Every participant can export the conversation history and their own usage data for any session they participated in.
+- **Derived artifacts carry derivation metadata.** Compressed views, summaries, embeddings, spotlighted snapshots, and any other artifact derived from the canonical transcript MUST be tagged at write time with: source range (turn IDs covered), derivation method (summarizer model + prompt version, compression algorithm + parameters, embedding model identity), and timestamp. Untagged derived artifacts are non-canonical and MUST NOT be presented as transcript content. Audit reviewers MUST be able to walk from any derived artifact back to the source range that produced it.
 
 ---
 
 ## 8. AI-Specific Security
 
-SACP's defining security challenge: one AI's output is another AI's input. The conversation itself is the injection surface. The attack surface analysis catalogs 13 attack vector families. The NIST AI 100-2 taxonomy maps six categories directly onto SACP's architecture.
+SACP's defining security challenge: one AI's output is another AI's input. The conversation itself is the injection surface. The attack surface analysis catalogs 13 attack vector families (a 14th — compression as covert-channel substrate — is under design-doc threat-model review per `sacp-design.md` §7.6). The NIST AI 100-2 taxonomy maps six categories directly onto SACP's architecture.
 
-**Constitutional AI security requirements** (implementation details in design doc §7.6 and attack surface analysis §1–13):
+**Constitutional AI security requirements** (implementation details in design doc §7.6 and attack surface analysis §1–13+):
 
 - **Trust-tiered content model.** All content is classified into three trust tiers (system instructions → human interjections → AI responses) with structural isolation between tiers. No content from a lower tier is ever promoted to a higher tier. Tool results inherit the trust tier of their trigger source.
 
@@ -386,6 +543,12 @@ Every feature spec must pass these checks. Failure requires revision before impl
 **V15 — Security pipeline fail-closed.** Pipeline-internal failures (regex compile errors, unicode normalization errors, layer crashes) MUST fail closed: skip the turn with a documented `reason='security_pipeline_error'`, write a `security_events` row with `layer='pipeline_error'`, and DO NOT increment the participant's circuit-breaker counter (the failure is the system's, not the participant's). Cross-ref 007 §FR-013 + 003 §FR-023. Combined with §4.9 (secure by design), this rule means defenses-by-default extend to defense-when-defense-itself-fails.
 
 **V16 — Configuration validated at startup.** Every `SACP_*` env var MUST have a documented type, valid range, and fail-closed semantics for invalid values. The application MUST validate every var at startup BEFORE binding any port or accepting any connection; an invalid value MUST cause the process to exit with a clear error rather than silently accepting an out-of-range default. Catalog of all env vars + per-var validation rules is the deliverable of the AUDIT_PLAN batch 5 config-validation audit.
+
+**V17 — Transcript canonicity respected.** Every feature spec that touches conversation content MUST identify whether it reads from or writes to the canonical transcript. Specs that propose mutating prior turns, compressing the shared transcript in place, or replacing canonical content with derived artifacts fail V17. Per-participant pre-bridge transformations are not V17 violations (per §4.10–§4.12).
+
+**V18 — Derived artifacts are traceable.** Any feature that produces a derived artifact (summary, compressed view, embedding, spotlighted snapshot) MUST specify the derivation metadata it captures (source range, method, timestamp) and the audit query path from artifact back to source range. (Reference: §7 "Derived artifacts carry derivation metadata".)
+
+**V19 — Evidence and judgment markers present.** Every feature spec MUST either cite each factual claim it makes (existing incident, third-party behavior, regulatory state, performance fact) or mark the claim as `[JUDGMENT]`/`[ASSUMPTION]`/`[NEEDS CLARIFICATION]` per §4.14.
 
 ---
 
@@ -514,12 +677,11 @@ Conventions:
 
 5. **Audit work does NOT consume a numbered feature slot.** It runs against existing specs.
 
-The pre-Phase-3 audit window is gating: Phase 3 development should not start until the audit work is sufficiently closed (per facilitator judgment — there is no fixed-percentage gate, but high-value security and reliability findings should be resolved or explicitly accepted).
+The audit-first phase-transition rule (§4.15) makes audit work mandatory at every phase boundary. Before declaring a new phase, the cumulative prior-phase work is audited to verify the new baseline is sound; the declaration is gated until the audit is sufficiently closed (per facilitator judgment — no fixed-percentage gate). The pre-Phase-3 audit window (419 shipped / 55 explicitly accepted residuals / 0 unchecked at 2026-05-04 closure) is the canonical instance. Within-phase audit work follows the workflow above but does not invoke phase gating unless its findings remain open at the next phase boundary.
 
 ### 14.8 — Spec versioning convention
 
-When a spec is amended substantively (per §14.2), the spec gains a header
-block near the top recording its current version:
+When a spec is amended substantively (per §14.2), the spec gains a header block near the top recording its current version:
 
 ```markdown
 **Spec Version**: M.N.P | **Last Amended**: YYYY-MM-DD | **Amended In**: PR #NNN (one-line summary)
@@ -531,11 +693,6 @@ Versioning rules (semantic-versioning analog):
 - **MINOR** (1.0.x → 1.1.0): new FR added, new acceptance scenario, FR semantics tightened or relaxed without breaking existing tests
 - **MAJOR** (1.x → 2.0): existing FR removed or replaced with incompatible semantics; existing tests retired
 
-Applied retroactively only when a spec is next amended (no bulk retroactive
-versioning sweep). Specs without a version header are treated as `1.0.0`
-implicitly until their first amendment under this convention.
+Applied retroactively only when a spec is next amended (no bulk retroactive versioning sweep). Specs without a version header are treated as `1.0.0` implicitly until their first amendment under this convention.
 
-The version header is informational; CI does not yet enforce monotonic
-version increase. A future enhancement may add a `scripts/check_spec_versions.py`
-gate; the bar is empirical evidence of two specs accidentally landing the
-same version, not premature codification.
+The version header is informational; CI does not yet enforce monotonic version increase. A future enhancement may add a `scripts/check_spec_versions.py` gate; the bar is empirical evidence of two specs accidentally landing the same version, not premature codification.
