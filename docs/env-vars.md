@@ -200,6 +200,23 @@ by application code. Operators setting them today will see the value in the
 debug snapshot but no behavioral effect. Validators land when application code
 starts consuming them — likely as part of a per-spec amendment cluster.
 
+### `SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS`
+
+- **Default**: `600`
+- **Type**: number (seconds)
+- **Valid range**: `> 0`
+- **Blast radius on invalid**: turn-loop dispatch keeps retrying past the operator-intended ceiling; cascading hangs propagate into next-turn latency
+- **Validation rule**: `validators.validate_compound_retry_total_max_seconds`
+- **Source spec(s)**: 003 §FR-031 (compound-retry cap)
+
+### `SACP_COMPOUND_RETRY_WARN_FACTOR`
+
+- **Default**: `2.0`
+- **Type**: float (multiplier on per-attempt `timeout`)
+- **Valid range**: `>= 1.0`
+- **Blast radius on invalid**: `compound_retry_warn` log line either fires before the per-attempt timeout (noise) or never (no early signal of pathological cascades)
+- **Validation rule**: `validators.validate_compound_retry_warn_factor`
+- **Source spec(s)**: 003 §FR-031 (compound-retry warn threshold)
 ### `SACP_SECURITY_EVENTS_RETENTION_DAYS`
 
 - **Default**: unset (the orchestrator never auto-purges; operator-driven)

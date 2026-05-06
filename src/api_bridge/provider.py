@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from typing import Any
 
@@ -12,7 +13,17 @@ import litellm
 from src.api_bridge.caching import CacheDirectives, apply_directives
 from src.database.encryption import decrypt_value
 from src.orchestrator.types import ProviderResponse
-from src.repositories.errors import ContextWindowOverflowError, ProviderDispatchError
+from src.repositories.errors import (
+    CompoundRetryExhaustedError,
+    ContextWindowOverflowError,
+    ProviderDispatchError,
+)
+
+# 003 §FR-031: hard cap on cumulative dispatch+retry elapsed (seconds).
+_DEFAULT_COMPOUND_RETRY_TOTAL_MAX_SECONDS = 600.0
+# 003 §FR-031: warn factor — multiple of per-attempt timeout that emits
+# `compound_retry_warn` once per dispatch_with_retry invocation.
+_DEFAULT_COMPOUND_RETRY_WARN_FACTOR = 2.0
 
 log = logging.getLogger(__name__)
 
@@ -70,20 +81,47 @@ async def dispatch_with_retry(
     max_retries: int = 3,
     cache_directives: CacheDirectives | None = None,
 ) -> ProviderResponse:
-    """Dispatch with exponential backoff on rate limits."""
+    """Dispatch with exponential backoff on rate limits.
+
+    Bounded by 003 §FR-031: total elapsed (per-attempt + backoff) is
+    capped at SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS (default 600s).
+    Crossing SACP_COMPOUND_RETRY_WARN_FACTOR × timeout (default 2× per-attempt
+    timeout = 360s) emits a `compound_retry_warn` log line once. Hitting
+    the cap raises CompoundRetryExhaustedError.
+    """
+    return await _retry_loop(
+        max_retries=max_retries,
+        dispatch_kwargs={
+            "model": model,
+            "messages": messages,
+            "api_key_encrypted": api_key_encrypted,
+            "encryption_key": encryption_key,
+            "api_base": api_base,
+            "timeout": timeout,
+            "max_tokens": max_tokens,
+            "cache_directives": cache_directives,
+        },
+    )
+
+
+async def _retry_loop(*, max_retries: int, dispatch_kwargs: dict[str, Any]) -> ProviderResponse:
+    """Run the bounded retry loop. See dispatch_with_retry for FR-031 semantics."""
+    cap_sec, warn_threshold = _retry_thresholds(dispatch_kwargs["timeout"])
+    start = time.monotonic()
+    warned = False
     last_error: Exception | None = None
     for attempt in range(max_retries):
+        warned = _check_retry_budget(
+            model=dispatch_kwargs["model"],
+            start=start,
+            cap_sec=cap_sec,
+            warn_threshold=warn_threshold,
+            warned=warned,
+            attempt=attempt,
+            last_error=last_error,
+        )
         try:
-            return await dispatch(
-                model=model,
-                messages=messages,
-                api_key_encrypted=api_key_encrypted,
-                encryption_key=encryption_key,
-                api_base=api_base,
-                timeout=timeout,
-                max_tokens=max_tokens,
-                cache_directives=cache_directives,
-            )
+            return await dispatch(**dispatch_kwargs)
         except litellm.ContextWindowExceededError as e:
             _raise_overflow(e)
         except litellm.RateLimitError as e:
@@ -92,9 +130,81 @@ async def dispatch_with_retry(
         except Exception as e:
             last_error = e
             break  # Timeouts + unknown errors aren't retried
+    _raise_after_loop(start, cap_sec, attempt, last_error)
+
+
+def _check_retry_budget(
+    *,
+    model: str,
+    start: float,
+    cap_sec: float,
+    warn_threshold: float,
+    warned: bool,
+    attempt: int,
+    last_error: Exception | None,
+) -> bool:
+    """Pre-attempt budget gate. Raises on cap; emits one warn log on threshold crossing."""
+    elapsed = time.monotonic() - start
+    if elapsed >= cap_sec:
+        raise CompoundRetryExhaustedError(
+            f"compound retry total elapsed {elapsed:.1f}s "
+            f">= cap {cap_sec:.1f}s after {attempt} attempts: {last_error}",
+        )
+    if not warned and elapsed >= warn_threshold:
+        log.warning(
+            "compound_retry_warn: model=%s elapsed=%.1fs threshold=%.1fs attempt=%d",
+            model,
+            elapsed,
+            warn_threshold,
+            attempt,
+        )
+        return True
+    return warned
+
+
+def _raise_after_loop(
+    start: float,
+    cap_sec: float,
+    attempt: int,
+    last_error: Exception | None,
+) -> None:
+    """Raise the right exception after the retry loop falls through."""
+    elapsed = time.monotonic() - start
+    if elapsed >= cap_sec:
+        raise CompoundRetryExhaustedError(
+            f"compound retry total elapsed {elapsed:.1f}s "
+            f">= cap {cap_sec:.1f}s after {attempt + 1} attempts: {last_error}",
+        )
     raise ProviderDispatchError(
         f"Provider dispatch failed after {attempt + 1} attempts: {last_error}",
     )
+
+
+def _retry_thresholds(timeout: int) -> tuple[float, float]:
+    """Return (cap_sec, warn_threshold_sec) for the FR-031 retry budget."""
+    return _compound_retry_cap_seconds(), _compound_retry_warn_factor() * timeout
+
+
+def _compound_retry_cap_seconds() -> float:
+    raw = os.environ.get("SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS")
+    if raw is None or raw.strip() == "":
+        return _DEFAULT_COMPOUND_RETRY_TOTAL_MAX_SECONDS
+    try:
+        val = float(raw)
+    except ValueError:
+        return _DEFAULT_COMPOUND_RETRY_TOTAL_MAX_SECONDS
+    return val if val > 0 else _DEFAULT_COMPOUND_RETRY_TOTAL_MAX_SECONDS
+
+
+def _compound_retry_warn_factor() -> float:
+    raw = os.environ.get("SACP_COMPOUND_RETRY_WARN_FACTOR")
+    if raw is None or raw.strip() == "":
+        return _DEFAULT_COMPOUND_RETRY_WARN_FACTOR
+    try:
+        val = float(raw)
+    except ValueError:
+        return _DEFAULT_COMPOUND_RETRY_WARN_FACTOR
+    return val if val >= 1.0 else _DEFAULT_COMPOUND_RETRY_WARN_FACTOR
 
 
 def _raise_overflow(e: BaseException) -> None:

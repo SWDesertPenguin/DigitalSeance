@@ -31,6 +31,7 @@ from src.orchestrator.timing import (
 from src.orchestrator.types import ProviderResponse, TurnResult
 from src.repositories.errors import (
     AllParticipantsExhaustedError,
+    CompoundRetryExhaustedError,
     ContextWindowOverflowError,
     ProviderDispatchError,
     SessionNotActiveError,
@@ -432,16 +433,29 @@ async def _assemble_and_dispatch(
         return await _dispatch_to_provider(
             speaker, messages, ctx.encryption_key, session_id=ctx.session_id
         ), None
-    except ContextWindowOverflowError as e:
-        log.warning("Context window overflow for %s: %s", speaker.id, e)
+    except _DISPATCH_FAILURE_TYPES as e:
+        log.warning("%s for %s: %s", _DISPATCH_FAILURE_LABEL[type(e)], speaker.id, e)
         await _record_failure_and_announce(ctx, breaker, speaker)
         await _broadcast_provider_error(ctx.session_id, speaker, e)
-        return None, "context_window_overflow"
-    except ProviderDispatchError as e:
-        log.warning("Provider dispatch failed for %s: %s", speaker.id, e)
-        await _record_failure_and_announce(ctx, breaker, speaker)
-        await _broadcast_provider_error(ctx.session_id, speaker, e)
-        return None, "provider_error"
+        return None, _DISPATCH_FAILURE_REASON[type(e)]
+
+
+_DISPATCH_FAILURE_LABEL: dict[type, str] = {
+    ContextWindowOverflowError: "Context window overflow",
+    CompoundRetryExhaustedError: "Compound retry exhausted",
+    ProviderDispatchError: "Provider dispatch failed",
+}
+_DISPATCH_FAILURE_REASON: dict[type, str] = {
+    ContextWindowOverflowError: "context_window_overflow",
+    CompoundRetryExhaustedError: "compound_retry_exhausted",
+    ProviderDispatchError: "provider_error",
+}
+# Order matters — most-specific subclasses first so isinstance routes correctly.
+_DISPATCH_FAILURE_TYPES = (
+    ContextWindowOverflowError,
+    CompoundRetryExhaustedError,
+    ProviderDispatchError,
+)
 
 
 async def _record_failure_and_announce(

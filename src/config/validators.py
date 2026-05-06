@@ -316,6 +316,21 @@ def validate_openai_cache_retention() -> ValidationFailure | None:
     return None
 
 
+def validate_compound_retry_total_max_seconds() -> ValidationFailure | None:
+    """SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS: int seconds > 0, default 600. 003 §FR-031."""
+    val = os.environ.get("SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = float(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS",
+            f"must be a number; got {val!r}",
+        )
+    if num <= 0:
+        return ValidationFailure(
+            "SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS",
 def validate_security_events_retention_days() -> ValidationFailure | None:
     """SACP_SECURITY_EVENTS_RETENTION_DAYS: positive int, optional. 007 §SC-009."""
     val = os.environ.get("SACP_SECURITY_EVENTS_RETENTION_DAYS")
@@ -332,6 +347,26 @@ def validate_security_events_retention_days() -> ValidationFailure | None:
         return ValidationFailure(
             "SACP_SECURITY_EVENTS_RETENTION_DAYS",
             f"must be > 0; got {num}",
+        )
+    return None
+
+
+def validate_compound_retry_warn_factor() -> ValidationFailure | None:
+    """SACP_COMPOUND_RETRY_WARN_FACTOR: float >= 1.0, default 2.0. 003 §FR-031."""
+    val = os.environ.get("SACP_COMPOUND_RETRY_WARN_FACTOR")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = float(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_COMPOUND_RETRY_WARN_FACTOR",
+            f"must be a float; got {val!r}",
+        )
+    if num < 1.0:
+        return ValidationFailure(
+            "SACP_COMPOUND_RETRY_WARN_FACTOR",
+            f"must be >= 1.0 (warn must not precede the per-attempt timeout); got {num}",
         )
     return None
 
@@ -379,6 +414,8 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_density_anomaly_ratio,
     validate_openai_cache_retention,
     validate_web_ui_cookie_key,
+    validate_compound_retry_total_max_seconds,
+    validate_compound_retry_warn_factor,
     validate_security_events_retention_days,
 )
 
