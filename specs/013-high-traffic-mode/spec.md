@@ -45,6 +45,48 @@ This spec **scaffolds only**. Implementation begins when the
 facilitator declares Phase 3 started per Constitution §10. The spec
 remains at Status: Draft until that declaration.
 
+## Clarifications
+
+### Session 2026-05-05 (Phase 3 framework / scaffolding landings)
+
+- Phase 1 + Phase 2 (T001–T015) shipped: three SACP_HIGH_TRAFFIC_*/
+  SACP_CONVERGENCE_THRESHOLD_OVERRIDE/SACP_OBSERVER_DOWNGRADE_THRESHOLDS
+  env vars with V16 validators in `src/config/validators.py`; `docs/env-vars.md`
+  sections with the six standard fields per FR-014 deliverable gate;
+  `HighTrafficSessionConfig` + `ObserverDowngradeThresholds` frozen
+  dataclasses in `src/orchestrator/high_traffic.py` with
+  `resolve_from_env()` returning `None` when all three env vars unset
+  (SC-005 regression contract); SC-005 regression scaffold in
+  `tests/test_013_regression_phase2.py` (8 tests).
+- Phase 3 US1 framework (T016–T025) shipped: `BatchEnvelope` dataclass
+  + `BatchScheduler` per-session flush task in
+  `src/web_ui/batch_scheduler.py`; `batch_envelope_event` builder in
+  `src/web_ui/events.py`; `docs/ws-events.md` adds the new event spec;
+  `_maybe_make_batch_scheduler` returns `None` when batching env unset.
+  5 acceptance tests in `tests/test_013_batching.py`. T026 (routing_log
+  `batch_open_ts`/`batch_close_ts` instrumentation) and BatchScheduler
+  integration into the actual orchestrator dispatch path are deferred
+  to Phase 6 polish.
+- Phase 4 US2 framework (T027–T031) shipped: `_convergence_threshold_kwarg`
+  in `src/orchestrator/loop.py` passes the override into `ConvergenceDetector`
+  via the existing `threshold=` constructor parameter (no engine refactor
+  per research §5). 4 tests in `tests/test_013_convergence_override.py`.
+- Phase 5 US3 framework (T032–T043) shipped: `evaluate_downgrade` +
+  `evaluate_restore` in `src/orchestrator/observer_downgrade.py`; priority
+  heuristic per research §3 (model_tier rank > consecutive_timeouts desc
+  > last_seen desc > id asc); last-human protection emits `Suppressed`
+  per FR-011; audit-row payload helpers for the three new
+  `admin_audit_log` action strings (no schema change per research §1).
+  13 tests in `tests/test_013_observer_downgrade.py`. T044 (audit-row
+  writers wired into loop turn-prep) and T045 (routing_log
+  `observer_downgrade_eval_ms`) are deferred to Phase 6 polish.
+- Phase 6 polish status: T046 (full SC-005 assertions) + T047 (013
+  traceability section) + T048 (this Clarifications entry) shipped;
+  T049 quickstart walkthrough requires a live deployment and is
+  operator-side; T051 status flip Draft → Implemented gated on the
+  remaining loop-integration work AND the user's declaration per
+  Constitution §14 / `feedback_dont_declare_phase_done.md`.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Human-boundary batching cadence keeps a `review_gate` consultant productive (Priority: P1)
