@@ -55,6 +55,20 @@ _TIERS = {
 }
 
 
+@functools.lru_cache(maxsize=1024)
+def _sanitize_for_participant(participant_id: str, custom_prompt: str) -> str:
+    """Cached sanitizer keyed by (participant_id, custom_prompt) per 008 §FR-012.
+
+    LRU eviction handles capacity. When a participant's custom_prompt changes,
+    the new (id, prompt) tuple misses the cache and triggers a fresh sanitize;
+    the stale entry remains until LRU eviction. Sanitize is a pure function
+    of its input so a stale entry never serves an incorrect value — only
+    consumes memory until evicted.
+    """
+    return sanitize(custom_prompt)
+
+
+_SANITIZE_CACHE = _sanitize_for_participant
 @functools.lru_cache(maxsize=4)
 def _tier_parts(prompt_tier: str) -> tuple[str, ...]:
     return tuple(_TIERS.get(prompt_tier, _TIERS["mid"]))
@@ -67,6 +81,7 @@ def assemble_prompt(
     *,
     prompt_tier: str,
     custom_prompt: str = "",
+    participant_id: str | None = None,
 ) -> str:
     """Assemble the full system prompt from tiers + custom content.
 
@@ -75,10 +90,17 @@ def assemble_prompt(
     structural format so no regex can predict them. Detection is via
     PromptProtector.check_leakage (pass canaries= kwarg with the values
     returned by this function when wiring detection into the pipeline).
+
+    When ``participant_id`` is provided, the custom-prompt sanitize pass is
+    memoized per (participant_id, custom_prompt) per 008 §FR-012. Callers
+    that don't have a participant_id (tests, ad-hoc scripts) skip the cache.
     """
     parts = list(_tier_parts(prompt_tier))
     if custom_prompt:
-        parts.append(sanitize(custom_prompt))
+        if participant_id is not None:
+            parts.append(_sanitize_for_participant(participant_id, custom_prompt))
+        else:
+            parts.append(sanitize(custom_prompt))
     return _embed_canaries(parts, _generate_canaries())
 
 
