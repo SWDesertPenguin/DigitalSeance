@@ -2,7 +2,7 @@
 
 **Feature Branch**: `014-dynamic-mode-assignment`
 **Created**: 2026-05-02
-**Status**: Draft
+**Status**: Draft (Phase 3 declared 2026-05-05; secondary gate "spec 013 reaches Status: Implemented" remains active until 013 ships)
 **Input**: User description: "Phase 3 dynamic mode assignment — the controller layer above spec 013 high-traffic mode. Watches a rolling 5-minute window of session signals (turn rate, convergence-derivative, queue depth, density-anomaly rate) and decides when to engage or disengage high-traffic mode mechanisms. Decisions are rate-capped (decisions-per-minute) and hysteresis-bounded (dwell time) to prevent flap. Defaults to advisory mode in initial Phase 3 deployment; auto-apply behind feature flag SACP_AUTO_MODE_ENABLED off by default. Applies to topologies 1–6 (orchestrator-driven); incompatible with topology 7 per V12. Primary use cases: consulting, research co-authorship, and technical review/audit per V13."
 
 ## Overview
@@ -58,6 +58,9 @@ This spec **scaffolds only**. Implementation begins when the
 facilitator declares Phase 3 started per Constitution §10, AND only
 after spec 013 (high-traffic-mode) reaches Status: Implemented.
 This spec remains at Status: Draft until both gates are satisfied.
+**Phase 3 declaration recorded 2026-05-05; the first gate is satisfied.
+The secondary gate (013 reaching Implemented) remains active —
+this spec stays scaffold-only until 013 ships.**
 
 ## User Scenarios & Testing *(mandatory)*
 

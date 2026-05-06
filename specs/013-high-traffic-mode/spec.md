@@ -2,7 +2,7 @@
 
 **Feature Branch**: `013-high-traffic-mode`
 **Created**: 2026-05-02
-**Status**: Draft
+**Status**: Draft (Phase 3 declared 2026-05-05; tasks + implementation in progress per Constitution §14.1)
 **Input**: User description: "Phase 3 high-traffic session mode (broadcast mode) — concretizes Constitution §10 broadcast-mode capability via three orthogonal mechanisms: human-boundary batching cadence, convergence-threshold override, and observer-downgrade. Applies to topologies 1–6 (orchestrator-driven); incompatible with topology 7 per V12. Primary use cases: consulting and research co-authorship per V13."
 
 ## Overview
@@ -43,7 +43,10 @@ threshold is crossed simultaneously.
 
 This spec **scaffolds only**. Implementation begins when the
 facilitator declares Phase 3 started per Constitution §10. The spec
-remains at Status: Draft until that declaration.
+remains at Status: Draft until that declaration. **Phase 3 declaration
+recorded 2026-05-05; this gate is satisfied. The spec stays Draft
+until tasks land and implementation reaches the Implemented status
+checkpoint.**
 
 ## User Scenarios & Testing *(mandatory)*
 

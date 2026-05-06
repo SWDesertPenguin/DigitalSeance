@@ -1,6 +1,27 @@
 <!--
 Sync Impact Report (most recent first)
 
+  Version change: 0.7.6 → 0.8.0 (2026-05-05)
+  Change type: MINOR — Phase 3 declared started; Phase 2 audit window marked closed
+  Modified principles:
+    - §10 Phase Boundaries: Phase 2 line gains "audit window closed 2026-05-04"
+      and the audit-window summary (419 shipped / 55 residual / 0 unchecked).
+      Phase 3 line gains "declared started 2026-05-05" and references the
+      already-drafted specs 013 (high-traffic-mode / broadcast) and 014
+      (dynamic mode assignment / signal-driven controller). Phase 3 lifts
+      both specs' "remains Draft until facilitator declares Phase 3" gate;
+      tasks and implementation now proceed per Constitution §14.1.
+  Added sections: none
+  Removed sections: none
+  Cross-doc updates:
+    - specs/013-high-traffic-mode/spec.md: Phase 3 declaration noted in
+      Status section; "remains Draft until that declaration" gate marked
+      satisfied. Spec stays Draft until tasks land and implementation
+      reaches Implemented status.
+    - specs/014-dynamic-mode-assignment/spec.md: Phase 3 declaration
+      noted; the secondary gate ("spec 013 reaches Status: Implemented")
+      remains active until 013 ships.
+
   Version change: 0.7.5 → 0.7.6 (2026-05-02)
   Change type: PATCH — voice-mediated participants explicitly out of scope at all phases
   Modified principles:
@@ -312,9 +333,9 @@ Each phase is a complete, usable system. No phase depends on a future phase to f
 
 **Phase 1 (MVP):** Two participants, one facilitator. Static token auth. LiteLLM bridge (network-isolated). 4-tier delta-only system prompts with canary tokens. Serialized turn loop with all 8 routing modes, complexity classifier (pattern-matching), interrupt queue, multi-signal convergence detection, adaptive cadence, adversarial rotation, per-turn timeouts. Context assembly with 5-priority token budget and summarization checkpoints. `[NEED:]` tool proxy with allowlist and SSRF protection. Full AI security pipeline (spotlighting, sanitization, safety profiling, multi-layer output validation, jailbreak detection, prompt extraction defense, role-based tool scoping, exfiltration defense, trust-tiered content model). Error detection with retry and circuit breaker. TLS, rate limiting, input validation, response size enforcement, origin validation, MCP SSE binding, CORS/CSP, log scrubbing. Append-only logs with restricted DB permissions. Admin audit log. Export (markdown, JSON, external memory). One-sided conversation detection. Docker Compose. SafeTensors-only. SBOM. No web UI. No artifact store.
 
-**Phase 2 (shipped 2026-04-29):** Web UI (port 8751) with WebSocket streaming, review-gate UI, three-path guest onboarding (sign-in / create / request-to-join, US11+US12), facilitator admin panel, decision/proposal workflow (US7), summary panel (US9), participant health indicators with circuit-breaker visibility (US10), secure markdown rendering with XSS defenses (US8), debug-export tool (spec 010). Followed by an extensive post-deploy hardening pass: 11-spec security audit sweep, perf-amendment landings (PR #163), Trivy CVE-2025-47273 fix iterations, Tier 1-3 quality checklists. **Deferred from Phase 2 to Phase 3:** session forking, multi-project support, participant-facing audit log subset, artifact store (blob KV), per-participant context optimization, envelope encryption migration, OAuth 2.1 with PKCE, MCP-to-MCP topology 7 integration. *(Pre-Phase-3 audit window currently open; ~37 audit topics tracked in `AUDIT_PLAN.local.md` before Phase 3 development begins.)*
+**Phase 2 (shipped 2026-04-29; audit window closed 2026-05-04):** Web UI (port 8751) with WebSocket streaming, review-gate UI, three-path guest onboarding (sign-in / create / request-to-join, US11+US12), facilitator admin panel, decision/proposal workflow (US7), summary panel (US9), participant health indicators with circuit-breaker visibility (US10), secure markdown rendering with XSS defenses (US8), debug-export tool (spec 010). Followed by an extensive post-deploy hardening pass: 11-spec security audit sweep, perf-amendment landings (PR #163), Trivy CVE-2025-47273 fix iterations, Tier 1-3 quality checklists. **Deferred from Phase 2 to Phase 3:** session forking, multi-project support, participant-facing audit log subset, artifact store (blob KV), per-participant context optimization, envelope encryption migration, OAuth 2.1 with PKCE, MCP-to-MCP topology 7 integration. Pre-Phase-3 audit window: 419 items shipped, 55 explicitly accepted as Phase-3-trigger residuals, zero unchecked at closure.
 
-**Phase 3:** 3–5 participants. Branching and rollback with UI. Sub-sessions with conclusion merging. External memory integration. Relevance-based routing, broadcast mode. Ollama/vLLM local model support. OAuth 2.1 with PKCE replaces static tokens. Step-up authorization. Artifact store enhancements. Git-backed decision tracking.
+**Phase 3 (declared started 2026-05-05):** 3–5 participants. Branching and rollback with UI. Sub-sessions with conclusion merging. External memory integration. Relevance-based routing, broadcast mode. Ollama/vLLM local model support. OAuth 2.1 with PKCE replaces static tokens. Step-up authorization. Artifact store enhancements. Git-backed decision tracking. Spec 013 (high-traffic-mode / broadcast) and spec 014 (dynamic mode assignment / signal-driven controller) drafted with full `/speckit.plan` artifacts; tasks + implementation begin per Constitution §14.1.
 
 **Phase 4:** A2A federation. Agent Card discovery. Hierarchical sub-sessions. Data retention policies. Formal protocol spec. Evaluate Inter-Agent Trust Protocol for multi-sovereign trust.
 
