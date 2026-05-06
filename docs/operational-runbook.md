@@ -99,16 +99,26 @@ Backup-at-rest encryption is operator-controlled and SHOULD use a key separate f
 
 Compromise of any one key SHOULD NOT cascade to the others; this is the operator's deployment-policy boundary.
 
-### 2.5 Operator-driven retention purge (pre-Phase-3)
+### 2.5 Operator-driven retention purge
 
-The reserved retention env vars (`SACP_AUDIT_RETENTION_DAYS`, `SACP_SECURITY_EVENTS_RETENTION_DAYS`, `SACP_USAGE_LOG_RETENTION_DAYS`, `SACP_ROUTING_LOG_RETENTION_DAYS`) are not yet wired to a purge job. Operators with hard-cap retention requirements run an external query, e.g.:
+`security_events` retention is wired (007 §SC-009): run `scripts/purge_security_events.py` on the operator's schedule (cron / Ofelia / k8s CronJob — default cadence daily).
+
+```bash
+# Daily at 03:15 — uses SACP_SECURITY_EVENTS_RETENTION_DAYS (default 90)
+15 3 * * * cd /opt/sacp && python -m scripts.purge_security_events
+
+# Ad-hoc with operator-tightened window (overrides the env var)
+python scripts/purge_security_events.py --retention-days 30
+```
+
+The other three retention env vars (`SACP_AUDIT_RETENTION_DAYS`, `SACP_USAGE_LOG_RETENTION_DAYS`, `SACP_ROUTING_LOG_RETENTION_DAYS`) remain reserved — no purge CLI yet. Operators with hard-cap requirements on those tables run an external query, e.g.:
 
 ```sql
 -- Example: purge admin_audit_log rows older than 365 days
 DELETE FROM admin_audit_log WHERE created_at < NOW() - INTERVAL '365 days';
 ```
 
-Schedule via cron / pg_cron / operator's scheduling stack. Per `docs/retention.md` §6, monitor row-count growth rate to confirm the purge is running.
+Per `docs/retention.md` §6, monitor row-count growth rate to confirm the purge is running.
 
 ### 2.6 Restore-from-old-backup edge case
 

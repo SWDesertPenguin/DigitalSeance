@@ -331,6 +331,21 @@ def validate_compound_retry_total_max_seconds() -> ValidationFailure | None:
     if num <= 0:
         return ValidationFailure(
             "SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS",
+def validate_security_events_retention_days() -> ValidationFailure | None:
+    """SACP_SECURITY_EVENTS_RETENTION_DAYS: positive int, optional. 007 §SC-009."""
+    val = os.environ.get("SACP_SECURITY_EVENTS_RETENTION_DAYS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_SECURITY_EVENTS_RETENTION_DAYS",
+            f"must be integer; got {val!r}",
+        )
+    if num <= 0:
+        return ValidationFailure(
+            "SACP_SECURITY_EVENTS_RETENTION_DAYS",
             f"must be > 0; got {num}",
         )
     return None
@@ -401,6 +416,7 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_web_ui_cookie_key,
     validate_compound_retry_total_max_seconds,
     validate_compound_retry_warn_factor,
+    validate_security_events_retention_days,
 )
 
 

@@ -202,30 +202,90 @@ def test_sc004_retry_after_is_seconds_until_oldest_expires() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_fr012_429_counter_trigger_marker() -> None:
-    """FR-012 per-participant + aggregate 429 counters are deferred.
-
-    Activation: once RateLimiter exposes a metrics hook (e.g. a
-    ``rate_limit_429_total`` attribute or a structured-log emitter), this
-    marker test should be replaced with counter-increment assertions. Until
-    then FR-012 is "untested with trigger" in the traceability table.
-    """
+def test_fr012_per_participant_429_counter_increments() -> None:
+    """FR-012: per-participant counter increments on every 429 emit."""
     limiter = RateLimiter(limit=1, window=60)
-    assert not hasattr(
-        limiter, "rate_limit_429_total"
-    ), "FR-012 metrics landed — replace marker with counter-increment tests"
+    limiter.check("alice")  # within limit, no 429
+    for _ in range(3):
+        with pytest.raises(HTTPException) as exc:
+            limiter.check("alice")
+        assert exc.value.status_code == 429
+    assert limiter.rate_limit_429_total["alice"] == 3
+    assert limiter.rate_limit_429_total["bob"] == 0
 
 
-def test_fr013_sweep_rate_limit_trigger_marker() -> None:
-    """FR-013 sweep ≤1/sec throttle is deferred.
-
-    Activation: once _evict_stale records a last-sweep timestamp and short-
-    circuits subsequent calls within the same second, replace this marker
-    with a sweep-count assertion (10 triggers in <1s -> 1 actual sweep).
-    """
+def test_fr012_aggregate_429_counter_per_minute_window() -> None:
+    """FR-012: aggregate counter reflects 429s within the trailing 60s."""
     limiter = RateLimiter(limit=1, window=60)
-    # Module-level constant or instance attribute will appear when wired.
-    has_throttle = hasattr(limiter, "_last_sweep_ts") or hasattr(
-        rate_limiter_module, "_SWEEP_MIN_INTERVAL"
-    )
-    assert not has_throttle, "FR-013 sweep throttle landed — replace marker with sweep-count test"
+    limiter.check("alice")
+    limiter.check("bob")
+    for pid in ("alice", "bob", "alice"):
+        with pytest.raises(HTTPException):
+            limiter.check(pid)
+    assert limiter.rate_limit_429_per_minute_total == 3
+
+
+def test_fr012_aggregate_counter_evicts_old_entries() -> None:
+    """FR-012: aggregate timestamps older than 60s are pruned on read."""
+    limiter = RateLimiter(limit=1, window=60)
+    # Inject an aged 429 timestamp directly so we don't sleep for 60s.
+    limiter._429_aggregate_timestamps.append(time.monotonic() - 120)
+    limiter._429_aggregate_timestamps.append(time.monotonic() - 0.1)
+    assert limiter.rate_limit_429_per_minute_total == 1
+
+
+def test_fr012_forget_clears_per_participant_counter() -> None:
+    """FR-012: forget() drops the counter alongside the bucket."""
+    limiter = RateLimiter(limit=1, window=60)
+    limiter.check("alice")
+    with pytest.raises(HTTPException):
+        limiter.check("alice")
+    assert limiter.rate_limit_429_total["alice"] == 1
+    limiter.forget("alice")
+    assert "alice" not in limiter.rate_limit_429_total
+
+
+def test_fr013_sweep_throttle_short_circuits_within_one_second() -> None:
+    """FR-013: rapid eviction triggers within 1s collapse to a single sweep."""
+    cap = 5
+    limiter = RateLimiter(limit=10, window=1, max_buckets=cap)
+    stale = time.monotonic() - 5
+    for i in range(cap):
+        limiter._buckets[f"stale-{i}"].timestamps = [stale]
+
+    limiter._evict_stale(time.monotonic())
+    first_sweep_ts = limiter._last_sweep_ts
+    assert first_sweep_ts > 0
+
+    # Re-fill and trigger again immediately — throttle must short-circuit.
+    for i in range(cap):
+        limiter._buckets[f"stale2-{i}"].timestamps = [stale]
+    limiter._evict_stale(time.monotonic())
+    assert limiter._last_sweep_ts == first_sweep_ts, "sweep ran twice within 1s"
+    # Stale buckets from the second batch must still be present (sweep skipped).
+    assert any(pid.startswith("stale2-") for pid in limiter._buckets)
+
+
+def test_fr013_sweep_duration_captured_in_ms() -> None:
+    """FR-013: rate_limit_eviction_sweep_ms is populated after a sweep."""
+    limiter = RateLimiter(limit=10, window=1, max_buckets=10)
+    stale = time.monotonic() - 5
+    for i in range(10):
+        limiter._buckets[f"stale-{i}"].timestamps = [stale]
+    assert limiter.rate_limit_eviction_sweep_ms == 0.0
+    limiter._evict_stale(time.monotonic())
+    assert limiter.rate_limit_eviction_sweep_ms >= 0.0
+    # Sweep over 10 buckets must complete well under the 50ms operational alert threshold.
+    assert limiter.rate_limit_eviction_sweep_ms < 50.0
+
+
+def test_fr013_sweep_runs_again_after_throttle_window() -> None:
+    """FR-013: after _SWEEP_MIN_INTERVAL elapses, the next sweep proceeds."""
+    limiter = RateLimiter(limit=10, window=1, max_buckets=5)
+    # Simulate the previous sweep having happened just over 1s ago.
+    limiter._last_sweep_ts = time.monotonic() - rate_limiter_module._SWEEP_MIN_INTERVAL - 0.1
+    stale = time.monotonic() - 5
+    for i in range(5):
+        limiter._buckets[f"stale-{i}"].timestamps = [stale]
+    limiter._evict_stale(time.monotonic())
+    assert all(not pid.startswith("stale-") for pid in limiter._buckets)

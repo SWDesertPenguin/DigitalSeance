@@ -239,8 +239,8 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-009 | tests/test_009_testability.py | Bucket persists across simulated token rotation (keyed on participant_id) |
 | FR-010 | tests/test_009_testability.py | Health-check / unauthenticated paths bypass limiter by routing |
 | FR-011 | untested | Per-check latency P95 ≤ 1ms is a perf SLO; trigger: Phase 3 perf benchmark gate |
-| FR-012 | tests/test_009_testability.py | 429-counter capture deferred; marker pins activation trigger (rate_limit_429_total attribute) |
-| FR-013 | tests/test_009_testability.py | Sweep ≤1/sec throttle deferred; marker pins activation trigger (_last_sweep_ts attribute) |
+| FR-012 | tests/test_009_testability.py | Per-participant rate_limit_429_total Counter + 60s aggregate rate_limit_429_per_minute_total; structured-log emit on every 429; forget() clears counter |
+| FR-013 | tests/test_009_testability.py | Eviction sweep throttled to once per second (_SWEEP_MIN_INTERVAL); rate_limit_eviction_sweep_ms duration captured per sweep |
 | FR-014 | untested | Memory-ceiling estimate (10MB at default cap); trigger: Phase E ops capacity-planning audit |
 ## 008-prompts-security-wiring
 
@@ -257,6 +257,8 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-009 | tests/test_007_security_pipeline_testability.py | Layer evaluation order + fail-closed contract inherited from 007 |
 | FR-010 | untested | Bypass-path scope is structural (production paths flow through _validate_and_persist); trigger: cross-spec integration audit |
 | FR-011 | tests/test_008_testability.py | Tier-text memoization implementation deferred; marker test pins activation trigger (_TIER_CACHE attribute appearance) — replace with cache-hit/miss assertions when impl lands |
+| FR-012 | tests/test_008_testability.py | Custom-prompt sanitize memoized via lru_cache(maxsize=1024) on _sanitize_for_participant keyed by (participant_id, custom_prompt); per-participant + prompt-change + back-compat-path + correctness tests |
+| FR-011 | tests/test_008_testability.py | Tier-text memoization landed: lru_cache(maxsize=4) on _tier_parts keyed by prompt_tier; cache-hit + canary-rotation tests verify memoization is active and does not freeze canaries |
 | FR-012 | tests/test_008_testability.py | Custom-prompt sanitize memoization implementation deferred; marker test pins activation trigger (_SANITIZE_CACHE attribute appearance) — replace with cache-hit/miss assertions when impl lands |
 | FR-013 | tests/test_007_security_pipeline_testability.py | Per-stage timing capture inherited from 007 §FR-020 |
 | FR-014 | tests/test_008_testability.py | ReDoS guard: every regex in src/security/ stays under budget on 10KB pathological input (catches catastrophic backtracking; 100ms-on-prod CI gate is Phase 3) |

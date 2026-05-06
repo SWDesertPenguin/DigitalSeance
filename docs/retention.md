@@ -18,7 +18,7 @@ The default policy is "indefinite — operator-driven", which means SACP itself 
 | `usage_log` | Indefinite — `SACP_USAGE_LOG_RETENTION_DAYS` (reserved) | Operator-driven purge job; FK cascade from `participants` |
 | `convergence_log` | Indefinite until session deletion | FK cascade from `sessions` |
 | `admin_audit_log` | Indefinite — `SACP_AUDIT_RETENTION_DAYS` reserved (default never-delete) | **Survives session deletion** — denormalized identifiers, no FK |
-| `security_events` | Indefinite — `SACP_SECURITY_EVENTS_RETENTION_DAYS` (reserved) | Operator-driven purge job; FK cascade from `sessions` |
+| `security_events` | Operator-configured via `SACP_SECURITY_EVENTS_RETENTION_DAYS` (default 90 days when CLI invoked); FK cascade from `sessions` | `scripts/purge_security_events.py` (operator-scheduled cron / Ofelia / k8s CronJob) |
 | `interrupt_queue` | Cleared after delivery (logical: `delivered_at IS NOT NULL`) | Operator-driven hard-delete or kept indefinitely; FK cascade from `sessions` |
 | `review_gate_drafts` | Indefinite until session deletion | FK cascade from `sessions` |
 | `invites` | Until expiry OR consumption (`uses >= max_uses`) | Logical retention via `expires_at`; FK cascade from `sessions` |
@@ -95,13 +95,11 @@ These metrics are operator-observable; SACP itself does not emit retention-failu
 | Var | Status | Default | Effect |
 |---|---|---|---|
 | `SACP_AUDIT_RETENTION_DAYS` | Reserved | unset (never delete) | Purge job filters `admin_audit_log` rows older than N days |
-| `SACP_SECURITY_EVENTS_RETENTION_DAYS` | Reserved | unset (never delete) | Purge job filters `security_events` rows older than N days |
+| `SACP_SECURITY_EVENTS_RETENTION_DAYS` | Wired | unset (CLI default 90 days) | `scripts/purge_security_events.py` deletes rows older than N days when invoked |
 | `SACP_USAGE_LOG_RETENTION_DAYS` | Reserved | unset (never delete) | Purge job filters `usage_log` rows older than N days |
 | `SACP_ROUTING_LOG_RETENTION_DAYS` | Reserved | unset (never delete) | Purge job filters `routing_log` rows older than N days |
 
-All four are reserved env vars — documented but not yet wired to a purge job. The purge job itself lands as a Phase 3+ deliverable; current deployments that need bounded retention run their own external purge query.
-
-The 90-day default cited by 007 SC-009 (security_events) applies once the purge job is wired. Pre-wire, the effective retention is "never delete" regardless of the env var value — Section 1 reflects the as-of-Phase-1 reality.
+The `security_events` purge is wired via `scripts/purge_security_events.py` per 007 §SC-009; operators schedule it externally (cron / Ofelia / k8s CronJob — default cadence daily). The other three remain reserved; current deployments that need bounded retention on those tables run their own external query.
 
 ---
 
