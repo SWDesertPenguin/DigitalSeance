@@ -331,6 +331,11 @@ def validate_compound_retry_total_max_seconds() -> ValidationFailure | None:
     if num <= 0:
         return ValidationFailure(
             "SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS",
+            f"must be > 0; got {num}",
+        )
+    return None
+
+
 def validate_security_events_retention_days() -> ValidationFailure | None:
     """SACP_SECURITY_EVENTS_RETENTION_DAYS: positive int, optional. 007 §SC-009."""
     val = os.environ.get("SACP_SECURITY_EVENTS_RETENTION_DAYS")
