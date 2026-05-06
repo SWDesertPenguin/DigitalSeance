@@ -7,6 +7,7 @@ import logging
 import time
 from collections import Counter
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 import asyncpg
@@ -22,6 +23,15 @@ from src.orchestrator.circuit_breaker import CircuitBreaker
 from src.orchestrator.context import ContextAssembler
 from src.orchestrator.convergence import DIVERGENCE_PROMPT, ConvergenceDetector
 from src.orchestrator.high_traffic import HighTrafficSessionConfig
+from src.orchestrator.observer_downgrade import (
+    Downgrade,
+    NoOp,
+    Suppressed,
+    downgrade_audit_payload,
+    evaluate_downgrade,
+    evaluate_restore,
+    suppressed_audit_payload,
+)
 from src.orchestrator.router import TurnRouter
 from src.orchestrator.summarizer import SummarizationManager
 from src.orchestrator.timing import (
@@ -91,10 +101,16 @@ class ConversationLoop:
         )
         self._convergence.load_model()
         self._summarizer = SummarizationManager(pool, encryption_key=encryption_key)
+        self._init_per_session_state()
+
+    def _init_per_session_state(self) -> None:
+        """Per-session in-process state — keyed by session_id."""
         self._cadence_presets: dict[str, str] = {}
         self._pause_scopes: dict[str, str] = {}
-        self._last_skip: dict[str, str] = {}  # session → last skip reason
+        self._last_skip: dict[str, str] = {}
         self._prior_routing: dict[str, str] = {}
+        self._last_downgrade_at: dict[str, datetime] = {}
+        self._sustained_low_traffic_started_at: dict[str, datetime] = {}
 
     @property
     def batch_scheduler(self) -> BatchScheduler | None:
@@ -155,6 +171,7 @@ class ConversationLoop:
         if not await _session_is_active(self._pool, session_id):
             msg = f"Session {session_id} is not active"
             raise SessionNotActiveError(msg)
+        await self._maybe_evaluate_observer_downgrade(session_id)
         speaker = await self._router.next_speaker(session_id)
         if speaker is None:
             raise AllParticipantsExhaustedError("No active participants")
@@ -350,6 +367,145 @@ class ConversationLoop:
             log_repo=self._log_repo,
             gate_repo=self._gate_repo,
         )
+
+    async def _maybe_evaluate_observer_downgrade(self, session_id: str) -> None:
+        """013 §FR-008-§FR-012: turn-prep observer-downgrade + restore evaluator.
+
+        No-op when ``HighTrafficSessionConfig.observer_downgrade is None`` (env unset).
+        Audit row writes BEFORE role mutation per contracts/audit-events.md sequencing.
+        """
+        config = self._high_traffic_config
+        if config is None or config.observer_downgrade is None:
+            return
+        thresholds = config.observer_downgrade
+        participants = await _list_active_participants(self._pool, session_id)
+        current_tpm = await _compute_current_tpm(self._pool, session_id)
+        decision = await _timed_evaluate_downgrade(
+            participants=participants, current_tpm=current_tpm, thresholds=thresholds
+        )
+        await self._apply_downgrade_decision(session_id, decision)
+        self._update_sustained_window(session_id, current_tpm, thresholds.tpm)
+        await self._maybe_restore(session_id, current_tpm, thresholds)
+
+    async def _apply_downgrade_decision(self, session_id: str, decision: object) -> None:
+        """Write audit BEFORE role mutation per contracts sequencing rule."""
+        if isinstance(decision, NoOp):
+            return
+        facilitator_id = await _fetch_facilitator(self._pool, session_id)
+        if facilitator_id is None:
+            return
+        if isinstance(decision, Suppressed):
+            await self._write_suppressed_row(session_id, facilitator_id, decision)
+            return
+        if isinstance(decision, Downgrade):
+            await self._write_downgrade_row(session_id, facilitator_id, decision)
+            await _set_role(self._pool, decision.participant.id, "observer")
+            self._last_downgrade_at[session_id] = datetime.now(UTC)
+
+    async def _write_suppressed_row(
+        self, session_id: str, facilitator_id: str, decision: Suppressed
+    ) -> None:
+        payload = suppressed_audit_payload(decision)
+        await self._log_repo.log_admin_action(
+            session_id=session_id,
+            facilitator_id=facilitator_id,
+            action="observer_downgrade_suppressed",
+            target_id=decision.participant.id,
+            previous_value=payload["previous_value"],
+            new_value=payload["new_value"],
+        )
+
+    async def _write_downgrade_row(
+        self, session_id: str, facilitator_id: str, decision: Downgrade
+    ) -> None:
+        payload = downgrade_audit_payload(decision)
+        await self._log_repo.log_admin_action(
+            session_id=session_id,
+            facilitator_id=facilitator_id,
+            action="observer_downgrade",
+            target_id=decision.participant.id,
+            previous_value=payload["previous_value"],
+            new_value=payload["new_value"],
+        )
+
+    def _update_sustained_window(
+        self, session_id: str, current_tpm: int, threshold_tpm: int
+    ) -> None:
+        """Track when sustained-low-traffic window started for restore eligibility."""
+        if current_tpm < threshold_tpm:
+            self._sustained_low_traffic_started_at.setdefault(session_id, datetime.now(UTC))
+        else:
+            self._sustained_low_traffic_started_at.pop(session_id, None)
+
+    async def _maybe_restore(self, session_id: str, current_tpm: int, thresholds: object) -> None:
+        """Call evaluate_restore each turn-prep after evaluate_downgrade (FR-010)."""
+        decision = evaluate_restore(
+            last_downgrade_at=self._last_downgrade_at.get(session_id),
+            sustained_low_traffic_started_at=self._sustained_low_traffic_started_at.get(session_id),
+            current_tpm=current_tpm,
+            thresholds=thresholds,
+        )
+        # observer_downgrade.evaluate_restore returns NoOp for now (Phase 5 wiring
+        # will supply the participant_id from per-session state when restore fires);
+        # this hook is the integration point.
+        del decision
+
+
+async def _list_active_participants(pool: asyncpg.Pool, session_id: str) -> list[Any]:
+    """Fetch participants needed by observer_downgrade.evaluate_downgrade (FR-008)."""
+    from src.models.participant import Participant
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM participants WHERE session_id = $1",
+            session_id,
+        )
+    return [Participant.from_record(r) for r in rows]
+
+
+async def _compute_current_tpm(pool: asyncpg.Pool, session_id: str) -> int:
+    """Compute turns-per-minute from messages in the last 60s (FR-008 input)."""
+    async with pool.acquire() as conn:
+        count = await conn.fetchval(
+            "SELECT COUNT(*) FROM messages"
+            " WHERE session_id = $1 AND created_at >= NOW() - INTERVAL '1 minute'",
+            session_id,
+        )
+    return int(count or 0)
+
+
+async def _fetch_facilitator(pool: asyncpg.Pool, session_id: str) -> str | None:
+    """Look up the session's current facilitator id (acts on their behalf in audit rows)."""
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT facilitator_id FROM sessions WHERE id = $1",
+            session_id,
+        )
+
+
+async def _set_role(pool: asyncpg.Pool, participant_id: str, new_role: str) -> None:
+    """Mutate participant.role; called only after the audit row lands."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE participants SET role = $1 WHERE id = $2",
+            new_role,
+            participant_id,
+        )
+
+
+@with_stage_timing("observer_downgrade_eval_ms")
+async def _timed_evaluate_downgrade(
+    *,
+    participants: list[Any],
+    current_tpm: int,
+    thresholds: Any,
+) -> Any:
+    """013 §FR-012 / SC-004: capture per-turn evaluator cost into routing_log timings."""
+    return evaluate_downgrade(
+        participants=participants,
+        current_tpm=current_tpm,
+        thresholds=thresholds,
+    )
 
 
 async def _mark_delivered(

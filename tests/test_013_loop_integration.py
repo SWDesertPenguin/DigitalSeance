@@ -335,6 +335,53 @@ async def test_t026_batch_emit_logs_open_close_timestamps(caplog: pytest.LogCapt
     assert "hold_ms=" in msg
 
 
+@pytest.mark.asyncio
+async def test_t043_loop_evaluator_writes_audit_before_role_mutation(
+    pool: asyncpg.Pool, encryption_key: str
+) -> None:
+    """ConversationLoop._apply_downgrade_decision writes audit then mutates role."""
+    from src.orchestrator.loop import ConversationLoop
+
+    session_id, _ai_id, human_id = await _seed_session_with_human(pool, encryption_key)
+    loop = ConversationLoop(pool, encryption_key=encryption_key)
+    p_repo = ParticipantRepository(pool, encryption_key=encryption_key)
+    participant = await p_repo.get_participant(human_id)
+    decision = Downgrade(
+        participant=participant, trigger_threshold="tpm", observed=42, configured=30
+    )
+
+    await loop._apply_downgrade_decision(session_id, decision)
+
+    rows = await pool.fetch(
+        "SELECT * FROM admin_audit_log WHERE session_id = $1 AND action = 'observer_downgrade'",
+        session_id,
+    )
+    assert len(rows) == 1
+    refreshed = await p_repo.get_participant(human_id)
+    assert refreshed.role == "observer"
+    assert session_id in loop._last_downgrade_at
+
+
+@pytest.mark.asyncio
+async def test_t043_loop_evaluator_skips_when_config_unset(
+    pool: asyncpg.Pool, encryption_key: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When SACP_OBSERVER_DOWNGRADE_THRESHOLDS unset, evaluator is a no-op (FR-013/SC-005)."""
+    from src.orchestrator.loop import ConversationLoop
+
+    monkeypatch.delenv("SACP_HIGH_TRAFFIC_BATCH_CADENCE_S", raising=False)
+    monkeypatch.delenv("SACP_CONVERGENCE_THRESHOLD_OVERRIDE", raising=False)
+    monkeypatch.delenv("SACP_OBSERVER_DOWNGRADE_THRESHOLDS", raising=False)
+    session_id, _ai_id, _human_id = await _seed_session_with_human(pool, encryption_key)
+    loop = ConversationLoop(pool, encryption_key=encryption_key)
+    assert loop._high_traffic_config is None
+
+    await loop._maybe_evaluate_observer_downgrade(session_id)
+
+    rows = await pool.fetch("SELECT * FROM admin_audit_log WHERE session_id = $1", session_id)
+    assert rows == []
+
+
 def test_t045_evaluate_downgrade_cost_under_thresholds_budget() -> None:
     """O(participants) evaluate_downgrade returns within turn-prep budget at Phase 3 ceiling (5)."""
     import time
