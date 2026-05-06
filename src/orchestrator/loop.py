@@ -20,6 +20,7 @@ from src.orchestrator.cadence import CadenceController
 from src.orchestrator.circuit_breaker import CircuitBreaker
 from src.orchestrator.context import ContextAssembler
 from src.orchestrator.convergence import DIVERGENCE_PROMPT, ConvergenceDetector
+from src.orchestrator.high_traffic import HighTrafficSessionConfig
 from src.orchestrator.router import TurnRouter
 from src.orchestrator.summarizer import SummarizationManager
 from src.orchestrator.timing import (
@@ -92,6 +93,7 @@ class ConversationLoop:
         # approved / rejected / edited, the AI reverts to its prior mode
         # instead of staging another draft forever (Test06-Web07).
         self._prior_routing: dict[str, str] = {}
+        self._high_traffic_config = HighTrafficSessionConfig.resolve_from_env()
 
     def remember_prior_routing(self, participant_id: str, prior: str) -> None:
         """Cache prior routing before a flip to review_gate."""

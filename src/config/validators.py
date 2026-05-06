@@ -376,6 +376,111 @@ def validate_compound_retry_warn_factor() -> ValidationFailure | None:
     return None
 
 
+def validate_high_traffic_batch_cadence_s() -> ValidationFailure | None:
+    """SACP_HIGH_TRAFFIC_BATCH_CADENCE_S: int seconds in [1, 300]. 013 §FR-001 / FR-003."""
+    val = os.environ.get("SACP_HIGH_TRAFFIC_BATCH_CADENCE_S")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_HIGH_TRAFFIC_BATCH_CADENCE_S",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 300:
+        return ValidationFailure(
+            "SACP_HIGH_TRAFFIC_BATCH_CADENCE_S",
+            f"must be in [1, 300]; got {num}",
+        )
+    return None
+
+
+def validate_convergence_threshold_override() -> ValidationFailure | None:
+    """SACP_CONVERGENCE_THRESHOLD_OVERRIDE: float in strict (0.0, 1.0). 013 §FR-005 / FR-007."""
+    val = os.environ.get("SACP_CONVERGENCE_THRESHOLD_OVERRIDE")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = float(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_CONVERGENCE_THRESHOLD_OVERRIDE",
+            f"must be a float; got {val!r}",
+        )
+    if not 0.0 < num < 1.0:
+        return ValidationFailure(
+            "SACP_CONVERGENCE_THRESHOLD_OVERRIDE",
+            f"must be in strict (0.0, 1.0); got {num}",
+        )
+    return None
+
+
+_OBSERVER_DOWNGRADE_REQUIRED_KEYS = ("participants", "tpm")
+_OBSERVER_DOWNGRADE_VALID_KEYS = ("participants", "tpm", "restore_window_s")
+_OBSERVER_DOWNGRADE_RANGES = {
+    "participants": (2, 10),
+    "tpm": (1, 600),
+    "restore_window_s": (1, 3600),
+}
+
+
+def validate_observer_downgrade_thresholds() -> ValidationFailure | None:
+    """SACP_OBSERVER_DOWNGRADE_THRESHOLDS: composite key:value string. 013 §FR-008-FR-011."""
+    raw = os.environ.get("SACP_OBSERVER_DOWNGRADE_THRESHOLDS")
+    if raw is None or raw.strip() == "":
+        return None
+    parsed = _parse_observer_downgrade_value(raw)
+    if isinstance(parsed, ValidationFailure):
+        return parsed
+    return _validate_observer_downgrade_keys(parsed)
+
+
+def _parse_observer_downgrade_value(raw: str) -> dict[str, int] | ValidationFailure:
+    """Parse `participants:N,tpm:N[,restore_window_s:N]` into a dict."""
+    parsed: dict[str, int] = {}
+    for entry in [e.strip() for e in raw.split(",") if e.strip()]:
+        if ":" not in entry:
+            return ValidationFailure(
+                "SACP_OBSERVER_DOWNGRADE_THRESHOLDS",
+                f"entry {entry!r} missing ':' separator (expected key:value)",
+            )
+        key, _, val = entry.partition(":")
+        key = key.strip()
+        try:
+            parsed[key] = int(val.strip())
+        except ValueError:
+            return ValidationFailure(
+                "SACP_OBSERVER_DOWNGRADE_THRESHOLDS",
+                f"entry {entry!r}: value must be integer",
+            )
+    return parsed
+
+
+def _validate_observer_downgrade_keys(parsed: dict[str, int]) -> ValidationFailure | None:
+    """Check required keys, unknown keys, and per-key ranges."""
+    for required in _OBSERVER_DOWNGRADE_REQUIRED_KEYS:
+        if required not in parsed:
+            return ValidationFailure(
+                "SACP_OBSERVER_DOWNGRADE_THRESHOLDS",
+                f"missing required key {required!r}",
+            )
+    for key in parsed:
+        if key not in _OBSERVER_DOWNGRADE_VALID_KEYS:
+            return ValidationFailure(
+                "SACP_OBSERVER_DOWNGRADE_THRESHOLDS",
+                f"unknown key {key!r} (valid: {_OBSERVER_DOWNGRADE_VALID_KEYS})",
+            )
+    for key, value in parsed.items():
+        lo, hi = _OBSERVER_DOWNGRADE_RANGES[key]
+        if not lo <= value <= hi:
+            return ValidationFailure(
+                "SACP_OBSERVER_DOWNGRADE_THRESHOLDS",
+                f"key {key!r} must be in [{lo}, {hi}]; got {value}",
+            )
+    return None
+
+
 def validate_web_ui_cookie_key() -> ValidationFailure | None:
     """SACP_WEB_UI_COOKIE_KEY: required signing key for Web UI session cookies.
 
@@ -422,6 +527,9 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_compound_retry_total_max_seconds,
     validate_compound_retry_warn_factor,
     validate_security_events_retention_days,
+    validate_high_traffic_batch_cadence_s,
+    validate_convergence_threshold_override,
+    validate_observer_downgrade_thresholds,
 )
 
 
