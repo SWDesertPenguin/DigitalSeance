@@ -7,6 +7,7 @@ import logging
 import time
 from collections import Counter
 from dataclasses import dataclass
+from typing import Any
 
 import asyncpg
 
@@ -242,6 +243,7 @@ class ConversationLoop:
             speaker,
             decision,
             interjections=interjections,
+            batch_scheduler=self._batch_scheduler,
         )
         if result.skipped:
             return result
@@ -391,6 +393,7 @@ async def _dispatch_and_persist(
     decision: object,
     *,
     interjections: list | None = None,
+    batch_scheduler: BatchScheduler | None = None,
 ) -> tuple[TurnResult, str]:
     """Assemble context, dispatch to provider, persist result."""
     response, skip_reason = await _assemble_and_dispatch(
@@ -407,7 +410,9 @@ async def _dispatch_and_persist(
         result = await _stage_for_review(ctx, speaker, decision, response)
         return result, response.content
 
-    result = await _validate_and_persist(ctx, speaker, decision, response, breaker)
+    result = await _validate_and_persist(
+        ctx, speaker, decision, response, breaker, batch_scheduler=batch_scheduler
+    )
     return result, response.content
 
 
@@ -593,6 +598,8 @@ async def _validate_and_persist(
     decision: object,
     response: ProviderResponse,
     breaker: CircuitBreaker,
+    *,
+    batch_scheduler: BatchScheduler | None = None,
 ) -> TurnResult:
     """Run security pipeline then persist. Empty/degenerate count as failures.
 
@@ -623,7 +630,7 @@ async def _validate_and_persist(
         return _skip_result(ctx.session_id, speaker.id, "degenerate_output")
     await breaker.record_success(speaker.id)
     safe = _with_cleaned_content(response, cleaned)
-    return await _persist_turn(ctx, speaker, decision, safe)
+    return await _persist_turn(ctx, speaker, decision, safe, batch_scheduler=batch_scheduler)
 
 
 def _is_degenerate(text: str) -> bool:
@@ -669,6 +676,8 @@ async def _persist_turn(
     speaker: object,
     decision: object,
     response: ProviderResponse,
+    *,
+    batch_scheduler: BatchScheduler | None = None,
 ) -> TurnResult:
     """Persist response as message and log routing + usage."""
     msg = await _append_message_timed(ctx, speaker, decision, response)
@@ -677,7 +686,7 @@ async def _persist_turn(
     )
     await _log_usage(ctx.log_repo, speaker, msg.turn_number, response)
     await _sync_current_turn(ctx.pool, ctx.session_id, msg.turn_number)
-    await _emit_persist_signals(ctx, speaker, msg, response)
+    await _emit_persist_signals(ctx, speaker, msg, response, batch_scheduler=batch_scheduler)
     return _turn_result(ctx.session_id, msg.turn_number, speaker, decision, response)
 
 
@@ -713,11 +722,62 @@ async def _emit_persist_signals(
     speaker: object,
     msg: object,
     response: ProviderResponse,
+    *,
+    batch_scheduler: BatchScheduler | None = None,
 ) -> None:
     """Broadcast post-persist WS events: message, spend update, AI signals."""
     await _emit_message_to_web_ui(ctx.session_id, msg, response.cost_usd)
     await _emit_spend_update(ctx, speaker.id)
     await _emit_ai_signals(ctx, speaker, msg)
+    if batch_scheduler is not None and getattr(speaker, "provider", None) != "human":
+        await _enqueue_batched_for_humans(
+            ctx.pool, batch_scheduler, ctx.session_id, msg, response.cost_usd
+        )
+
+
+async def _enqueue_batched_for_humans(
+    pool: asyncpg.Pool,
+    batch_scheduler: BatchScheduler,
+    session_id: str,
+    msg: object,
+    cost_usd: float | None,
+) -> None:
+    """Enqueue an AI-to-human message into the per-recipient batch envelope (013 §FR-001).
+
+    State-change events (convergence, session_status, participant_update) bypass
+    this path entirely per FR-004 — they call broadcast_to_session directly.
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id FROM participants"
+            " WHERE session_id = $1 AND provider = 'human' AND status != 'paused'",
+            session_id,
+        )
+    if not rows:
+        return
+    payload = _build_message_payload(msg, cost_usd)
+    source_turn_id = f"{session_id}:{msg.turn_number}"
+    for row in rows:
+        batch_scheduler.enqueue(
+            session_id=session_id,
+            recipient_id=row["id"],
+            source_turn_id=source_turn_id,
+            message=payload,
+        )
+
+
+def _build_message_payload(msg: object, cost_usd: float | None) -> dict[str, Any]:
+    """Build a message_event-compatible payload dict from a persisted Message."""
+    return {
+        "turn_number": msg.turn_number,
+        "speaker_id": msg.speaker_id,
+        "speaker_type": msg.speaker_type,
+        "content": msg.content,
+        "token_count": msg.token_count,
+        "cost_usd": cost_usd,
+        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+        "summary_epoch": msg.summary_epoch,
+    }
 
 
 async def _emit_ai_signals(
