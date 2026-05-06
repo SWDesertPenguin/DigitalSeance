@@ -316,6 +316,26 @@ def validate_openai_cache_retention() -> ValidationFailure | None:
     return None
 
 
+def validate_security_events_retention_days() -> ValidationFailure | None:
+    """SACP_SECURITY_EVENTS_RETENTION_DAYS: positive int, optional. 007 §SC-009."""
+    val = os.environ.get("SACP_SECURITY_EVENTS_RETENTION_DAYS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_SECURITY_EVENTS_RETENTION_DAYS",
+            f"must be integer; got {val!r}",
+        )
+    if num <= 0:
+        return ValidationFailure(
+            "SACP_SECURITY_EVENTS_RETENTION_DAYS",
+            f"must be > 0; got {num}",
+        )
+    return None
+
+
 def validate_web_ui_cookie_key() -> ValidationFailure | None:
     """SACP_WEB_UI_COOKIE_KEY: required signing key for Web UI session cookies.
 
@@ -359,6 +379,7 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_density_anomaly_ratio,
     validate_openai_cache_retention,
     validate_web_ui_cookie_key,
+    validate_security_events_retention_days,
 )
 
 

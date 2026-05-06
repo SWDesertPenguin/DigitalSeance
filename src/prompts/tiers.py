@@ -69,6 +69,12 @@ def _sanitize_for_participant(participant_id: str, custom_prompt: str) -> str:
 
 
 _SANITIZE_CACHE = _sanitize_for_participant
+@functools.lru_cache(maxsize=4)
+def _tier_parts(prompt_tier: str) -> tuple[str, ...]:
+    return tuple(_TIERS.get(prompt_tier, _TIERS["mid"]))
+
+
+_TIER_CACHE = _tier_parts
 
 
 def assemble_prompt(
@@ -89,8 +95,7 @@ def assemble_prompt(
     memoized per (participant_id, custom_prompt) per 008 §FR-012. Callers
     that don't have a participant_id (tests, ad-hoc scripts) skip the cache.
     """
-    tiers = _TIERS.get(prompt_tier, _TIERS["mid"])
-    parts = list(tiers)
+    parts = list(_tier_parts(prompt_tier))
     if custom_prompt:
         if participant_id is not None:
             parts.append(_sanitize_for_participant(participant_id, custom_prompt))
