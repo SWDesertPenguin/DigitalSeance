@@ -10,13 +10,16 @@ state-broadcast / routing-log paths.
 Each test exercises a real assertion against the spec-013 surface
 proving the no-op property structurally — the resolved config is
 None, the helpers return None / {}, and the disabled-state branches
-are the only branches reachable.
+are the only branches reachable. The two DB-bound assertions drive
+the loop wiring against a real Postgres test DB to confirm the
+audit-log + routing-log surfaces stay quiet when env is unset.
 """
 
 from __future__ import annotations
 
 import os
 
+import asyncpg
 import pytest
 
 import src.auth  # noqa: F401  -- prime auth package against loop.py circular
@@ -125,3 +128,69 @@ def test_sc005_no_new_admin_audit_log_action_strings_when_unset(monkeypatch) -> 
     # invoked without a Downgrade/Suppressed/Restore decision, which can't be
     # produced without thresholds. With config None, the chain is broken at step 1.
     assert os.environ.get("SACP_OBSERVER_DOWNGRADE_THRESHOLDS") in (None, "")
+
+
+@pytest.mark.asyncio
+async def test_sc005_db_evaluator_writes_no_audit_rows_when_unset(
+    pool: asyncpg.Pool,
+    encryption_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Drive ConversationLoop._maybe_evaluate_observer_downgrade against a real DB.
+
+    With env vars unset the loop short-circuits at the config gate and zero
+    admin_audit_log rows land — the SC-005 contract for the audit surface.
+    """
+    from src.orchestrator.loop import ConversationLoop
+    from src.repositories.session_repo import SessionRepository
+
+    _clear_high_traffic_env(monkeypatch)
+    session, _f, _b = await SessionRepository(pool).create_session(
+        "SC-005 audit DB regression",
+        facilitator_display_name="Facilitator",
+        facilitator_provider="openai",
+        facilitator_model="gpt-4o",
+        facilitator_model_tier="high",
+        facilitator_model_family="gpt",
+        facilitator_context_window=128000,
+    )
+    loop = ConversationLoop(pool, encryption_key=encryption_key)
+    assert loop._high_traffic_config is None
+
+    await loop._maybe_evaluate_observer_downgrade(session.id)
+
+    rows = await pool.fetch("SELECT * FROM admin_audit_log WHERE session_id = $1", session.id)
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_sc005_db_routing_log_carries_no_013_stage_when_unset(
+    pool: asyncpg.Pool,
+    encryption_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Per-turn timing accumulator carries no 013-specific stage when env unset.
+
+    Drives the evaluator against a real DB then asserts the in-process timing
+    accumulator (which feeds routing_log) holds no observer_downgrade_eval_ms key.
+    """
+    from src.orchestrator.loop import ConversationLoop
+    from src.orchestrator.timing import get_timings, start_turn
+    from src.repositories.session_repo import SessionRepository
+
+    _clear_high_traffic_env(monkeypatch)
+    session, _f, _b = await SessionRepository(pool).create_session(
+        "SC-005 routing DB regression",
+        facilitator_display_name="Facilitator",
+        facilitator_provider="openai",
+        facilitator_model="gpt-4o",
+        facilitator_model_tier="high",
+        facilitator_model_family="gpt",
+        facilitator_context_window=128000,
+    )
+    loop = ConversationLoop(pool, encryption_key=encryption_key)
+    start_turn()
+    await loop._maybe_evaluate_observer_downgrade(session.id)
+    timings = get_timings()
+    assert "observer_downgrade_eval_ms" not in timings
+    assert "batch_envelope_emit_ms" not in timings
