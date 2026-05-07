@@ -261,6 +261,26 @@ main.scaffold {
   padding: 0.4em;
 }
 .export-actions button { width: 100%; }
+/* Re-join identity indicator (backlog #7). The id-short badge is
+ * always-on and visually quiet; the Re-joined pill is conditional and
+ * uses a distinct accent color so it reads as separate from the
+ * id-short label. */
+.badge-id-short {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.7em;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--muted);
+  opacity: 0.7;
+  cursor: help;
+}
+.badge-rejoined {
+  background: rgba(255, 209, 102, 0.18);
+  color: var(--warning, #b58e00);
+  border: 1px solid var(--warning, #b58e00);
+  font-weight: 600;
+  cursor: help;
+}
 
 .p-exit-banner {
   margin-top: 0.4em;
