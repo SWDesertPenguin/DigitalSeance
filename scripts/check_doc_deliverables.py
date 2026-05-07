@@ -35,10 +35,9 @@ CANONICAL_DOCS = (
     "glossary.md",
     "retention.md",
     "state-machines.md",
-    # roles-permissions.md is intentionally kept local-only at
-    # local/docs/roles-permissions.md per the US5 publication-scope
-    # decision (2026-05-02): the role × permission matrix is
-    # concentrated recon value and not shipped to public docs/.
+    # The role × permission matrix is intentionally kept operator-internal
+    # per the US5 publication-scope decision (2026-05-02): the aggregate
+    # matrix concentrates recon value and is not shipped to public docs/.
     # Other US5 docs strip cross-references to it before shipping.
     "compliance-mapping.md",
     "operational-runbook.md",

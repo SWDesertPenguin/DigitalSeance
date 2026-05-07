@@ -301,8 +301,8 @@ def test_loopback_caller_trusts_xff_without_env(
     XFF doesn't weaken the off-host threat model IP binding defends.
     """
     monkeypatch.delenv("SACP_TRUST_PROXY", raising=False)
-    req = _mock_request("127.0.0.1", xff="192.168.86.213")
-    assert _get_client_ip(req) == "192.168.86.213"
+    req = _mock_request("127.0.0.1", xff="203.0.113.213")
+    assert _get_client_ip(req) == "203.0.113.213"
 
 
 def test_loopback_ipv6_caller_also_trusts_xff(
@@ -310,8 +310,8 @@ def test_loopback_ipv6_caller_also_trusts_xff(
 ) -> None:
     """IPv6 loopback `::1` is treated the same as `127.0.0.1`."""
     monkeypatch.delenv("SACP_TRUST_PROXY", raising=False)
-    req = _mock_request("::1", xff="192.168.86.213")
-    assert _get_client_ip(req) == "192.168.86.213"
+    req = _mock_request("::1", xff="203.0.113.213")
+    assert _get_client_ip(req) == "203.0.113.213"
 
 
 def test_loopback_caller_without_xff_falls_back_to_direct(

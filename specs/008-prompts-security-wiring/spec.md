@@ -127,8 +127,8 @@ The security-requirements quality audit (`checklists/security.md`) raised 44 fin
 ## Operational notes (Phase F amendment, 2026-05-02)
 
 These items capture operator-facing decisions that don't change behaviour but
-are required for production deployment readiness. Cross-referenced from
-`AUDIT_PLAN.local.md` Batch 5 → 008 ops.
+are required for production deployment readiness. Sourced from the
+pre-Phase-3 audit window's operations review.
 
 **Prompt-tier env-var contract.** The four-tier set (`low` / `mid` / `high` /
 `max`) is hardcoded in `src/prompts/tiers.py` at module load. There is NO

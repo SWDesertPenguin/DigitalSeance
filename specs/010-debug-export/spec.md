@@ -181,7 +181,7 @@ The security-requirements quality audit (`checklists/security.md`) raised 36 fin
 ## Operator UX notes (Phase F amendment, 2026-05-02)
 
 These items capture diagnostic-readability decisions for the export
-output. Cross-referenced from `AUDIT_PLAN.local.md` Batch 5 → 010 ux.
+output. Sourced from the pre-Phase-3 audit window's UX review.
 
 **Top-level key ordering.** The dump returns a single dict; key order
 matters because operators diff exports across deploys with `jq` /
@@ -256,8 +256,8 @@ slices should `jq` the relevant subarray.
 
 ## Operational notes (Phase F amendment, 2026-05-02)
 
-These items capture operator-facing decisions cross-referenced from
-`AUDIT_PLAN.local.md` Batch 5 → 010 ops.
+These items capture operator-facing decisions sourced from the
+pre-Phase-3 audit window's operations review.
 
 **Operator workflow.** Standard usage: facilitator hits an issue in
 a live session, calls

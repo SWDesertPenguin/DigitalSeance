@@ -290,8 +290,8 @@ def test_extract_client_ip_returns_direct_without_trust_proxy(
     from src.web_ui.auth import extract_client_ip
 
     monkeypatch.delenv("SACP_TRUST_PROXY", raising=False)
-    conn = _ConnectionLike("192.168.86.213", xff="9.9.9.9")
-    assert extract_client_ip(conn) == "192.168.86.213"
+    conn = _ConnectionLike("203.0.113.213", xff="9.9.9.9")
+    assert extract_client_ip(conn) == "203.0.113.213"
 
 
 def test_extract_client_ip_uses_rightmost_xff_with_trust_proxy(
@@ -301,7 +301,7 @@ def test_extract_client_ip_uses_rightmost_xff_with_trust_proxy(
     from src.web_ui.auth import extract_client_ip
 
     monkeypatch.setenv("SACP_TRUST_PROXY", "1")
-    conn = _ConnectionLike("172.20.0.5", xff="192.168.86.213, 10.0.0.1")
+    conn = _ConnectionLike("172.20.0.5", xff="203.0.113.213, 10.0.0.1")
     assert extract_client_ip(conn) == "10.0.0.1"
 
 
@@ -336,7 +336,7 @@ def test_extract_client_ip_does_not_auto_trust_loopback(
     from src.web_ui.auth import extract_client_ip
 
     monkeypatch.delenv("SACP_TRUST_PROXY", raising=False)
-    conn = _ConnectionLike("127.0.0.1", xff="192.168.86.213")
+    conn = _ConnectionLike("127.0.0.1", xff="203.0.113.213")
     assert extract_client_ip(conn) == "127.0.0.1"
 
 

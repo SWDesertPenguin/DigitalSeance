@@ -84,8 +84,8 @@ The security-requirements quality audit (`checklists/security.md`) raised 40 fin
 ## Operational notes (Phase F amendment, 2026-05-02)
 
 These items capture operator-facing decisions that don't change behaviour
-but are required for production deployment readiness. Cross-referenced
-from `AUDIT_PLAN.local.md` Batch 5 → 009 ops.
+but are required for production deployment readiness. Sourced from the
+pre-Phase-3 audit window's operations review.
 
 **`DEFAULT_MAX_BUCKETS` tuning runbook.** The default 10,000-bucket cap
 (FR-007) accommodates a single deployment with up to ~10,000 active

@@ -1,9 +1,9 @@
 # Cross-Spec Integration Tests
 
 This document codifies the integration-test tier that exercises spec
-BOUNDARIES rather than any single spec in isolation. Cross-referenced
-from `AUDIT_PLAN.local.md` Batch 4 → "Cross-spec integration testing"
-cross-cutting audit. Phase F deliverable from
+BOUNDARIES rather than any single spec in isolation. Sourced from the
+pre-Phase-3 audit window's cross-cutting "cross-spec integration
+testing" review. Phase F deliverable from
 `fix/cross-spec-integration`.
 
 ---

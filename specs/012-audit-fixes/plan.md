@@ -66,7 +66,6 @@ specs/012-audit-fixes/
 │   ├── retention-doc.md         # Shape of docs/retention.md
 │   ├── state-machines-doc.md    # Shape of docs/state-machines.md
 │   ├── glossary-doc.md          # Shape of docs/glossary.md
-│   ├── roles-permissions-doc.md # Shape of docs/roles-permissions.md
 │   ├── compliance-mapping-doc.md# Shape of docs/compliance-mapping.md
 │   ├── operational-runbook-doc.md # Shape of docs/operational-runbook.md
 │   ├── traceability-artifact.md # Shape of FR-to-test traceability output
@@ -109,7 +108,6 @@ docs/                                    # 8 NEW doc deliverables (FR-010)
 ├── retention.md                         # FR-010
 ├── state-machines.md                    # FR-010
 ├── glossary.md                          # FR-010
-├── roles-permissions.md                 # FR-010
 ├── compliance-mapping.md                # FR-010
 ├── operational-runbook.md               # FR-010
 ├── pattern-list-update-workflow.md      # NEW — FR-012
@@ -122,7 +120,7 @@ docs/                                    # 8 NEW doc deliverables (FR-010)
 alembic/versions/
 └── 008_security_events_instrumentation.py  # NEW migration — adds override_reason (if (b)+ chosen) + layer_duration_ms + routing_log per-stage timing columns
 
-AUDIT_FOLLOWTHROUGH.local.md             # NEW gitignored — FR-011 tracking artifact
+(gitignored audit-followthrough tracker)  # NEW — FR-011 tracking artifact
 ```
 
 **Structure Decision**: existing single-project layout (`src/`, `tests/`, `docs/`, `alembic/`, `scripts/`) — no restructuring. New directories (`tests/fixtures/`, `tests/integration/`, `docs/adr/`, `docs/traceability/`) sit alongside existing ones. The 8 net-new doc deliverables live at the top of `docs/` next to the existing 13 reference docs (per Constitution §13 authoritative-references entries that will be added on land).

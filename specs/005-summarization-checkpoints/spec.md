@@ -279,7 +279,7 @@ Cross-ref 007 Operations "Pipeline-bypass paths" — sanitize-recursion shares t
 ## Operational notes (Phase F amendment, 2026-05-02)
 
 These items capture operator-facing decisions for summarization in
-production. Cross-referenced from `AUDIT_PLAN.local.md` Batch 5 → 005 ops.
+production. Sourced from the pre-Phase-3 audit window's operations review.
 
 **Summarizer-model preference order.** FR-007 selects the cheapest paid
 model first; null-cost (e.g., Ollama) participants are ranked last. There

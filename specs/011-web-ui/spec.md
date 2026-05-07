@@ -504,7 +504,7 @@ The security-requirements quality audit (`checklists/security.md`) raised 47 fin
 ## Performance budgets (Phase F amendment, 2026-05-02)
 
 These targets pin the Web UI's perceived-latency and rendering contract.
-Cross-referenced from `AUDIT_PLAN.local.md` Batch 4 → 011 web-vitals.
+Sourced from the pre-Phase-3 audit window's web-vitals review.
 The full budget configuration is checked in at `.lighthouserc.json` at
 the repo root; it documents the contract and is ready to run via
 `lhci autorun` once the staging fixture lands.

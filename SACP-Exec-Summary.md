@@ -53,7 +53,7 @@ The orchestrator runs a serialized conversation loop: select the next participan
 | Auth | bcrypt (tokens) + Fernet (encrypted API keys) + HttpOnly signed cookies |
 | Rate limiting | Per-participant, 60 req/min default |
 | Migrations | Alembic (5 migrations) |
-| Deployment | Single Dockerfile, Docker Compose via Dockge |
+| Deployment | Single Dockerfile, Docker Compose |
 | CI/CD | GitHub Actions → GHCR |
 | Pre-commit | 13 hooks (gitleaks, ruff, bandit, 25-line / 5-arg coding-standards lint) |
 
