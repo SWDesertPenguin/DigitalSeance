@@ -244,6 +244,23 @@ main.scaffold {
 .badge { font-size: 0.75em; padding: 0.05em 0.4em; border-radius: 3px; }
 .badge-you { background: var(--accent); color: #001826; }
 
+/* Export panel (backlog #10). Collapsed-by-default details element so
+ * the export buttons are accessible but don't dominate the layout the
+ * way the previous header buttons did. */
+.export-panel summary {
+  cursor: pointer;
+  padding: 0.3em 0.4em;
+  color: var(--muted);
+  font-size: 0.9em;
+}
+.export-panel summary:hover { color: var(--text); }
+.export-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  padding: 0.4em;
+}
+.export-actions button { width: 100%; }
 /* Re-join identity indicator (backlog #7). The id-short badge is
  * always-on and visually quiet; the Re-joined pill is conditional and
  * uses a distinct accent color so it reads as separate from the
