@@ -2,7 +2,7 @@
 
 **Feature Branch**: `006-mcp-server`
 **Created**: 2026-04-11
-**Status**: Draft
+**Status**: Implemented (Phase 1 closed 2026-04-20)
 **Input**: User description: "MCP server with SSE transport, participant and facilitator tools, auth middleware, session lifecycle, and turn loop control"
 
 ## Clarifications

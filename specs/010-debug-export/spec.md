@@ -2,7 +2,7 @@
 
 **Feature Branch**: `fix/live-test-feedback` (bundled fix; would be `010-debug-export` as its own feature)
 **Created**: 2026-04-15
-**Status**: Draft
+**Status**: Implemented (Phase 1 closed 2026-04-20)
 **Input**: User description: "Add an option to dump everything about a session in one JSON blob for troubleshooting — session + participants + messages + interrupts + logs + config, including nulls/empties."
 
 ## Clarifications

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `005-summarization-checkpoints`
 **Created**: 2026-04-11
-**Status**: Draft
+**Status**: Implemented (Phase 1 closed 2026-04-20)
 **Input**: User description: "Summarization checkpoints — structured JSON summaries every N turns capturing decisions, open questions, key positions, and narrative for context assembly"
 
 ## Clarifications

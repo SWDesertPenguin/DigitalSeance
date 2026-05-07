@@ -2,7 +2,7 @@
 
 **Feature Branch**: `002-participant-auth`
 **Created**: 2026-04-11
-**Status**: Draft
+**Status**: Implemented (Phase 1 closed 2026-04-20)
 **Input**: User description: "Auth and participant lifecycle — token validation, approval flow, rotation, revocation, facilitator transfer, session binding for SACP Phase 1"
 
 ## Clarifications
