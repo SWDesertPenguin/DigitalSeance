@@ -2227,7 +2227,18 @@ function _validateAddParticipant(form) {
   return null;
 }
 
-function AddParticipantDialog({ onClose, onAdd, onFetchModels, aiOnly = false }) {
+// Existing display names in the session, used by the dialog to apply a
+// collision suffix when the suggested name collides. Active + pending
+// participants count; removed ones don't (their slots are released).
+function _participantsToExistingNames(participants) {
+  if (!Array.isArray(participants)) return [];
+  return participants
+    .filter((p) => p && p.status !== "removed")
+    .map((p) => p.display_name)
+    .filter((n) => typeof n === "string" && n.trim());
+}
+
+function AddParticipantDialog({ onClose, onAdd, onFetchModels, aiOnly = false, participants = [] }) {
   const initial = aiOnly
     ? _applyProviderDefaults({ display_name: "", api_key: "", api_endpoint: "" }, "anthropic")
     : { display_name: "", provider: "human", model: "human",
@@ -2237,8 +2248,63 @@ function AddParticipantDialog({ onClose, onAdd, onFetchModels, aiOnly = false })
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
+  // Suggest a default display_name on mount (and on provider change
+  // below) when the field is currently blank AND the provider is AI.
+  // We do not overwrite anything the operator has typed: the suggestion
+  // is a default, not a constraint.
+  useEffect(() => {
+    if (form.provider === "human") return;
+    if (form.display_name && form.display_name.trim()) return;
+    const existing = _participantsToExistingNames(participants);
+    const recent = (typeof loadRecentNames === "function") ? loadRecentNames(form.provider) : [];
+    const suggestion = (typeof pickDefaultName === "function")
+      ? pickDefaultName(form.provider, existing, recent)
+      : "";
+    if (suggestion) setForm((f) => ({ ...f, display_name: suggestion }));
+    // We intentionally only run on mount; provider-change suggestion is
+    // wired into pickProvider below so it can pre-populate the new
+    // provider's suggestion atomically with the rest of the provider
+    // defaults.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const update = (field) => (ev) => setForm({ ...form, [field]: ev.target.value });
-  const pickProvider = (ev) => setForm(_applyProviderDefaults(form, ev.target.value));
+
+  const pickProvider = (ev) => {
+    const newProvider = ev.target.value;
+    const next = _applyProviderDefaults(form, newProvider);
+    if (newProvider !== "human") {
+      // Only auto-suggest a name if the operator hasn't typed a custom
+      // one. We detect "operator hasn't typed a custom one" by checking
+      // whether the current display_name matches a pool entry for the
+      // PREVIOUS provider (in which case it was our suggestion and is
+      // safe to replace) or is empty.
+      const previousProvider = form.provider;
+      const prevPool = (typeof getNamePool === "function") ? getNamePool(previousProvider) : [];
+      const currentTrimmed = (form.display_name || "").trim();
+      const stripped = currentTrimmed.replace(/\d+$/, "");
+      const wasOurSuggestion = !currentTrimmed
+        || prevPool.some((n) => n.toLowerCase() === stripped.toLowerCase());
+      if (wasOurSuggestion) {
+        const existing = _participantsToExistingNames(participants);
+        const recent = (typeof loadRecentNames === "function") ? loadRecentNames(newProvider) : [];
+        const suggestion = (typeof pickDefaultName === "function")
+          ? pickDefaultName(newProvider, existing, recent)
+          : "";
+        if (suggestion) next.display_name = suggestion;
+      }
+    } else {
+      // Switching to human: clear the AI suggestion if it's still ours.
+      const previousProvider = form.provider;
+      const prevPool = (typeof getNamePool === "function") ? getNamePool(previousProvider) : [];
+      const currentTrimmed = (form.display_name || "").trim();
+      const stripped = currentTrimmed.replace(/\d+$/, "");
+      if (currentTrimmed && prevPool.some((n) => n.toLowerCase() === stripped.toLowerCase())) {
+        next.display_name = "";
+      }
+    }
+    setForm(next);
+  };
 
   const submit = async (ev) => {
     ev.preventDefault();
@@ -2253,6 +2319,15 @@ function AddParticipantDialog({ onClose, onAdd, onFetchModels, aiOnly = false })
         context_window: parseInt(form.context_window, 10) || 0,
         max_tokens_per_turn: parsedTok,
       });
+      // Persist the suggestion to localStorage if the final name
+      // matches a pool entry (modulo collision suffix). Operator-typed
+      // custom names don't enter the recency list — the recency list
+      // exists to vary AMONG pool entries, not to track every name
+      // ever typed.
+      if (form.provider !== "human" && typeof saveRecentName === "function") {
+        const recent = (typeof loadRecentNames === "function") ? loadRecentNames(form.provider) : [];
+        saveRecentName(form.provider, form.display_name, recent);
+      }
       onClose();
     } catch (e) {
       setError(e.message);
@@ -3038,6 +3113,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
           onAdd={addParticipant}
           onFetchModels={fetchProviderModels}
           aiOnly={!isFacilitator}
+          participants={state.participants}
         />
       )}
       {editDraft && (
