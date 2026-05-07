@@ -343,8 +343,8 @@ Operator-facing topology decisions (connection-pool tuning, DB failover behavior
 ## Migration safety notes (Phase F amendment, 2026-05-02)
 
 These items capture the operational stance around schema evolution and
-reference the FR-017 forward-only invariant. Cross-referenced from
-`AUDIT_PLAN.local.md` Batch 4 → 001 migration-safety.
+reference the FR-017 forward-only invariant. Sourced from the
+pre-Phase-3 audit window's migration-safety review.
 
 **Forward-only codification boundary.** FR-017 is enforced from
 revision 008 onward. Migrations 001-007 shipped with real `downgrade()`

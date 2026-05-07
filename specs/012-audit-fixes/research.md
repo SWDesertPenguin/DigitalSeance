@@ -125,7 +125,7 @@ Applied retroactively only when a spec is next amended (no bulk retroactive vers
 
 ## Decision 5 — Audit follow-through tracking mechanism
 
-**Decision**: **Single gitignored file** `AUDIT_FOLLOWTHROUGH.local.md` at repo root, parallel to the local working plan. Format: a markdown table with columns `[Audit batch, Finding, Resolution PR, Verifying test, Status]`. Entries added when an audit finding is closed; status is one of `delivered / accepted-out-of-scope / deferred-to-phase-3`.
+**Decision**: **Single gitignored file** at repo root, parallel to the local working plan. Format: a markdown table with columns `[Audit batch, Finding, Resolution PR, Verifying test, Status]`. Entries added when an audit finding is closed; status is one of `delivered / accepted-out-of-scope / deferred-to-phase-3`.
 
 **Rationale**:
 
@@ -229,8 +229,8 @@ Documented in `docs/threat-model-review-process.md` under FR-016.
 4. `docs/retention.md` (per-table retention) — references entities defined in 001
 5. `docs/state-machines.md` (state machine catalog) — references behaviors codified in 003, 004, 011
 6. `docs/ws-events.md` (WS event schemas) — references state-machines.md
-7. `docs/roles-permissions.md` (role × permission matrix) — references 002, 006, 010, 011
-8. `docs/compliance-mapping.md` (GDPR / regulatory) — references retention, ws-events, roles-permissions
+7. (Originally: a role × permission matrix doc — reclassified post-decision to operator-internal; not published)
+8. `docs/compliance-mapping.md` (GDPR / regulatory) — references retention, ws-events, the internal authorization model
 9. `docs/operational-runbook.md` (operator-facing decisions) — references env-vars, retention, error-codes (lands last as the synthesis)
 
 Constitutional §13 references for each new doc land in the same PR as the doc itself.

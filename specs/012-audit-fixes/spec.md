@@ -186,7 +186,7 @@ A future maintainer needs to understand: how Phase 2 architectural decisions wer
   - `docs/compliance-mapping.md` (GDPR / regulatory traceability aggregation)
   - `docs/operational-runbook.md` (operator-facing decisions across specs)
   - **role × permission matrix**: reclassified to operator-internal carveout. The aggregate matrix concentrates recon value (single-page roadmap of "what to attempt as each role") and is therefore maintained as an operator-internal reference rather than a public deliverable. Decided 2026-05-02 during US5 review; cross-references from other US5 docs strip transitive disclosure.
-- **FR-011**: Project MUST add a lightweight audit-follow-through tracking artifact (column on existing closeouts OR `AUDIT_FOLLOWTHROUGH.local.md`) so audit-finding → resolution-PR → verifying-test linkage is preserved beyond the closing of an individual audit.
+- **FR-011**: Project MUST add a lightweight audit-follow-through tracking artifact (column on existing closeouts OR a gitignored local tracker file) so audit-finding → resolution-PR → verifying-test linkage is preserved beyond the closing of an individual audit.
 - **FR-012**: Project MUST publish a pattern-list update workflow contributing doc covering 007 §FR-017's incident → PR-within-one-cycle → red-team-runbook entry cycle.
 - **FR-013**: Project MUST establish an ADR / decision log convention (`docs/adr/` or `docs/decisions.md`) and capture at least one Phase 2 retrospective decision as the reference example.
 - **FR-014**: Project MUST establish a spec versioning convention (semantic-versioning analog for spec.md FR-NN amendments) and document it in Constitution §14 or a contributing doc.

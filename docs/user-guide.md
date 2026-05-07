@@ -160,7 +160,7 @@ Find your bridge IP with `ip addr show docker0`. Verify the bind with `ss -tlnp 
 
 **Option C — Ollama on a separate LAN host.** Treat this exactly like exposing any unauthenticated service. Bind to the LAN-facing interface only, use a host firewall (`ufw` / `firewalld` / `iptables`) to allow connections from the SACP host's IP only, and never expose `:11434` to the internet. **Do not use Option C on hostile networks** — coffee-shop / conference / multi-tenant Wi-Fi, exposed VPS, or any LAN where you don't control every connected device. When the network isn't fully trusted, tunnel over a VPN (WireGuard, Tailscale, Headscale) and bind Ollama to the VPN interface only.
 
-`http://host.docker.internal:11434` works on Docker Desktop (Mac / Windows) where the alias is auto-injected, but is unreliable on Linux Docker and TrueNAS even with the `extra_hosts: ["host.docker.internal:host-gateway"]` mapping in [docker-compose.yml](../docker-compose.yml). Prefer the explicit IP form (Option A's compose-network DNS name, or Option B's bridge IP).
+`http://host.docker.internal:11434` works on Docker Desktop (Mac / Windows) where the alias is auto-injected, but is unreliable on some Linux Docker hosts even with the `extra_hosts: ["host.docker.internal:host-gateway"]` mapping in [docker-compose.yml](../docker-compose.yml). Prefer the explicit IP form (Option A's compose-network DNS name, or Option B's bridge IP).
 
 After completing one of A/B/C: AddParticipant → `provider=ollama` → fill in the API endpoint → click **Fetch models** to populate the dropdown from your installed tags.
 

@@ -117,7 +117,7 @@ Open `docs/compliance-mapping.md`. GDPR articles, NIST controls, and AI Act refe
 
 ### Auditing audit follow-through
 
-Open `AUDIT_FOLLOWTHROUGH.local.md` (gitignored — local repo only). Every audit finding closed during the pre-Phase-3 window has a row showing finding → resolution PR → verifying test → status.
+Open the local audit-followthrough tracker (gitignored — local repo only). Every audit finding closed during the pre-Phase-3 window has a row showing finding → resolution PR → verifying test → status.
 
 ### Reviewing a §4.9 / 007 §FR-005 PR
 

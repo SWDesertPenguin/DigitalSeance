@@ -1,6 +1,6 @@
 # Quickstart: High-Traffic Session Mode
 
-Operator workflow for enabling, observing, and disabling the three high-traffic mechanisms. Assumes a running orchestrator deployed per the standard Phase 2 instructions (Compose stack on TrueNAS / k8s / bare-metal Docker).
+Operator workflow for enabling, observing, and disabling the three high-traffic mechanisms. Assumes a running orchestrator deployed per the standard Phase 2 instructions (Compose stack on a Docker host or k8s).
 
 ## Enable batching cadence (mechanism 1)
 

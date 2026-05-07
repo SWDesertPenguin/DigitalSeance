@@ -97,7 +97,7 @@ These are not database entities but feature artifacts that have shape worth defi
 
 ### Audit follow-through record
 
-A row in `AUDIT_FOLLOWTHROUGH.local.md` (markdown table format).
+A row in the local audit-followthrough tracker (markdown table format).
 
 | Field | Type | Description |
 |---|---|---|

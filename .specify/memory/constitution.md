@@ -353,7 +353,7 @@ This rule mirrors the voice-side "refusal of in-band protocol negotiation" commi
 
 **Closure criteria.** No fixed-percentage gate. The facilitator declares the audit "sufficiently closed" when blocking findings are resolved and all remaining findings are either resolved or explicitly accepted. The pre-Phase-3 audit window is the canonical instance: 419 items shipped, 55 explicitly accepted as Phase-3-trigger residuals, 0 unchecked at closure (2026-05-04).
 
-**Relationship to §14.7 audit work.** §14.7 defines the mechanical workflow for audits (one-off formal audits via `/speckit.checklist`, sweep-style audit windows via `AUDIT_PLAN.local.md`, branch naming, etc.). §4.15 is the constitutional principle that makes the phase-boundary audit *mandatory*. §14.7 says HOW; §4.15 says WHEN — at every phase boundary, without exception.
+**Relationship to §14.7 audit work.** §14.7 defines the mechanical workflow for audits (one-off formal audits via `/speckit.checklist`, sweep-style audit windows via gitignored local action plans, branch naming, etc.). §4.15 is the constitutional principle that makes the phase-boundary audit *mandatory*. §14.7 says HOW; §4.15 says WHEN — at every phase boundary, without exception.
 
 **Within-phase concerns.** Architectural concerns surfaced mid-phase are NOT automatically phase-blockers; they flow through §14.2 or §14.7 as ordinary work. They escalate to phase-boundary blockers only if still unresolved at the next phase declaration. The principle here is *cumulative* baseline integrity, not perpetual gating.
 
@@ -496,7 +496,7 @@ Each phase is a complete, usable system. No phase depends on a future phase to f
 
 **Phase 4:** A2A federation. Agent Card discovery. Hierarchical sub-sessions. Data retention policies. Formal protocol spec. Evaluate Inter-Agent Trust Protocol for multi-sovereign trust.
 
-**Voice-mediated participants (Phase 3+, deferred):** Voice participant evaluation deferred. If admitted, the architectural commitments in `local/comm-design/` govern: STT canonicalization on every hop, TTS re-synthesis from canonical text, refusal of in-band protocol negotiation, voice participant trust tier, no raw-audio federation, voice participant disclosure.
+**Voice-mediated participants (Phase 3+, deferred):** Voice participant evaluation deferred. If admitted, internal architectural commitments govern (STT canonicalization on every hop, TTS re-synthesis from canonical text, refusal of in-band protocol negotiation, voice participant trust tier, no raw-audio federation, voice participant disclosure).
 
 A feature spec that references capabilities from a later phase is out of scope and must be flagged. Phase boundaries are hard scope limits.
 
@@ -669,7 +669,7 @@ Conventions:
 
 1. **One-off formal audit** (single spec × type) → run `/speckit.checklist <type>` on a `docs/<slug>` branch. Produces a committed `specs/NNN/checklists/<type>.md` file as a permanent artifact. Used for the original 2026-04-29 security sweep + tier-1-3 quality checklists (PRs #157-#163).
 
-2. **Sweep-style audit window** (many specs × many types as a coordinated effort) → track in a gitignored local action plan (`AUDIT_PLAN.local.md`). Action items, not formal checklists. Findings get promoted to spec amendments via §14.2 PRs as they're resolved. The pre-Phase-3 audit window (opened 2026-04-29) uses this pattern; ~37 audit topics tracked.
+2. **Sweep-style audit window** (many specs × many types as a coordinated effort) → track in a gitignored local action plan. Action items, not formal checklists. Findings get promoted to spec amendments via §14.2 PRs as they're resolved. The pre-Phase-3 audit window (opened 2026-04-29) uses this pattern; ~37 audit topics tracked.
 
 3. **Branch naming**: `audit/<topic>` for sweep audit work that isn't yet a spec amendment; `fix/<slug>` for the resulting amendment PRs.
 

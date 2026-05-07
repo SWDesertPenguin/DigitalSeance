@@ -2,7 +2,7 @@
 
 **Source**: spec FR-010 — covers the doc deliverables whose shape is freeform enough that a separate contract file would be over-specification.
 
-This file consolidates the contract for: `docs/glossary.md`, `docs/retention.md`, `docs/state-machines.md`, `docs/roles-permissions.md`, `docs/compliance-mapping.md`, `docs/operational-runbook.md`. Each must minimally include the listed sections; structure within sections is at the author's discretion.
+This file consolidates the contract for: `docs/glossary.md`, `docs/retention.md`, `docs/state-machines.md`, `docs/compliance-mapping.md`, `docs/operational-runbook.md`. Each must minimally include the listed sections; structure within sections is at the author's discretion. (The originally-planned authorization-model doc was reclassified to operator-internal per spec FR-010.)
 
 ---
 
@@ -55,23 +55,13 @@ MVC floor, convergence, review gate, sponsored AI, spotlighting, datamarking, ca
 11. Rate-limit bucket (created / active / stale / evicted) — 009 §FR-007
 12. Invite token (created / active / consumed / expired / revoked) — 002 + 001 §FR-012
 
-**Cross-cutting consumers**: `docs/ws-events.md`, `docs/operational-runbook.md`, `docs/roles-permissions.md`.
+**Cross-cutting consumers**: `docs/ws-events.md`, `docs/operational-runbook.md`, the internal authorization-model doc.
 
 ---
 
-## `docs/roles-permissions.md`
+## Authorization-model doc (operator-internal)
 
-**Required**: A role × permission matrix.
-
-**Roles in scope**: facilitator, participant (active), participant (pending), sponsored AI, deploy-operator (DBA).
-
-**Permissions to enumerate**: every permission-gated operation across 002 (auth), 006 (tool access), 010 (debug-export), 011 (UI gates), and the new §4.9 facilitator-override path under FR-006.
-
-**Format**: a single matrix table, with cells holding `Y` / `N` / `Y (with caveat)` and a footnote per caveat.
-
-**Surfaces gaps such as**: "can a sponsor read their sponsored AI's audit log?" (currently undefined), "can pending participants see other pending participants?" (per 011 §SR-010 no), etc.
-
-**Cross-cutting consumers**: `docs/compliance-mapping.md`.
+The originally-planned role × permission matrix doc was reclassified to an operator-internal artifact per spec FR-010; the aggregate matrix concentrates recon value and is not published. Its contract is maintained alongside the artifact itself, off-tree.
 
 ---
 
@@ -84,7 +74,7 @@ MVC floor, convergence, review gate, sponsored AI, spotlighting, datamarking, ca
 3. **AI Act mapping** (where relevant): Art. 10 data governance, Art. 13 transparency.
 4. **Per-spec compliance traceability**: aggregates compliance items across 002, 003, 004, 005, 007, 010, 011.
 
-**Cross-cutting consumers**: `docs/retention.md`, `docs/roles-permissions.md`, future regulatory submissions.
+**Cross-cutting consumers**: `docs/retention.md`, the internal authorization-model doc, future regulatory submissions.
 
 ---
 
@@ -99,7 +89,7 @@ MVC floor, convergence, review gate, sponsored AI, spotlighting, datamarking, ca
 5. **Tunable runbook**: when to raise / lower each tunable env var (cross-ref `docs/env-vars.md` for the catalog).
 6. **Provider degradation playbook**: per-provider partial-outage handling, retry-storm prevention.
 7. **Pattern-list update workflow**: cross-ref `docs/pattern-list-update-workflow.md` (FR-012).
-8. **Audit follow-through process**: how `AUDIT_FOLLOWTHROUGH.local.md` is maintained (FR-011).
+8. **Audit follow-through process**: how the local audit-followthrough tracker is maintained (FR-011).
 9. **Incident catalog**: cross-ref `docs/red-team-runbook.md`.
 
 **Lands last** (Decision 10 in research.md) as the synthesis of the other deliverables.
@@ -121,7 +111,6 @@ Each doc gets a §13 entry on land:
 | `docs/glossary.md` | Terminology | One-place definitions for terms used across specs |
 | `docs/retention.md` | Data retention policy | Per-table retention, erasure cascade, backup separation |
 | `docs/state-machines.md` | State machine catalog | Per-machine states, transitions, invalid-transition handling |
-| `docs/roles-permissions.md` | Role × permission matrix | Per-role access surface across specs |
 | `docs/compliance-mapping.md` | Regulatory mapping | GDPR / NIST / AI Act traceability |
 | `docs/operational-runbook.md` | Operations playbook | Deploy, restore, rotate, incident response |
 ```

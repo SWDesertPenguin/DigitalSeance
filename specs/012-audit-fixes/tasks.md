@@ -122,7 +122,7 @@ description: "Task list for feature 012-audit-fixes implementation"
 
 ## Phase 7: User Story 5 - Canonical doc deliverables published (Priority: P2)
 
-**Goal**: Publish 8 net-new canonical docs (env-vars, error-codes, ws-events, retention, state-machines, glossary, roles-permissions, compliance-mapping, operational-runbook) per [research.md](./research.md) Decision 10 ordering.
+**Goal**: Publish 7 net-new canonical docs (env-vars, error-codes, ws-events, retention, state-machines, glossary, compliance-mapping, operational-runbook) per [research.md](./research.md) Decision 10 ordering. (An eighth doc — the role × permission matrix — was reclassified to operator-internal per FR-010; not published.)
 
 **Note**: `docs/env-vars.md` (T016) is delivered under US2 since it pairs with the V16 implementation. The remaining 7 docs land under US5.
 
@@ -135,7 +135,7 @@ description: "Task list for feature 012-audit-fixes implementation"
 - [ ] T037 [P] [US5] Create `docs/retention.md` per [contracts/doc-deliverables.md](./contracts/doc-deliverables.md): inventory all 15 persistent tables with retention policy / "indefinite + rationale" (FR-010).
 - [ ] T038 [US5] Create `docs/state-machines.md` per [contracts/doc-deliverables.md](./contracts/doc-deliverables.md) covering all 12 state machines listed (FR-010). Depends on T035 for terminology cross-refs.
 - [ ] T039 [US5] Create `docs/ws-events.md` per [contracts/ws-events-doc.md](./contracts/ws-events-doc.md) covering every event type (FR-010). Depends on T038.
-- [ ] T040 [US5] Create `docs/roles-permissions.md` per [contracts/doc-deliverables.md](./contracts/doc-deliverables.md): full role × permission matrix (FR-010). Depends on T038.
+- [ ] T040 [US5] **Superseded** — original task was to publish a role × permission matrix doc; reclassified to operator-internal per FR-010 amendment. No public artifact ships from this task.
 - [ ] T041 [US5] Create `docs/compliance-mapping.md` aggregating GDPR / NIST / AI Act mappings per [contracts/doc-deliverables.md](./contracts/doc-deliverables.md) (FR-010). Depends on T037, T039, T040.
 - [ ] T042 [US5] Create `docs/operational-runbook.md` (synthesis doc) per [contracts/doc-deliverables.md](./contracts/doc-deliverables.md) (FR-010). Depends on all prior docs in this phase.
 - [ ] T043 [P] [US5] Create `scripts/check_doc_deliverables.py` presence-check CI gate per [contracts/doc-deliverables.md](./contracts/doc-deliverables.md): every doc named in FR-010 exists with non-zero size; greps `src/` for `event_type=` literals and HTTP status codes to assert coverage.
@@ -178,8 +178,8 @@ description: "Task list for feature 012-audit-fixes implementation"
 - [X] T054 [P] [US7] Add `mcp_app` and `web_app` per-test fixtures to `tests/conftest.py` returning a fresh `create_app()` / `create_web_app()` instance per test. Closes the recurring middleware-state-leak bug class (FR-009).
 - [X] T055 [P] [US7] Add `tests/test_fastapi_app_isolation.py` (placed flat under `tests/` matching repo convention) — 4 tests: `mcp_app` is FastAPI instance, `app.state` markers don't leak across tests, two apps in same test are distinct objects.
 - [ ] T056 [US7] **Deferred**: refactor pass updating ~14 existing test files that create their own `create_app()` inline to use the new `mcp_app` / `web_app` fixtures. Existing inline pattern is already correct (each test calls `create_app()` independently, so isolation holds); the fixture is a QoL/DRY improvement, not a correctness fix. Land incrementally (one test module per follow-up PR) or as part of the 006-testability cluster.
-- [X] T057 [P] [US7] Create `AUDIT_FOLLOWTHROUGH.local.md` at repo root with markdown-table tracker per [data-model.md](./data-model.md). Pre-populated with rows for every cross-cutting item; status flips as PRs land (FR-011).
-- [X] T058 [US7] Add explicit `AUDIT_FOLLOWTHROUGH.local.md` entry to `.gitignore` (the existing `*.local.md` glob is implicit only — explicit entry matches the precedent set by other gitignored local working files).
+- [X] T057 [P] [US7] Create the gitignored audit-followthrough tracker at repo root with markdown-table tracker per [data-model.md](./data-model.md). Pre-populated with rows for every cross-cutting item; status flips as PRs land (FR-011).
+- [X] T058 [US7] Add the explicit gitignore entry for the new tracker file (matches the precedent set by other gitignored local working files).
 - [X] T059 [US7] Split CI workflow `Run tests` step into `Run unit tests (fast tier)` (`pytest -m "not integration"`) and `Run integration tests (slow tier)` (`pytest -m integration`) — sequential within the same job (fast tier fails first if regressions hit; integration tier still runs to surface its own state). True separate-runner-pool tiering deferred to a follow-up that warrants its own CI ergonomics review (FR-015 second half; pairs with T006).
 
 **Checkpoint**: US7 functional. Recurring schema-mirror bug class (memory `feedback_test_schema_mirror.md`) closed; integration tests separated from unit tests.
@@ -210,9 +210,9 @@ description: "Task list for feature 012-audit-fixes implementation"
 
 - [X] T065 Walk through [quickstart.md](./quickstart.md) end-to-end on a clean checkout: validate config (4 required vars surface; OK with stub Fernet key), traceability + schema-mirror + env-vars + doc-deliverables CI gates all green; §4.9 override path documented in 007 §FR-005 + 011 §SR-007 (functional verification via tests/test_007_*.py).
 - [X] T066 Run full test suite `pytest tests/unit/ && pytest -m integration` — 578 unit pass / 168 skip (DB-gated); 2 integration skip (DB-gated); zero failures, zero regressions.
-- [X] T067 Cross-cutting checkboxes in `AUDIT_PLAN.local.md` updated: §4.9 secure-by-design ticked (PR #208); error-code catalog ticked (PR #232); glossary ticked (PR #232). All other 9 cross-cutting items already ticked in prior phases.
-- [X] T068 Closeout entries added to `AUDIT_FOLLOWTHROUGH.local.md` for §4.9, roles-permissions reclassification, error-codes, glossary, state-machines, ws-events, compliance-mapping, operational-runbook, retention; plus Batch 2 / Batch 3 cross-cutting consolidations.
-- [X] T069 [P] CI gates green: `check_env_vars.py` OK (14 vars / 16 docs), `check_traceability.py` OK (10 spec sections), `check_schema_mirror.py` OK (14 tables), `check_doc_deliverables.py` OK (8 docs / codes + events covered). Phase H closeout discovery: `check_doc_deliverables.py` was gitignored as a US5-drafting artifact and never wired into CI. Resolved this session: removed `.gitignore` line, added the script to `.github/workflows/test.yml` (post-env-vars gate), aligned CANONICAL_DOCS to the 7-doc reality (`roles-permissions.md` is operator-internal per FR-010 reclassification).
+- [X] T067 Cross-cutting checkboxes in the local audit plan updated: §4.9 secure-by-design ticked (PR #208); error-code catalog ticked (PR #232); glossary ticked (PR #232). All other 9 cross-cutting items already ticked in prior phases.
+- [X] T068 Closeout entries added to the local audit-followthrough tracker for §4.9, the authorization-model reclassification, error-codes, glossary, state-machines, ws-events, compliance-mapping, operational-runbook, retention; plus prior cross-cutting consolidations.
+- [X] T069 [P] CI gates green: `check_env_vars.py` OK (14 vars / 16 docs), `check_traceability.py` OK (10 spec sections), `check_schema_mirror.py` OK (14 tables), `check_doc_deliverables.py` OK (8 docs / codes + events covered). Phase H closeout discovery: `check_doc_deliverables.py` was gitignored as a US5-drafting artifact and never wired into CI. Resolved this session: removed `.gitignore` line, added the script to `.github/workflows/test.yml` (post-env-vars gate), aligned CANONICAL_DOCS to the 7-doc reality (the authorization-model doc is operator-internal per FR-010 reclassification).
 - [X] T070 Spec status flipped: `**Status**: Draft` → `**Status**: Implemented (2026-05-02 via Phase H closeout — fix/012-phase-h-closeout)`.
 
 ---
@@ -226,7 +226,7 @@ description: "Task list for feature 012-audit-fixes implementation"
 - **User Stories (Phase 3+)**: All depend on Foundational completion.
   - US1, US3, US7 (process), US8 are independent of US4 / US6 (those need T007 schema columns).
   - US2 depends only on Setup (T005 created `src/config/`).
-  - US5 (docs) is mostly independent but T039 (ws-events) and T040 (roles-permissions) depend on T038 (state-machines) for cross-refs; T041 (compliance) depends on T037/T039/T040; T042 (operational-runbook) depends on all prior US5 docs.
+  - US5 (docs) is mostly independent but T039 (ws-events) and T040 (originally the authorization matrix; superseded) depend on T038 (state-machines) for cross-refs; T041 (compliance) depends on T037/T039/T040; T042 (operational-runbook) depends on all prior US5 docs.
   - US4 and US6 depend on Foundational (T007).
 - **Polish (Phase 11)**: Depends on all desired user stories complete. T067/T068 depend on prior phases for accurate closeout.
 
@@ -236,7 +236,7 @@ description: "Task list for feature 012-audit-fixes implementation"
 - **US2 (P1)**: No dependencies on other stories. T020 (Constitution §13 update) can batch with T045 if landing same-day.
 - **US3 (P1)**: No dependencies on other stories. Initial population (T021) can proceed incrementally per spec.
 - **US4 (P2)**: Depends on T007 foundational migration. Architectural review session (T025) can be scheduled in parallel with US1/US2/US3 work; review outcome gates T026–T034.
-- **US5 (P2)**: Internal ordering (state-machines → ws-events / roles-permissions → compliance → operational-runbook) per research.md Decision 10. No cross-story dependencies.
+- **US5 (P2)**: Internal ordering (state-machines → ws-events → compliance → operational-runbook) per research.md Decision 10. No cross-story dependencies.
 - **US6 (P2)**: Depends on T007 foundational migration (timing columns).
 - **US7 (P3)**: T051–T053 (schema-mirror) ideally lands EARLY because T056 (refactor pass) depends on the new fixture from T054. T057–T058 (audit follow-through file) and T059 (CI tier split) are independent.
 - **US8 (P3)**: All tasks independent; no cross-story dependencies.

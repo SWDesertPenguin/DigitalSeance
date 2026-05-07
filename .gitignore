@@ -53,19 +53,11 @@ logs/
 # === Local test plans (not for GitHub) ===
 test-plan-*.md
 
-# === Local feedback backlog (not for GitHub) ===
-FEEDBACK.local.md
+# === Local working files (gitignored by *.local.md convention) ===
+# Operator-internal notes, action plans, and trackers stay local-only.
+*.local.md
 
-# === Local audit plan (not for GitHub) ===
-AUDIT_PLAN.local.md
-
-# === Local audit follow-through tracker (not for GitHub) ===
-AUDIT_FOLLOWTHROUGH.local.md
-
-# === Local audit reconciliation (not for GitHub) ===
-AUDIT_RECONCILIATION_*.local.md
-
-# === Local-only working zone (private notes, homelab refs, scratch) ===
+# === Local-only working zone (private notes, scratch) ===
 # Files under this path stay on disk for the operator's reference but
 # never enter the public tree. Move things here instead of deleting if
 # you want to keep them locally.

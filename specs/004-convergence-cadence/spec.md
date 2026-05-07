@@ -207,8 +207,8 @@ The security-requirements quality audit (`checklists/security.md`) raised 36 fin
 ## Operational notes (Phase F amendment, 2026-05-02)
 
 These items capture operator-facing decisions for convergence detection
-and cadence in production. Cross-referenced from
-`AUDIT_PLAN.local.md` Batch 5 → 004 ops.
+and cadence in production. Sourced from the pre-Phase-3 audit window's
+operations review.
 
 **Model-load failure handling.** `load_model` swallows transformer
 exceptions (`Failed to load embedding model — skipping`) and leaves

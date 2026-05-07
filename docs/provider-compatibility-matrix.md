@@ -5,8 +5,8 @@ each provider has quirks that the abstraction can mask rather than eliminate.
 This document catalogues the per-provider behaviours operators need to know
 about, plus the contract the local code keeps with each.
 
-Cross-referenced from `AUDIT_PLAN.local.md` Batch 4 → "Provider compatibility
-matrix" cross-cutting audit. Phase F deliverable from
+Sourced from the pre-Phase-3 audit window's cross-cutting "provider
+compatibility matrix" review. Phase F deliverable from
 `fix/provider-compat-matrix`.
 
 ---
