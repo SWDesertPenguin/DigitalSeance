@@ -226,6 +226,14 @@ function initialState() {
     wsState: "connecting",
     authError: null,
     errors: [],
+    // Re-join indicator (backlog #7): per-participant lifecycle map
+    // tracking when we first observed each participant joining live and
+    // when their status flipped to departed. Populated by
+    // seedLifecycleFromSnapshot / applyLifecycleOnUpdate from
+    // rejoin_indicator.js. The pill only fires for participants the
+    // SPA observed joining live — pre-existing entries from snapshot
+    // get first_observed_turn=null so the pill never fires for them.
+    participantLifecycle: {},
   };
 }
 
@@ -239,16 +247,22 @@ function reducer(state, action) {
       return { ...state, authError: null };
     case "state_snapshot": {
       const e = action.event;
+      const participants = e.participants || [];
+      const nowIso = new Date().toISOString();
+      const lifecycle = (typeof seedLifecycleFromSnapshot === "function")
+        ? seedLifecycleFromSnapshot(participants, nowIso)
+        : {};
       return {
         ...state,
         session: e.session || null,
         me: e.me || null,
-        participants: e.participants || [],
+        participants,
         messages: e.messages || [],
         pendingDrafts: e.pending_drafts || [],
         openProposals: e.open_proposals || [],
         latestSummary: e.latest_summary || null,
         convergenceScores: e.convergence_scores || [],
+        participantLifecycle: lifecycle,
       };
     }
     case "message": {
@@ -272,16 +286,32 @@ function reducer(state, action) {
       // (e.g. transfer_facilitator) without a refresh.
       const isSelf = state.me?.participant_id === updated.id;
       const nextMe = isSelf ? { ...state.me, role: updated.role } : state.me;
-      return { ...state, participants: [...others, updated], me: nextMe };
+      const currentTurn = state.session?.current_turn ?? 0;
+      const nowIso = new Date().toISOString();
+      const lifecycle = (typeof applyLifecycleOnUpdate === "function")
+        ? applyLifecycleOnUpdate(state.participantLifecycle, state.participants, updated, currentTurn, nowIso)
+        : state.participantLifecycle;
+      return {
+        ...state,
+        participants: [...others, updated],
+        me: nextMe,
+        participantLifecycle: lifecycle,
+      };
     }
     case "participant_removed": {
       // Row was hard-deleted server-side (reject_participant). Drop it
       // from local state so the pending/participant lists refresh
       // without a page reload.
       const removedId = action.event.participant_id;
+      const currentTurn = state.session?.current_turn ?? 0;
+      const nowIso = new Date().toISOString();
+      const lifecycle = (typeof applyLifecycleOnRemove === "function")
+        ? applyLifecycleOnRemove(state.participantLifecycle, removedId, currentTurn, nowIso)
+        : state.participantLifecycle;
       return {
         ...state,
         participants: state.participants.filter((p) => p.id !== removedId),
+        participantLifecycle: lifecycle,
       };
     }
     case "participant_restore":
@@ -925,6 +955,7 @@ function _participantBuckets(participants) {
 
 function ParticipantList({
   participants, me, skipReasons, isFacilitator, exitRequests,
+  currentTurn, lifecycle,
   onRemove, onRoutingChange, onResetAI, onReleaseAI, onHonorExit, onDismissExit,
 }) {
   const byId = useMemo(
@@ -937,7 +968,10 @@ function ParticipantList({
       isFacilitator={isFacilitator} onRemove={onRemove} onRoutingChange={onRoutingChange}
       onResetAI={onResetAI} onReleaseAI={onReleaseAI}
       exitRequest={exitRequests?.[p.id]}
-      onHonorExit={onHonorExit} onDismissExit={onDismissExit} />
+      onHonorExit={onHonorExit} onDismissExit={onDismissExit}
+      allParticipants={participants}
+      currentTurn={currentTurn}
+      lifecycle={lifecycle} />
   );
   return (
     <section className="panel participant-list">
@@ -970,6 +1004,7 @@ function ParticipantCard({
   p, me, byId, skipReasons, isFacilitator,
   onRemove, onRoutingChange, onResetAI, onReleaseAI,
   exitRequest, onHonorExit, onDismissExit,
+  allParticipants, currentTurn, lifecycle,
 }) {
   const inviter = p.invited_by ? byId[p.invited_by] : null;
   const inviterLabel = inviter ? inviter.display_name : null;
@@ -990,10 +1025,25 @@ function ParticipantCard({
   const canManage = !isDeparted
     && ((isFacilitator && !isSelf && p.role !== "facilitator") || isMyAI);
   const canResetOrRelease = canManage && isAI;
+  // Re-join indicator (backlog #7). Helpers come from
+  // rejoin_indicator.js; we fall back to inert defaults if the script
+  // failed to load so the card still renders.
+  const idBadge = (typeof shortIdBadge === "function") ? shortIdBadge(p.id, 4) : "";
+  const showRejoinedPill = (typeof shouldShowRejoinedPill === "function")
+    && shouldShowRejoinedPill(p, allParticipants || [], currentTurn ?? 0, lifecycle || {});
+  const identityTooltip = (typeof buildIdentityTooltip === "function")
+    ? buildIdentityTooltip(p, allParticipants || [], lifecycle || {})
+    : `ID: ${p.id || ""}`;
   return (
     <div className={`participant-card role-${p.role} status-${p.status}`}>
       <div className="p-row">
-        <strong>{p.display_name}</strong>
+        <strong title={identityTooltip}>{p.display_name}</strong>
+        {idBadge && (
+          <span className="badge badge-id-short" title={identityTooltip}>#{idBadge}</span>
+        )}
+        {showRejoinedPill && (
+          <span className="badge badge-rejoined" title={identityTooltip}>Re-joined</span>
+        )}
         {isSelf && <span className="badge badge-you">you</span>}
         {(p.role === "pending" || p.status === "pending") && (
           <span className="badge badge-pending">pending</span>
@@ -2956,6 +3006,8 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
             skipReasons={state.skipReasons}
             isFacilitator={isFacilitator}
             exitRequests={state.aiExitRequests}
+            currentTurn={state.session?.current_turn ?? 0}
+            lifecycle={state.participantLifecycle}
             onRemove={onRemoveParticipant}
             onRoutingChange={onRoutingChange}
             onResetAI={onResetAI}
