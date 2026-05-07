@@ -81,35 +81,67 @@ def test_us3_acceptance_3_no_downgrade_when_thresholds_unmet() -> None:
     assert isinstance(decision, NoOp)
 
 
-def test_us3_last_human_protection_suppresses_downgrade() -> None:
-    """Lone human (lowest priority) → Suppressed, not Downgrade (FR-011)."""
+def test_us3_lone_human_excluded_from_candidacy_falls_to_ai() -> None:
+    """Per FR-011 (broadened 2026-05-07): humans excluded from candidate pool entirely.
+
+    Lone human in session, AIs all at same tier → lowest AI by id-asc tie-break gets
+    downgraded. The Suppressed branch is dead-code for this path post-amendment.
+    """
     ps = [
         _FakeParticipant(id="a", provider="openai", model_tier="high"),
         _FakeParticipant(id="b", provider="anthropic", model_tier="high"),
         _FakeParticipant(id="c", provider="anthropic", model_tier="high"),
         _FakeParticipant(id="d", provider="anthropic", model_tier="high"),
-        _FakeParticipant(id="solo-human", provider="human", model_tier="low"),  # lowest tier
+        _FakeParticipant(id="solo-human", provider="human", model_tier="low"),
     ]
     thresholds = ObserverDowngradeThresholds(participants=4, tpm=30)
     decision = evaluate_downgrade(participants=ps, current_tpm=35, thresholds=thresholds)
-    assert isinstance(decision, Suppressed)
-    assert decision.reason == "last_human_protection"
-    assert decision.participant.id == "solo-human"
+    assert isinstance(decision, Downgrade)
+    assert decision.participant.id == "a"  # lowest id among AIs at same tier
+    assert decision.participant.provider != "human"
 
 
-def test_us3_multiple_humans_no_protection_for_one_of_many() -> None:
-    """Two humans + thresholds tripped + lowest-priority is human → still Downgrade."""
+def test_us3_multiple_humans_all_excluded_falls_to_lowest_ai() -> None:
+    """Per FR-011 (broadened): multi-human session also excludes ALL humans.
+
+    Original FR-011 had a "only human" carve-out; amendment broadens to all humans.
+    """
     ps = [
         _FakeParticipant(id="a", provider="anthropic", model_tier="high"),
         _FakeParticipant(id="b", provider="anthropic", model_tier="high"),
         _FakeParticipant(id="c", provider="anthropic", model_tier="high"),
         _FakeParticipant(id="human-1", provider="human", model_tier="mid"),
-        _FakeParticipant(id="human-2", provider="human", model_tier="low"),  # lowest
+        _FakeParticipant(id="human-2", provider="human", model_tier="low"),
     ]
     thresholds = ObserverDowngradeThresholds(participants=4, tpm=30)
     decision = evaluate_downgrade(participants=ps, current_tpm=35, thresholds=thresholds)
     assert isinstance(decision, Downgrade)
-    assert decision.participant.id == "human-2"
+    assert decision.participant.provider != "human"
+    assert decision.participant.id == "a"  # lowest id among AIs at same tier
+
+
+def test_us3_humans_never_in_candidate_pool() -> None:
+    """Direct contract on lowest_priority_active: humans never returned as candidates."""
+    ps = [
+        _FakeParticipant(id="ai-1", provider="openai", model_tier="max"),
+        _FakeParticipant(id="ai-2", provider="anthropic", model_tier="max"),
+        _FakeParticipant(id="human-x", provider="human", model_tier="n/a"),
+    ]
+    candidate = lowest_priority_active(ps)
+    assert candidate is not None
+    assert candidate.provider != "human"
+
+
+def test_us3_all_humans_session_returns_no_candidate() -> None:
+    """A pure-human session (no AIs) yields None — evaluator returns NoOp upstream."""
+    ps = [
+        _FakeParticipant(id="h1", provider="human", model_tier="n/a"),
+        _FakeParticipant(id="h2", provider="human", model_tier="n/a"),
+    ]
+    assert lowest_priority_active(ps) is None
+    thresholds = ObserverDowngradeThresholds(participants=2, tpm=30)
+    decision = evaluate_downgrade(participants=ps, current_tpm=35, thresholds=thresholds)
+    assert isinstance(decision, NoOp)
 
 
 def test_us3_acceptance_2_restore_window_must_be_sustained() -> None:

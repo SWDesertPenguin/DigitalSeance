@@ -70,11 +70,22 @@ _RestoreDecision = Restore | NoOp
 def lowest_priority_active(participants: list[Any]) -> Any | None:
     """Return the lowest-priority active participant per the research §3 heuristic.
 
-    Composite key (lower wins downgrade): paused-excluded → model_tier rank
-    (low first) → consecutive_timeouts desc → last_seen desc → id asc.
-    Returns None when no active participant is eligible.
+    Composite key (lower wins downgrade): paused-excluded → humans-excluded →
+    model_tier rank (low first) → consecutive_timeouts desc → last_seen desc →
+    id asc. Returns None when no eligible candidate remains.
+
+    Per spec 013 FR-011 (broadened 2026-05-07): humans are excluded from the
+    candidate pool entirely. The orchestrator never picks a human for downgrade.
+    The Suppressed branch in evaluate_downgrade remains as defense-in-depth in
+    case any future caller bypasses this filter.
     """
-    candidates = [p for p in participants if p.status != "paused" and p.role in _ACTIVE_ROLES]
+    candidates = [
+        p
+        for p in participants
+        if p.status != "paused"
+        and p.role in _ACTIVE_ROLES
+        and getattr(p, "provider", None) != "human"
+    ]
     if not candidates:
         return None
     return min(candidates, key=_priority_key)
