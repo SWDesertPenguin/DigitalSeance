@@ -2,7 +2,7 @@
 
 **Feature Branch**: `013-high-traffic-mode`
 **Created**: 2026-05-02
-**Status**: Draft (Phase 3 declared 2026-05-05; tasks + implementation in progress per Constitution §14.1)
+**Status**: Implemented (Phase 3 declaration: 2026-05-05; tasks landed: 2026-05-07; FR-011 broadening amendment: 2026-05-07)
 **Input**: User description: "Phase 3 high-traffic session mode (broadcast mode) — concretizes Constitution §10 broadcast-mode capability via three orthogonal mechanisms: human-boundary batching cadence, convergence-threshold override, and observer-downgrade. Applies to topologies 1–6 (orchestrator-driven); incompatible with topology 7 per V12. Primary use cases: consulting and research co-authorship per V13."
 
 ## Overview
