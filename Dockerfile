@@ -114,6 +114,16 @@ COPY --chown=sacp:sacp frontend/ frontend/
 COPY --chown=sacp:sacp alembic/ alembic/
 COPY --chown=sacp:sacp alembic/alembic.ini alembic.ini
 
+# sentence-transformers + huggingface_hub default their cache to ~/.cache,
+# which resolves to /home/sacp under the unprivileged user — and that path
+# doesn't exist (useradd --no-create-home above). First model load logs
+# "Permission denied: '/home/sacp'" and the convergence engine fails open
+# without embeddings, breaking spec 004 similarity scoring. Point HF_HOME
+# at an app-owned cache dir the sacp user can write. Operators who want
+# persistence across container restarts can mount a volume here in compose.
+ENV HF_HOME=/app/.cache/huggingface
+RUN mkdir -p /app/.cache/huggingface && chown -R sacp:sacp /app/.cache
+
 # Drop root before exposing ports / running the app.
 USER 10001:10001
 
