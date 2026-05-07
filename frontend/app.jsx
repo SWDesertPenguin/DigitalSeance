@@ -770,7 +770,7 @@ function RequestJoinForm({ onLogin, onBack }) {
   );
 }
 
-function Header({ session, me, wsState, onExport, theme, onToggleTheme, onRename, isFacilitator }) {
+function Header({ session, me, wsState, theme, onToggleTheme, onRename, isFacilitator }) {
   const dotColor =
     wsState === "open" ? "var(--ok)" :
     wsState === "reconnecting" ? "var(--warning)" :
@@ -797,12 +797,9 @@ function Header({ session, me, wsState, onExport, theme, onToggleTheme, onRename
         <span>Turn {session?.current_turn ?? 0}</span>
       </div>
       <div className="header-right">
-        <button className="icon-btn" onClick={() => onExport("markdown")} title="Export markdown">
-          ⬇ .md
-        </button>
-        <button className="icon-btn" onClick={() => onExport("json")} title="Export JSON">
-          ⬇ .json
-        </button>
+        {/* Backlog #10: chat-history export buttons relocated to the
+            ExportPanel in the right sidebar (collapsed by default).
+            The header is now only status + theme + ws indicator. */}
         <button className="icon-btn" onClick={onToggleTheme} title="Toggle theme">
           {theme === "light" ? "🌙" : "☀"}
         </button>
@@ -1538,6 +1535,39 @@ function SummaryBody({ summary }) {
         </div>
       )}
     </>
+  );
+}
+
+// Backlog #10: chat-history export buttons relocated from the global
+// header to a small collapsed panel at the bottom of the right
+// sidebar. The export action is exactly the same (transcript .md /
+// .json), but the surface no longer dominates the header. Filename
+// uses the slugified session name when available; the existing
+// generic shape is the fallback for unnamed sessions.
+function ExportPanel({ session, onExport }) {
+  if (!onExport) return null;
+  return (
+    <section className="panel export-panel">
+      <details>
+        <summary>Export chat history</summary>
+        <div className="export-actions">
+          <button type="button" className="small"
+            onClick={() => onExport("markdown")}
+            title="Export transcript as Markdown">
+            Export .md
+          </button>
+          <button type="button" className="small"
+            onClick={() => onExport("json")}
+            title="Export transcript as JSON">
+            Export .json
+          </button>
+          <p className="dim small">
+            Filename uses the session name when set
+            {session?.name ? `: ${session.name}` : ""}.
+          </p>
+        </div>
+      </details>
+    </section>
   );
 }
 
@@ -2594,7 +2624,14 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `sacp-${auth.session_id}-${Date.now()}.${format === "json" ? "json" : "md"}`;
+      // Backlog #10: filename uses the slugified session name when
+      // available. Fall back to the existing generic shape when the
+      // session name is empty / unset so the empty-name path never
+      // produces a bare ".md" filename.
+      const genericFallback = `sacp-${auth.session_id}-${Date.now()}`;
+      a.download = (typeof buildExportFilename === "function")
+        ? buildExportFilename(state.session?.name, format, genericFallback)
+        : `${genericFallback}.${format === "json" ? "json" : "md"}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -2921,7 +2958,6 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
         session={state.session}
         me={auth}
         wsState={wsState}
-        onExport={exportTranscript}
         theme={theme}
         onToggleTheme={toggleTheme}
         onRename={onRenameSession}
@@ -3030,6 +3066,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
             onVote={voteOnProposal}
             onResolve={resolveProposal}
           />
+          <ExportPanel session={state.session} onExport={exportTranscript} />
         </aside>
       </div>
       {showAddDialog && (
