@@ -2,7 +2,7 @@
 
 **Feature Branch**: `001-core-data-model`
 **Created**: 2026-04-11
-**Status**: Draft
+**Status**: Implemented (Phase 1 closed 2026-04-20)
 **Input**: User description: "Core data model and database schema — tables for sessions, participants, messages, append-only logs, and migrations foundation for SACP Phase 1"
 
 ## Clarifications

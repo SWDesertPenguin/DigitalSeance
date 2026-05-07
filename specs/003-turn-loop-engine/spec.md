@@ -2,7 +2,7 @@
 
 **Feature Branch**: `003-turn-loop-engine`
 **Created**: 2026-04-11
-**Status**: Draft
+**Status**: Implemented (Phase 1 closed 2026-04-20)
 **Spec Version**: 1.3.0 | **Last Amended**: 2026-05-03 | **Amended In**: fix/context-window-clamp (FR-035 catalog-clamped budget + ContextWindowOverflowError)
 **Input**: User description: "Turn loop engine — serialized conversation execution with context assembly, 8-mode routing, LiteLLM provider dispatch, budget enforcement, circuit breaker, and interrupt processing"
 

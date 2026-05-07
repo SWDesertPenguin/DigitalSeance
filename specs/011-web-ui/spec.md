@@ -2,7 +2,7 @@
 
 **Feature Branch**: `011-web-ui`
 **Created**: 2026-04-16
-**Status**: Ready for planning
+**Status**: Implemented (Phase 2 closed 2026-05-04)
 **Input**: Constitution S14 Phase 2 scope + sacp-web-ui-spec.md design reference
 **Reference**: `sacp-web-ui-spec.md` (detailed design document, not normative — this spec selects what to build)
 

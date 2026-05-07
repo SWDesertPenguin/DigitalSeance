@@ -2,7 +2,7 @@
 
 **Feature Branch**: `008-prompts-security-wiring`
 **Created**: 2026-04-12
-**Status**: Draft
+**Status**: Implemented (Phase 1 closed 2026-04-20)
 **Input**: "4-tier delta system prompts and security pipeline integration into turn loop and context assembly"
 
 ## Clarifications
