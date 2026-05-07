@@ -90,6 +90,32 @@ checkpoint.**
   remaining loop-integration work AND the user's declaration per
   Constitution §14 / `feedback_dont_declare_phase_done.md`.
 
+### Session 2026-05-07 (FR-011 broadening amendment)
+
+- Live shakedown (session `74a85d538dcc`) revealed a behavioral bug:
+  the priority heuristic ranks humans as perpetual lowest-priority
+  candidates because their `model_tier` is `"n/a"` and `_TIER_RANK`
+  has no entry for `"n/a"` (defaulting to rank 0, lower than every
+  AI tier from `"low"` upward). In a single-human session this
+  produces one `observer_downgrade_suppressed` audit row per turn-prep
+  evaluation while the participants/tpm threshold holds — 25 rows
+  fired in a 30-turn shakedown. In a multi-human session the original
+  FR-011 narrow text ("only human") would have allowed downgrade of
+  one human, contradicting the spec edge-case principle that "humans
+  cannot be silently demoted out of the loop."
+- Root constraint: the participant data model exposes no operator-
+  controlled way to change a human's `model_tier` (humans have no
+  model). The priority algorithm cannot be tuned around this.
+- Resolution: broaden FR-011 to exclude humans from the candidate
+  pool entirely. Filter applied in `lowest_priority_active`. The
+  `Suppressed` decision and `observer_downgrade_suppressed` audit
+  action remain as defense-in-depth — they should not fire in
+  normal operation post-amendment.
+- Tests updated: `test_us3_last_human_protection_suppresses_downgrade`
+  and `test_us3_multiple_humans_no_protection_for_one_of_many` now
+  encode the broadened FR-011; new `test_us3_humans_never_in_candidate_pool`
+  pins the filter contract.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Human-boundary batching cadence keeps a `review_gate` consultant productive (Priority: P1)
@@ -235,12 +261,14 @@ sustained window.
   reaches convergence? The downgrade is finalized first so the
   audit log preserves cause-and-effect, then convergence proceeds
   with the post-downgrade participant set.
-- What happens when a participant being downgraded is the *only*
-  human in the session? The downgrade is suppressed and an
-  `observer_downgrade_suppressed` audit event is emitted (humans
-  cannot be silently demoted out of the loop; consulting use case
-  requires human-in-the-loop). The orchestrator continues without
-  downgrading anyone for that evaluation cycle.
+- What happens when a participant being downgraded is a human?
+  Humans are never downgrade candidates — `lowest_priority_active`
+  filters them out before evaluation. The orchestrator picks the
+  lowest-priority *AI* and downgrades it (or returns NoOp if no AI
+  candidate exists). The `observer_downgrade_suppressed` audit-row
+  writer remains as defense-in-depth (FR-011): operators seeing one
+  in production indicates a code path that bypassed the candidate
+  filter, not a normal-operation suppression event.
 - What happens if the batching cadence is set lower than the
   shortest realistic AI turn time? Behavior is identical to per-turn
   delivery (each batch contains exactly one message). No error.
@@ -288,10 +316,18 @@ sustained window.
   sustained window (per threshold spec), the most-recently-downgraded
   participant MUST be restored to active status and an
   `observer_restore` audit event emitted.
-- **FR-011**: A human participant MUST NOT be silently downgraded.
-  If the lowest-priority active participant is the only human in the
-  session, the downgrade MUST be suppressed and an
-  `observer_downgrade_suppressed` audit event emitted instead.
+- **FR-011**: A human participant MUST NOT be downgraded under any
+  circumstance, regardless of how many humans are in the session.
+  Humans are excluded from the downgrade-candidate pool entirely
+  (spec amendment 2026-05-07; original FR-011 protected only the
+  last human, but humans always rank lowest under the composite
+  priority key because their `model_tier` is `"n/a"`, making them
+  perpetual candidates and producing one Suppressed audit-row per
+  evaluation cycle for any single-human session). The
+  `observer_downgrade_suppressed` audit-row writer remains as
+  defense-in-depth: if any future code path produces a downgrade
+  decision targeting a human, that decision MUST become a Suppressed
+  event with no role mutation.
 - **FR-012**: Per-turn observer-downgrade evaluation cost MUST be
   captured in `routing_log` per spec 003 §FR-030 so regressions
   surface per-stage.
