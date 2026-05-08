@@ -68,43 +68,15 @@ not blocked).
 
 ## Clarifications
 
-### Initial draft assumptions requiring confirmation
+### Session 2026-05-08
 
-- **Source IP determination behind a proxy.** SACP's deployment
-  guidance (`sacp-design.md` §7.4) names "TLS-terminating reverse
-  proxy" as a valid topology. Behind a proxy, the immediate peer
-  is always the proxy IP — defeating per-IP limiting. Drafted
-  with `X-Forwarded-For` / `Forwarded` header parsing controlled
-  by `SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS`, defaulting
-  to false (refuse to trust proxied headers absent explicit opt-in).
-  When false, the limiter uses the immediate peer IP. [NEEDS
-  CLARIFICATION: confirm the conservative trust-by-opt-in stance
-  vs. a documented proxy whitelist mechanism.]
-- **Auth ordering — limiter strictly before auth.** Drafted as: the
-  limiter runs as the FIRST middleware on every non-exempt
-  request, BEFORE any token-shaped string is inspected, BEFORE
-  bcrypt is invoked, BEFORE TLS-internal session bookkeeping. This
-  is what the threat model requires — once bcrypt has been called,
-  the CPU cost has been paid. [NEEDS CLARIFICATION: confirm no
-  carve-outs for "first request from new client" or similar
-  graceful-onboarding paths that would weaken the pre-auth
-  guarantee.]
-- **Exempt path list.** User input names `/health` and `/metrics`.
-  Drafted as a fixed list, with `/metrics` cross-referencing spec
-  016 FR-002. Drafted as: `/health`, `/metrics`. No other paths
-  are exempt by default. [NEEDS CLARIFICATION: confirm the list
-  is fixed at these two and not operator-configurable in v1.]
-- **Limiter token bucket vs. fixed window.** Drafted as a token-
-  bucket algorithm (smooth burst handling, simpler tuning) rather
-  than a fixed window (sharper rejections, simpler implementation).
-  [NEEDS CLARIFICATION: confirm token-bucket vs. fixed-window
-  preference.]
-- **IPv4 vs. IPv6 keying.** Drafted as: full IPv4 address (32-bit)
-  and IPv6 /64 prefix (host portion only — IPv6 hosts often use
-  dynamic privacy addresses within their /64, and rate-limiting
-  per /64 prevents per-address rotation from defeating the
-  limiter). [NEEDS CLARIFICATION: confirm /64 keying for IPv6 vs.
-  full /128.]
+All five initial-draft questions resolved. Five matched the drafted defaults with no divergence.
+
+- **Source IP determination behind a proxy.** Trust-by-opt-in for forwarded headers. A single boolean env var `SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS` (default `false`) governs whether the middleware parses `Forwarded` (RFC 7239) or `X-Forwarded-For` headers. When `false`, the immediate peer IP is the source. No proxy-whitelist mechanism in v1 — operators who enable forwarded-header trust are responsible for ensuring the upstream proxy sanitizes inbound headers before forwarding. Codified by FR-011.
+- **Auth ordering — limiter strictly before auth.** No carve-outs. The limiter is the first middleware on every non-exempt request, BEFORE any token-shaped string is inspected, BEFORE bcrypt is invoked, BEFORE TLS-internal session bookkeeping. No "first request from new client" graceful-onboarding path — once bcrypt has been called, the CPU cost has been paid, so any onboarding path that bypasses the limiter would break the threat model. Codified by FR-001 and FR-002.
+- **Exempt path list.** Fixed at `/health` + `/metrics`, GET-only. Not operator-configurable in v1. A future spec may introduce a configurable set if observability tooling expands; for now, the limited surface is part of the contract. Other methods on those paths fall through to normal handling and ARE rate-limited. Codified by FR-006.
+- **Limiter algorithm.** Token bucket. Steady-state requests-per-minute (`SACP_NETWORK_RATELIMIT_RPM`) plus burst capacity (`SACP_NETWORK_RATELIMIT_BURST`). Smooth burst handling and simpler operator tuning won over fixed-window's sharper rejections. Codified by FR-003.
+- **IPv6 keying.** IPv6 keyed at `/64` prefix; IPv4 keyed at full `/32` (the full address). IPv6 hosts often use dynamic privacy addresses within their /64, so per-address keying would let an attacker rotate around the limiter inside a single subnet. The keyed form (not the raw IPv6 address) is what appears in audit entries. Codified by FR-004.
 
 ## User Scenarios & Testing *(mandatory)*
 
