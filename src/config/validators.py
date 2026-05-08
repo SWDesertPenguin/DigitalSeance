@@ -609,6 +609,125 @@ def validate_auto_mode_enabled() -> ValidationFailure | None:
     return None
 
 
+def validate_network_ratelimit_enabled() -> ValidationFailure | None:
+    """SACP_NETWORK_RATELIMIT_ENABLED: bool, default false. 019 §FR-001 / FR-014.
+
+    Master switch for the per-IP network rate limiter. When unset or 'false',
+    the middleware is NOT registered and pre-feature behavior is preserved
+    byte-identically (SC-006).
+    """
+    val = os.environ.get("SACP_NETWORK_RATELIMIT_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val.strip().lower() not in ("true", "false", "1", "0"):
+        return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_ENABLED",
+            f"must be 'true'/'false' (case-insensitive) or '1'/'0'; got {val!r}",
+        )
+    return None
+
+
+def validate_network_ratelimit_rpm() -> ValidationFailure | None:
+    """SACP_NETWORK_RATELIMIT_RPM: int [1, 6000], default 60. 019 §FR-003.
+
+    Required when SACP_NETWORK_RATELIMIT_ENABLED=true; the limiter requires a
+    budget to be useful. Unset paired with _ENABLED=true causes startup exit
+    per the spec's Configuration (V16) section.
+    """
+    enabled_raw = os.environ.get("SACP_NETWORK_RATELIMIT_ENABLED", "").strip().lower()
+    enabled = enabled_raw in ("true", "1")
+    val = os.environ.get("SACP_NETWORK_RATELIMIT_RPM")
+    if val is None or val.strip() == "":
+        if enabled:
+            return ValidationFailure(
+                "SACP_NETWORK_RATELIMIT_RPM",
+                "must be set when SACP_NETWORK_RATELIMIT_ENABLED=true",
+            )
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_RPM",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 6000:
+        return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_RPM",
+            f"must be in [1, 6000]; got {num}",
+        )
+    return None
+
+
+def validate_network_ratelimit_burst() -> ValidationFailure | None:
+    """SACP_NETWORK_RATELIMIT_BURST: int [1, 10000], default 15. 019 §FR-003.
+
+    Token-bucket capacity. Allows short bursts above the steady-state RPM.
+    Default 15 = 60/4 — quiet-then-active client can spike up to 15 requests
+    in a quarter-minute before the steady-state rate kicks in.
+    """
+    val = os.environ.get("SACP_NETWORK_RATELIMIT_BURST")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_BURST",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 10000:
+        return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_BURST",
+            f"must be in [1, 10000]; got {num}",
+        )
+    return None
+
+
+def validate_network_ratelimit_trust_forwarded_headers() -> ValidationFailure | None:
+    """SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS: bool, default false. 019 §FR-011.
+
+    Trust-by-opt-in for forwarded-header parsing. When false (default), the
+    middleware uses the immediate peer IP and ignores Forwarded (RFC 7239) /
+    X-Forwarded-For headers. When true, the operator is responsible for
+    ensuring the upstream proxy sanitizes inbound headers before forwarding.
+    """
+    val = os.environ.get("SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS")
+    if val is None or val.strip() == "":
+        return None
+    if val.strip().lower() not in ("true", "false", "1", "0"):
+        return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS",
+            f"must be 'true'/'false' (case-insensitive) or '1'/'0'; got {val!r}",
+        )
+    return None
+
+
+def validate_network_ratelimit_max_keys() -> ValidationFailure | None:
+    """SACP_NETWORK_RATELIMIT_MAX_KEYS: int [1024, 1_000_000], default 100_000. 019 §FR-004.
+
+    LRU bound on the per-IP budget map. When the map exceeds this size, the
+    least-recently-accessed entry is evicted. Memory bound is
+    MAX_KEYS x ~300 bytes per entry; default 100k = ~30MB worst case.
+    """
+    val = os.environ.get("SACP_NETWORK_RATELIMIT_MAX_KEYS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_MAX_KEYS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1024 <= num <= 1_000_000:
+        return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_MAX_KEYS",
+            f"must be in [1024, 1_000_000]; got {num}",
+        )
+    return None
+
+
 def validate_web_ui_cookie_key() -> ValidationFailure | None:
     """SACP_WEB_UI_COOKIE_KEY: required signing key for Web UI session cookies.
 
@@ -664,6 +783,11 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_dma_density_anomaly_rate_threshold,
     validate_dma_dwell_time_s,
     validate_auto_mode_enabled,
+    validate_network_ratelimit_enabled,
+    validate_network_ratelimit_rpm,
+    validate_network_ratelimit_burst,
+    validate_network_ratelimit_trust_forwarded_headers,
+    validate_network_ratelimit_max_keys,
 )
 
 

@@ -290,17 +290,15 @@ NOT carry the rejected request's headers, query string, or body.
 - **FR-001**: The orchestrator MUST register a per-IP rate-limiting
   middleware as the FIRST middleware on every inbound non-exempt
   HTTP request to the MCP server (port 8750) when
-  `SACP_NETWORK_RATELIMIT_ENABLED=true`.
+  `SACP_NETWORK_RATELIMIT_ENABLED=true` (= LAST `add_middleware`
+  call per FastAPI's reverse-order registration semantics; see
+  contracts/middleware-ordering.md).
 - **FR-002**: The middleware MUST run BEFORE auth, BEFORE bcrypt
   validation, BEFORE any token-shaped string is inspected. The
   ordering MUST be enforced by the middleware-registration code
   and verified by a test that asserts middleware order at
   startup.
-- **FR-003**: The middleware MUST use a token-bucket algorithm
-  with capacity and refill rate derived from
-  `SACP_NETWORK_RATELIMIT_RPM` and
-  `SACP_NETWORK_RATELIMIT_BURST`. (Final algorithm settled in
-  `/speckit.plan` if a fixed-window alternative is adopted.)
+- **FR-003**: The middleware MUST use a token-bucket algorithm with capacity and refill rate derived from `SACP_NETWORK_RATELIMIT_RPM` and `SACP_NETWORK_RATELIMIT_BURST`. Each per-IP bucket initializes with `current_tokens = SACP_NETWORK_RATELIMIT_BURST` (full bucket) on first observation; this MUST NOT permit a single fresh IP to exceed BURST in its first window.
 - **FR-004**: The middleware MUST key per-IP as: full IPv4 address
   (32-bit) for IPv4 sources; /64 prefix for IPv6 sources. The
   keying form is captured in audit entries (FR-009) but the raw
@@ -332,22 +330,18 @@ NOT carry the rejected request's headers, query string, or body.
   with labels `(endpoint_class="network_per_ip",
   exempt_match=false)`. The metric MUST NOT include source IP,
   query string, headers, or body content in any label.
-- **FR-011**: When `SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS=false`
-  (the default), the middleware MUST use the immediate peer IP.
-  When set to `true`, the middleware MUST parse the rightmost-
-  trusted entry of the `Forwarded` header per RFC 7239 (or
-  `X-Forwarded-For` as fallback) and use that as the source IP.
+- **FR-011**: When `SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS=false` (the default), the middleware MUST use the immediate peer IP. When set to `true`, the middleware MUST parse the rightmost entry of the `Forwarded` header per RFC 7239 (in v1 there is no proxy-trust whitelist per C1 resolution; the operator's responsibility for sanitizing upstream-supplied headers makes "trusted" equivalent to "rightmost"; see [research.md §4](./research.md)) — or `X-Forwarded-For` rightmost as fallback — and use that as the source IP.
 - **FR-012**: When the source IP cannot be determined for a
   request, the middleware MUST reject with HTTP 400 and audit as
   `source_ip_unresolvable`. The rejection counter MUST increment
   with `exempt_match=false`.
-- **FR-013**: All four new `SACP_NETWORK_RATELIMIT_*` env vars
+- **FR-013**: All five new `SACP_NETWORK_RATELIMIT_*` env vars
   MUST have validator functions in `src/config/validators.py`
   registered in the `VALIDATORS` tuple, and corresponding
   sections in `docs/env-vars.md` with the six standard fields
   BEFORE `/speckit.tasks` is run for this spec (V16 deliverable
   gate).
-- **FR-014**: When all four env vars are unset, the orchestrator's
+- **FR-014**: When all five env vars are unset, the orchestrator's
   pre-feature behavior MUST be byte-identical: no middleware
   registered, no rejections, no audit entries for network-layer
   events, and the pre-feature acceptance suite passes unmodified.
@@ -364,8 +358,8 @@ NOT carry the rejected request's headers, query string, or body.
 - **PerIPBudget** (process-scope, in-memory) — the token-bucket
   state per source-IP keyed form:
   `(source_ip_keyed, current_tokens, last_refill_at)`. Bounded
-  by `SACP_NETWORK_RATELIMIT_MAX_KEYS` (FR-013) to prevent
-  unbounded memory growth from random source IPs.
+  by `SACP_NETWORK_RATELIMIT_MAX_KEYS` (see [data-model.md §PerIPBudget](./data-model.md))
+  to prevent unbounded memory growth from random source IPs.
 - **NetworkRateLimitRejectedRecord** (audit) — captures
   rejections per FR-009 (with coalescing).
 - **ExemptPathRegistry** — fixed list of exempt
@@ -401,7 +395,7 @@ NOT carry the rejected request's headers, query string, or body.
   rate-limit counters unchanged, conversation state unchanged,
   audit-log entries other than `network_rate_limit_rejected`
   unchanged.
-- **SC-006**: With all four env vars unset, the full pre-feature
+- **SC-006**: With all five env vars unset, the full pre-feature
   acceptance suite passes byte-identically — verified in CI.
 - **SC-007**: With any env var set to an invalid value, the
   orchestrator process exits at startup with a clear error
@@ -476,7 +470,7 @@ spec contributes three budgets:
 
 ## Configuration (V16) — New Env Vars
 
-Four new `SACP_NETWORK_RATELIMIT_*` env vars are introduced. Each
+Five new `SACP_NETWORK_RATELIMIT_*` env vars are introduced. Each
 MUST have type, valid range, and fail-closed semantics documented
 in `docs/env-vars.md` BEFORE `/speckit.tasks` is run for this spec
 (per V16 deliverable gate).
@@ -493,9 +487,9 @@ in `docs/env-vars.md` BEFORE `/speckit.tasks` is run for this spec
 
 - **Intended type**: positive integer, requests per minute
 - **Intended valid range**: `1 <= value <= 6000`. Operator picks
-  based on expected legitimate-client behavior; default settled
-  in `/speckit.plan` (likely 60 — one request per second on
-  average per IP, generous for human-driven MCP clients).
+  based on expected legitimate-client behavior; default `60`
+  (one request per second on average per IP, generous for
+  human-driven MCP clients per plan.md).
 - **Fail-closed semantics**: unset paired with
   `SACP_NETWORK_RATELIMIT_ENABLED=true` MUST cause startup exit
   (the limiter requires a budget to be useful).
@@ -506,8 +500,8 @@ in `docs/env-vars.md` BEFORE `/speckit.tasks` is run for this spec
 - **Intended valid range**: `1 <= value <= 10000`. Burst capacity
   for the token bucket — allows short bursts above the steady-
   state rate.
-- **Fail-closed semantics**: unset means a default settled in
-  `/speckit.plan` (likely `RPM / 4` to allow 15-second bursts).
+- **Fail-closed semantics**: unset means default `15` (= RPM/4,
+  allows ~15-second bursts above steady state per plan.md).
   Out-of-range values MUST cause startup exit per V16.
 
 ### `SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS`
@@ -519,10 +513,16 @@ in `docs/env-vars.md` BEFORE `/speckit.tasks` is run for this spec
   the proxy sanitizes upstream-supplied headers. Unparseable
   values MUST cause startup exit.
 
-(`SACP_NETWORK_RATELIMIT_MAX_KEYS` is referenced in FR-013 to
-bound memory; final naming and value range settled in
-`/speckit.plan`. Counted as part of the four-vars umbrella for
-docs/env-vars.md.)
+### `SACP_NETWORK_RATELIMIT_MAX_KEYS`
+
+- **Intended type**: positive integer, maximum number of keyed
+  source-IP entries held in the in-memory token-bucket map
+- **Intended valid range**: `1024 <= value <= 1_000_000`. Default
+  `100_000` per plan.md. The bound caps worst-case memory under
+  flood; LRU `OrderedDict.popitem(last=False)` evicts the
+  least-recently-accessed entry when the map exceeds this size.
+- **Fail-closed semantics**: unset means the default (`100_000`).
+  Out-of-range values MUST cause startup exit per V16.
 
 ## Cross-References to Existing Specs and Design Docs
 
@@ -543,10 +543,7 @@ docs/env-vars.md.)
   participant state.
 - **Spec 002 (mcp-server)** — the MCP server on port 8750 is
   the v1 surface protected by this middleware.
-- **Spec 016 (prometheus-metrics) FR-002** — `/metrics` is in
-  the rate-limit exemption set; this spec's FR-006 implements
-  the corresponding side. `sacp_rate_limit_rejection_total`
-  counter is the metric surface (FR-010).
+- **Spec 016 (prometheus-metrics) FR-002 + FR-011** — `/metrics` is in the rate-limit exemption set (spec 016 FR-002); this spec's FR-006 implements the corresponding side. The `sacp_rate_limit_rejection_total` counter is owned by spec 016 FR-011 (sourced from the §7.5 rate-limiter rejection path, one increment per rejection); spec 016's contracts/metrics.md is canonical for the counter name. This spec's contracts/metrics.md mirrors the labeling extension specific to network-layer rejections (`endpoint_class="network_per_ip"`, `exempt_match=false`) per FR-010.
 - **Spec 003 (turn-loop-engine) §FR-030** — `routing_log` per-
   stage timing capture; the limiter middleware's own duration
   surfaces through this channel (V14 budget).
@@ -577,9 +574,11 @@ docs/env-vars.md.)
   log volume against forensic granularity. Operators
   investigating an active flood can rely on the metrics surface
   for per-rejection counts; the audit log is the durable record.
+- Audit-log entries for `network_rate_limit_rejected` are best-effort durable across orchestrator restart: the per-(source_ip_keyed, minute) summary buckets held in the async flush task's in-memory state at shutdown are LOST. The metrics counter `sacp_rate_limit_rejection_total` retains per-rejection durability via the prometheus surface and IS the durable record of rejection counts. SC-008's volume bound assumes flush-task success; worst-case row loss is the un-flushed minute window at shutdown.
 - Memory for per-IP budget map is bounded by
   `SACP_NETWORK_RATELIMIT_MAX_KEYS` × small constant per entry;
   default settled in `/speckit.plan` to bound worst-case
   memory under flood.
+- Multi-worker FastAPI deployments (e.g., uvicorn `--workers N`, gunicorn) result in EACH worker holding its own independent `PerIPBudget` map; the per-IP budget is therefore effectively `RPM × N` for an N-worker deployment. Operators tuning `SACP_NETWORK_RATELIMIT_RPM` for multi-worker deployments MUST account for this; v1 ships single-worker semantics as the spec contract and treats multi-worker as an operator-tuning concern. A future amendment may introduce shared-state mechanisms (Redis, shared-memory) to consolidate per-IP budgets across workers.
 - Status remains Draft until the five flagged clarifications
   resolve and the user accepts the scaffolding.
