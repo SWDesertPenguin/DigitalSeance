@@ -152,6 +152,29 @@ class SessionRepository(BaseRepository):
             await _log_deletion(conn, session_id)
             await _delete_session_data(conn, session_id)
 
+    async def mark_conclude_phase_started(self, session_id: str) -> None:
+        """Set `sessions.conclude_phase_started_at = now()` for spec 025 FR-007.
+
+        Idempotent: a second call on a session already in conclude phase
+        is a no-op (the column UPDATE just rewrites the same timestamp;
+        callers should gate on `is_in_conclude_phase` first).
+        """
+        await self._execute(
+            "UPDATE sessions SET conclude_phase_started_at = NOW() WHERE id = $1",
+            session_id,
+        )
+
+    async def clear_conclude_phase(self, session_id: str) -> None:
+        """Null `conclude_phase_started_at` for spec 025 US3 (`conclude_phase_exited`).
+
+        Used by FR-013 cap-extension that returns the loop to running phase.
+        Defined here for repo-test cohesion; US3 wires the call site.
+        """
+        await self._execute(
+            "UPDATE sessions SET conclude_phase_started_at = NULL WHERE id = $1",
+            session_id,
+        )
+
     async def get_density_baseline(self, session_id: str) -> list[float]:
         """Read the rolling density baseline window (spec 004 §FR-020)."""
         record = await self._fetch_one(

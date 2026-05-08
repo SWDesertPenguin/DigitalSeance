@@ -128,3 +128,88 @@ def is_at_or_past_cap(
     if cap.turns is not None and elapsed_turns >= cap.turns:
         return True
     return cap.seconds is not None and elapsed_seconds >= cap.seconds
+
+
+def cap_from_session(session: object) -> SessionLengthCap:
+    """Build a SessionLengthCap from a Session row.
+
+    Loop call sites pass in the live session row; this helper isolates
+    the field-reading so future schema renames touch one place.
+    """
+    return SessionLengthCap(
+        kind=getattr(session, "length_cap_kind", "none") or "none",
+        seconds=getattr(session, "length_cap_seconds", None),
+        turns=getattr(session, "length_cap_turns", None),
+        conclude_phase_started_at=getattr(session, "conclude_phase_started_at", None),
+        active_seconds_accumulator=getattr(session, "active_seconds_accumulator", None),
+    )
+
+
+def is_in_conclude_phase(session: object) -> bool:
+    """True when the session row's `conclude_phase_started_at` is non-null.
+
+    The persistence-layer marker for conclude-phase membership; once set,
+    every dispatch injects the Tier 4 delta and the cadence falls to floor.
+    Cleared on US3's `conclude_phase_exited` transition.
+    """
+    return getattr(session, "conclude_phase_started_at", None) is not None
+
+
+def should_finalize_conclude_phase(
+    *,
+    current_turn: int,
+    conclude_started_turn: int,
+    active_ai_count: int,
+) -> bool:
+    """True when every active AI has had its one conclude turn (FR-011).
+
+    Counts turns dispatched since the conclude phase started. When that
+    count meets or exceeds the number of active AIs at conclude start,
+    the next iteration triggers the final summarizer + auto-pause.
+    """
+    if active_ai_count <= 0:
+        return True
+    return (current_turn - conclude_started_turn) >= active_ai_count
+
+
+@dataclass(frozen=True, slots=True)
+class CapEvaluation:
+    """Outcome of one per-dispatch cap-check (T032 / T033 plumbing).
+
+    `enter_conclude` is True when the loop should transition running -> conclude
+    on this iteration. `trigger_dimension` names which cap dimension crossed
+    (`'turns'` / `'time'` / `'both'`) for the routing-log row. Both fields
+    are None on no-op evaluations (cap inactive OR threshold not crossed OR
+    already in conclude phase).
+    """
+
+    enter_conclude: bool
+    trigger_dimension: str | None
+
+
+def evaluate_per_dispatch_cap(
+    cap: SessionLengthCap,
+    *,
+    elapsed_turns: int,
+    elapsed_seconds: int,
+    already_in_conclude: bool,
+    trigger_fraction: float = DEFAULT_TRIGGER_FRACTION,
+) -> CapEvaluation:
+    """Compute the per-dispatch FSM decision for `running -> conclude`.
+
+    Pure function so the loop call site is a single conditional and the
+    decision is unit-testable without DB or routing_log fakes. Returns
+    a no-op evaluation when ``already_in_conclude`` is True so the
+    transition is recorded exactly once per phase entry.
+    """
+    if already_in_conclude or not cap.is_active:
+        return CapEvaluation(enter_conclude=False, trigger_dimension=None)
+    dim = evaluate_trigger_fraction(
+        cap,
+        elapsed_turns=elapsed_turns,
+        elapsed_seconds=elapsed_seconds,
+        trigger_fraction=trigger_fraction,
+    )
+    if dim is None:
+        return CapEvaluation(enter_conclude=False, trigger_dimension=None)
+    return CapEvaluation(enter_conclude=True, trigger_dimension=dim)

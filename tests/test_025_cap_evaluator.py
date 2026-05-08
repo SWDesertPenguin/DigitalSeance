@@ -21,9 +21,14 @@ import pytest
 
 from src.orchestrator.length_cap import (
     DEFAULT_TRIGGER_FRACTION,
+    CapEvaluation,
     SessionLengthCap,
+    cap_from_session,
+    evaluate_per_dispatch_cap,
     evaluate_trigger_fraction,
     is_at_or_past_cap,
+    is_in_conclude_phase,
+    should_finalize_conclude_phase,
 )
 
 # ---------------------------------------------------------------------------
@@ -174,3 +179,128 @@ def test_both_either_dimension_triggers_at_cap() -> None:
 def test_negligible_elapsed_does_not_trigger(turns: int) -> None:
     cap = SessionLengthCap(kind="turns", turns=20)
     assert evaluate_trigger_fraction(cap, elapsed_turns=turns, elapsed_seconds=0) is None
+
+
+# ---------------------------------------------------------------------------
+# evaluate_per_dispatch_cap (loop call-site contract)
+# ---------------------------------------------------------------------------
+
+
+def test_per_dispatch_no_op_when_inactive() -> None:
+    cap = SessionLengthCap()
+    out = evaluate_per_dispatch_cap(
+        cap, elapsed_turns=0, elapsed_seconds=0, already_in_conclude=False
+    )
+    assert out == CapEvaluation(enter_conclude=False, trigger_dimension=None)
+
+
+def test_per_dispatch_no_op_when_already_in_conclude() -> None:
+    """Once in conclude phase, the trigger transition is recorded only once."""
+    cap = SessionLengthCap(kind="turns", turns=20)
+    out = evaluate_per_dispatch_cap(
+        cap, elapsed_turns=18, elapsed_seconds=0, already_in_conclude=True
+    )
+    assert out.enter_conclude is False
+
+
+def test_per_dispatch_enter_on_threshold_cross() -> None:
+    cap = SessionLengthCap(kind="turns", turns=20)
+    out = evaluate_per_dispatch_cap(
+        cap, elapsed_turns=16, elapsed_seconds=0, already_in_conclude=False
+    )
+    assert out.enter_conclude is True
+    assert out.trigger_dimension == "turns"
+
+
+def test_per_dispatch_below_threshold() -> None:
+    cap = SessionLengthCap(kind="turns", turns=20)
+    out = evaluate_per_dispatch_cap(
+        cap, elapsed_turns=10, elapsed_seconds=0, already_in_conclude=False
+    )
+    assert out.enter_conclude is False
+
+
+# ---------------------------------------------------------------------------
+# cap_from_session and is_in_conclude_phase (T038 plumbing)
+# ---------------------------------------------------------------------------
+
+
+class _FakeSession:
+    def __init__(self, **fields: object) -> None:
+        for name, value in fields.items():
+            setattr(self, name, value)
+
+
+def test_cap_from_session_default_inactive() -> None:
+    session = _FakeSession(
+        length_cap_kind="none",
+        length_cap_seconds=None,
+        length_cap_turns=None,
+        conclude_phase_started_at=None,
+        active_seconds_accumulator=None,
+    )
+    cap = cap_from_session(session)
+    assert cap.is_active is False
+
+
+def test_cap_from_session_active_turns() -> None:
+    session = _FakeSession(
+        length_cap_kind="turns",
+        length_cap_seconds=None,
+        length_cap_turns=20,
+        conclude_phase_started_at=None,
+        active_seconds_accumulator=None,
+    )
+    cap = cap_from_session(session)
+    assert cap.kind == "turns"
+    assert cap.turns == 20
+    assert cap.is_active is True
+
+
+def test_is_in_conclude_phase_false_when_null() -> None:
+    session = _FakeSession(conclude_phase_started_at=None)
+    assert is_in_conclude_phase(session) is False
+
+
+def test_is_in_conclude_phase_true_when_set() -> None:
+    from datetime import datetime
+
+    session = _FakeSession(conclude_phase_started_at=datetime.now())
+    assert is_in_conclude_phase(session) is True
+
+
+# ---------------------------------------------------------------------------
+# should_finalize_conclude_phase (FR-011)
+# ---------------------------------------------------------------------------
+
+
+def test_finalize_zero_active_ai_immediately() -> None:
+    """No active participants -> finalize on first check (edge case from spec)."""
+    assert (
+        should_finalize_conclude_phase(current_turn=20, conclude_started_turn=16, active_ai_count=0)
+        is True
+    )
+
+
+def test_finalize_below_quota() -> None:
+    """At turn 17 with 3 active AIs needing conclude turns, NOT yet finalize."""
+    assert (
+        should_finalize_conclude_phase(current_turn=17, conclude_started_turn=16, active_ai_count=3)
+        is False
+    )
+
+
+def test_finalize_at_quota() -> None:
+    """At turn 19 (16 + 3), every active AI has had its conclude turn."""
+    assert (
+        should_finalize_conclude_phase(current_turn=19, conclude_started_turn=16, active_ai_count=3)
+        is True
+    )
+
+
+def test_finalize_past_quota() -> None:
+    """Cap-decrease scenario can leave us past the quota (still finalize)."""
+    assert (
+        should_finalize_conclude_phase(current_turn=25, conclude_started_turn=16, active_ai_count=3)
+        is True
+    )
