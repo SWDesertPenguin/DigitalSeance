@@ -63,6 +63,13 @@ declaration recorded 2026-05-05 satisfies the phase gate; this
 spec stays scaffold-only until tasks land and implementation
 reaches Implemented status.
 
+### Glossary
+
+- **Shaping pipeline**: the umbrella term for everything this spec adds — filler scoring, retry orchestration, register slider, per-participant override, and the prompt-assembler Tier 4 deltas. The pipeline runs after a model produces an output and before the orchestrator persists it.
+- **Filler scorer**: one component of the shaping pipeline. Computes a numeric score in `[0.0, 1.0]` from three signals (hedge ratio, restatement overlap, closing-pattern density) and triggers retry orchestration when the score exceeds a threshold.
+- **Verbosity reduction**: the user-facing problem the filler scorer addresses (the spec title's first half). Not a separate component — it's the outcome the scorer + retry mechanism produce.
+- **Register slider**: the facilitator-controlled selector (1-5) that emits canonical Tier 4 prompt deltas. Distinct from the filler scorer; the two operate on orthogonal dimensions (verbosity vs register).
+
 ## Clarifications
 
 ### 2026-05-07 — Resolutions
@@ -271,13 +278,7 @@ resume the session — override survives. Remove the participant
   values with `register_source='session'` and the session's
   current slider value (which itself defaults to
   `SACP_REGISTER_DEFAULT` if never set).
-- **Tightened-delta retry produces output IDENTICAL to the
-  original.** This indicates the model isn't responding to the
-  delta. Both drafts score identically; the pipeline still
-  consumes its retry budget (up to two) and persists the final
-  draft per FR-004's exhausted-retry rule. A `routing_log` row
-  records the equality so operators can spot model insensitivity
-  to the delta.
+- **Tightened-delta retry produces output IDENTICAL to the original.** This indicates the model isn't responding to the delta. Both drafts score identically; the pipeline still consumes its retry budget (up to two) and persists the final draft per FR-004's exhausted-retry rule. A `routing_log` row records the equality so operators can spot model insensitivity to the delta. The pipeline still consumes its retry budget (up to two attempts) even when the model's output is unchanged across attempts; v1 does NOT short-circuit on byte-identity because model insensitivity to a tightening delta is rare and the branch complexity isn't worth it. Operators observing high "no-progress" retry rates should tune `SACP_FILLER_THRESHOLD` upward rather than expect early-out behavior.
 - **Sentence-transformers embedding pipeline (spec 004) is
   unavailable.** The restatement signal returns `0.0` (no
   detected overlap) and a warning is logged. The hedge and
@@ -296,24 +297,14 @@ resume the session — override survives. Remove the participant
   1-3 turns' embeddings via spec 004's pipeline), and
   boilerplate closing detection (regex against a hardcoded
   pattern list).
-- **FR-002**: The aggregate filler score MUST be a weighted sum
-  of the three signals normalized to 0.0-1.0. Default weights
-  (hedge 0.5, restatement 0.3, closing 0.2) live in the per-
-  model profile and are tunable per provider family.
+- **FR-002**: The filler score MUST be a weighted sum of three normalized signals (hedge ratio, restatement overlap, closing-pattern density), each in `[0.0, 1.0]`. Weights MUST sum to `1.0` and live in the per-model `BehavioralProfile`. v1 ships uniform weights `(hedge=0.5, restatement=0.3, closing=0.2)` across all provider families; only `default_threshold` varies per family. Per-family weight overrides are RESERVED future work and not part of v1.
 - **FR-003**: A **per-model behavioral profile** MUST map each
   provider family (anthropic, openai, gemini, groq, ollama,
   vllm) to a default `SACP_FILLER_THRESHOLD` value plus default
   signal weights. Profiles MUST live in
   `src/orchestrator/shaping.py` as a hardcoded dict; per-model
   overrides land in a follow-up amendment.
-- **FR-004**: When the aggregate filler score exceeds
-  `SACP_FILLER_THRESHOLD` for the participant's provider family,
-  the orchestrator MUST fire a tightened-Tier-4-delta retry. The
-  retry budget is **up to two retries** (hardcoded cap). After
-  the cap, evaluation stops, the most recent draft is persisted,
-  and `routing_log.reason='filler_retry_exhausted'` is emitted.
-  The cap is hardcoded — not env-tunable — to keep the worst-case
-  per-turn dispatch latency bounded.
+- **FR-004**: When the aggregate filler score exceeds `SACP_FILLER_THRESHOLD` for the participant's provider family, the orchestrator MUST fire a tightened-Tier-4-delta retry. The retry budget is **up to two retries** (hardcoded cap). After the cap (2 retries) is reached without a draft scoring below threshold, the second retry's draft is persisted (it is the most recent draft at cap exhaustion). If the first retry scored below threshold, that draft is persisted and no second retry fires. `routing_log.reason='filler_retry_exhausted'` is emitted on cap-exhaustion. The cap is hardcoded — not env-tunable — to keep the worst-case per-turn dispatch latency bounded.
 - **FR-005**: When the master switch `SACP_RESPONSE_SHAPING_ENABLED`
   is false, the filler scorer MUST NOT run. The original draft
   is persisted verbatim.
@@ -331,26 +322,14 @@ resume the session — override survives. Remove the participant
   registry into the prompt assembler (spec 008 §FR-008 Tier 4
   hook). Position 3 (Balanced) MUST emit no delta — tier text
   alone.
-- **FR-008**: A **per-participant register override** MUST be
-  settable by the facilitator; when set, it overrides the
-  session slider for that participant alone. Other participants
-  in the same session are unaffected. Override changes MUST be
-  recorded in `admin_audit_log` with actor, target participant,
-  old value, new value, and timestamp.
-- **FR-009**: The session register slider MUST default to
-  `SACP_REGISTER_DEFAULT` (range 1-5) at session creation. The
-  facilitator can change it at any time; each change is
-  audit-logged.
+- **FR-008**: A **per-participant register override** MUST be settable by the facilitator; when set, it overrides the session slider for that participant alone. Other participants in the same session are unaffected. Override changes MUST be recorded in `admin_audit_log` with actor, target participant, old value, new value, and timestamp. If the facilitator submits a slider value equal to the existing `session_register.slider_value` (or the existing override value, for participant overrides), the row IS updated (`last_changed_at` advances) and an audit row IS emitted (the operator's intent to confirm the value is itself an audit-relevant event). Lifecycle operations on `participant_register_override` rows are: SET (insert or update), CLEAR (delete the row, emits `participant_register_override_cleared` audit event), and LIST. v1 does NOT introduce a facilitator-tool LIST endpoint; operators auditing live overrides query the table directly OR reconstruct the active set from `admin_audit_log` events. A future amendment MAY introduce a list endpoint if operator workflows require it.
+- **FR-009**: When no `session_register` row exists for a session, the resolver returns `SACP_REGISTER_DEFAULT` with `register_source='session'`. The facilitator MAY set or update the slider value at any point during the session via the slider-set endpoint; the row is created on first set and updated thereafter. Each change is audit-logged.
 - **FR-010**: The `/me` endpoint MUST return three new fields
   per response: `register_slider` (int 1-5), `register_preset`
   (one of: direct, conversational, balanced, technical,
   academic), and `register_source` (one of: session,
-  participant_override).
-- **FR-011**: All shaping decisions (filler-score value, retry
-  fired y/n, retry-delta text, retry score) MUST be logged to
-  `routing_log` per spec 003 §FR-030. The per-stage timings
-  `shaping_score_ms` and `shaping_retry_dispatch_ms` MUST be
-  populated.
+  participant_override). The `register_source` enum is intentionally two-valued. When no `session_register` row exists, the resolved source is reported as `session` even though the underlying value is `SACP_REGISTER_DEFAULT`; collapsing default-fallback into `session` reflects the operator-facing semantic that the slider's default IS the session-level state in the absence of an explicit set. Operators auditing whether the facilitator explicitly set a value MUST consult the audit log for `session_register_changed` rather than relying on `register_source`.
+- **FR-011**: All shaping decisions (filler-score value, retry fired y/n, retry-delta text, retry score) MUST be logged to `routing_log` per spec 003 §FR-030. The per-stage timings `shaping_score_ms` and `shaping_retry_dispatch_ms` MUST be populated. One `routing_log` row is emitted per dispatch attempt: the original draft produces one row, and each shaping retry produces one additional row. The shaping fields (`shaping_score_ms`, `shaping_retry_dispatch_ms`, `filler_score`, `shaping_retry_delta_text`, `shaping_reason`) are populated per their per-row applicability rules in [data-model.md](./data-model.md).
 - **FR-012**: The filler scorer MUST reuse spec 004's
   `convergence_log.embedding` rows for restatement-overlap
   detection. No second embedding-model load is permitted.
@@ -364,6 +343,7 @@ resume the session — override survives. Remove the participant
     restatement, no closing."
   - 2 (Conversational): "Reply in a conversational register.
     Brief preamble acceptable; avoid academic register."
+    Note: preset 2's "avoid academic register" is in tension with preset 5 (Academic) when sessions cycle between presets across turns. v1 accepts this tension as benign; flag for shakedown observation if cross-preset cycling produces inconsistent register adherence in practice.
   - 3 (Balanced): no delta — tier text alone.
   - 4 (Technical): "Use precise technical register. Cite
     sources for non-obvious claims."
@@ -414,17 +394,8 @@ resume the session — override survives. Remove the participant
 
 ### Measurable Outcomes
 
-- **SC-001**: With `SACP_RESPONSE_SHAPING_ENABLED=true` on a
-  test corpus of hedge-heavy drafts (recorded from
-  Phase 1+2 shakedown sessions), the filler scorer MUST flag the
-  drafts as exceeding threshold AND the retry MUST produce a
-  tighter draft with a measurable token-count reduction (target:
-  ≥ 15% mean reduction on flagged drafts, calibrated against
-  the recorded corpus).
-- **SC-002**: With `SACP_RESPONSE_SHAPING_ENABLED=false`, every
-  pre-feature acceptance test MUST pass byte-identically. The
-  master switch fully disables the shaping pipeline; nothing
-  else changes.
+- **SC-001**: With `SACP_RESPONSE_SHAPING_ENABLED=true` on a test corpus of hedge-heavy drafts (recorded from Phase 1+2 shakedown sessions), the filler scorer MUST flag the drafts as exceeding threshold AND the retry MUST produce a tighter draft with a measurable token-count reduction (target: ≥ 15% mean reduction on flagged drafts, calibrated against the recorded corpus). SC-001's reduction percentage is a tuning target, not a CI-gate-enforceable contract: validation requires a representative shakedown corpus that varies by deployment. The implementation tests the scoring + retry mechanics; SC-001's percentage MUST be re-validated by the operator at deploy-time per `quickstart.md` Step 2 (threshold tuning).
+- **SC-002**: With `SACP_RESPONSE_SHAPING_ENABLED=false`, every pre-feature acceptance test MUST pass byte-identically. The master switch fully disables the shaping pipeline; nothing else changes. "byte-identical" applies at the user-facing API/transcript layer (message content, dispatch counts, cost values, audit-log content). The new `routing_log` columns added by this spec MAY exist as NULL-defaulted additions and MAY be observed by row-introspecting tests; their presence does not violate SC-002 because they carry no shaping-on values when the master switch is off.
 - **SC-003**: When all retries (up to two) exceed threshold the
   pipeline MUST result in exactly one persisted message (the
   second retry's output), one `routing_log` row with
@@ -471,6 +442,8 @@ is no orchestrator-side prompt assembler to inject Tier 4
 deltas into and no central post-output stage to run a filler
 scorer at. Per V12: any topology-7 deployment MUST recognize
 that this spec's shaping pipeline does not apply.
+
+A runtime topology gate (reading a `SACP_TOPOLOGY` env var at shaping-pipeline init to skip filler-scorer initialization and register-preset registration) is documented as design forward-work in [research.md §10](./research.md) and surfaced in [quickstart.md](./quickstart.md), but is **NOT implemented in v1**. Topology 7 isn't a runnable topology in Phase 3, the `SACP_TOPOLOGY` env var doesn't ship in this spec, and the structural absence of the orchestrator-side prompt assembler makes both the filler scorer and the register-preset emitter natural no-ops in topology 7 by absence-of-call-path rather than by runtime check. If/when topology 7 ships, this spec will be amended to add the runtime gate as a follow-up FR plus task; the gate is at the consumer (shaping-pipeline init), not at the V16 validators (which run unconditionally per V16 contract).
 
 ### V13 — Use Case Coverage
 
@@ -526,13 +499,8 @@ range, and fail-closed semantics documented in
 ### `SACP_FILLER_THRESHOLD`
 
 - **Intended type**: float in `[0.0, 1.0]`
-- **Intended valid range**: `[0.0, 1.0]` inclusive. Values
-  near 0.0 mean "flag almost every draft"; values near 1.0
-  mean "flag almost nothing." Default to be calibrated against
-  Phase 1+2 shakedown corpus during `/speckit.plan`; pre-calibration
-  default placeholder `0.6`.
-- **Fail-closed semantics**: outside `[0.0, 1.0]` MUST cause
-  startup exit with a clear error.
+- **Intended valid range**: `[0.0, 1.0]` inclusive. Values near 0.0 mean "flag almost every draft"; values near 1.0 mean "flag almost nothing." The env var when unset falls through to per-family defaults baked into `BehavioralProfile`: anthropic/openai = `0.60`, gemini/groq/ollama/vllm = `0.55`. The env var, when set, overrides the per-family default uniformly across all families. Per-family env-var overrides are RESERVED future work.
+- **Fail-closed semantics**: outside `[0.0, 1.0]` MUST cause startup exit with a clear error.
 
 ### `SACP_REGISTER_DEFAULT`
 
@@ -639,9 +607,4 @@ range, and fail-closed semantics documented in
   spec stays scaffold-only until tasks are scheduled. No
   implementation begins on this spec until the user invokes
   `/speckit.clarify` and subsequent workflow steps.
-- Status remains Draft until clarifications resolve and the
-  user accepts the scaffolding. The "Phase 3 declared 2026-05-05"
-  notation in the Status field is informational; it does not
-  itself flip the spec to Implemented (per
-  `feedback_dont_declare_phase_done.md`, the status flip is
-  the user's call).
+- Status was flipped to Clarified on 2026-05-07 after the six initial-draft clarifications resolved; subsequent edits remain in scope without re-entering Draft. The "Phase 3 declared 2026-05-05" notation in the Status field is informational; it does not itself flip the spec to Implemented (per `feedback_dont_declare_phase_done.md`, the status flip is the user's call).

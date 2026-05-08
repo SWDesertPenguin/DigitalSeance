@@ -609,6 +609,27 @@ def validate_auto_mode_enabled() -> ValidationFailure | None:
     return None
 
 
+def validate_filler_threshold() -> ValidationFailure | None:
+    """SACP_FILLER_THRESHOLD: float in [0.0, 1.0]. 021 §FR-002 / FR-004.
+
+    Unset is allowed — per-family default from the BehavioralProfile dict
+    in src/orchestrator/shaping.py applies. When set, this env var
+    overrides every provider family's default uniformly per research.md §9.
+    """
+    val = os.environ.get("SACP_FILLER_THRESHOLD")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = float(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_FILLER_THRESHOLD",
+            f"must be a float; got {val!r}",
+        )
+    if not 0.0 <= num <= 1.0:
+        return ValidationFailure(
+            "SACP_FILLER_THRESHOLD",
+            f"must be in [0.0, 1.0]; got {num}",
 def validate_sacp_length_cap_default_kind() -> ValidationFailure | None:
     """SACP_LENGTH_CAP_DEFAULT_KIND enum default 'none'. 025 §FR-024."""
     val = os.environ.get("SACP_LENGTH_CAP_DEFAULT_KIND", "none")
@@ -640,6 +661,13 @@ def validate_sacp_length_cap_default_seconds() -> ValidationFailure | None:
     return None
 
 
+def validate_register_default() -> ValidationFailure | None:
+    """SACP_REGISTER_DEFAULT: int in {1,2,3,4,5}. 021 §FR-009 / FR-010.
+
+    Default 2 (Conversational) per spec §"Configuration (V16)" — applies
+    when no session_register row has been written for a session.
+    """
+    val = os.environ.get("SACP_REGISTER_DEFAULT")
 def validate_sacp_length_cap_default_turns() -> ValidationFailure | None:
     """SACP_LENGTH_CAP_DEFAULT_TURNS: empty OR positive int in [1, 10_000]. 025 §FR-024."""
     val = os.environ.get("SACP_LENGTH_CAP_DEFAULT_TURNS")
@@ -649,6 +677,13 @@ def validate_sacp_length_cap_default_turns() -> ValidationFailure | None:
         num = int(val)
     except ValueError:
         return ValidationFailure(
+            "SACP_REGISTER_DEFAULT",
+            f"must be integer; got {val!r}",
+        )
+    if num not in (1, 2, 3, 4, 5):
+        return ValidationFailure(
+            "SACP_REGISTER_DEFAULT",
+            f"must be in {{1,2,3,4,5}}; got {num}",
             "SACP_LENGTH_CAP_DEFAULT_TURNS",
             f"must be integer; got {val!r}",
         )
@@ -660,6 +695,20 @@ def validate_sacp_length_cap_default_turns() -> ValidationFailure | None:
     return None
 
 
+def validate_response_shaping_enabled() -> ValidationFailure | None:
+    """SACP_RESPONSE_SHAPING_ENABLED: bool. 021 §FR-005.
+
+    Default false — the master switch ships off so deployments opt in
+    explicitly. Accepts 'true'/'false' (case-insensitive) or '1'/'0' per
+    existing validator convention.
+    """
+    val = os.environ.get("SACP_RESPONSE_SHAPING_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val.strip().lower() not in ("true", "false", "1", "0"):
+        return ValidationFailure(
+            "SACP_RESPONSE_SHAPING_ENABLED",
+            f"must be 'true'/'false' (case-insensitive) or '1'/'0'; got {val!r}",
 def validate_sacp_conclude_phase_trigger_fraction() -> ValidationFailure | None:
     """SACP_CONCLUDE_PHASE_TRIGGER_FRACTION float in strict (0.0, 1.0). 025 §FR-005."""
     val = os.environ.get("SACP_CONCLUDE_PHASE_TRIGGER_FRACTION")
@@ -755,6 +804,9 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_dma_density_anomaly_rate_threshold,
     validate_dma_dwell_time_s,
     validate_auto_mode_enabled,
+    validate_filler_threshold,
+    validate_register_default,
+    validate_response_shaping_enabled,
     validate_sacp_length_cap_default_kind,
     validate_sacp_length_cap_default_seconds,
     validate_sacp_length_cap_default_turns,

@@ -164,6 +164,36 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Source spec(s)**: 004 §FR-020 (information-density anomaly threshold)
 - **Note**: Multiplier over the rolling 20-turn density baseline mean. A value of 1.5 means "flag turns whose density is more than 1.5× the recent average." Phase 1 retuning will be informed by `tests/calibration/density_distribution.json` once production sessions accumulate.
 
+### `SACP_FILLER_THRESHOLD`
+
+- **Default**: unset (per-family default from the `BehavioralProfile` dict in `src/orchestrator/shaping.py` applies — anthropic/openai default `0.60`; gemini/groq/ollama/vllm default `0.55`)
+- **Type**: float
+- **Valid range**: `0.0 <= value <= 1.0` (inclusive). Values near `0.0` flag almost every draft; values near `1.0` flag almost nothing. When set, this env var overrides the per-family default uniformly across all six provider families.
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_filler_threshold`
+- **Source spec(s)**: 021 §FR-002 / FR-003 / FR-004 (filler-scorer aggregate threshold)
+- **Note**: Operators tune this against observed retry-firing rate per provider family (per `quickstart.md` Step 2). Per-family thresholds are not env-tunable in v1 — that surface lands via a Constitution §14.2 amendment when session experience justifies it.
+
+### `SACP_REGISTER_DEFAULT`
+
+- **Default**: `2` (Conversational)
+- **Type**: integer
+- **Valid range**: `1` (Direct), `2` (Conversational), `3` (Balanced), `4` (Technical), `5` (Academic). Inclusive bounds.
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_register_default`
+- **Source spec(s)**: 021 §FR-009 / FR-010 (initial session-row fallback when no `session_register` row exists)
+- **Note**: Applied as the session-level slider when no facilitator has set one for a session. Once a facilitator sets the slider, the `session_register` row supersedes this default.
+
+### `SACP_RESPONSE_SHAPING_ENABLED`
+
+- **Default**: `false` — the master switch ships off so deployments opt in explicitly
+- **Type**: boolean
+- **Valid range**: `"true"` or `"false"` (case-insensitive); `"1"` or `"0"` accepted per existing validator convention
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_response_shaping_enabled`
+- **Source spec(s)**: 021 §FR-005 / SC-002 (master switch for the filler-scorer + retry pipeline)
+- **Note**: Setting this var to `false` MUST disable the entire filler-scorer + retry pipeline; pre-feature acceptance tests pass byte-identically (SC-002 regression contract). The register slider is independent of this switch — slider deltas always emit regardless of master-switch state, since the slider is a prompt-composition concern not a shaping concern (spec edge case).
+
 ## Reserved (documented but not yet wired)
 
 These vars appear in the debug-export config snapshot allowlist but are NOT consumed by application code. Operators setting them today will see the value in the debug snapshot but no behavioral effect. Validators land when application code starts consuming them — likely as part of a per-spec amendment cluster.
