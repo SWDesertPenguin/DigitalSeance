@@ -97,11 +97,12 @@ shared components exist before downstream specs need them.
   build with a clear error naming the missing/divergent key. No
   warning-only mode, no runtime fallback. Build override is not
   supported.
-- **Diff renderer engine.** Drafted as: line-by-line Myers diff
-  (the same algorithm choice spec 024's review-gate sub-panel
-  considered). Word-level diff is a configurable mode if
-  operators want it. [NEEDS CLARIFICATION: confirm Myers
-  line-by-line default vs. configurable.]
+- **Diff renderer engine.** Resolved 2026-05-08 (Session
+  below): Myers line-by-line as default; word-level exposed
+  as a per-row UI toggle inside the expanded row, computed
+  lazily on toggle click. The same Myers library handles
+  both modes (no second engine). Spec 024 FR-014 inherits
+  the engine + toggle by importing the DiffRenderer module.
 - **Diff size handling.** Resolved 2026-05-07 (Session below):
   thresholds are locked constants in the DiffRenderer module —
   ≤ 50KB main thread; 50KB-500KB Web Worker; > 500KB raw display.
@@ -134,21 +135,36 @@ shared components exist before downstream specs need them.
   debug-export (separate authorization, separate audit trail).
   Granularity may be tightened later (e.g., per-field list) in a
   backward-compatible way without breaking consumers.
-- **Sequence ordering when 029 lands ahead of 022 + 024.** User's
-  brief explicitly says 029 ships first. Drafted as: 029's modules
-  ship as registered components; 022 and 024 reference them at
-  their respective implementation times via spec amendments to
-  add FRs that consume the modules. [NEEDS CLARIFICATION: confirm
-  amendment-on-022-and-024-when-they-implement vs.
-  pre-write-amendments-now.]
-- **WS event name and payload.** Drafted as: `audit_log_appended`
-  WS event with payload `{actor, action, target, timestamp,
-  previous_value, new_value, summary}`. Mirrors spec 022's
-  `detection_event` event shape for naming consistency.
-  [NEEDS CLARIFICATION: confirm event name + payload shape.]
+- **Sequence ordering when 029 lands ahead of 022 + 024.**
+  Resolved 2026-05-08 (Session below): 029 ships its modules
+  as registered components; FR-text amendments to 022 and 024
+  are deferred to those specs' implementation times. To pin
+  the integration surface NOW so downstream specs can plan
+  against a stable contract, 029 ships
+  `contracts/shared-module-contracts.md` alongside its plan
+  documenting module paths, public signatures, prop interfaces,
+  and threshold constants. Specs 022 and 024 cite the contract
+  doc when they amend. FR-019 references the contract as the
+  integration anchor.
+- **WS event name and payload.** Resolved 2026-05-08
+  (Session below): name is `audit_log_appended`; payload
+  matches the FR-001 endpoint row shape verbatim (`id,
+  timestamp, actor_id, actor_display_name, action,
+  action_label, target_id, target_display_name,
+  previous_value, new_value, summary` — the latter two
+  already server-scrubbed when applicable per FR-014).
+  Same naming convention as spec 022's `detection_event`.
 - **Phase 1+2 shakedown reference.** Paraphrased without test
   session IDs per the established pattern. Confirm the
   paraphrase is acceptable.
+
+### Session 2026-05-08
+
+- Q: WebSocket event broadcast scope (FR-010) — facilitator-only role-filter, all-participants with full payload, all-participants with redacted payload, or defer to `/speckit.plan`? → A: Facilitator-only role-filter via `broadcast_to_session_roles(session_id, roles=["facilitator"], ...)`. Mirrors spec 011 SR-010 pattern; closes the WS leak that would otherwise contradict FR-002's facilitator-only HTTP access guarantee. Non-facilitator participants never receive `audit_log_appended` payloads.
+- Q: Diff renderer engine (FR-008) — Myers line-only, Myers with word-level UI toggle, Myers with word-level prop, Patience, or defer? → A: Myers line-by-line as default, word-level exposed as a per-row UI toggle inside the expanded row. Word-level is computed lazily on toggle click; same library handles both modes. Spec 024 FR-014 inherits the same engine + toggle when it imports the module.
+- Q: Action-label registry shape (FR-006 vs. FR-014) — `dict[str, str]` plus separate `SCRUB_ACTIONS` set, `dict[str, dict[str, Any]]` with embedded flags, dataclass-typed entries, or defer? → A: `dict[str, dict[str, Any]]` where each entry is `{"label": str, "scrub_value": bool}` (default `False`). Parity gate checks key-set + label parity across backend / frontend modules; `scrub_value` is backend-only (frontend renders `[scrubbed]` from server-pushed payload, not from the flag). Resolves the FR-006/FR-014 contradiction; future flags slot in without breaking the parity check.
+- Q: WS event name + payload shape (FR-010) — name `audit_log_appended` confirmed; raw row vs. decorated row vs. notify-only vs. namespaced name vs. defer? → A: Name is `audit_log_appended`. Payload matches the FR-001 endpoint row shape verbatim — includes `id, timestamp, actor_id, actor_display_name, action, action_label, target_id, target_display_name, previous_value, new_value, summary` (with `previous_value` / `new_value` already replaced by `"[scrubbed]"` server-side when the action's `scrub_value` flag is true, per FR-014). The server pays the decoration cost once; the SPA renders WS-pushed rows through the same code path as API-fetched rows; including `id` lets the client deduplicate against an in-flight HTTP refetch.
+- Q: 022 / 024 amendment timing (FR-019) — pre-write amendments now, defer with shared-contract doc, defer with no contract, both, or defer to plan? → A: Defer FR-text amendments to 022 / 024 implementation time; ship a `contracts/shared-module-contracts.md` document NOW alongside 029's plan that pins module paths, public signatures, prop interfaces, and threshold constants. Specs 022 and 024 cite the contract when they amend. FR-019 references the contract doc as the integration anchor; FR-020's architectural test verifies no parallel audit-action-to-label mapping exists outside 029's module.
 
 ### Session 2026-05-07
 
@@ -376,13 +392,16 @@ public APIs.
 
 1. **Given** the spec is implemented, **When** the
    `src/orchestrator/audit_labels.py` module is imported,
-   **Then** it MUST export a `LABELS: dict[str, str]` mapping
-   from action strings to human-readable labels.
+   **Then** it MUST export a `LABELS: dict[str, dict[str,
+   Any]]` mapping from action strings to entries containing
+   `label: str` (and optionally `scrub_value: bool`) per
+   FR-006.
 2. **Given** the spec is implemented, **When** the
    `src/web_ui/static/audit_labels.js` module is loaded by
    the SPA, **Then** it MUST export a `LABELS` object with
-   the same keys and values as the Python module (parity
-   enforced by CI gate per FR-006).
+   the same keys as the Python module AND each entry's
+   `label` field MUST match exactly (parity enforced by CI
+   gate per FR-006; `scrub_value` is backend-only).
 3. **Given** the parity gate runs in CI, **When** the
    backend module gains a new action without a frontend
    mirror, **Then** the build MUST fail with a clear error
@@ -472,10 +491,18 @@ public APIs.
 - **FR-006**: An action-label registry MUST exist as paired
   modules: backend Python (`src/orchestrator/audit_labels.py`)
   and frontend JS (`src/web_ui/static/audit_labels.js`). The
-  backend module is the source of truth. A CI gate
+  backend module is the source of truth. The registry shape
+  MUST be `dict[str, dict[str, Any]]` keyed by action string;
+  each entry MUST contain `label: str` (the human-readable
+  English label) and MAY contain `scrub_value: bool` (default
+  `False`, backend-only — see FR-014). The frontend module
+  exports the same shape minus `scrub_value`, which is not
+  needed client-side because the API renders `[scrubbed]`
+  server-side per FR-014. A CI gate
   (`scripts/check_audit_label_parity.py`) MUST enforce
-  parity — every backend key has a frontend mirror with
-  matching English text. Build fails on drift.
+  parity — every backend key MUST have a frontend mirror,
+  and the `label` field MUST match exactly across the two
+  modules. Build fails on drift.
 - **FR-007**: API responses MUST include `action_label`
   (the human-readable label from the registry) alongside
   the raw `action` string. Clients render the label;
@@ -484,12 +511,18 @@ public APIs.
 - **FR-008**: A diff renderer component MUST exist at
   `src/web_ui/static/components/DiffRenderer.tsx` (or .jsx)
   accepting `(previousValue, newValue, format)` props.
-  Format values: `json` | `text` | `auto`. The renderer
-  MUST ship size thresholds as locked module constants
-  (≤ 50KB main thread; 50KB-500KB Web Worker; > 500KB raw
-  display) with no per-call override and no env-var tuning.
-  Spec 024 FR-014 inherits these numbers by importing the
-  module; the values match exactly.
+  Format values: `json` | `text` | `auto`. Diff engine MUST
+  be Myers line-by-line as the default mode; the component
+  MUST expose a per-row word-level toggle inside the
+  expanded row that, on click, lazily recomputes the diff
+  at word granularity using the same Myers library (no
+  second engine, no `mode` prop on the component API).
+  The renderer MUST ship size thresholds as locked module
+  constants (≤ 50KB main thread; 50KB-500KB Web Worker;
+  > 500KB raw display) with no per-call override and no
+  env-var tuning. Spec 024 FR-014 inherits engine, mode
+  toggle, and thresholds by importing the module; the
+  values match exactly.
 - **FR-009**: A time formatter MUST exist as paired modules:
   backend Python (`src/orchestrator/time_format.py`) and
   frontend JS (`src/web_ui/static/time_format.js`). The two
@@ -503,11 +536,23 @@ public APIs.
   ago"). No env-var tuning of the primary format.
 - **FR-010**: The viewer MUST update via WebSocket push
   when a new `admin_audit_log` row is written for the
-  active session. WS event name `audit_log_appended` (or
-  similar; settled in `/speckit.plan`) with payload
-  including the new row's content. Update propagation P95
-  ≤ 2s from row write to client render (matches spec 022
-  SC-002).
+  active session. The WS event name MUST be
+  `audit_log_appended`. The payload MUST match the FR-001
+  endpoint's per-row shape verbatim — `{id, timestamp,
+  actor_id, actor_display_name, action, action_label,
+  target_id, target_display_name, previous_value, new_value,
+  summary}` — with `previous_value` / `new_value` already
+  replaced by `"[scrubbed]"` server-side when the action's
+  `scrub_value` flag is true (per FR-014). The event MUST
+  be role-filtered — broadcast only to facilitator
+  subscribers via `broadcast_to_session_roles(session_id,
+  roles=["facilitator"], ...)` (mirrors spec 011 SR-010);
+  non-facilitator participants never receive the event
+  payload. Update propagation P95 ≤ 2s from row write to
+  facilitator-client render (matches spec 022 SC-002).
+  The SPA MUST render WS-pushed rows through the same
+  code path as API-fetched rows, deduplicating by `id`
+  against any in-flight HTTP refetch.
 - **FR-011**: Filtering MUST support three axes:
   - Actor (facilitator id, participant id, or `Orchestrator`)
   - Action type (any of the registered action labels)
@@ -520,10 +565,16 @@ public APIs.
   match the active filter, so operators see when filters
   are hiding new activity.
 - **FR-014**: Action-label registry entries MAY include a
-  `scrub_value: bool` flag. Rows with the flag true MUST
-  display `[scrubbed]` placeholders for `previous_value` and
-  `new_value` in the panel; the raw values remain available
-  via spec 010 debug-export.
+  `scrub_value: bool` flag (per FR-006's `dict[str,
+  dict[str, Any]]` shape). When the flag is true on an
+  action, the FR-001 endpoint MUST replace `previous_value`
+  and `new_value` with the literal string `"[scrubbed]"` in
+  the response payload BEFORE shipping; the SPA renders the
+  scrubbed string verbatim with no client-side decision.
+  The raw values remain available via spec 010 debug-export
+  (separate authorization, separate audit trail). The
+  scrubbing decision is server-side so non-facilitator
+  defenses do not depend on a client honoring the flag.
 - **FR-015**: When the action string in a row is not in
   the registry (drift between deployment and registry), the
   viewer MUST display `[unregistered: <raw_action>]` AND
@@ -550,9 +601,16 @@ public APIs.
 - **FR-019**: Specs 022 and 024 amendments MUST land
   alongside their respective implementations to add FRs
   that consume the action-label registry, diff renderer,
-  and time formatter from spec 029. Without those
-  amendments, 022 and 024 risk drift from spec 029's
-  shared components.
+  and time formatter from spec 029. To pin the integration
+  surface NOW so 022 and 024 can plan against a stable
+  contract, spec 029 MUST ship
+  `specs/029-audit-log-viewer/contracts/shared-module-contracts.md`
+  alongside its `/speckit.plan` output. The contract MUST
+  document module paths, public signatures, prop interfaces,
+  and the locked threshold constants from FR-008. Specs 022
+  and 024 cite this contract when they amend. Without the
+  contract document, the amendments risk drift from spec
+  029's shared components.
 - **FR-020**: An architectural test MUST assert no spec
   outside 029 reimplements an audit-action-to-label
   mapping. CI fails if 022 or 024 (or any future spec)

@@ -8,6 +8,13 @@
 
 ## Clarifications
 
+### Session 2026-05-08 (spec 029 audit-log-viewer amendment)
+
+- Q: Where does the entry-point affordance for the audit log viewer live in the SPA? → A: The facilitator admin panel grows a "View audit log" button (alongside pending approvals, invite generation, etc.) that opens the panel as a route at `/session/:id/audit`. Spec 011 FR-016's audit-log sub-bullet evolves from a debug-export-rendered listing into the dedicated audit panel from spec 029. The route is gated by FR-009 role check (facilitator-only) and by the spec 029 master switch (`SACP_AUDIT_VIEWER_ENABLED=true`).
+- Q: Does the audit panel render in-place (modal) or as a route? → A: Route at `/session/:id/audit` (path settled in spec 029 plan). A modal would crowd the existing facilitator admin panel and prevent direct linking; a route lets operators bookmark and share the audit URL within the operator team and survives a panel-close without losing filter state.
+- Q: How does the SPA handle the `audit_log_appended` WS event when the audit panel is NOT open? → A: The event is consumed silently — no toast, no badge on the admin-panel button. When the panel opens, it fetches the current state via the spec 029 endpoint, so missed pushes never produce data loss (the audit log is the durable source of truth). Adding an unread-count badge is a Phase 3+ enhancement gated on operator demand.
+- Q: How does row expansion route to the DiffRenderer? → A: A row-level expand affordance is shown ONLY for action types whose audit row contains non-null `previous_value` / `new_value` columns (e.g., `review_gate_edit`, `session_config_change`); rows whose action is value-less (e.g., `add_participant`) expand to plain row metadata without invoking the renderer. The DiffRenderer module (spec 029 FR-008) handles the `(previousValue, newValue, format)` props with `format='auto'` as the default; size thresholds are inherited from the spec 029 module's locked constants.
+- Q: Does this amendment promote spec 011's Status away from "Implemented"? → A: No. Spec 011's Phase 2 deliverables remain Implemented. The five new FRs (FR-025..FR-029) are Phase 3 deliverables tracked under spec 029's task list; they ship when spec 029 implements its viewer endpoint, WS event emitter, action-label registry, and DiffRenderer module. The `## Implementation Phases` section captures this split.
 ### Session 2026-05-07 (spec 025 length-cap amendment)
 
 - Q: Where does the cap-config control set live in the SPA? → A: Two surfaces share the same component — the session-create modal (US11 token-reveal flow) and the facilitator session-settings panel (US6 admin panel). The control offers four presets (Short / Medium / Long / Custom) and, when Custom is selected, hand-set inputs for `length_cap_seconds` and `length_cap_turns` per spec 025 FR-023.
@@ -225,6 +232,22 @@ AI-generated message content is rendered as markdown with mandatory security con
 
 ---
 
+### User Story 14 - Audit Log Viewer Surface (Priority: P2)
+
+The facilitator opens the audit log viewer from the admin panel and reviews every facilitator action, review-gate edit, participant lifecycle event, and session-config change for the current session in reverse-chronological order. Action labels render as human-readable English (e.g., "Facilitator removed Haiku" rather than `remove_participant`). Rows whose action carries `previous_value` / `new_value` columns expand into a side-by-side diff. Filter controls narrow the displayed set by actor, action type, and time range. New audit events arrive via WebSocket push within 2s. Non-facilitator participants cannot reach the route; the master switch `SACP_AUDIT_VIEWER_ENABLED` hides the entry-point affordance and returns 404 from the route when disabled.
+
+**Why this priority**: Spec 029 ships the backend endpoint, the action-label registry, the DiffRenderer module, and the WS event emitter. Without the UI surfaces here — the entry-point affordance, the panel route, the filter controls, the row-expansion-to-diff wiring, the scrub-display fallback — the audit data stays locked behind spec 010 debug-export's JSON. P2 because operators can still parse debug-export JSON for diagnostic review; the v1 viewer surface is the operator-workflow upgrade rather than a strict prerequisite.
+
+**Acceptance Scenarios**:
+
+1. **Given** a session with audit events, **When** the facilitator clicks "View audit log" from the admin panel, **Then** the SPA navigates to `/session/:id/audit` AND the panel renders rows in reverse-chronological order with human-readable action labels from the registry.
+2. **Given** an audit row whose action is `review_gate_edit` with text values, **When** the facilitator clicks expand, **Then** the DiffRenderer renders a line-by-line side-by-side diff (original on left, edited on right) per spec 029 FR-008.
+3. **Given** an audit row whose action is value-less (e.g., `add_participant`), **When** the row is expanded, **Then** plain row metadata renders without invoking the DiffRenderer (no empty diff pane).
+4. **Given** the facilitator selects a single action-type filter, **When** the filter applies, **Then** only rows of that action display AND the filter-control badge displays the count of WS-pushed events that did not match (per spec 029 FR-013).
+5. **Given** a new audit event is written for the active session, **When** the WS broadcast fires, **Then** the panel adds the new row within 2s without a manual refresh (per spec 029 FR-010).
+6. **Given** an audit row whose registry entry has `scrub_value=true`, **When** the row renders, **Then** value fields display `[scrubbed]` (per spec 029 FR-014); the full content remains available only via spec 010 debug-export.
+7. **Given** a non-facilitator participant attempts to navigate to `/session/:id/audit`, **When** the request fires, **Then** the SPA shows a "facilitator-only" notice AND the API returns HTTP 403 (per spec 029 FR-002).
+8. **Given** `SACP_AUDIT_VIEWER_ENABLED=false`, **When** the SPA renders the admin panel, **Then** the "View audit log" button is hidden AND any direct navigation to `/session/:id/audit` returns HTTP 404 (per spec 029 FR-018).
 ### User Story 13 - Session-Length Cap Configuration and Conclude-Phase Banner (Priority: P2)
 
 The facilitator can set a session-length cap (time and/or turns) at session-create or mid-session via session-settings, and watch the loop transition into a conclude phase with a Tier 4 wrap-up delta and a final summarizer before auto-pause. All participants see a banner during conclude phase indicating how much wrap-up budget remains; only the facilitator sees the cap values themselves. When a cap update would land below current elapsed, the SPA presents an absolute-vs-relative disambiguation modal so the facilitator's intent is captured explicitly rather than guessed.
@@ -266,6 +289,11 @@ The facilitator can set a session-length cap (time and/or turns) at session-crea
 - **FR-018**: Summary panel rendering the latest structured checkpoint. Backed by `GET /tools/session/summary`.
 - **FR-019**: Review-gate pause-scope toggle in the facilitator admin panel (session-wide vs. per-participant). Backed by `POST /tools/facilitator/set_review_gate_pause_scope`.
 - **FR-020**: Participant health indicator (active / paused-manual / paused-breaker / offline / pending) with breaker-trip count and recent skip reasons surfaced from the `participant_update` WebSocket event and the participant row in `GET /tools/debug/export`.
+- **FR-025** (Phase 3, ships with spec 029): Facilitator admin panel MUST surface a "View audit log" button gated by FR-009 role check AND by `SACP_AUDIT_VIEWER_ENABLED=true` (spec 029 FR-018). The button navigates the SPA to the audit-log panel route. When the master switch is false, the button MUST NOT render. Cross-ref spec 029 FR-018.
+- **FR-026** (Phase 3, ships with spec 029): Audit log panel MUST render at route `/session/:id/audit` consuming the `GET /tools/admin/audit_log?session_id=<id>` endpoint per spec 029 FR-001. Columns: timestamp, actor, action label, target, summary. Reverse-chronological order with offset-based pagination at `SACP_AUDIT_VIEWER_PAGE_SIZE` rows per page. Pagination controls (next/previous) consume `next_offset` and `total_count` metadata from the response. The route is gated by FR-009 role check; non-facilitator navigation returns the same 403 surface as other facilitator-only routes.
+- **FR-027** (Phase 3, ships with spec 029): Audit log panel MUST surface filter controls for the three axes defined by spec 029 FR-011 — actor (facilitator id, participant id, or `Orchestrator`), action type (any registered action label), time range (start/end timestamps). Filters apply client-side to the loaded page (spec 029 FR-012); a filter-control badge MUST display the count of WS-pushed events that did not match the active filter (spec 029 FR-013). Clearing the filter set restores the full loaded page.
+- **FR-028** (Phase 3, ships with spec 029): Row expansion MUST route to the spec 029 DiffRenderer (`src/web_ui/static/components/DiffRenderer.tsx`) for action types whose audit row contains non-null `previous_value` and `new_value` columns. DiffRenderer props are `(previousValue, newValue, format='auto')`. For action types without diffable values, expansion MUST render row metadata without invoking the DiffRenderer. The renderer's size thresholds (≤ 50KB main thread; 50KB-500KB Web Worker; > 500KB raw display) are inherited from the spec 029 module's locked constants — spec 011 does not redefine them.
+- **FR-029** (Phase 3, ships with spec 029): Rows whose registry entry sets `scrub_value=true` (spec 029 FR-014) MUST render `[scrubbed]` placeholders for `previous_value` and `new_value`. Rows whose action string is unregistered MUST render `[unregistered: <raw_action>]` per spec 029 FR-015. Live `audit_log_appended` WebSocket events (spec 029 FR-010) MUST be applied to the panel within 2s of the row's INSERT, subject to the active filter set per FR-027.
 - **FR-021** (Phase 3, ships with spec 025): Session-create modal (US11 flow) MUST offer a session-length cap control set: four presets (Short / Medium / Long / Custom) plus, when Custom is selected, hand-set inputs for time and turn caps. Submission posts `length_cap_kind`, `length_cap_seconds`, `length_cap_turns` to the session-create endpoint. Cross-ref spec 025 FR-023.
 - **FR-022** (Phase 3, ships with spec 025): Facilitator session-settings panel (US6 admin panel) MUST surface the same cap control set as FR-021 plus a current-elapsed display so the facilitator sees the counter they're setting against. Submission targets the cap-set endpoint per `contracts/cap-set-endpoint.md` in spec 025. The control is gated by FR-009 role check (facilitator-only); non-facilitators MUST NOT see the cap fields in any UI surface (cross-ref spec 025 FR-019).
 - **FR-023** (Phase 3, ships with spec 025): A conclude-phase banner MUST render at the top of the participant view when the SPA receives a `session_concluding` WS event. Banner copy reads "Session is concluding — N turns left" or "Session is concluding — N minutes left" depending on `trigger_reason`; both lines when `trigger_reason='both'`. The banner consumes `remaining.turns` and `remaining.seconds` from the event payload (cross-ref `contracts/ws-events.md` in spec 025) and never reads the cap values themselves. The banner clears on `session_concluded` OR on a `loop_state_changed` event with `loop_state='running'` (cap-extension exit per spec 025 FR-013).
@@ -312,6 +340,7 @@ The facilitator can set a session-length cap (time and/or turns) at session-crea
 - **SC-004**: All XSS test vectors (script tags, markdown images, javascript: links, invisible Unicode) are neutralized in rendered output.
 - **SC-005**: Budget dashboard shows real cost data matching debug/export values.
 - **SC-006**: Review gate drafts can be approved/rejected from the UI, with the result appearing in the transcript.
+- **SC-008** (Phase 3, ships with spec 029): Audit log viewer flows are end-to-end exercisable — the facilitator opens the audit panel from the admin button, sees rows render with human-readable labels, expands a `review_gate_edit` row to inspect a side-by-side diff, applies an actor + action filter, sees a new audit event arrive via WS push within 2s, and a non-facilitator user is rejected from the route. Verified by Playwright e2e per the Phase B testability framework decision.
 - **SC-007** (Phase 3, ships with spec 025): Length-cap UI flows are end-to-end exercisable — facilitator sets a cap at session-create AND mid-session, the conclude banner renders for all connected participants on `session_concluding`, the disambiguation modal appears on cap-decrease and routes to a successful 200 commit on either choice. Verified by Playwright e2e per the Phase B testability framework decision.
 
 ## Assumptions
@@ -656,6 +685,13 @@ The Web UI is large enough to warrant internal phasing:
 - Session export (markdown/JSON download)
 - Summarization timeline scrubber
 
+### Phase 3b — Audit-log viewer UI (ships with spec 029)
+- Audit log entry-point affordance in the facilitator admin panel (FR-025)
+- Audit log panel route `/session/:id/audit` rendering rows with action labels and pagination (FR-026)
+- Filter control set (actor, action type, time range) with WS-hidden-event badge (FR-027)
+- Row-expansion wiring to spec 029's DiffRenderer module for action types with previous/new values (FR-028)
+- Scrubbed-value display, unregistered-action fallback, and live WS append (FR-029)
+- Playwright e2e covering SC-008
 ### Phase 3a — Length-cap UI (ships with spec 025)
 - Cap-config control set in session-create modal (FR-021)
 - Cap-config control set in facilitator session-settings panel (FR-022)
