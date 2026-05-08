@@ -90,47 +90,50 @@ shared components exist before downstream specs need them.
 
 ### Initial draft assumptions requiring confirmation
 
-- **Action-label registry parity gate.** Drafted as: a CI step runs
-  `scripts/check_audit_label_parity.py` which loads the backend
-  registry + parses the frontend module's exports + asserts every
-  backend key has a frontend mirror with matching English text.
-  Drift blocks the build. [NEEDS CLARIFICATION: confirm CI-gate
-  enforcement vs. lint-warning-only vs. runtime-warning-only.]
+- **Action-label registry parity gate.** Resolved 2026-05-07
+  (Session below): hard CI gate. `scripts/check_audit_label_parity.py`
+  runs as a required CI step; any missing or divergent key between
+  the backend `LABELS` dict and the frontend `LABELS` map fails the
+  build with a clear error naming the missing/divergent key. No
+  warning-only mode, no runtime fallback. Build override is not
+  supported.
 - **Diff renderer engine.** Drafted as: line-by-line Myers diff
   (the same algorithm choice spec 024's review-gate sub-panel
   considered). Word-level diff is a configurable mode if
   operators want it. [NEEDS CLARIFICATION: confirm Myers
   line-by-line default vs. configurable.]
-- **Diff size handling.** Mirrors spec 024 FR-014: ≤ 50KB on the
-  main thread; 50KB-500KB in a Web Worker; > 500KB displays raw
-  values without diff. The same renderer module ships these
-  thresholds; spec 024 inherits them by consuming the module.
-  [NEEDS CLARIFICATION: confirm thresholds match spec 024's
-  exactly vs. tune independently.]
-- **Filter shape.** Drafted as: client-side filtering on the loaded
-  page (page_size rows). Filters across pages require a
-  server-side pushdown (Phase 3+ enhancement). v1 ships
-  client-only. [NEEDS CLARIFICATION: confirm client-side-page-
-  scoped vs. server-side-pushdown-required.]
-- **Time formatter format string.** Drafted as: ISO-8601 with
-  local-time conversion (browser's locale) AND a relative-time
-  hover ("3 minutes ago"). Operators in regulated environments
-  may prefer fixed UTC display. [NEEDS CLARIFICATION: confirm
-  local-with-relative-hover vs. UTC-always vs. operator-tunable.]
+- **Diff size handling.** Resolved 2026-05-07 (Session below):
+  thresholds are locked constants in the DiffRenderer module —
+  ≤ 50KB main thread; 50KB-500KB Web Worker; > 500KB raw display.
+  No per-call override, no env-var tuning. Spec 024 FR-014
+  inherits the same numbers by importing the module. Future
+  threshold changes require updating 029's module and propagate
+  to all consumers.
+- **Filter shape.** Resolved 2026-05-07 (Session below):
+  client-side filtering on the loaded page (default 50 rows) at
+  v1. Server-side filter pushdown is a future enhancement
+  (Phase 3+). FR-013's badge counter mitigates the page-scope
+  limitation by surfacing filter-hidden new events.
+- **Time formatter format string.** Resolved 2026-05-07 (Session
+  below): UTC-primary with locale-conversion hover. Primary
+  display renders ISO-8601 in UTC with an explicit `Z` timezone
+  marker; on hover, the formatter shows the same instant
+  converted to the browser's locale AND a relative-time string
+  ("3 minutes ago"). No env-var tuning. Forensic-default by
+  intent: audit data is stored UTC, displayed UTC, with locale
+  as a convenience overlay rather than primary.
 - **Action-label localization.** Drafted as: English-only in v1.
   i18n is a future enhancement. The label format ("Facilitator
   removed Haiku") is a single English string per action.
   [NEEDS CLARIFICATION: confirm English-only v1.]
-- **Sensitive-value scrubbing in the panel.** Some
-  `admin_audit_log` entries contain values that should not appear
-  in the live viewer (e.g., a token-rotate event's
-  `previous_value` referencing the old token hash). Drafted as:
-  the backend label registry has a `scrub_value=True` flag per
-  action; rows with the flag display a "[scrubbed]" placeholder
-  instead of the raw value, with full content available only via
-  spec 010 debug-export. [NEEDS CLARIFICATION: confirm per-action
-  scrub flag vs. central allow-list of viewable fields vs.
-  trust-everything-the-table-already-stores.]
+- **Sensitive-value scrubbing in the panel.** Resolved 2026-05-07
+  (Session below): per-action boolean flag. The backend label
+  registry's entry MAY include `scrub_value: bool`; when true,
+  both `previous_value` and `new_value` render as `[scrubbed]` in
+  the viewer. Full content remains available only via spec 010
+  debug-export (separate authorization, separate audit trail).
+  Granularity may be tightened later (e.g., per-field list) in a
+  backward-compatible way without breaking consumers.
 - **Sequence ordering when 029 lands ahead of 022 + 024.** User's
   brief explicitly says 029 ships first. Drafted as: 029's modules
   ship as registered components; 022 and 024 reference them at
@@ -147,13 +150,22 @@ shared components exist before downstream specs need them.
   session IDs per the established pattern. Confirm the
   paraphrase is acceptable.
 
+### Session 2026-05-07
+
+- Q: Action-label registry parity gate (FR-006) — how strictly is parity enforced between the backend Python `LABELS` dict and the frontend JS `LABELS` map? → A: Hard CI gate. `scripts/check_audit_label_parity.py` runs as a required step; missing or divergent keys fail the build with a clear error. No warning-only mode and no override.
+- Q: Diff renderer size thresholds (FR-008) — match spec 024 FR-014's 50KB / 500KB exactly, or tune independently? → A: Locked module constants — 50KB / 500KB ship as constants in the DiffRenderer module with no per-call or env-var override. Spec 024 inherits them by importing; future changes propagate to all consumers.
+- Q: Sensitive-value scrubbing shape (FR-014) — per-action boolean flag, per-action field list, central allow-list, or trust the facilitator-only access boundary? → A: Per-action boolean flag on registry entries (`scrub_value: bool`); when true, `previous_value` and `new_value` render as `[scrubbed]`. Full content via spec 010 debug-export only. Tightening to per-field granularity remains a backward-compatible future option.
+- Q: Time formatter primary format (FR-009) — locale-primary with UTC hover, UTC-primary with locale hover, env-var tunable, or both side-by-side? → A: UTC-primary with locale + relative-time on hover. Audit data is stored UTC and displayed UTC by default; locale is a convenience overlay, not the primary. No env-var tuning.
+- Q: Filter scope (FR-012) — client-side page-scoped, server-side pushdown at v1, hybrid, or no filtering at v1? → A: Client-side, page-scoped at v1 (default 50 rows). Server-side pushdown is a Phase 3+ enhancement. FR-013's badge counter alerts operators when filters hide WS-pushed events.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Facilitator opens the audit log viewer and sees a formatted table of all admin_audit_log entries for the current session in reverse-chronological order (Priority: P1)
 
 A facilitator running a 31-turn engagement opens the audit log
 viewer from the session header. The viewer renders a table with
-columns: timestamp (locale-formatted with relative hover), actor
+columns: timestamp (UTC ISO-8601 with `Z` marker; locale-converted
+time and relative-time appear on hover), actor
 (human-readable name from the participants table when available,
 otherwise the participant id), action label (e.g.,
 "Facilitator removed Haiku" rather than `remove_participant`),
@@ -473,15 +485,22 @@ public APIs.
   `src/web_ui/static/components/DiffRenderer.tsx` (or .jsx)
   accepting `(previousValue, newValue, format)` props.
   Format values: `json` | `text` | `auto`. The renderer
-  follows the same size thresholds as spec 024 FR-014:
-  ≤ 50KB main thread; 50KB-500KB Web Worker; > 500KB raw
-  display.
+  MUST ship size thresholds as locked module constants
+  (≤ 50KB main thread; 50KB-500KB Web Worker; > 500KB raw
+  display) with no per-call override and no env-var tuning.
+  Spec 024 FR-014 inherits these numbers by importing the
+  module; the values match exactly.
 - **FR-009**: A time formatter MUST exist as paired modules:
   backend Python (`src/orchestrator/time_format.py`) and
   frontend JS (`src/web_ui/static/time_format.js`). The two
   modules MUST produce identical output for the same input
   timestamp; a CI gate
-  (`scripts/check_time_format_parity.py`) enforces this.
+  (`scripts/check_time_format_parity.py`) enforces this. The
+  primary rendered format MUST be UTC ISO-8601 with an explicit
+  `Z` timezone marker; the frontend module MUST additionally
+  expose a hover/secondary format that converts the same instant
+  to the browser's locale AND a relative-time string ("3 minutes
+  ago"). No env-var tuning of the primary format.
 - **FR-010**: The viewer MUST update via WebSocket push
   when a new `admin_audit_log` row is written for the
   active session. WS event name `audit_log_appended` (or
