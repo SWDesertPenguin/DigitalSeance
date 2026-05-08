@@ -8,6 +8,14 @@
 
 ## Clarifications
 
+### Session 2026-05-07 (spec 025 length-cap amendment)
+
+- Q: Where does the cap-config control set live in the SPA? → A: Two surfaces share the same component — the session-create modal (US11 token-reveal flow) and the facilitator session-settings panel (US6 admin panel). The control offers four presets (Short / Medium / Long / Custom) and, when Custom is selected, hand-set inputs for `length_cap_seconds` and `length_cap_turns` per spec 025 FR-023.
+- Q: How does the SPA render the conclude-phase banner? → A: A dismissible-styled banner pinned to the top of the participant view, driven by the `session_concluding` WS event payload from spec 025 FR-017. The banner reads "Session is concluding — N turns left" or "Session is concluding — N minutes left" depending on the trigger dimension; both fields when both caps are set. The banner clears on `session_concluded` (FR-018) or on a `loop_state_changed` event flipping back to `running` (cap-extension exit per spec 025 FR-013, US3).
+- Q: What does the SPA show when the cap-set endpoint returns 409? → A: A modal presenting the two interpretation options (absolute / relative) with the consequence text from the 409 response body. The facilitator picks one; the SPA re-POSTs with `interpretation` set explicitly per spec 025 FR-026.
+- Q: Are cap values shown to non-facilitator participants? → A: No. Spec 025 FR-019 mandates facilitator-only cap visibility. The cap-config controls (FR-021, FR-022 below) are gated by FR-009 role check; the conclude banner shows `remaining` countdown (which is allowed) but never the cap value itself.
+- Q: Does this amendment promote the spec's Status away from "Implemented"? → A: No. Spec 011's Phase 2 deliverables remain Implemented. The four new FRs (FR-021..FR-024) are Phase 3 deliverables tracked under spec 025's task list; they ship when spec 025 implements its WS event emitters and cap-set endpoint. The `## Implementation Phases` section captures this split.
+
 ### Session 2026-05-02 (audit fix/011-operations — Phase E)
 
 - Q: What's the deploy semantics for Web UI session affinity? → A: Phase 1 single-instance topology — all WS connections terminate at the same orchestrator process. Multi-instance (Phase 3) requires WS session affinity (sticky sessions on the load balancer) OR session-state externalization (Phase 3 SessionStore Redis backend). Today, on redeploy, all WS connections close; clients reconnect within FR-014 backoff window.
@@ -217,6 +225,23 @@ AI-generated message content is rendered as markdown with mandatory security con
 
 ---
 
+### User Story 13 - Session-Length Cap Configuration and Conclude-Phase Banner (Priority: P2)
+
+The facilitator can set a session-length cap (time and/or turns) at session-create or mid-session via session-settings, and watch the loop transition into a conclude phase with a Tier 4 wrap-up delta and a final summarizer before auto-pause. All participants see a banner during conclude phase indicating how much wrap-up budget remains; only the facilitator sees the cap values themselves. When a cap update would land below current elapsed, the SPA presents an absolute-vs-relative disambiguation modal so the facilitator's intent is captured explicitly rather than guessed.
+
+**Why this priority**: Spec 025 ships the backend mechanism; without the UI surfaces here, the cap is set-and-pray (no banner pacing, no disambiguation choice, no graceful session-create flow). P2 because the backend can ship behind env-var defaults without the UI for early operator testing, but the facilitator workflow is degraded without these four pieces.
+
+**Acceptance Scenarios**:
+
+1. **Given** the session-create modal (US11 flow), **When** the facilitator picks the Short preset, **Then** the new session is created with `length_cap_kind='both'`, `length_cap_seconds=1800`, `length_cap_turns=20` and the loop starts.
+2. **Given** the facilitator session-settings panel (US6 admin panel), **When** the facilitator updates the cap mid-session, **Then** the cap-set endpoint commits the change (200) AND `routing_log` records `reason='cap_set'`.
+3. **Given** an active session reaches 80% of its turn cap, **When** the orchestrator broadcasts `session_concluding`, **Then** every connected participant sees the conclude banner with the `remaining` countdown.
+4. **Given** the loop transitions to paused after the final summarizer, **When** the orchestrator broadcasts `session_concluded`, **Then** the banner clears AND a "Session concluded" notice renders with the `pause_reason` translated to user-facing copy.
+5. **Given** a cap update that would land below current elapsed, **When** the cap-set endpoint returns 409 with both interpretation options, **Then** the SPA renders a modal with `absolute` and `relative` choices including the consequence description; **When** the facilitator picks one, **Then** the SPA re-POSTs with the explicit `interpretation` field and the cap commits (200).
+6. **Given** a non-facilitator participant connected to a capped session, **When** they inspect their `/me` response and the conclude banner payload, **Then** neither contains `length_cap_seconds` nor `length_cap_turns` (FR-019 visibility constraint enforced).
+
+---
+
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
@@ -241,6 +266,10 @@ AI-generated message content is rendered as markdown with mandatory security con
 - **FR-018**: Summary panel rendering the latest structured checkpoint. Backed by `GET /tools/session/summary`.
 - **FR-019**: Review-gate pause-scope toggle in the facilitator admin panel (session-wide vs. per-participant). Backed by `POST /tools/facilitator/set_review_gate_pause_scope`.
 - **FR-020**: Participant health indicator (active / paused-manual / paused-breaker / offline / pending) with breaker-trip count and recent skip reasons surfaced from the `participant_update` WebSocket event and the participant row in `GET /tools/debug/export`.
+- **FR-021** (Phase 3, ships with spec 025): Session-create modal (US11 flow) MUST offer a session-length cap control set: four presets (Short / Medium / Long / Custom) plus, when Custom is selected, hand-set inputs for time and turn caps. Submission posts `length_cap_kind`, `length_cap_seconds`, `length_cap_turns` to the session-create endpoint. Cross-ref spec 025 FR-023.
+- **FR-022** (Phase 3, ships with spec 025): Facilitator session-settings panel (US6 admin panel) MUST surface the same cap control set as FR-021 plus a current-elapsed display so the facilitator sees the counter they're setting against. Submission targets the cap-set endpoint per `contracts/cap-set-endpoint.md` in spec 025. The control is gated by FR-009 role check (facilitator-only); non-facilitators MUST NOT see the cap fields in any UI surface (cross-ref spec 025 FR-019).
+- **FR-023** (Phase 3, ships with spec 025): A conclude-phase banner MUST render at the top of the participant view when the SPA receives a `session_concluding` WS event. Banner copy reads "Session is concluding — N turns left" or "Session is concluding — N minutes left" depending on `trigger_reason`; both lines when `trigger_reason='both'`. The banner consumes `remaining.turns` and `remaining.seconds` from the event payload (cross-ref `contracts/ws-events.md` in spec 025) and never reads the cap values themselves. The banner clears on `session_concluded` OR on a `loop_state_changed` event with `loop_state='running'` (cap-extension exit per spec 025 FR-013).
+- **FR-024** (Phase 3, ships with spec 025): When the cap-set endpoint returns HTTP 409 with `error='cap_decrease_requires_interpretation'`, the SPA MUST render a modal presenting both interpretation options (`absolute` / `relative`) with the consequence text from the 409 response body. Modal options route to a re-POST that sets the explicit `interpretation` field per spec 025 FR-026. The modal MUST NOT auto-pick a default — the facilitator's choice is required (matches the user-stated rule that intent is captured rather than guessed).
 
 ### Security Requirements
 
@@ -283,6 +312,7 @@ AI-generated message content is rendered as markdown with mandatory security con
 - **SC-004**: All XSS test vectors (script tags, markdown images, javascript: links, invisible Unicode) are neutralized in rendered output.
 - **SC-005**: Budget dashboard shows real cost data matching debug/export values.
 - **SC-006**: Review gate drafts can be approved/rejected from the UI, with the result appearing in the transcript.
+- **SC-007** (Phase 3, ships with spec 025): Length-cap UI flows are end-to-end exercisable — facilitator sets a cap at session-create AND mid-session, the conclude banner renders for all connected participants on `session_concluding`, the disambiguation modal appears on cap-decrease and routes to a successful 200 commit on either choice. Verified by Playwright e2e per the Phase B testability framework decision.
 
 ## Assumptions
 
@@ -625,6 +655,13 @@ The Web UI is large enough to warrant internal phasing:
 - Proposal tracker with voting
 - Session export (markdown/JSON download)
 - Summarization timeline scrubber
+
+### Phase 3a — Length-cap UI (ships with spec 025)
+- Cap-config control set in session-create modal (FR-021)
+- Cap-config control set in facilitator session-settings panel (FR-022)
+- Conclude-phase banner driven by `session_concluding` / `session_concluded` WS events (FR-023)
+- Cap-decrease disambiguation modal driven by 409 from the cap-set endpoint (FR-024)
+- Playwright e2e covering SC-007
 
 ## Out of Scope
 
