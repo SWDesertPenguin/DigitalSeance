@@ -106,6 +106,44 @@ def loop_status_event(running: bool) -> dict[str, Any]:
     return _envelope("loop_status", running=running)
 
 
+def session_concluding_event(
+    *,
+    trigger_reason: str,
+    trigger_value_turns: int,
+    trigger_value_seconds: int,
+    remaining_turns: int | None,
+    remaining_seconds: int | None,
+    trigger_fraction: float,
+) -> dict[str, Any]:
+    """Spec 025 FR-017: conclude phase entered. Banner consumer in spec 011 FR-023.
+
+    Cap values themselves are NOT in this payload — only `remaining`
+    countdown — to preserve FR-019 facilitator-only cap visibility.
+    """
+    return _envelope(
+        "session_concluding",
+        trigger_reason=trigger_reason,
+        trigger_value={"turns": trigger_value_turns, "seconds": trigger_value_seconds},
+        remaining={"turns": remaining_turns, "seconds": remaining_seconds},
+        trigger_fraction=trigger_fraction,
+        at=iso(datetime.now(UTC)),
+    )
+
+
+def session_concluded_event(
+    *,
+    pause_reason: str,
+    summarizer_outcome: str,
+) -> dict[str, Any]:
+    """Spec 025 FR-018: conclude phase exited via pause/stop."""
+    return _envelope(
+        "session_concluded",
+        pause_reason=pause_reason,
+        summarizer_outcome=summarizer_outcome,
+        at=iso(datetime.now(UTC)),
+    )
+
+
 def error_event(code: str, message: str) -> dict[str, Any]:
     """Non-fatal server-side warning for the UI to surface."""
     return _envelope("error", code=code, message=message)

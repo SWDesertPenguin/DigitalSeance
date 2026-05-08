@@ -152,6 +152,88 @@ class SessionRepository(BaseRepository):
             await _log_deletion(conn, session_id)
             await _delete_session_data(conn, session_id)
 
+    async def update_length_cap(
+        self,
+        session_id: str,
+        *,
+        kind: str,
+        seconds: int | None,
+        turns: int | None,
+    ) -> Session:
+        """Spec 025 FR-003: commit a cap update to `sessions.length_cap_*`.
+
+        Caller is responsible for cross-column consistency (kind=time
+        requires seconds, etc.) and disambiguation per FR-026 — this
+        helper is a pure UPDATE.
+        """
+        result = await self._execute(
+            "UPDATE sessions SET length_cap_kind = $1, length_cap_seconds = $2, "
+            "length_cap_turns = $3 WHERE id = $4",
+            kind,
+            seconds,
+            turns,
+            session_id,
+        )
+        if result == "UPDATE 0":
+            msg = f"Session {session_id} not found"
+            raise ValueError(msg)
+        return await self.get_session(session_id)  # type: ignore[return-value]
+
+    async def start_active_phase(self, session_id: str) -> None:
+        """Spec 025 T052: mark the start of a new active (running/conclude) phase.
+
+        Sets `active_phase_started_at = NOW()`. Called on `start_loop`
+        and `resume_session` so the time-cap accumulator advances only
+        while the loop is dispatching turns.
+        """
+        await self._execute(
+            "UPDATE sessions SET active_phase_started_at = NOW() WHERE id = $1",
+            session_id,
+        )
+
+    async def freeze_active_phase(self, session_id: str) -> None:
+        """Spec 025 T052: freeze the accumulator on pause or stop.
+
+        Increments `active_seconds_accumulator` by the seconds elapsed
+        since `active_phase_started_at`, then clears the start marker.
+        Idempotent: if `active_phase_started_at` is already null this
+        is a no-op.
+        """
+        await self._execute(
+            """
+            UPDATE sessions
+            SET
+              active_seconds_accumulator = COALESCE(active_seconds_accumulator, 0)
+                + EXTRACT(EPOCH FROM (NOW() - active_phase_started_at))::BIGINT,
+              active_phase_started_at = NULL
+            WHERE id = $1 AND active_phase_started_at IS NOT NULL
+            """,
+            session_id,
+        )
+
+    async def mark_conclude_phase_started(self, session_id: str) -> None:
+        """Set `sessions.conclude_phase_started_at = now()` for spec 025 FR-007.
+
+        Idempotent: a second call on a session already in conclude phase
+        is a no-op (the column UPDATE just rewrites the same timestamp;
+        callers should gate on `is_in_conclude_phase` first).
+        """
+        await self._execute(
+            "UPDATE sessions SET conclude_phase_started_at = NOW() WHERE id = $1",
+            session_id,
+        )
+
+    async def clear_conclude_phase(self, session_id: str) -> None:
+        """Null `conclude_phase_started_at` for spec 025 US3 (`conclude_phase_exited`).
+
+        Used by FR-013 cap-extension that returns the loop to running phase.
+        Defined here for repo-test cohesion; US3 wires the call site.
+        """
+        await self._execute(
+            "UPDATE sessions SET conclude_phase_started_at = NULL WHERE id = $1",
+            session_id,
+        )
+
     async def get_density_baseline(self, session_id: str) -> list[float]:
         """Read the rolling density baseline window (spec 004 §FR-020)."""
         record = await self._fetch_one(

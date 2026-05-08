@@ -28,15 +28,15 @@ The orchestrator runs a serialized conversation loop: select the next participan
 
 **Adversarial rotation.** Every N turns, one AI gets a temporary instruction to challenge the weakest assumption in the current direction. Rotates across participants to prevent groupthink.
 
-**Convergence detection.** Embedding similarity tracked over a sliding window using `sentence-transformers/all-MiniLM-L6-v2` (SafeTensors, CPU-safe). When similarity crosses the threshold (0.75 default), the orchestrator injects a divergence prompt; sustained convergence pauses the loop and escalates to humans.
+**Convergence detection.** Embedding similarity tracked over a sliding window. When similarity crosses a configurable threshold, the orchestrator injects a divergence prompt; sustained convergence pauses the loop and escalates to humans.
 
-**Adaptive cadence.** Turn pacing adjusts based on content quality. Productive conversation runs faster. Repetitive conversation slows down. Human interjection temporarily spikes responsiveness. Skip-spam backs off exponentially (5 → 10 → 20 → 40 → 60 s) when the only viable AI just spoke.
+**Adaptive cadence.** Turn pacing adjusts based on content quality. Productive conversation runs faster. Repetitive conversation slows down. Human interjection temporarily spikes responsiveness. Repeated skips back off exponentially when the only viable AI just spoke.
 
 **Review gate.** Participants can route through a facilitator approval queue. Drafts are staged, not written to the transcript; the facilitator approves / rejects / edits before anything becomes canonical. Pause scope is facilitator-configurable: session-wide (all AIs pause while any draft is pending) or per-participant.
 
-**Summarization checkpoints.** Every 10 turns (configurable), the cheapest AI participant produces a structured-JSON summary (decisions, open questions, key positions, narrative). Summaries are excluded from their own input set to prevent feedback loops. Facilitator can force a checkpoint off-cadence via `/tools/session/summarize_now` (serialized per session).
+**Summarization checkpoints.** On a configurable cadence, the cheapest AI participant produces a structured summary covering decisions, open questions, key positions, and narrative. Summaries are excluded from their own input set to prevent feedback loops. Facilitator can force a checkpoint off-cadence via the MCP API.
 
-**Tiered system prompts.** Four prompt tiers (low, mid, high, max) using a delta architecture — each tier appends to the previous without duplication. Total stack is ~1,730 tokens. Canary tokens are injected to detect prompt exfiltration attempts. Designed for cross-model portability (Claude, GPT-4, Llama, Mistral).
+**Tiered system prompts.** Multiple prompt tiers using a delta architecture — each tier appends to the previous without duplication. Exfiltration detection is embedded in the prompt stack. Designed for cross-model portability (Claude, GPT-4, Llama, Mistral).
 
 **Seven-layer security pipeline.** Sanitization, spotlighting, validation, exfiltration detection, jailbreak detection, prompt defense, log scrubbing. Every input passes through the full pipeline before reaching a provider; every output is validated before being persisted.
 
@@ -44,26 +44,26 @@ The orchestrator runs a serialized conversation loop: select the next participan
 
 | Component | Technology |
 |---|---|
-| Runtime | Python 3.11+, FastAPI |
+| Runtime | Python 3.14.4, FastAPI |
 | Database | PostgreSQL 16 via Docker Compose (asyncpg pool) |
-| Provider abstraction | LiteLLM >= 1.83.0 (100+ providers) |
+| Provider abstraction | LiteLLM (100+ providers) |
 | MCP server | FastAPI + SSE, port 8750 |
 | Web UI | FastAPI + WebSocket + React SPA (CDN + SRI pins), port 8751 |
-| Convergence | sentence-transformers (all-MiniLM-L6-v2, SafeTensors) |
-| Auth | bcrypt (tokens) + Fernet (encrypted API keys) + HttpOnly signed cookies |
-| Rate limiting | Per-participant, 60 req/min default |
-| Migrations | Alembic (5 migrations) |
+| Convergence | sentence-transformers (CPU-safe, SafeTensors) |
+| Auth | bcrypt (tokens) + Fernet (encrypted API keys) + HttpOnly signed cookies (Secure + SameSite=Strict) |
+| Rate limiting | Per-participant |
+| Migrations | Alembic (11 migrations) |
 | Deployment | Single Dockerfile, Docker Compose |
 | CI/CD | GitHub Actions → GHCR |
-| Pre-commit | 13 hooks (gitleaks, ruff, bandit, 25-line / 5-arg coding-standards lint) |
+| Pre-commit | gitleaks, ruff, bandit, coding-standards lint |
 
 ## Interfaces
 
-Two FastAPI apps run in one process (`src/run_apps.py`):
+Two FastAPI apps run in one process:
 
-**MCP server on 8750** — authoritative API surface. ~47 endpoints across session lifecycle (create, pause/resume/archive, start/stop loop, summarize_now, export), participant actions (inject_message, rotate_my_token, add_ai, routing preference), facilitator governance (add/approve/reject/remove participant, create invite, transfer, revoke token, budget, routing, cadence, acceptance mode, complexity classifier, min model tier, review-gate pause scope, bulk-flip routing, approve/reject/edit drafts), proposals (create, vote, resolve, list), and debug export.
+**MCP server on 8750** — authoritative API surface covering session lifecycle, participant actions, facilitator governance, proposals, and debug export. Intended for MCP clients (Claude Desktop, Claude Code).
 
-**Web UI on 8751** — single-file React SPA served from `frontend/`. HttpOnly+Secure+SameSite=Strict signed cookies carry the bearer. Strict CSP, SRI-pinned CDN dependencies, hardened markdown renderer (neutralizes images, blocks `javascript:` / `data:` / `vbscript:` / `file:` schemes, strips raw HTML, badges invisible Unicode). WebSocket `/ws/{session_id}` delivers a versioned (`v: 1`) event envelope — `state_snapshot`, `message`, `turn_skipped`, `participant_update`, `participant_removed`, `convergence_update`, `review_gate_staged` / `resolved`, `summary_created`, `session_status_changed`, `loop_status`, `audit_entry`, `proposal_*`. Per-IP connection limits, 4401 on unauth, 4403 on foreign session / cross-origin upgrade, 4429 on too-many.
+**Web UI on 8751** — single-file React SPA. HttpOnly signed cookies carry the bearer. Strict CSP, SRI-pinned CDN dependencies, hardened markdown renderer. Real-time updates delivered over WebSocket. Per-IP connection limits enforced.
 
 ## Governance
 
@@ -71,33 +71,16 @@ The facilitator — the person running the orchestrator — approves participant
 
 ## Security Posture
 
-SACP handles API keys and auth tokens from multiple participants. Security controls target the NIST SP 800-53 moderate baseline for relevant control families (AC, AU, IA, SC, SI). API keys are encrypted at rest (Fernet). Auth tokens are hashed (bcrypt cost 12). All remote connections use TLS in production. No secrets in code, config, or logs — the log scrubber redacts API-key patterns, AWS secrets, emails, phones, SSNs, IBANs, and credit cards.
+SACP handles API keys and auth tokens from multiple participants. Security controls target the NIST SP 800-53 moderate baseline for relevant control families (AC, AU, IA, SC, SI). API keys are encrypted at rest. Auth tokens are hashed. All remote connections use TLS in production. No secrets in code, config, or logs — the log scrubber redacts credentials, PII, and payment data patterns.
 
-The codebase enforces a strict secure development pipeline: pre-commit hooks (gitleaks, bandit SAST, ruff, coding-standards lint enforcing 25-line / 5-arg limits), parameterized SQL throughout (SQL injection in display name was tested and held), and a 70+ attack [red-team runbook](docs/red-team-runbook.md) keyed to the seven-layer pipeline.
+The codebase enforces a strict secure development pipeline: pre-commit hooks (gitleaks, bandit SAST, ruff, coding-standards lint), parameterized SQL throughout, and a comprehensive red-team runbook keyed to the seven-layer pipeline.
 
 ## Status
 
-**Phase 1 COMPLETE** (2026-04-20) — all scenario tests pass. Core data model, participant auth, turn loop engine, convergence detection, summarization checkpoints, MCP server, AI security pipeline, and rate limiting all shipped.
+**Phase 1 COMPLETE** — core engine shipped: data model, participant auth, turn loop, convergence detection, summarization, MCP server, AI security pipeline, and rate limiting.
 
-**Phase 2 COMPLETE** (2026-04-20 through 2026-04-23) — Web UI on port 8751 with 10 user stories delivered. Seven post-release shakedown sweeps (Test06-Web01 through Test06-Web07) have each produced a fix PR landing in `main`:
+**Phase 2 COMPLETE** — Web UI shipped with full session lifecycle, participant governance, and facilitator controls. Post-release shakedown sweeps addressed UX and correctness issues.
 
-- Guest landing, invite redeem, cookie-based F5 session restore
-- Transfer facilitator (role + display-name prefix + broadcast to both sides)
-- Show-my-token (no more rotation cascade)
-- Token + cookie re-login after logout works (`/me` no longer rotates)
-- Budget 0 = no cap, currency formatted (no float noise), editor "no cap" button
-- Session ID visible; Summarize-now, Review-gate-all / Ungate-all, Archive-with-confirm controls
-- `addressed_only` routing now actually matches `@<name>`
-- Auto-summary on archive (runs before status flip; summarize_now serialized per session)
-- Summary feedback loop closed (summaries excluded from own input; watermark advances to max source_turn)
-- Reject-participant refresh (new `participant_removed` event; optimistic UI removal)
-- Hourly-only budget cap renders correctly
-- Review-gate is now one-shot: after draft approval/rejection/edit the AI auto-reverts to its pre-gate routing (cached in ConversationLoop); bulk `set_routing_all_ais` captures per-AI priors in a single transaction
-- Removing a human cascades to every AI they sponsored (prevents orphan-AI API spend)
-- Rejected pending users see a "Request declined" notice and redirect to the guest landing instead of sitting in limbo
+**Phase 3 (In Progress)** — advanced features under active development: audit hardening, high-traffic scalability, dynamic routing, AI response shaping, user accounts, session-length caps, context compression, participant standby modes, and a human-readable audit log viewer.
 
-Shakedown-tester documentation lives in [docs/user-guide.md](docs/user-guide.md). The red-team runbook ([docs/red-team-runbook.md](docs/red-team-runbook.md)) has 70+ attacks keyed to the seven-layer pipeline for re-running after any security change. Section 5.4 (multi-turn jailbreak escalation via fictional framing) is a **known weakness** on `gpt-4o-mini`; Haiku held under the same test. Mitigation candidates documented in the runbook, not yet implemented.
-
-**Phase 3 (planned)** — branching UI + sub-sessions, OAuth 2.1 with PKCE, MCP-to-MCP topology 7, local model support (Ollama/vLLM per-participant URL), external shared-memory integration, step-up authorization. Will require a new Speckit cycle (`012-...`) when pursued.
-
-**Phase 4 (planned)** — A2A federation, multi-orchestrator linking, hierarchical sub-sessions, data retention policies.
+**Phase 4 (planned)** — federation, multi-orchestrator linking, OAuth 2.1, local model support (Ollama/vLLM), and step-up authorization.

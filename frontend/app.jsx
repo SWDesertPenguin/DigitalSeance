@@ -234,6 +234,11 @@ function initialState() {
     // SPA observed joining live — pre-existing entries from snapshot
     // get first_observed_turn=null so the pill never fires for them.
     participantLifecycle: {},
+    // Spec 025 FR-017/FR-018: conclude-phase banner state.
+    // `concluding` flips true on session_concluding and false on
+    // session_concluded or loop_status(running=false).
+    concluding: false,
+    concludingRemaining: null, // { turns: int|null, seconds: int|null }
   };
 }
 
@@ -329,7 +334,21 @@ function reducer(state, action) {
     case "session_updated":
       return { ...state, session: { ...(state.session || {}), ...(action.event.updates || {}) } };
     case "loop_status":
-      return { ...state, session: { ...(state.session || {}), loop_running: action.event.running } };
+      return {
+        ...state,
+        session: { ...(state.session || {}), loop_running: action.event.running },
+        // Spec 025 FR-018: loop stopped clears the conclude banner.
+        concluding: action.event.running ? state.concluding : false,
+        concludingRemaining: action.event.running ? state.concludingRemaining : null,
+      };
+    case "session_concluding":
+      return {
+        ...state,
+        concluding: true,
+        concludingRemaining: action.event.remaining || null,
+      };
+    case "session_concluded":
+      return { ...state, concluding: false, concludingRemaining: null };
     case "convergence_update":
       return {
         ...state,
@@ -1818,7 +1837,7 @@ function ReviewGateEditor({ draft, onSave, onClose }) {
   );
 }
 
-function AdminPanel({ participants, session, auditEntries, onApprove, onReject, onInvite, onTransfer, onConfig }) {
+function AdminPanel({ participants, session, auditEntries, onApprove, onReject, onInvite, onTransfer, onConfig, onCapSet }) {
   // US6 T120–T125.
   const [open, setOpen] = useState(false);
   const [invite, setInvite] = useState(null);
@@ -1923,6 +1942,22 @@ function AdminPanel({ participants, session, auditEntries, onApprove, onReject, 
                 <option>pattern</option><option>llm</option>
               </select>
             </div>
+            {onCapSet && typeof PRESET_OPTIONS !== "undefined" && (
+              <div className="kv">
+                <span className="dim">length cap</span>
+                <select
+                  defaultValue="none"
+                  onChange={(ev) => {
+                    const preset = ev.target.value;
+                    if (preset !== "custom") onCapSet(preset, null, null);
+                  }}
+                >
+                  {PRESET_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </details>
           <details>
             <summary>Transfer facilitator</summary>
@@ -3028,6 +3063,26 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     }
   };
 
+  // Spec 025 FR-003/FR-026: set length cap with disambiguation handling.
+  const setLengthCap = async (preset, customValues, interpretation) => {
+    if (typeof buildCapPayload !== "function") return;
+    const body = buildCapPayload(preset, customValues, interpretation);
+    try {
+      await mcpCall("/tools/facilitator/set_length_cap", { method: "POST", body });
+    } catch (e) {
+      if (e?.status === 409 && typeof isDisambiguation409 === "function"
+          && isDisambiguation409(e.body)) {
+        const choice = window.confirm(
+          "This cap is below current session progress.\n\n" +
+          "OK = Absolute (conclude now)\nCancel = Relative (add more turns)"
+        );
+        await setLengthCap(preset, customValues, choice ? "absolute" : "relative");
+      } else {
+        alert(`Cap change failed: ${e.message}`);
+      }
+    }
+  };
+
   // US7 proposal actions.
   const createProposal = async (topic, position) => {
     await mcpCall("/tools/proposal/create", {
@@ -3103,6 +3158,13 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
           {state.latestSummary && " A final summary has been generated below."}
         </div>
       )}
+      {state.concluding && (
+        <div className="banner banner-conclude">
+          {typeof formatBannerText === "function"
+            ? formatBannerText(state.concludingRemaining || {})
+            : "Session is concluding"}
+        </div>
+      )}
       <div className="app-body">
         <aside className="sidebar-left">
           <SelfControls
@@ -3147,6 +3209,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                 onInvite={createInvite}
                 onTransfer={transferFacilitator}
                 onConfig={setSessionConfig}
+                onCapSet={setLengthCap}
               />
             </>
           ) : auth && (

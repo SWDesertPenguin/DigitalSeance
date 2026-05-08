@@ -118,32 +118,48 @@ def _get_schema_sql() -> list[str]:
     ]
 
 
+# density_baseline_window REAL[] added in alembic 010 for spec 004 §FR-020 —
+# rolling 20-turn density values for in-process anomaly comparison.
+# length_cap_* + conclude_phase_started_at + active_seconds_accumulator added
+# in alembic 011 for spec 025 FR-001 / FR-002 — opt-in session-length cap and
+# durable active-time accumulator. Module-level constant so the schema-mirror
+# regex parser (scripts/check_schema_mirror.py) sees all columns in one block.
+_SESSIONS_TABLE_DDL = """
+    CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        status TEXT NOT NULL DEFAULT 'active',
+        current_turn INTEGER NOT NULL DEFAULT 0,
+        last_summary_turn INTEGER NOT NULL DEFAULT 0,
+        facilitator_id TEXT,
+        auto_approve BOOLEAN DEFAULT FALSE,
+        auto_archive_days INTEGER,
+        auto_delete_days INTEGER,
+        parent_session_id TEXT,
+        cadence_preset TEXT DEFAULT 'cruise',
+        complexity_classifier_mode TEXT DEFAULT 'pattern',
+        min_model_tier TEXT DEFAULT 'low',
+        acceptance_mode TEXT DEFAULT 'unanimous',
+        review_gate_pause_scope TEXT NOT NULL DEFAULT 'session'
+            CHECK (review_gate_pause_scope IN ('session', 'participant')),
+        density_baseline_window REAL[] DEFAULT '{}',
+        length_cap_kind TEXT NOT NULL DEFAULT 'none'
+            CHECK (length_cap_kind IN ('none', 'time', 'turns', 'both')),
+        length_cap_seconds BIGINT
+            CHECK (length_cap_seconds IS NULL OR length_cap_seconds BETWEEN 60 AND 2592000),
+        length_cap_turns INTEGER
+            CHECK (length_cap_turns IS NULL OR length_cap_turns BETWEEN 1 AND 10000),
+        conclude_phase_started_at TIMESTAMPTZ,
+        active_seconds_accumulator BIGINT
+            CHECK (active_seconds_accumulator IS NULL OR active_seconds_accumulator >= 0),
+        active_phase_started_at TIMESTAMPTZ
+    )
+"""
+
+
 def _sessions_ddl() -> str:
-    # density_baseline_window REAL[] added in alembic 010 for spec 004
-    # §FR-020 — rolling 20-turn density values for in-process anomaly
-    # comparison.
-    return """
-        CREATE TABLE sessions (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-            status TEXT NOT NULL DEFAULT 'active',
-            current_turn INTEGER NOT NULL DEFAULT 0,
-            last_summary_turn INTEGER NOT NULL DEFAULT 0,
-            facilitator_id TEXT,
-            auto_approve BOOLEAN DEFAULT FALSE,
-            auto_archive_days INTEGER,
-            auto_delete_days INTEGER,
-            parent_session_id TEXT,
-            cadence_preset TEXT DEFAULT 'cruise',
-            complexity_classifier_mode TEXT DEFAULT 'pattern',
-            min_model_tier TEXT DEFAULT 'low',
-            acceptance_mode TEXT DEFAULT 'unanimous',
-            review_gate_pause_scope TEXT NOT NULL DEFAULT 'session'
-                CHECK (review_gate_pause_scope IN ('session', 'participant')),
-            density_baseline_window REAL[] DEFAULT '{}'
-        )
-    """
+    return _SESSIONS_TABLE_DDL
 
 
 def _participants_ddl() -> str:

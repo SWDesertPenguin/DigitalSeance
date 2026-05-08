@@ -28,7 +28,7 @@ Every implicit state machine in the orchestrator is documented here with its sta
 
 **States**: `pending`, `active`, `paused-manual`, `paused-breaker`, `removed`
 
-(`paused-manual` and `paused-breaker` share the underlying `status='paused'` column value; the distinction is whether the breaker drove it. The `consecutive_timeouts` column disambiguates: `>= 5` indicates `paused-breaker`.)
+(`paused-manual` and `paused-breaker` share the same underlying status; the distinction is whether the circuit breaker drove it, tracked via a consecutive-failure counter.)
 
 **Transitions**:
 
@@ -38,8 +38,8 @@ Every implicit state machine in the orchestrator is documented here with its sta
 | `pending` | `removed` | Facilitator rejects (hard-delete) | terminal |
 | `active` | `paused-manual` | Facilitator pauses | yes |
 | `paused-manual` | `active` | Facilitator resumes | yes |
-| `active` | `paused-breaker` | Circuit breaker opens (5 consecutive failures) | yes |
-| `paused-breaker` | `active` | Successful turn dispatched OR `consecutive_timeouts` reset by facilitator | yes |
+| `active` | `paused-breaker` | Circuit breaker opens (consecutive failure threshold reached) | yes |
+| `paused-breaker` | `active` | Successful turn dispatched OR failure counter reset by facilitator | yes |
 | any non-terminal | `removed` | Facilitator removes (hard-delete) | terminal |
 
 **Invalid transitions**: `removed` is terminal (row hard-deleted — audit row survives). Direct `pending` → `paused-*` transitions are rejected; pending must approve before pause is meaningful.
@@ -98,14 +98,14 @@ route → assemble → dispatch → persist → log
 
 **States**: `closed`, `open`
 
-(Modeled as `consecutive_timeouts` column on `participants`. `< 5` = closed; `>= 5` = open.)
+(Stored as a consecutive-failure counter per participant. Below the threshold = closed; at or above = open.)
 
 **Transitions**:
 
 | From | To | Trigger |
 |---|---|---|
 | `closed` | `closed` | Successful dispatch (resets counter to 0) |
-| `closed` | `open` | 5th consecutive failure increments counter past threshold |
+| `closed` | `open` | Consecutive failures exceed the configurable threshold |
 | `open` | `closed` | Successful dispatch (rare — open breaker skips dispatch); facilitator manual reset |
 
 **Note**: there is no `half-open` probe state. The breaker reopens on the first success, which means a long-failing participant remains skipped indefinitely until either the facilitator resets the counter or the participant naturally recovers (e.g., on a downstream operator fixing the provider key).
@@ -150,7 +150,7 @@ route → assemble → dispatch → persist → log
 
 **States**: `issued`, `active`, `expired`, `revoked`, `rotated`
 
-(Tokens are stored as `auth_token_hash` on `participants`. State is implicit from `token_expires_at`, the row's existence, and rotation ceremony.)
+(State is implicit from the token expiry timestamp, the row's existence, and rotation ceremony.)
 
 **Transitions**:
 
@@ -195,7 +195,7 @@ route → assemble → dispatch → persist → log
 |---|---|---|
 | (none) | `connecting` | Client opens WS to `/ws/sessions/{id}` | n/a |
 | `connecting` | `authenticated` | Cookie validation passes; `me` row resolved |
-| `connecting` | `closed` | Auth failure → close 4401 / 4403 | terminal-this-conn |
+| `connecting` | `closed` | Auth failure (invalid token or wrong session) | terminal-this-conn |
 | `authenticated` | `streaming` | Initial `state_snapshot` sent |
 | `streaming` | `reconnecting` | Client-side network drop (close 1006) |
 | `reconnecting` | `streaming` | Client reconnects, fresh `state_snapshot` sent |
@@ -210,7 +210,7 @@ Per-event delivery filters are role-driven.
 
 **States**: `created`, `active`, `stale`, `evicted`
 
-(In-memory token-bucket per `(token_hash, route)`. State is implicit from last-touched timestamp.)
+(In-memory token-bucket per participant and route. State is implicit from last-touched timestamp.)
 
 **Transitions**:
 

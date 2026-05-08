@@ -47,10 +47,23 @@ class CadenceController:
         *,
         similarity: float,
         preset: str,
+        phase: str = "running",
     ) -> float:
-        """Compute delay from similarity and preset."""
+        """Compute delay from similarity and preset.
+
+        Spec 025 FR-010: when ``phase='conclude'`` the adaptive cadence is
+        suspended and the delay returns to the preset's floor immediately
+        so the wrap-up turns dispatch responsively. Default ``phase='running'``
+        preserves pre-feature behavior.
+        """
         if preset == "idle":
             return 0.0  # Trigger-only, no auto-pacing
+        if phase == "conclude":
+            floor, _ = _preset_bounds(preset)
+            state = self.get_or_create(session_id, preset)
+            state.last_similarity = similarity
+            state.current_delay = floor
+            return floor
         state = self.get_or_create(session_id, preset)
         state.last_similarity = similarity
         floor, ceiling = _preset_bounds(preset)
