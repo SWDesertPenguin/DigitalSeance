@@ -609,6 +609,20 @@ def validate_auto_mode_enabled() -> ValidationFailure | None:
     return None
 
 
+def validate_network_ratelimit_enabled() -> ValidationFailure | None:
+    """SACP_NETWORK_RATELIMIT_ENABLED: bool, default false. 019 §FR-001 / FR-014.
+
+    Master switch for the per-IP network rate limiter. When unset or 'false',
+    the middleware is NOT registered and pre-feature behavior is preserved
+    byte-identically (SC-006).
+    """
+    val = os.environ.get("SACP_NETWORK_RATELIMIT_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val.strip().lower() not in ("true", "false", "1", "0"):
+        return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_ENABLED",
+            f"must be 'true'/'false' (case-insensitive) or '1'/'0'; got {val!r}",
 def validate_filler_threshold() -> ValidationFailure | None:
     """SACP_FILLER_THRESHOLD: float in [0.0, 1.0]. 021 §FR-002 / FR-004.
 
@@ -641,6 +655,22 @@ def validate_sacp_length_cap_default_kind() -> ValidationFailure | None:
     return None
 
 
+def validate_network_ratelimit_rpm() -> ValidationFailure | None:
+    """SACP_NETWORK_RATELIMIT_RPM: int [1, 6000], default 60. 019 §FR-003.
+
+    Required when SACP_NETWORK_RATELIMIT_ENABLED=true; the limiter requires a
+    budget to be useful. Unset paired with _ENABLED=true causes startup exit
+    per the spec's Configuration (V16) section.
+    """
+    enabled_raw = os.environ.get("SACP_NETWORK_RATELIMIT_ENABLED", "").strip().lower()
+    enabled = enabled_raw in ("true", "1")
+    val = os.environ.get("SACP_NETWORK_RATELIMIT_RPM")
+    if val is None or val.strip() == "":
+        if enabled:
+            return ValidationFailure(
+                "SACP_NETWORK_RATELIMIT_RPM",
+                "must be set when SACP_NETWORK_RATELIMIT_ENABLED=true",
+            )
 def validate_sacp_length_cap_default_seconds() -> ValidationFailure | None:
     """SACP_LENGTH_CAP_DEFAULT_SECONDS: empty OR positive int in [60, 2_592_000]. 025 §FR-024."""
     val = os.environ.get("SACP_LENGTH_CAP_DEFAULT_SECONDS")
@@ -650,6 +680,13 @@ def validate_sacp_length_cap_default_seconds() -> ValidationFailure | None:
         num = int(val)
     except ValueError:
         return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_RPM",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 6000:
+        return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_RPM",
+            f"must be in [1, 6000]; got {num}",
             "SACP_LENGTH_CAP_DEFAULT_SECONDS",
             f"must be integer; got {val!r}",
         )
@@ -661,6 +698,14 @@ def validate_sacp_length_cap_default_seconds() -> ValidationFailure | None:
     return None
 
 
+def validate_network_ratelimit_burst() -> ValidationFailure | None:
+    """SACP_NETWORK_RATELIMIT_BURST: int [1, 10000], default 15. 019 §FR-003.
+
+    Token-bucket capacity. Allows short bursts above the steady-state RPM.
+    Default 15 = 60/4 — quiet-then-active client can spike up to 15 requests
+    in a quarter-minute before the steady-state rate kicks in.
+    """
+    val = os.environ.get("SACP_NETWORK_RATELIMIT_BURST")
 def validate_register_default() -> ValidationFailure | None:
     """SACP_REGISTER_DEFAULT: int in {1,2,3,4,5}. 021 §FR-009 / FR-010.
 
@@ -677,6 +722,13 @@ def validate_sacp_length_cap_default_turns() -> ValidationFailure | None:
         num = int(val)
     except ValueError:
         return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_BURST",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 10000:
+        return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_BURST",
+            f"must be in [1, 10000]; got {num}",
             "SACP_REGISTER_DEFAULT",
             f"must be integer; got {val!r}",
         )
@@ -695,6 +747,15 @@ def validate_sacp_length_cap_default_turns() -> ValidationFailure | None:
     return None
 
 
+def validate_network_ratelimit_trust_forwarded_headers() -> ValidationFailure | None:
+    """SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS: bool, default false. 019 §FR-011.
+
+    Trust-by-opt-in for forwarded-header parsing. When false (default), the
+    middleware uses the immediate peer IP and ignores Forwarded (RFC 7239) /
+    X-Forwarded-For headers. When true, the operator is responsible for
+    ensuring the upstream proxy sanitizes inbound headers before forwarding.
+    """
+    val = os.environ.get("SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS")
 def validate_response_shaping_enabled() -> ValidationFailure | None:
     """SACP_RESPONSE_SHAPING_ENABLED: bool. 021 §FR-005.
 
@@ -707,6 +768,8 @@ def validate_response_shaping_enabled() -> ValidationFailure | None:
         return None
     if val.strip().lower() not in ("true", "false", "1", "0"):
         return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS",
+            f"must be 'true'/'false' (case-insensitive) or '1'/'0'; got {val!r}",
             "SACP_RESPONSE_SHAPING_ENABLED",
             f"must be 'true'/'false' (case-insensitive) or '1'/'0'; got {val!r}",
 def validate_sacp_conclude_phase_trigger_fraction() -> ValidationFailure | None:
@@ -729,6 +792,14 @@ def validate_sacp_conclude_phase_trigger_fraction() -> ValidationFailure | None:
     return None
 
 
+def validate_network_ratelimit_max_keys() -> ValidationFailure | None:
+    """SACP_NETWORK_RATELIMIT_MAX_KEYS: int [1024, 1_000_000], default 100_000. 019 §FR-004.
+
+    LRU bound on the per-IP budget map. When the map exceeds this size, the
+    least-recently-accessed entry is evicted. Memory bound is
+    MAX_KEYS x ~300 bytes per entry; default 100k = ~30MB worst case.
+    """
+    val = os.environ.get("SACP_NETWORK_RATELIMIT_MAX_KEYS")
 def validate_sacp_conclude_phase_prompt_tier() -> ValidationFailure | None:
     """SACP_CONCLUDE_PHASE_PROMPT_TIER: int in {1, 2, 3, 4}, default 4. 025 §FR-008."""
     val = os.environ.get("SACP_CONCLUDE_PHASE_PROMPT_TIER")
@@ -738,6 +809,13 @@ def validate_sacp_conclude_phase_prompt_tier() -> ValidationFailure | None:
         num = int(val)
     except ValueError:
         return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_MAX_KEYS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1024 <= num <= 1_000_000:
+        return ValidationFailure(
+            "SACP_NETWORK_RATELIMIT_MAX_KEYS",
+            f"must be in [1024, 1_000_000]; got {num}",
             "SACP_CONCLUDE_PHASE_PROMPT_TIER",
             f"must be integer; got {val!r}",
         )
@@ -804,6 +882,11 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_dma_density_anomaly_rate_threshold,
     validate_dma_dwell_time_s,
     validate_auto_mode_enabled,
+    validate_network_ratelimit_enabled,
+    validate_network_ratelimit_rpm,
+    validate_network_ratelimit_burst,
+    validate_network_ratelimit_trust_forwarded_headers,
+    validate_network_ratelimit_max_keys,
     validate_filler_threshold,
     validate_register_default,
     validate_response_shaping_enabled,

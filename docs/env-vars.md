@@ -164,6 +164,56 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Source spec(s)**: 004 §FR-020 (information-density anomaly threshold)
 - **Note**: Multiplier over the rolling 20-turn density baseline mean. A value of 1.5 means "flag turns whose density is more than 1.5× the recent average." Phase 1 retuning will be informed by `tests/calibration/density_distribution.json` once production sessions accumulate.
 
+### `SACP_NETWORK_RATELIMIT_ENABLED`
+
+- **Default**: `false`
+- **Type**: boolean (string `"true"`/`"false"`, case-insensitive; `"1"`/`"0"` accepted)
+- **Valid range**: exactly `true` or `false` (after case-folding) — equivalently `1` or `0`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_network_ratelimit_enabled`
+- **Source spec(s)**: 019 §FR-001 / FR-014 (master switch for the per-IP network rate limiter)
+- **Note**: When `false` (the default), the middleware is NOT registered and pre-feature behavior is preserved byte-identically (SC-006). When `true`, the middleware is registered FIRST per FR-001 and FR-002 and `SACP_NETWORK_RATELIMIT_RPM` becomes required (cross-validator constraint enforced by `validate_network_ratelimit_rpm`).
+
+### `SACP_NETWORK_RATELIMIT_RPM`
+
+- **Default**: `60`
+- **Type**: positive integer (requests per minute)
+- **Valid range**: `1 <= value <= 6000`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_network_ratelimit_rpm`
+- **Source spec(s)**: 019 §FR-003 (steady-state per-IP token-bucket refill rate)
+- **Note**: Steady-state requests-per-minute admitted per source IP. Default 60 = one request per second on average per IP — generous for human-driven MCP clients. Operator tunes upward for NAT-fronted traffic.
+- **Cross-validator constraint**: when `SACP_NETWORK_RATELIMIT_ENABLED=true` AND this is unset, V16 fails with a message naming the var (the limiter requires a budget to be useful). Enforced by `validate_network_ratelimit_rpm`.
+
+### `SACP_NETWORK_RATELIMIT_BURST`
+
+- **Default**: `15` (= `RPM / 4` rounded; allows ~15-second bursts at the steady-state rate)
+- **Type**: positive integer (tokens)
+- **Valid range**: `1 <= value <= 10000`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_network_ratelimit_burst`
+- **Source spec(s)**: 019 §FR-003 (token-bucket burst capacity)
+- **Note**: Token-bucket capacity. Allows short bursts above the steady-state RPM. Default 15 (= 60/4) means a quiet-then-active client can spike up to 15 requests in a quarter-minute before the steady-state rate kicks in. Operators raising RPM should typically raise BURST proportionally.
+
+### `SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS`
+
+- **Default**: `false`
+- **Type**: boolean (string `"true"`/`"false"`, case-insensitive; `"1"`/`"0"` accepted)
+- **Valid range**: exactly `true` or `false` (after case-folding) — equivalently `1` or `0`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_network_ratelimit_trust_forwarded_headers`
+- **Source spec(s)**: 019 §FR-011 (RFC 7239 `Forwarded` / `X-Forwarded-For` opt-in)
+- **Note**: Trust-by-opt-in for forwarded-header parsing. When `false` (default), the middleware uses the immediate peer IP and ignores `Forwarded` (RFC 7239) and `X-Forwarded-For` headers. When `true`, the middleware parses the rightmost-trusted entry of `Forwarded` (preferred) or `X-Forwarded-For` (fallback). The operator is responsible for ensuring the upstream proxy sanitizes inbound headers before forwarding — otherwise the limiter can be bypassed via spoofed headers.
+
+### `SACP_NETWORK_RATELIMIT_MAX_KEYS`
+
+- **Default**: `100000`
+- **Type**: positive integer (count of distinct keyed-IP entries held in memory)
+- **Valid range**: `1024 <= value <= 1_000_000`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_network_ratelimit_max_keys`
+- **Source spec(s)**: 019 §FR-004 (memory bound on the per-IP budget map)
+- **Note**: LRU bound on the per-IP budget map. When the map exceeds this size, the least-recently-accessed entry is evicted via `OrderedDict.popitem(last=False)` (O(1) amortized). Memory bound is `MAX_KEYS × ~300 bytes per entry`; default 100k = ~30MB worst case. Raise toward 1M for deployments with high IP diversity (public-internet-exposed, or NAT-egress-fronted with many client IPs).
 ### `SACP_FILLER_THRESHOLD`
 
 - **Default**: unset (per-family default from the `BehavioralProfile` dict in `src/orchestrator/shaping.py` applies — anthropic/openai default `0.60`; gemini/groq/ollama/vllm default `0.55`)
