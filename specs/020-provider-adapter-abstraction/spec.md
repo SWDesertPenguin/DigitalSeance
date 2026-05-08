@@ -2,7 +2,7 @@
 
 **Feature Branch**: `020-provider-adapter-abstraction`
 **Created**: 2026-05-06
-**Status**: Draft
+**Status**: Clarified 2026-05-08 (Phase 3 declared 2026-05-05; scaffold + clarifications resolved; `/speckit.plan` and `/speckit.tasks` deferred to user invocation)
 **Input**: User description: "Pluggable provider adapter abstraction for SACP's bridge layer. SACP Phase 1 uses LiteLLM as the bridge layer for provider translation across Anthropic, OpenAI, OpenAI-compatible endpoints, Ollama, and vLLM. External dependencies at the network boundary of a multi-tenant orchestrator carry inherent supply-chain risk; SACP needs a clean abstraction layer that could swap LiteLLM for in-house provider adapters if the dependency ever needs to be replaced. Designing the interface now — without building in-house adapters — costs little and provides a swap path. The adapter interface defines SACP's internal message format (stable across all adapters) and normalizes provider-specific tool-calling formats, streaming protocols, error taxonomies, token counting, and cache-control directives at the API boundary. Phase 1 ships a single LiteLLM-backed adapter behind the interface plus a mock adapter for testing. Future phases may introduce provider-specific adapters one at a time, feature-flag gated. Phase 1 scope: interface definition, LiteLLM-backed implementation, mock for testing. Cross-references §6 of sacp-design.md (provider abstraction) and the circuit-breaker feature (error-taxonomy integration)."
 
 ## Overview
@@ -79,45 +79,50 @@ and would each be their own spec.
 
 ## Clarifications
 
+### Session 2026-05-08
+
+- Q: Adapter selection scope — process-wide vs. per-participant? → A: Process-wide.
+- Q: Backwards-compatibility window — single-PR cutover vs. parallel-path? → A: Single-PR cutover.
+- Q: Capability negotiation location — adapter vs. participant-registration registry? → A: Adapter owns.
+- Q: Token counting authority — single source vs. split inbound/outbound? → A: Adapter single source both directions.
+- Q: Mock adapter fidelity — simplified vs. provider-quirk-faithful? → A: Simplified.
+
 ### Initial draft assumptions requiring confirmation
 
-- **Adapter selection scope.** Drafted as: process-wide selection
-  via `SACP_PROVIDER_ADAPTER` (one adapter per orchestrator
-  instance, used for all participants). Per-participant adapter
-  selection (e.g., participant A on `litellm`, participant B on
-  a direct adapter) is a clean follow-up but adds session-state
-  complexity. v1 is process-wide. [NEEDS CLARIFICATION: confirm
-  process-wide vs. per-participant selection.]
-- **Capability negotiation.** Drafted as a `capabilities()` method
-  returning a structured object (supports_streaming,
-  supports_tool_calling, supports_prompt_caching,
-  max_context_tokens, etc.) consulted at participant
-  registration to decide e.g. whether to enable spec 018 deferred
-  loading or §6.3 `[NEED:]` proxy. [NEEDS CLARIFICATION: confirm
-  capability negotiation belongs in the adapter vs. a separate
-  participant-registration concern.]
-- **Token counting authority.** Token counts on the inbound side
-  (system prompt + history) come from the adapter's
-  `count_tokens()` method using the participant's model
-  tokenizer. Cost tracking on the OUTBOUND side reads the
-  provider's response. Drafted as: the adapter owns both — input
-  token count via `count_tokens()`, output token count parsed
-  from the response. [NEEDS CLARIFICATION: confirm the adapter
-  is the single source of truth for both directions.]
-- **Mock adapter fidelity.** Drafted as: mock returns
-  deterministic responses, fake but plausibly-shaped streaming
-  events, and an injectable error mode (e.g.,
-  `MockAdapter(error="5xx")`) so spec 015's circuit breaker can
-  be tested without network. The mock does NOT attempt to
-  emulate provider-specific quirks (e.g., Anthropic's exact
-  `message_start` event sequence) — that's an integration-test
-  concern. [NEEDS CLARIFICATION: confirm the simplified mock
-  is acceptable.]
-- **Backwards-compatibility window.** Drafted as: the LiteLLM
-  adapter is a thin wrapper; the dispatch-path refactor replaces
-  every `import litellm` with adapter calls in a single PR. No
-  parallel-old-and-new path window. [NEEDS CLARIFICATION:
-  confirm the no-parallel-window stance.]
+- **Adapter selection scope.** Process-wide selection via
+  `SACP_PROVIDER_ADAPTER` (one adapter per orchestrator instance,
+  used for all participants). Per-participant adapter selection is
+  explicitly OUT OF SCOPE for this spec and would be its own future
+  spec. Resolved 2026-05-08.
+- **Capability negotiation.** The adapter owns capability reporting
+  via `capabilities(model)`, returning a structured object
+  (`supports_streaming`, `supports_tool_calling`,
+  `supports_prompt_caching`, `max_context_tokens`, etc.) consulted
+  at participant registration to decide e.g. whether to enable spec
+  018 deferred loading or §6.3 `[NEED:]` proxy. Provider knowledge
+  stays inside the adapter; no orchestrator-side capability
+  registry. Resolved 2026-05-08.
+- **Token counting authority.** The adapter is the single source of
+  truth for both directions: inbound token counts via
+  `count_tokens()` using the participant's model tokenizer, and
+  outbound token counts parsed from the provider response by the
+  adapter. No orchestrator-side tokenizer code; spec 018's
+  deferred-loading budget primitive consumes adapter output
+  directly per FR-012. Resolved 2026-05-08.
+- **Mock adapter fidelity.** Simplified mock: deterministic
+  responses, fake but plausibly-shaped streaming events, and an
+  injectable error mode (e.g., `MockAdapter(error="5xx")`) so spec
+  015's circuit breaker can be tested without network. The mock
+  does NOT attempt to emulate provider-specific quirks (e.g.,
+  Anthropic's exact `message_start` event sequence) — that's an
+  integration-test concern handled against real providers.
+  Resolved 2026-05-08.
+- **Backwards-compatibility window.** Single-PR cutover: every
+  `import litellm` outside the `LiteLLMAdapter` package is replaced
+  with adapter calls in one PR. No parallel-old-and-new path
+  window. FR-005's architectural test enforces the cutover; FR-014's
+  byte-identical regression contract closes the loop in the same
+  PR. Resolved 2026-05-08.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -622,5 +627,6 @@ and fail-closed semantics documented in `docs/env-vars.md` BEFORE
   adds the interface layer that Phase 1 should arguably have
   shipped with. Confirmation pending across the family of
   Phase-1-back-fill specs.
-- Status remains Draft until the five flagged clarifications
-  resolve and the user accepts the scaffolding.
+- Five draft-assumption clarifications resolved 2026-05-08; spec
+  status advanced to Clarified. `/speckit.plan` and `/speckit.tasks`
+  remain deferred to user invocation.
