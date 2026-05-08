@@ -481,6 +481,134 @@ def _validate_observer_downgrade_keys(parsed: dict[str, int]) -> ValidationFailu
     return None
 
 
+def validate_dma_turn_rate_threshold_tpm() -> ValidationFailure | None:
+    """SACP_DMA_TURN_RATE_THRESHOLD_TPM: int turns/min in [1, 600]. 014 §FR-003 / FR-004."""
+    val = os.environ.get("SACP_DMA_TURN_RATE_THRESHOLD_TPM")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_DMA_TURN_RATE_THRESHOLD_TPM",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 600:
+        return ValidationFailure(
+            "SACP_DMA_TURN_RATE_THRESHOLD_TPM",
+            f"must be in [1, 600]; got {num}",
+        )
+    return None
+
+
+def validate_dma_convergence_derivative_threshold() -> ValidationFailure | None:
+    """SACP_DMA_CONVERGENCE_DERIVATIVE_THRESHOLD: float in (0.0, 1.0]. 014 §FR-003 / FR-004."""
+    val = os.environ.get("SACP_DMA_CONVERGENCE_DERIVATIVE_THRESHOLD")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = float(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_DMA_CONVERGENCE_DERIVATIVE_THRESHOLD",
+            f"must be a float; got {val!r}",
+        )
+    if not 0.0 < num <= 1.0:
+        return ValidationFailure(
+            "SACP_DMA_CONVERGENCE_DERIVATIVE_THRESHOLD",
+            f"must be in (0.0, 1.0]; got {num}",
+        )
+    return None
+
+
+def validate_dma_queue_depth_threshold() -> ValidationFailure | None:
+    """SACP_DMA_QUEUE_DEPTH_THRESHOLD: int pending msgs in [1, 1000]. 014 §FR-003 / FR-004."""
+    val = os.environ.get("SACP_DMA_QUEUE_DEPTH_THRESHOLD")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_DMA_QUEUE_DEPTH_THRESHOLD",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 1000:
+        return ValidationFailure(
+            "SACP_DMA_QUEUE_DEPTH_THRESHOLD",
+            f"must be in [1, 1000]; got {num}",
+        )
+    return None
+
+
+def validate_dma_density_anomaly_rate_threshold() -> ValidationFailure | None:
+    """SACP_DMA_DENSITY_ANOMALY_RATE_THRESHOLD: int flags/min in [1, 60]. 014 §FR-003 / FR-004."""
+    val = os.environ.get("SACP_DMA_DENSITY_ANOMALY_RATE_THRESHOLD")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_DMA_DENSITY_ANOMALY_RATE_THRESHOLD",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 60:
+        return ValidationFailure(
+            "SACP_DMA_DENSITY_ANOMALY_RATE_THRESHOLD",
+            f"must be in [1, 60]; got {num}",
+        )
+    return None
+
+
+def validate_dma_dwell_time_s() -> ValidationFailure | None:
+    """SACP_DMA_DWELL_TIME_S: int seconds in [30, 1800]. 014 §FR-007 / FR-010.
+
+    Unset is allowed in advisory mode; required when SACP_AUTO_MODE_ENABLED=true.
+    The cross-validator dependency is enforced by validate_auto_mode_enabled.
+    """
+    val = os.environ.get("SACP_DMA_DWELL_TIME_S")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_DMA_DWELL_TIME_S",
+            f"must be integer; got {val!r}",
+        )
+    if not 30 <= num <= 1800:
+        return ValidationFailure(
+            "SACP_DMA_DWELL_TIME_S",
+            f"must be in [30, 1800]; got {num}",
+        )
+    return None
+
+
+def validate_auto_mode_enabled() -> ValidationFailure | None:
+    """SACP_AUTO_MODE_ENABLED: 'true' or 'false' (case-sensitive). 014 §FR-006 / FR-010 / FR-011.
+
+    Unset is treated as 'false' (advisory-only). When 'true', SACP_DMA_DWELL_TIME_S
+    MUST also be set (FR-010 cross-validator: auto-apply without dwell is flap-prone).
+    """
+    val = os.environ.get("SACP_AUTO_MODE_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_AUTO_MODE_ENABLED",
+            f"must be exactly 'true' or 'false' (case-sensitive); got {val!r}",
+        )
+    if val == "true":
+        dwell = os.environ.get("SACP_DMA_DWELL_TIME_S")
+        if dwell is None or dwell.strip() == "":
+            return ValidationFailure(
+                "SACP_AUTO_MODE_ENABLED",
+                "auto-apply requires SACP_DMA_DWELL_TIME_S; both vars must be set together",
+            )
+    return None
+
+
 def validate_web_ui_cookie_key() -> ValidationFailure | None:
     """SACP_WEB_UI_COOKIE_KEY: required signing key for Web UI session cookies.
 
@@ -530,6 +658,12 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_high_traffic_batch_cadence_s,
     validate_convergence_threshold_override,
     validate_observer_downgrade_thresholds,
+    validate_dma_turn_rate_threshold_tpm,
+    validate_dma_convergence_derivative_threshold,
+    validate_dma_queue_depth_threshold,
+    validate_dma_density_anomaly_rate_threshold,
+    validate_dma_dwell_time_s,
+    validate_auto_mode_enabled,
 )
 
 

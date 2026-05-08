@@ -247,6 +247,62 @@ starts consuming them — likely as part of a per-spec amendment cluster.
 - **Validation rule**: `validators.validate_observer_downgrade_thresholds`
 - **Source spec(s)**: 013 §FR-008 / FR-009 / FR-010 / FR-011 (broadcast mode mechanism 3)
 
+### `SACP_DMA_TURN_RATE_THRESHOLD_TPM`
+
+- **Default**: unset (turn-rate signal does not contribute to controller decisions)
+- **Type**: integer (turns per minute)
+- **Valid range**: `1 <= value <= 600`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_dma_turn_rate_threshold_tpm`
+- **Source spec(s)**: 014 §FR-003 / FR-004 (signal source: turns/minute over the 5-minute observation window)
+
+### `SACP_DMA_CONVERGENCE_DERIVATIVE_THRESHOLD`
+
+- **Default**: unset (convergence-derivative signal does not contribute)
+- **Type**: float (per-window absolute derivative magnitude of the spec-004 similarity score)
+- **Valid range**: `0.0 < value <= 1.0` (similarity is bounded in `[0, 1]`; per-window derivative is bounded in `[-1, 1]`, magnitude in `[0, 1]`)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_dma_convergence_derivative_threshold`
+- **Source spec(s)**: 014 §FR-003 / FR-004 (depends on spec 004 `ConvergenceEngine.last_similarity` hook per 014 research §2)
+
+### `SACP_DMA_QUEUE_DEPTH_THRESHOLD`
+
+- **Default**: unset (queue-depth signal does not contribute)
+- **Type**: integer (count of pending messages across human-side batch queues per session)
+- **Valid range**: `1 <= value <= 1000`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_dma_queue_depth_threshold`
+- **Source spec(s)**: 014 §FR-003 / FR-004 (soft dependency on spec-013 batching; signal is inactive when batching is unconfigured)
+
+### `SACP_DMA_DENSITY_ANOMALY_RATE_THRESHOLD`
+
+- **Default**: unset (density-anomaly signal does not contribute)
+- **Type**: integer (count of `density_anomaly`-flagged turns per observation-window minute)
+- **Valid range**: `1 <= value <= 60` (one shift per minute floor; 60 is the sanity ceiling — one every 5 seconds)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_dma_density_anomaly_rate_threshold`
+- **Source spec(s)**: 014 §FR-003 / FR-004 (sources from existing `src/orchestrator/density.py` flag emission per 014 research §1)
+
+### `SACP_DMA_DWELL_TIME_S`
+
+- **Default**: unset (allowed in advisory mode; required when `SACP_AUTO_MODE_ENABLED=true`)
+- **Type**: integer (seconds)
+- **Valid range**: `30 <= value <= 1800` (30 s practical floor below which dwell offers no flap protection; 30 minutes is a sanity ceiling)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_dma_dwell_time_s`
+- **Source spec(s)**: 014 §FR-007 / FR-010
+- **Cross-validator constraint**: when `SACP_AUTO_MODE_ENABLED=true` AND this is unset, V16 fails with a message naming both vars (FR-010 — auto-apply without a dwell floor is flap-prone). Enforced by `validate_auto_mode_enabled`.
+
+### `SACP_AUTO_MODE_ENABLED`
+
+- **Default**: `false` (advisory mode — controller emits `mode_recommendation` events but never toggles spec-013 mechanisms)
+- **Type**: boolean
+- **Valid range**: exactly `"true"` or `"false"` (case-sensitive). Unset is treated as `false`.
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_auto_mode_enabled`
+- **Source spec(s)**: 014 §FR-006 / FR-010 / FR-011
+- **Note**: Setting this to `true` requires prior advisory-mode validation per the spec User Story priority ordering (Story 1 P1 advisory → Story 2 P2 auto-apply). Enabling auto-apply without first observing the controller's signal interpretation across multiple sessions is an operator-trust hazard; the spec deliberately defaults to `false` so production deployments are advisory-only until the operator opts in.
+
 ### `SACP_SECURITY_EVENTS_RETENTION_DAYS`
 
 - **Default**: unset (the orchestrator never auto-purges; operator-driven)
