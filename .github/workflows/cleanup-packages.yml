@@ -1,0 +1,24 @@
+name: Clean up old container images
+
+on:
+  schedule:
+    - cron: '0 6 * * 0'  # Weekly, Sunday 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      # Pin to immutable SHA per build-image.yml supply-chain hygiene.
+      # Before merging, replace @v5 with the current commit SHA from
+      # github.com/actions/delete-package-versions, matching the pattern
+      # used for actions/checkout, docker/login-action, etc.
+      - uses: actions/delete-package-versions@v5
+        with:
+          package-name: digitalseance
+          package-type: container
+          min-versions-to-keep: 1   # Aggressive for first run; bumped to 5 in Phase D
+          ignore-versions: '^v\d+\.\d+\.\d+.*$'
