@@ -152,6 +152,33 @@ class SessionRepository(BaseRepository):
             await _log_deletion(conn, session_id)
             await _delete_session_data(conn, session_id)
 
+    async def update_length_cap(
+        self,
+        session_id: str,
+        *,
+        kind: str,
+        seconds: int | None,
+        turns: int | None,
+    ) -> Session:
+        """Spec 025 FR-003: commit a cap update to `sessions.length_cap_*`.
+
+        Caller is responsible for cross-column consistency (kind=time
+        requires seconds, etc.) and disambiguation per FR-026 — this
+        helper is a pure UPDATE.
+        """
+        result = await self._execute(
+            "UPDATE sessions SET length_cap_kind = $1, length_cap_seconds = $2, "
+            "length_cap_turns = $3 WHERE id = $4",
+            kind,
+            seconds,
+            turns,
+            session_id,
+        )
+        if result == "UPDATE 0":
+            msg = f"Session {session_id} not found"
+            raise ValueError(msg)
+        return await self.get_session(session_id)  # type: ignore[return-value]
+
     async def mark_conclude_phase_started(self, session_id: str) -> None:
         """Set `sessions.conclude_phase_started_at = now()` for spec 025 FR-007.
 

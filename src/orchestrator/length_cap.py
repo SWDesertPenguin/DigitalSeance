@@ -173,6 +173,40 @@ def should_finalize_conclude_phase(
 
 
 @dataclass(frozen=True, slots=True)
+class CapUpdatePlan:
+    """Resolved cap-set request — values are committed as-is.
+
+    Returned by `detect_decrease_intent` when no disambiguation is needed
+    (no decrease, or the caller supplied an explicit `interpretation`).
+    """
+
+    new_kind: CapKind
+    new_seconds: int | None
+    new_turns: int | None
+    interpretation: CapInterpretation | None
+
+
+@dataclass(frozen=True, slots=True)
+class DisambiguationRequired:
+    """Cap-set requires the facilitator to choose absolute vs relative.
+
+    Per spec 025 FR-026 + contracts/cap-set-endpoint.md the endpoint
+    returns 409 with both option payloads; the facilitator's re-POST
+    sets `interpretation` explicitly.
+    """
+
+    submitted_kind: CapKind
+    submitted_seconds: int | None
+    submitted_turns: int | None
+    current_turns: int
+    current_seconds: int
+    absolute_effective_turns: int | None
+    absolute_effective_seconds: int | None
+    relative_effective_turns: int | None
+    relative_effective_seconds: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class CapEvaluation:
     """Outcome of one per-dispatch cap-check (T032 / T033 plumbing).
 
@@ -185,6 +219,91 @@ class CapEvaluation:
 
     enter_conclude: bool
     trigger_dimension: str | None
+
+
+def detect_decrease_intent(
+    *,
+    submitted_kind: CapKind,
+    submitted_seconds: int | None,
+    submitted_turns: int | None,
+    current_turns: int,
+    current_seconds: int,
+    interpretation: CapInterpretation | None,
+) -> CapUpdatePlan | DisambiguationRequired:
+    """FR-026: classify a cap-set into commit-ready plan or 409 disambiguation.
+
+    Returns ``CapUpdatePlan`` when no disambiguation is needed (no
+    decrease, OR explicit ``interpretation``, OR ``kind='none'``).
+    Returns ``DisambiguationRequired`` when any submitted dimension is
+    below current elapsed AND no ``interpretation`` is supplied; the
+    transport layer renders both options.
+    """
+    submitted = (submitted_kind, submitted_seconds, submitted_turns)
+    current = (current_turns, current_seconds)
+    if submitted_kind == "none" or interpretation is not None:
+        return _build_plan(submitted, current, interpretation)
+    if not _is_decrease(submitted_seconds, submitted_turns, current_turns, current_seconds):
+        return _build_plan(submitted, current, None)
+    return _build_disambiguation(submitted, current)
+
+
+def _is_decrease(
+    submitted_seconds: int | None,
+    submitted_turns: int | None,
+    current_turns: int,
+    current_seconds: int,
+) -> bool:
+    """True when any submitted dimension is at or below current elapsed."""
+    if submitted_turns is not None and submitted_turns <= current_turns:
+        return True
+    return submitted_seconds is not None and submitted_seconds <= current_seconds
+
+
+def _build_plan(
+    submitted: tuple[CapKind, int | None, int | None],
+    current: tuple[int, int],
+    interpretation: CapInterpretation | None,
+) -> CapUpdatePlan:
+    """Compute the effective cap values given the resolved interpretation."""
+    submitted_kind, submitted_seconds, submitted_turns = submitted
+    current_turns, current_seconds = current
+    if interpretation == "relative":
+        new_seconds = current_seconds + submitted_seconds if submitted_seconds is not None else None
+        new_turns = current_turns + submitted_turns if submitted_turns is not None else None
+        return CapUpdatePlan(
+            new_kind=submitted_kind,
+            new_seconds=new_seconds,
+            new_turns=new_turns,
+            interpretation="relative",
+        )
+    return CapUpdatePlan(
+        new_kind=submitted_kind,
+        new_seconds=submitted_seconds,
+        new_turns=submitted_turns,
+        interpretation=interpretation,
+    )
+
+
+def _build_disambiguation(
+    submitted: tuple[CapKind, int | None, int | None],
+    current: tuple[int, int],
+) -> DisambiguationRequired:
+    """Render the 409 payload object — both options + current elapsed."""
+    submitted_kind, submitted_seconds, submitted_turns = submitted
+    current_turns, current_seconds = current
+    rel_turns = current_turns + submitted_turns if submitted_turns is not None else None
+    rel_seconds = current_seconds + submitted_seconds if submitted_seconds is not None else None
+    return DisambiguationRequired(
+        submitted_kind=submitted_kind,
+        submitted_seconds=submitted_seconds,
+        submitted_turns=submitted_turns,
+        current_turns=current_turns,
+        current_seconds=current_seconds,
+        absolute_effective_turns=submitted_turns,
+        absolute_effective_seconds=submitted_seconds,
+        relative_effective_turns=rel_turns,
+        relative_effective_seconds=rel_seconds,
+    )
 
 
 def evaluate_per_dispatch_cap(

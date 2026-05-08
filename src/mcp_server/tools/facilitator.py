@@ -927,6 +927,192 @@ async def set_complexity_classifier_mode(
     return {"status": "updated", "complexity_classifier_mode": body.mode}
 
 
+_LengthCapKind = Literal["none", "time", "turns", "both"]
+_CapInterpretation = Literal["absolute", "relative"]
+
+
+class _SetLengthCapBody(BaseModel):
+    """Spec 025 FR-003 / FR-026 cap-set request body."""
+
+    length_cap_kind: _LengthCapKind = "none"
+    length_cap_seconds: int | None = None
+    length_cap_turns: int | None = None
+    interpretation: _CapInterpretation | None = None
+
+    @field_validator("length_cap_seconds")
+    @classmethod
+    def _seconds_in_range(cls, v: int | None) -> int | None:
+        if v is not None and not 60 <= v <= 2_592_000:
+            msg = "length_cap_seconds must be in [60, 2_592_000] (1 minute to 30 days)"
+            raise ValueError(msg)
+        return v
+
+    @field_validator("length_cap_turns")
+    @classmethod
+    def _turns_in_range(cls, v: int | None) -> int | None:
+        if v is not None and not 1 <= v <= 10_000:
+            msg = "length_cap_turns must be in [1, 10_000]"
+            raise ValueError(msg)
+        return v
+
+
+@router.post("/set_length_cap")
+async def set_length_cap(
+    request: Request,
+    body: _SetLengthCapBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Spec 025 FR-003: set or update the session-length cap (facilitator only).
+
+    Returns a 409 with both interpretation options when the submitted value
+    lands below current elapsed AND no `interpretation` field is supplied
+    (FR-026). On commit, emits a routing_log row with `reason='cap_set'`.
+    """
+    if participant.role != "facilitator":
+        raise HTTPException(403, "facilitator_only")
+    _validate_cross_column(body)
+    return await _commit_or_disambiguate(request, participant, body)
+
+
+def _validate_cross_column(body: _SetLengthCapBody) -> None:
+    """FR-022 cross-column consistency: kind must match the value pattern."""
+    kind = body.length_cap_kind
+    seconds = body.length_cap_seconds
+    turns = body.length_cap_turns
+    if kind == "none" and (seconds is not None or turns is not None):
+        raise HTTPException(422, "length_cap_kind_none_forbids_values")
+    if kind == "time" and (seconds is None or turns is not None):
+        raise HTTPException(422, "length_cap_kind_time_requires_seconds")
+    if kind == "turns" and (turns is None or seconds is not None):
+        raise HTTPException(422, "length_cap_kind_turns_requires_turns")
+    if kind == "both" and (seconds is None or turns is None):
+        raise HTTPException(422, "length_cap_kind_both_requires_both")
+
+
+async def _commit_or_disambiguate(
+    request: Request,
+    participant: Participant,
+    body: _SetLengthCapBody,
+) -> dict:
+    """Run the FR-026 disambiguation check; commit OR raise 409."""
+    from src.orchestrator import length_cap as lc
+
+    session_id = participant.session_id
+    session_repo = request.app.state.session_repo
+    session = await session_repo.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "session_not_found")
+    current_seconds = session.active_seconds_accumulator or 0
+    intent = lc.detect_decrease_intent(
+        submitted_kind=body.length_cap_kind,
+        submitted_seconds=body.length_cap_seconds,
+        submitted_turns=body.length_cap_turns,
+        current_turns=session.current_turn,
+        current_seconds=current_seconds,
+        interpretation=body.interpretation,
+    )
+    if isinstance(intent, lc.DisambiguationRequired):
+        raise HTTPException(409, _disambiguation_payload(intent))
+    return await _commit_cap_update(request, participant, session, intent)
+
+
+def _disambiguation_payload(intent: object) -> dict:
+    """Build the 409 body per contracts/cap-set-endpoint.md."""
+    return {
+        "error": "cap_decrease_requires_interpretation",
+        "current_elapsed": {
+            "turns": intent.current_turns,
+            "seconds": intent.current_seconds,
+        },
+        "submitted": {
+            "length_cap_kind": intent.submitted_kind,
+            "length_cap_seconds": intent.submitted_seconds,
+            "length_cap_turns": intent.submitted_turns,
+        },
+        "options": {
+            "absolute": {
+                "effective_cap_turns": intent.absolute_effective_turns,
+                "effective_cap_seconds": intent.absolute_effective_seconds,
+                "consequence": "immediate_conclude_phase",
+            },
+            "relative": {
+                "effective_cap_turns": intent.relative_effective_turns,
+                "effective_cap_seconds": intent.relative_effective_seconds,
+                "consequence": "loop_continues_until_trigger",
+            },
+        },
+    }
+
+
+async def _commit_cap_update(
+    request: Request,
+    participant: Participant,
+    session: object,
+    plan: object,
+) -> dict:
+    """Persist the cap update, emit cap_set row, broadcast session_updated."""
+    session_repo = request.app.state.session_repo
+    old_cap_repr = _cap_repr(
+        session.length_cap_kind, session.length_cap_seconds, session.length_cap_turns
+    )
+    new_cap_repr = _cap_repr(plan.new_kind, plan.new_seconds, plan.new_turns)
+    await session_repo.update_length_cap(
+        participant.session_id,
+        kind=plan.new_kind,
+        seconds=plan.new_seconds,
+        turns=plan.new_turns,
+    )
+    await _emit_cap_set_audit(
+        request,
+        participant,
+        session=session,
+        old_cap_repr=old_cap_repr,
+        new_cap_repr=new_cap_repr,
+        plan=plan,
+    )
+    return {"status": "updated", **new_cap_repr, "interpretation": plan.interpretation}
+
+
+async def _emit_cap_set_audit(
+    request: Request,
+    participant: Participant,
+    *,
+    session: object,
+    old_cap_repr: dict,
+    new_cap_repr: dict,
+    plan: object,
+) -> None:
+    """Write routing_log.cap_set + admin_audit_log entry for the cap commit."""
+    log_repo = request.app.state.log_repo
+    await log_repo.log_routing(
+        session_id=participant.session_id,
+        turn_number=session.current_turn,
+        intended=participant.id,
+        actual=participant.id,
+        action="cap_set",
+        complexity="n/a",
+        domain_match=False,
+        reason="cap_set",
+    )
+    await log_repo.log_admin_action(
+        session_id=participant.session_id,
+        facilitator_id=participant.id,
+        action="set_length_cap",
+        target_id=participant.session_id,
+        previous_value=json.dumps(old_cap_repr),
+        new_value=json.dumps({**new_cap_repr, "interpretation": plan.interpretation}),
+    )
+
+
+def _cap_repr(kind: str, seconds: int | None, turns: int | None) -> dict:
+    """Audit-log + response shape for a cap snapshot."""
+    return {
+        "length_cap_kind": kind,
+        "length_cap_seconds": seconds,
+        "length_cap_turns": turns,
+    }
+
+
 _ALLOWED_SESSION_FIELDS = {
     "cadence_preset",
     "acceptance_mode",
