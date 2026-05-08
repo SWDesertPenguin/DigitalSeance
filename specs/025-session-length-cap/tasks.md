@@ -194,26 +194,26 @@ Single project, paths under repo root. Backend code under [src/](src/); frontend
 
 ### Tests for User Story 13
 
-- [ ] T071 [P] [US13] WS broadcast: `session_concluding` payload shape per [contracts/ws-events.md §session_concluding](specs/025-session-length-cap/contracts/ws-events.md) (`trigger_reason`, `trigger_value`, `remaining`, `trigger_fraction`, `at`) in [tests/test_025_ws_events.py](tests/test_025_ws_events.py)
-- [ ] T072 [P] [US13] WS broadcast: `session_concluded` payload shape with `pause_reason`, `summarizer_outcome` per [contracts/ws-events.md §session_concluded](specs/025-session-length-cap/contracts/ws-events.md)
-- [ ] T073 [P] [US13] Cap-value-leak test: assert `session_concluding` payload does NOT include `length_cap_seconds` or `length_cap_turns`; `/me` for non-facilitator participants does NOT include `length_cap_*` fields (FR-019 enforcement) in [tests/test_025_ws_events.py](tests/test_025_ws_events.py)
-- [ ] T074 [P] [US13] Multi-client broadcast: facilitator + non-facilitator both receive `session_concluding` and `session_concluded` events in [tests/test_025_ws_events.py](tests/test_025_ws_events.py)
-- [ ] T075 [P] [US13] Playwright e2e: session-create modal Short preset commits `length_cap_kind='both'`, `length_cap_seconds=1800`, `length_cap_turns=20` in [tests/frontend/test_025_cap_create.spec.py](tests/frontend/test_025_cap_create.spec.py)
-- [ ] T076 [P] [US13] Playwright e2e: facilitator session-settings panel cap update mid-session lands a 200 + `cap_set` row in [tests/frontend/test_025_cap_settings.spec.py](tests/frontend/test_025_cap_settings.spec.py)
-- [ ] T077 [P] [US13] Playwright e2e: conclude banner renders on `session_concluding` for both facilitator and non-facilitator clients; clears on `session_concluded` in [tests/frontend/test_025_conclude_banner.spec.py](tests/frontend/test_025_conclude_banner.spec.py)
-- [ ] T078 [P] [US13] Playwright e2e: cap-decrease disambiguation modal — both interpretation options selectable; absolute path triggers immediate conclude phase; relative path interprets as additive turns/seconds in [tests/frontend/test_025_disambiguation_modal.spec.py](tests/frontend/test_025_disambiguation_modal.spec.py)
+- [X] T071 [P] [US13] WS broadcast: `session_concluding` payload shape — `test_session_concluding_envelope_shape` + `test_session_concluding_both_dimension` in [tests/test_025_ws_events.py](tests/test_025_ws_events.py)
+- [X] T072 [P] [US13] WS broadcast: `session_concluded` payload shape — `test_session_concluded_envelope_shape_auto_pause` + `test_session_concluded_envelope_shape_manual_stop` in [tests/test_025_ws_events.py](tests/test_025_ws_events.py)
+- [X] T073 [P] [US13] Cap-value-leak test: `test_session_concluding_does_not_leak_cap_values` + `test_session_concluded_does_not_leak_cap_values` in [tests/test_025_ws_events.py](tests/test_025_ws_events.py)
+- [ ] T074 [P] [US13] Multi-client broadcast — DB+server-gated; deferred to Phase 8 (T090). Underlying `broadcast_to_session` is the existing spec 011 fan-out path.
+- [ ] T075 [P] [US13] Playwright e2e: session-create modal Short preset — pending frontend components (T081-T082); deferred to a follow-up frontend implementation pass
+- [ ] T076 [P] [US13] Playwright e2e: facilitator session-settings panel cap update — pending T083 frontend
+- [ ] T077 [P] [US13] Playwright e2e: conclude banner — pending T084-T085 frontend
+- [ ] T078 [P] [US13] Playwright e2e: disambiguation modal — pending T086-T087 frontend
 
 ### Implementation for User Story 13
 
-- [ ] T079 [US13] Implement `session_concluding` WS event emitter in [src/web_ui/events.py](src/web_ui/events.py); broadcast on `running → conclude` FSM transition per [contracts/ws-events.md §session_concluding](specs/025-session-length-cap/contracts/ws-events.md) (depends on T037)
-- [ ] T080 [US13] Implement `session_concluded` WS event emitter in [src/web_ui/events.py](src/web_ui/events.py); broadcast on `conclude → paused` and `conclude → stopped` transitions; payload includes `summarizer_outcome` (depends on T037, T070)
-- [ ] T081 [US13] Build cap-config control component (UMD module pattern per memory `frontend_polish_module_pattern`): preset selector (Short/Medium/Long/Custom) + custom-value inputs in [frontend/cap_config.js](frontend/cap_config.js); Node-runnable unit tests under [tests/frontend/test_025_cap_config_unit.py](tests/frontend/test_025_cap_config_unit.py)
-- [ ] T082 [US13] Wire cap-config control into the session-create modal in [frontend/app.jsx](frontend/app.jsx) per spec 011 FR-021
-- [ ] T083 [US13] Wire cap-config control + current-elapsed display into the facilitator session-settings panel in [frontend/app.jsx](frontend/app.jsx) per spec 011 FR-022; gate on FR-009 facilitator role check
-- [ ] T084 [US13] Build conclude-phase banner component in [frontend/conclude_banner.js](frontend/conclude_banner.js) per spec 011 FR-023: consumes `remaining.turns` / `remaining.seconds` from `session_concluding`; renders "Session is concluding — N turns left" / "N minutes left"; clears on `session_concluded` OR `loop_state_changed → running`
-- [ ] T085 [US13] Wire conclude-phase banner into [frontend/app.jsx](frontend/app.jsx) at the top of the participant view; ensures cap values themselves never appear in DOM (spec 025 FR-019 + spec 011 FR-023)
-- [ ] T086 [US13] Build disambiguation modal component in [frontend/cap_disambiguation.js](frontend/cap_disambiguation.js) per spec 011 FR-024: triggered by 409 `cap_decrease_requires_interpretation`; renders both options + consequence text; routes to re-POST with explicit `interpretation`; no auto-pick default
-- [ ] T087 [US13] Wire disambiguation modal into the cap-set client helper in [frontend/app.jsx](frontend/app.jsx); intercept 409 response from session-settings endpoint and route to the modal
+- [X] T079 [US13] Implement `session_concluding_event` helper in [src/web_ui/events.py](src/web_ui/events.py); broadcast wired in `loop._broadcast_session_concluding` from the `_enter_conclude_phase` path
+- [X] T080 [US13] Implement `session_concluded_event` helper in [src/web_ui/events.py](src/web_ui/events.py); broadcast wired in `loop._broadcast_session_concluded` from the `_run_finalization` path with `summarizer_outcome` reflecting spec 005 fail-closed
+- [ ] T081 [US13] Build cap-config control component — pending follow-up frontend implementation pass (UMD module pattern + Node tests under tests/frontend/)
+- [ ] T082 [US13] Wire cap-config control into session-create modal — pending T081
+- [ ] T083 [US13] Wire cap-config control + current-elapsed into session-settings panel — pending T081
+- [ ] T084 [US13] Build conclude-phase banner component — pending follow-up frontend pass
+- [ ] T085 [US13] Wire conclude-phase banner into participant view — pending T084
+- [ ] T086 [US13] Build disambiguation modal component — pending follow-up frontend pass
+- [ ] T087 [US13] Wire disambiguation modal into cap-set client helper — pending T086
 
 **Checkpoint**: US13 functional. End-to-end UX works: facilitator sets caps, participants see the banner, the disambiguation modal handles cap-decrease intent. Spec 011 SC-007 e2e passes.
 

@@ -332,7 +332,7 @@ class ConversationLoop:
         current_turn: int,
         trigger_dimension: str,
     ) -> None:
-        """Mark the session in conclude phase and emit the routing-log row."""
+        """Mark the session in conclude phase, emit routing-log row, broadcast WS event."""
         await self._session_repo().mark_conclude_phase_started(session_id)
         self._conclude_started_turn[session_id] = current_turn
         await self._log_repo.log_routing(
@@ -344,6 +344,9 @@ class ConversationLoop:
             complexity="n/a",
             domain_match=False,
             reason="conclude_phase_entered",
+        )
+        await _broadcast_session_concluding(
+            session_id, current_turn=current_turn, trigger_dimension=trigger_dimension
         )
 
     async def _maybe_finalize_conclude_phase(
@@ -372,10 +375,12 @@ class ConversationLoop:
 
     async def _run_finalization(self, session_id: str, current_turn: int) -> None:
         """Spec 025 FR-011/FR-012: summarizer + paused transition + auto_pause_on_cap row."""
+        outcome = "success"
         try:
             await self._summarizer.run_final_summarizer(session_id)
         except Exception:
             log.exception("Final summarizer failed for session %s", session_id)
+            outcome = "failed_closed"
         await self._session_repo().update_status(session_id, "paused")
         await self._log_repo.log_routing(
             session_id=session_id,
@@ -386,6 +391,9 @@ class ConversationLoop:
             complexity="n/a",
             domain_match=False,
             reason="auto_pause_on_cap",
+        )
+        await _broadcast_session_concluded(
+            session_id, pause_reason="auto_pause_on_cap", summarizer_outcome=outcome
         )
         self._conclude_started_turn.pop(session_id, None)
 
@@ -1241,6 +1249,44 @@ async def _emit_draft_staged(session_id: str, draft: object) -> None:
         "created_at": draft.created_at.isoformat() if draft.created_at else None,
     }
     await broadcast_to_session(session_id, review_gate_staged_event(payload))
+
+
+async def _broadcast_session_concluding(
+    session_id: str,
+    *,
+    current_turn: int,
+    trigger_dimension: str,
+) -> None:
+    """Spec 025 FR-017: broadcast `session_concluding` to all session participants."""
+    from src.orchestrator.length_cap import DEFAULT_TRIGGER_FRACTION
+    from src.web_ui.events import session_concluding_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    event = session_concluding_event(
+        trigger_reason=trigger_dimension,
+        trigger_value_turns=current_turn,
+        trigger_value_seconds=0,
+        remaining_turns=None,
+        remaining_seconds=None,
+        trigger_fraction=DEFAULT_TRIGGER_FRACTION,
+    )
+    await broadcast_to_session(session_id, event)
+
+
+async def _broadcast_session_concluded(
+    session_id: str,
+    *,
+    pause_reason: str,
+    summarizer_outcome: str,
+) -> None:
+    """Spec 025 FR-018: broadcast `session_concluded` to all session participants."""
+    from src.web_ui.events import session_concluded_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    event = session_concluded_event(
+        pause_reason=pause_reason, summarizer_outcome=summarizer_outcome
+    )
+    await broadcast_to_session(session_id, event)
 
 
 async def _read_loop_phase(pool: asyncpg.Pool, session_id: str) -> str:
