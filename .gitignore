@@ -66,6 +66,9 @@ local/
 # === Local exploratory transcripts (working notes; redact before publishing) ===
 docs/sacp-shakedown-threat-model-session.md
 
+# === Internal ops manual (deploy-operator audience; not for public repo) ===
+docs/operational-runbook.md
+
 # === OS ===
 .DS_Store
 Thumbs.db

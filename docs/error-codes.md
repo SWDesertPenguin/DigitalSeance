@@ -43,20 +43,6 @@ Scope: error codes only — successful 2xx codes are not catalogued here.
 
 ---
 
-## Per-event-type semantics (security_events)
-
-`security_events.layer` enum + JSON body shape stored in the `findings` column:
-
-- `output_validator` — `{"findings": ["<finding-name>", ...]}` (list of finding names from output validation); paired with `risk_score` and `blocked` columns.
-- `exfiltration` — `{"findings": ["<flag>", ...]}` (list of flags from the exfiltration filter — credential type names, canary ids, exfil-marker categories).
-- `jailbreak` — `{"findings": ["<phrase-name>", ...]}` (jailbreak phrase matches).
-- `pipeline_error` — `{"findings": ["pipeline_exception"]}` (fail-closed catch-all when any layer's regex / parser raised; `blocked=true`).
-- `facilitator_override` — `{"findings": [...]}` plus the `override_reason` and `override_actor_id` columns populated. Reserved row shape; semantics finalize under the secure-by-design implementation.
-
-`layer_duration_ms` records wall-clock time the layer spent inspecting the response; NULL on rows that predate the instrumentation or on `pipeline_error` rows where the layer crashed before producing a measurable duration.
-
----
-
 ## CI gate
 
 A documentation-deliverable check asserts every HTTP status code and WebSocket close code literal that appears in source also appears in this catalog. Adding a new error site without updating this doc will fail CI.
