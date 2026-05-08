@@ -44,7 +44,7 @@ The orchestrator runs a serialized conversation loop: select the next participan
 
 | Component | Technology |
 |---|---|
-| Runtime | Python 3.11+, FastAPI |
+| Runtime | Python 3.14.4, FastAPI |
 | Database | PostgreSQL 16 via Docker Compose (asyncpg pool) |
 | Provider abstraction | LiteLLM >= 1.83.0 (100+ providers) |
 | MCP server | FastAPI + SSE, port 8750 |
@@ -52,7 +52,7 @@ The orchestrator runs a serialized conversation loop: select the next participan
 | Convergence | sentence-transformers (all-MiniLM-L6-v2, SafeTensors) |
 | Auth | bcrypt (tokens) + Fernet (encrypted API keys) + HttpOnly signed cookies |
 | Rate limiting | Per-participant, 60 req/min default |
-| Migrations | Alembic (5 migrations) |
+| Migrations | Alembic (11 migrations) |
 | Deployment | Single Dockerfile, Docker Compose |
 | CI/CD | GitHub Actions → GHCR |
 | Pre-commit | 13 hooks (gitleaks, ruff, bandit, 25-line / 5-arg coding-standards lint) |
@@ -98,6 +98,11 @@ The codebase enforces a strict secure development pipeline: pre-commit hooks (gi
 
 Shakedown-tester documentation lives in [docs/user-guide.md](docs/user-guide.md). The red-team runbook ([docs/red-team-runbook.md](docs/red-team-runbook.md)) has 70+ attacks keyed to the seven-layer pipeline for re-running after any security change. Section 5.4 (multi-turn jailbreak escalation via fictional framing) is a **known weakness** on `gpt-4o-mini`; Haiku held under the same test. Mitigation candidates documented in the runbook, not yet implemented.
 
-**Phase 3 (planned)** — branching UI + sub-sessions, OAuth 2.1 with PKCE, MCP-to-MCP topology 7, local model support (Ollama/vLLM per-participant URL), external shared-memory integration, step-up authorization. Will require a new Speckit cycle (`012-...`) when pursued.
+**Phase 3 (In Progress — declared 2026-05-05)** — Speckit cycle 012–029 kicked off. Specs implemented to date:
 
-**Phase 4 (planned)** — A2A federation, multi-orchestrator linking, hierarchical sub-sessions, data retention policies.
+- **012** (audit-fixes) — CRUD audit entries survive participant deletion; admin audit log backfill; two security-event types added.
+- **013** (high-traffic mode) — adaptive per-session turn pacing under load; density signal fed to convergence detector; lock-free skip queue for concurrent session bursts.
+
+Specs scaffolded and under active implementation: 014 (dynamic mode assignment), 021 (AI response shaping), 022 (detection event history), 023 (user accounts), 024 (facilitator scratch window), 025 (session-length cap with auto-conclude), 026 (context compression and distillation), 027 (participant standby modes), 029 (human-readable audit log viewer).
+
+**Phase 4 (planned)** — CAPCOM-style routing scope (spec 028), A2A federation, multi-orchestrator linking, hierarchical sub-sessions, OAuth 2.1 with PKCE, local model support (Ollama/vLLM per-participant URL), step-up authorization.
