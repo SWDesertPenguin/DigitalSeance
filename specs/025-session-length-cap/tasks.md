@@ -207,13 +207,13 @@ Single project, paths under repo root. Backend code under [src/](src/); frontend
 
 - [X] T079 [US13] Implement `session_concluding_event` helper in [src/web_ui/events.py](src/web_ui/events.py); broadcast wired in `loop._broadcast_session_concluding` from the `_enter_conclude_phase` path
 - [X] T080 [US13] Implement `session_concluded_event` helper in [src/web_ui/events.py](src/web_ui/events.py); broadcast wired in `loop._broadcast_session_concluded` from the `_run_finalization` path with `summarizer_outcome` reflecting spec 005 fail-closed
-- [ ] T081 [US13] Build cap-config control component — pending follow-up frontend implementation pass (UMD module pattern + Node tests under tests/frontend/)
-- [ ] T082 [US13] Wire cap-config control into session-create modal — pending T081
-- [ ] T083 [US13] Wire cap-config control + current-elapsed into session-settings panel — pending T081
-- [ ] T084 [US13] Build conclude-phase banner component — pending follow-up frontend pass
-- [ ] T085 [US13] Wire conclude-phase banner into participant view — pending T084
-- [ ] T086 [US13] Build disambiguation modal component — pending follow-up frontend pass
-- [ ] T087 [US13] Wire disambiguation modal into cap-set client helper — pending T086
+- [X] T081 [US13] Cap-config pure-logic UMD module in [frontend/cap_config.js](frontend/cap_config.js): preset constants (Short/Medium/Long/none), `getPresetValues`, `validateCustomCap`, `buildCapPayload`, `formatCountdown`, `formatBannerText`. 28 Node-runnable tests in [tests/frontend/test_025_cap_config.js](tests/frontend/test_025_cap_config.js); all pass.
+- [ ] T082 [US13] Wire cap-config control into session-create modal in [frontend/app.jsx](frontend/app.jsx) — JSX wiring deferred; the pure-logic layer (T081) ships; React integration is a follow-up Playwright-testable PR
+- [ ] T083 [US13] Wire cap-config control into session-settings panel — JSX wiring deferred (companion to T082)
+- [ ] T084 [US13] Conclude-phase banner component — banner copy logic is covered by `formatBannerText` in [frontend/cap_config.js](frontend/cap_config.js); React component + WS event wiring in [frontend/app.jsx](frontend/app.jsx) deferred to follow-up
+- [ ] T085 [US13] Wire conclude-phase banner into participant view — deferred (companion to T084)
+- [X] T086 [US13] Cap-decrease disambiguation modal pure-logic UMD module in [frontend/cap_disambiguation.js](frontend/cap_disambiguation.js): `isDisambiguation409`, `parseDisambiguation409`, `buildRepostBody`, `formatOptionLabel`. 14 Node-runnable tests in [tests/frontend/test_025_cap_disambiguation.js](tests/frontend/test_025_cap_disambiguation.js); all pass.
+- [ ] T087 [US13] Wire disambiguation modal into cap-set client helper in [frontend/app.jsx](frontend/app.jsx) — deferred (companion to T086)
 
 **Checkpoint**: US13 functional. End-to-end UX works: facilitator sets caps, participants see the banner, the disambiguation modal handles cap-decrease intent. Spec 011 SC-007 e2e passes.
 
@@ -223,8 +223,8 @@ Single project, paths under repo root. Backend code under [src/](src/); frontend
 
 **Purpose**: V14 perf instrumentation, integration test for the full flow, quickstart validation, and cross-spec audit.
 
-- [ ] T088 [P] V14 perf instrumentation for cap-check stage timing — DB-gated; deferred to a follow-up commit. The cap-check is O(1) and runs inside `_evaluate_length_cap` which is already inside the `start_turn()` timing scope; instrumentation just needs the `record_stage("cap_check", ...)` call.
-- [ ] T089 [P] V14 perf instrumentation for conclude-phase transition timing — companion to T088
+- [X] T088 [P] V14 perf instrumentation: `record_stage("cap_check", ms)` wired in [src/orchestrator/loop.py](src/orchestrator/loop.py) `_evaluate_length_cap` — both the early-exit (kind='none') path and the normal-eval path record the stage so routing_log per-stage timings capture cap-check cost per-dispatch.
+- [X] T089 [P] V14 perf instrumentation: `record_stage("conclude_transition", ms)` wired around `_enter_conclude_phase` call site in `_evaluate_length_cap` — transition cost is captured for sessions that actually enter conclude phase.
 - [X] T090 [P] Full-flow integration test scaffold landed in [tests/test_025_loop_integration.py](tests/test_025_loop_integration.py); six placeholders (US1 happy path, SC-001 no-cap, US2 disambiguation, US3 extension, US4 manual stop, US13 multi-client WS broadcast) skip when Postgres is unreachable. Future Phase 8 work fills the bodies.
 - [X] T091 [P] Cross-spec FR audit: spec 003 §FR-021 satisfied by the new conclude state in `LoopState` Literal (`src/orchestrator/types.py`) plus the FSM edges in `_evaluate_length_cap`. Spec 003 §FR-030 per-stage timing wraps cap-check via the existing `start_turn()` scope (T088 will add a dedicated `cap_check` bucket). Spec 003 §FR-031 compound retry cap applies to conclude turns by virtue of the fact that conclude turns reuse the existing dispatch path (`_dispatch_with_delay` -> `_assemble_and_dispatch` -> `dispatch_with_retry`); skip-and-continue on retry exhaustion is implicit in the existing skip path.
 - [X] T092 [P] Spec 011 amendment alignment: FR-021..FR-024 wording in [specs/011-web-ui/spec.md](specs/011-web-ui/spec.md) reflects the backend contracts as implemented; the WS event helpers in `src/web_ui/events.py` and the cap-set endpoint in `src/mcp_server/tools/facilitator.py` match the FR-023 banner contract and FR-024 disambiguation modal contract respectively. No drift; no follow-up Clarifications entry needed.

@@ -305,24 +305,35 @@ class ConversationLoop:
         """
         from src.orchestrator import length_cap as lc
 
+        _cap_start = time.monotonic()
         session = await self._session_repo().get_session(session_id)
         if session is None or session.length_cap_kind == "none":
+            record_stage("cap_check", int((time.monotonic() - _cap_start) * 1000))
             return False
         cap = lc.cap_from_session(session)
-        already_concluding = lc.is_in_conclude_phase(session)
-        elapsed_s = lc.effective_active_seconds(session)
         evaluation = lc.evaluate_per_dispatch_cap(
             cap,
             elapsed_turns=session.current_turn,
-            elapsed_seconds=elapsed_s,
-            already_in_conclude=already_concluding,
+            elapsed_seconds=lc.effective_active_seconds(session),
+            already_in_conclude=lc.is_in_conclude_phase(session),
         )
+        record_stage("cap_check", int((time.monotonic() - _cap_start) * 1000))
+        return await self._apply_cap_evaluation(session_id, session, evaluation)
+
+    async def _apply_cap_evaluation(
+        self, session_id: str, session: object, evaluation: object
+    ) -> bool:
+        """Apply the result of `evaluate_per_dispatch_cap` — transition or finalize."""
         if evaluation.enter_conclude:
+            conclude_start = time.monotonic()
             await self._enter_conclude_phase(
                 session_id, session.current_turn, evaluation.trigger_dimension or "turns"
             )
+            record_stage("conclude_transition", int((time.monotonic() - conclude_start) * 1000))
             return False
-        if already_concluding:
+        from src.orchestrator import length_cap as lc
+
+        if lc.is_in_conclude_phase(session):
             return await self._maybe_finalize_conclude_phase(session_id, session)
         return False
 
