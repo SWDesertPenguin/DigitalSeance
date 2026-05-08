@@ -630,6 +630,33 @@ def validate_filler_threshold() -> ValidationFailure | None:
         return ValidationFailure(
             "SACP_FILLER_THRESHOLD",
             f"must be in [0.0, 1.0]; got {num}",
+def validate_sacp_length_cap_default_kind() -> ValidationFailure | None:
+    """SACP_LENGTH_CAP_DEFAULT_KIND enum default 'none'. 025 §FR-024."""
+    val = os.environ.get("SACP_LENGTH_CAP_DEFAULT_KIND", "none")
+    if val not in ("none", "time", "turns", "both"):
+        return ValidationFailure(
+            "SACP_LENGTH_CAP_DEFAULT_KIND",
+            f"must be one of: none, time, turns, both; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_length_cap_default_seconds() -> ValidationFailure | None:
+    """SACP_LENGTH_CAP_DEFAULT_SECONDS: empty OR positive int in [60, 2_592_000]. 025 §FR-024."""
+    val = os.environ.get("SACP_LENGTH_CAP_DEFAULT_SECONDS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_LENGTH_CAP_DEFAULT_SECONDS",
+            f"must be integer; got {val!r}",
+        )
+    if not 60 <= num <= 2_592_000:
+        return ValidationFailure(
+            "SACP_LENGTH_CAP_DEFAULT_SECONDS",
+            f"must be in [60, 2_592_000] (1 minute to 30 days); got {num}",
         )
     return None
 
@@ -641,6 +668,9 @@ def validate_register_default() -> ValidationFailure | None:
     when no session_register row has been written for a session.
     """
     val = os.environ.get("SACP_REGISTER_DEFAULT")
+def validate_sacp_length_cap_default_turns() -> ValidationFailure | None:
+    """SACP_LENGTH_CAP_DEFAULT_TURNS: empty OR positive int in [1, 10_000]. 025 §FR-024."""
+    val = os.environ.get("SACP_LENGTH_CAP_DEFAULT_TURNS")
     if val is None or val.strip() == "":
         return None
     try:
@@ -654,6 +684,13 @@ def validate_register_default() -> ValidationFailure | None:
         return ValidationFailure(
             "SACP_REGISTER_DEFAULT",
             f"must be in {{1,2,3,4,5}}; got {num}",
+            "SACP_LENGTH_CAP_DEFAULT_TURNS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 10_000:
+        return ValidationFailure(
+            "SACP_LENGTH_CAP_DEFAULT_TURNS",
+            f"must be in [1, 10_000]; got {num}",
         )
     return None
 
@@ -672,6 +709,42 @@ def validate_response_shaping_enabled() -> ValidationFailure | None:
         return ValidationFailure(
             "SACP_RESPONSE_SHAPING_ENABLED",
             f"must be 'true'/'false' (case-insensitive) or '1'/'0'; got {val!r}",
+def validate_sacp_conclude_phase_trigger_fraction() -> ValidationFailure | None:
+    """SACP_CONCLUDE_PHASE_TRIGGER_FRACTION float in strict (0.0, 1.0). 025 §FR-005."""
+    val = os.environ.get("SACP_CONCLUDE_PHASE_TRIGGER_FRACTION")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = float(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_CONCLUDE_PHASE_TRIGGER_FRACTION",
+            f"must be a float; got {val!r}",
+        )
+    if not 0.0 < num < 1.0:
+        return ValidationFailure(
+            "SACP_CONCLUDE_PHASE_TRIGGER_FRACTION",
+            f"must be in strict (0.0, 1.0); got {num}",
+        )
+    return None
+
+
+def validate_sacp_conclude_phase_prompt_tier() -> ValidationFailure | None:
+    """SACP_CONCLUDE_PHASE_PROMPT_TIER: int in {1, 2, 3, 4}, default 4. 025 §FR-008."""
+    val = os.environ.get("SACP_CONCLUDE_PHASE_PROMPT_TIER")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_CONCLUDE_PHASE_PROMPT_TIER",
+            f"must be integer; got {val!r}",
+        )
+    if num not in (1, 2, 3, 4):
+        return ValidationFailure(
+            "SACP_CONCLUDE_PHASE_PROMPT_TIER",
+            f"must be in {{1, 2, 3, 4}}; got {num}",
         )
     return None
 
@@ -734,6 +807,11 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_filler_threshold,
     validate_register_default,
     validate_response_shaping_enabled,
+    validate_sacp_length_cap_default_kind,
+    validate_sacp_length_cap_default_seconds,
+    validate_sacp_length_cap_default_turns,
+    validate_sacp_conclude_phase_trigger_fraction,
+    validate_sacp_conclude_phase_prompt_tier,
 )
 
 

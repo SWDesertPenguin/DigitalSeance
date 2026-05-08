@@ -3,6 +3,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
+
+# Spec 025 FR-001 / data-model.md "LoopState (existing FSM, extended)":
+# `conclude` is the new state alongside the existing running / paused /
+# stopped. Existing call sites read the string column directly; this
+# Literal exists for new code added by spec 025.
+LoopState = Literal["running", "conclude", "paused", "stopped"]
+
+
+# Spec 025 / contracts/routing-log-reasons.md:
+# Five new `routing_log.reason` enum entries. Existing reasons used elsewhere
+# in the codebase remain free-form strings; this Literal documents the
+# spec 025 additions and is the authoritative shape for new emissions.
+LengthCapRoutingReason = Literal[
+    "cap_set",
+    "conclude_phase_entered",
+    "conclude_phase_exited",
+    "auto_pause_on_cap",
+    "manual_stop_during_conclude",
+]
 
 
 @dataclass(frozen=True, slots=True)

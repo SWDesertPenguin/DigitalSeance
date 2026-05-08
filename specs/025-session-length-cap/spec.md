@@ -79,22 +79,16 @@ implementation reaches Implemented status.
 
 ## Clarifications
 
+### Session 2026-05-07
+
+- Q: When both time and turn caps are set, which dimension triggers the conclude phase? → A: OR semantics — whichever crosses its trigger fraction first; auto-pause at 100% also OR.
+- Q: How much of the cap configuration is visible to participants? → A: Facilitator-only cap values; participants receive a WS event on conclude entry and a UI banner with remaining countdown. `/me` does not include `length_cap_*` fields.
+- Q: Cap-set with new value below current elapsed (e.g., turn-cap=20 set at turn 30) — what behavior? → A: Endpoint MUST disambiguate intent before committing. Two interpretations are offered to the facilitator: (a) **absolute** — accept the value as the new total cap; elapsed already exceeds 100%, so transition immediately to conclude phase; (b) **relative** — interpret the value as N additional turns/seconds beyond current elapsed (effective cap = current_elapsed + N). The facilitator picks one. Endpoint does NOT auto-pick.
+- Q: Manual `stop_loop` during conclude phase — does the final summarizer still run? → A: Yes. Orchestrator MUST run the spec 005 summarizer on the conclusions produced so far before transitioning to stopped (`routing_log.reason='manual_stop_during_conclude'`). Preserves the wrap-up-artifact promise even on early manual abort.
+- Q: Conclude-turn provider error after spec 003 §FR-031 retry cap exhausted — abort or continue? → A: Skip-and-continue. The failed participant is skipped, the orchestrator proceeds to the next participant's conclude turn, and the spec 005 summarizer still fires after the last attempt (success or skip). Reuses existing dispatch-failure semantics.
+
 ### Initial draft assumptions requiring confirmation
 
-- **Both-dimensions trigger semantics.** When both time and
-  turn caps are set, drafted as: the conclude phase triggers
-  when EITHER dimension crosses the trigger fraction (OR
-  semantics — whichever fires first). The auto-pause at 100%
-  also follows OR semantics. [NEEDS CLARIFICATION: confirm OR
-  vs. AND vs. operator-tunable conjunction.]
-- **Cap decrease below current state.** A facilitator sets a
-  20-turn cap on a session that has already dispatched 30
-  turns. Drafted as: the cap is accepted; the elapsed counter
-  exceeds 100% of the new cap, so the loop transitions
-  immediately to conclude phase, runs one round of conclusion
-  turns, and pauses. The elapsed counter is NOT reset.
-  [NEEDS CLARIFICATION: confirm immediate-conclude-on-decrease
-  vs. reject-cap-below-current vs. start-fresh-counter.]
 - **Cap extension during conclude phase.** A facilitator
   extends the cap from 20 → 50 turns at turn 19 (already in
   conclude phase). Drafted as: the loop transitions back to
@@ -104,24 +98,6 @@ implementation reaches Implemented status.
   `routing_log.reason='conclude_phase_exited'`. [NEEDS
   CLARIFICATION: confirm clean-exit-back-to-running vs.
   stay-in-conclude-until-explicit-stop.]
-- **Conclude turn provider error.** A participant's AI
-  raises a provider error during their conclude turn. Drafted
-  as: the failure is treated identically to any other dispatch
-  failure (spec 003 §FR-031 compound retry cap applies); if
-  exhausted, the participant is skipped and the loop proceeds
-  to the next participant's conclude turn. The summarizer
-  still runs after the last conclude turn (whether successful
-  or skipped). [NEEDS CLARIFICATION: confirm skip-and-continue
-  vs. abort-conclude-phase-on-failure.]
-- **Manual stop_loop during conclude phase.** A facilitator
-  calls `stop_loop` while conclude phase is running. Drafted
-  as: the orchestrator MUST still run the final summarizer
-  before transitioning to paused; the rationale is that stop
-  during conclude is "I'm wrapping up sooner" not "I'm
-  abandoning". The summarizer captures the conclusions
-  already produced. [NEEDS CLARIFICATION: confirm
-  always-run-summarizer-on-conclude-stop vs.
-  honor-stop-immediately-skipping-summarizer.]
 - **Preset concrete values.** Drafted defaults:
   - Short: 30 minutes OR 20 turns
   - Medium: 2 hours OR 50 turns
@@ -140,15 +116,6 @@ implementation reaches Implemented status.
   running/conclude tickets only. [NEEDS CLARIFICATION:
   confirm active-time-only vs. wall-clock-from-start
   vs. operator-configurable.]
-- **Cap visibility to participants.** Drafted as: the cap
-  values + remaining-budget appear in the facilitator's UI
-  but NOT in any participant's `/me` response (cap is a
-  facilitator-side decision, not a participant-visible
-  attribute). Once conclude phase fires, every participant
-  sees the conclude-phase delta in their assembled prompt
-  AND a banner in their UI ("session is concluding — N
-  turns left"). [NEEDS CLARIFICATION: confirm
-  facilitator-only-cap-visibility vs. all-participants-see-cap.]
 - **Conclude phase delta tier attachment.** User input
   recommends Tier 4. Drafted as: the conclude delta is a
   Tier-4-additive block (placed after any custom_prompt and
@@ -466,10 +433,12 @@ persisted before the stopped transition.
 - **FR-010**: During conclude phase, spec 004's adaptive
   cadence MUST be suspended (delays return to the floor).
 - **FR-011**: After every active AI has produced exactly
-  one conclude turn, the orchestrator MUST trigger spec 005's
-  summarizer one final time on the accumulated transcript.
-  The summarizer call MUST happen exactly once per
-  conclude-phase entry.
+  one conclude turn OR been skipped after spec 003 §FR-031
+  retry cap exhausted, the orchestrator MUST trigger spec
+  005's summarizer one final time on the accumulated
+  transcript. The summarizer call MUST happen exactly once
+  per conclude-phase entry, regardless of whether any
+  individual conclude turn succeeded.
 - **FR-012**: After the final summarizer completes (success
   OR fail-closed per spec 005), the loop MUST transition
   to paused with `routing_log.reason='auto_pause_on_cap'`.
@@ -537,6 +506,28 @@ persisted before the stopped transition.
   `docs/env-vars.md` with the six standard fields, BEFORE
   `/speckit.tasks` is run for this spec (V16 deliverable
   gate).
+- **FR-026**: When the cap-set endpoint (FR-003) receives a
+  new cap value below the current elapsed counter (e.g.,
+  `length_cap_turns=20` set at turn 30), the orchestrator
+  MUST NOT auto-pick the interpretation. The endpoint MUST
+  return a 409-style disambiguation response presenting two
+  intent options to the facilitator:
+  - **Absolute**: accept the value as the new total cap;
+    elapsed already exceeds 100%, so the next dispatch
+    transitions the loop to conclude phase, runs one round
+    of conclude turns, fires the final summarizer, and
+    pauses with `routing_log.reason='auto_pause_on_cap'`.
+  - **Relative**: interpret the submitted value as N
+    additional turns/seconds beyond current elapsed
+    (effective cap = `current_elapsed + submitted_value`).
+    Loop continues normally; conclude phase triggers when
+    elapsed crosses the trigger fraction of the effective
+    cap.
+  The facilitator's choice MUST be recorded in
+  `routing_log.reason='cap_set'` with an additional
+  `interpretation` field (`absolute` | `relative`) to
+  preserve the audit trail. Spec 011 owns the SPA modal
+  that presents the choice.
 
 ### Key Entities
 
