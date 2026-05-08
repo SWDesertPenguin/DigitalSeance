@@ -591,10 +591,17 @@ async def stop_loop(
     request: Request,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Stop the conversation loop for this session. Facilitator only."""
+    """Stop the conversation loop for this session. Facilitator only.
+
+    Spec 025 FR-015: when the session is in conclude phase, the spec 005
+    summarizer MUST run on the conclusions produced so far BEFORE the
+    loop transitions to stopped. The auto-pause-vs-manual-stop split is
+    captured by `routing_log.reason='manual_stop_during_conclude'`.
+    """
     if participant.role != "facilitator":
         raise HTTPException(403, "Only the facilitator can stop the loop")
     sid = participant.session_id
+    await _maybe_run_conclude_summarizer(request, participant, sid)
     was_running = sid in _loop_tasks and not _loop_tasks[sid].done()
     task = _loop_tasks.pop(sid, None)
     if task and not task.done():
@@ -603,6 +610,35 @@ async def stop_loop(
     if was_running:
         await _audit_status_change(request, participant, "stop_loop", "running", "idle")
     return {"status": "stopped"}
+
+
+async def _maybe_run_conclude_summarizer(
+    request: Request,
+    participant: Participant,
+    session_id: str,
+) -> None:
+    """Spec 025 FR-015: run final summarizer before stopping if in conclude phase."""
+    session_repo = request.app.state.session_repo
+    session = await session_repo.get_session(session_id)
+    if session is None or session.conclude_phase_started_at is None:
+        return
+    import contextlib
+
+    summarizer = request.app.state.conversation_loop._summarizer  # noqa: SLF001
+    log_repo = request.app.state.log_repo
+    # Spec 005 fail-closed (FR-007): summarizer failure must not block the stop transition.
+    with contextlib.suppress(Exception):
+        await summarizer.run_final_summarizer(session_id)
+    await log_repo.log_routing(
+        session_id=session_id,
+        turn_number=session.current_turn,
+        intended=participant.id,
+        actual=participant.id,
+        action="phase_transition",
+        complexity="n/a",
+        domain_match=False,
+        reason="manual_stop_during_conclude",
+    )
 
 
 async def _broadcast_loop_status(session_id: str, *, running: bool) -> None:

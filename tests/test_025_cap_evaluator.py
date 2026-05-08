@@ -28,6 +28,7 @@ from src.orchestrator.length_cap import (
     evaluate_trigger_fraction,
     is_at_or_past_cap,
     is_in_conclude_phase,
+    should_exit_conclude_on_extension,
     should_finalize_conclude_phase,
 )
 
@@ -304,3 +305,34 @@ def test_finalize_past_quota() -> None:
         should_finalize_conclude_phase(current_turn=25, conclude_started_turn=16, active_ai_count=3)
         is True
     )
+
+
+# ---------------------------------------------------------------------------
+# should_exit_conclude_on_extension (US3 / FR-013)
+# ---------------------------------------------------------------------------
+
+
+def test_extension_lifts_trigger_past_elapsed_exits_conclude() -> None:
+    """At turn 19 with cap extended 20 -> 30: 19/30 (63%) is below the 0.80 trigger."""
+    new_cap = SessionLengthCap(kind="turns", turns=30)
+    assert should_exit_conclude_on_extension(new_cap, elapsed_turns=19, elapsed_seconds=0) is True
+
+
+def test_small_extension_still_in_conclude() -> None:
+    """At turn 19 with cap extended 20 -> 22: 19/22 (86%) still past the 0.80 trigger."""
+    new_cap = SessionLengthCap(kind="turns", turns=22)
+    assert should_exit_conclude_on_extension(new_cap, elapsed_turns=19, elapsed_seconds=0) is False
+
+
+def test_extension_clearing_cap_exits_conclude() -> None:
+    """Setting kind='none' lifts the cap entirely; loop returns to running."""
+    new_cap = SessionLengthCap(kind="none")
+    assert should_exit_conclude_on_extension(new_cap, elapsed_turns=999, elapsed_seconds=0) is True
+
+
+def test_extension_both_dimensions_one_still_past_trigger_stays() -> None:
+    """Both caps, time still past trigger -> stay in conclude (OR semantics)."""
+    new_cap = SessionLengthCap(kind="both", seconds=600, turns=200)
+    # turns 19/200 below trigger, time 600/600 at cap
+    out = should_exit_conclude_on_extension(new_cap, elapsed_turns=19, elapsed_seconds=600)
+    assert out is False

@@ -306,6 +306,37 @@ def _build_disambiguation(
     )
 
 
+def should_exit_conclude_on_extension(
+    cap: SessionLengthCap,
+    *,
+    elapsed_turns: int,
+    elapsed_seconds: int,
+    trigger_fraction: float = DEFAULT_TRIGGER_FRACTION,
+) -> bool:
+    """Spec 025 FR-013: True when the new cap moves the trigger past current elapsed.
+
+    Used by the cap-set endpoint to decide whether a cap update should
+    transition the loop back to running phase. The check is the inverse
+    of the entry trigger: the extension exits conclude phase only if
+    NEITHER dimension is currently past its trigger fraction (the
+    extension actually pulled both back below threshold).
+
+    Pure function so the caller decides the transition; the helper
+    just answers the geometric question.
+    """
+    if not cap.is_active:
+        return True  # Cleared cap -> no longer in conclude
+    return (
+        evaluate_trigger_fraction(
+            cap,
+            elapsed_turns=elapsed_turns,
+            elapsed_seconds=elapsed_seconds,
+            trigger_fraction=trigger_fraction,
+        )
+        is None
+    )
+
+
 def evaluate_per_dispatch_cap(
     cap: SessionLengthCap,
     *,

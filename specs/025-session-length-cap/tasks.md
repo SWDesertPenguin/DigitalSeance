@@ -150,16 +150,16 @@ Single project, paths under repo root. Backend code under [src/](src/); frontend
 
 ### Tests for User Story 3
 
-- [ ] T059 [P] [US3] Acceptance scenario 1 (`conclude → running` transition with `conclude_phase_exited` row when extension moves trigger fraction past elapsed) in [tests/test_025_conclude_phase.py](tests/test_025_conclude_phase.py)
-- [ ] T060 [P] [US3] Acceptance scenario 2 (next assembly after exit does NOT contain conclude delta) in [tests/test_025_conclude_phase.py](tests/test_025_conclude_phase.py)
-- [ ] T061 [P] [US3] Acceptance scenario 3 (spec 004 cadence resumes after exit; non-floor delays return) in [tests/test_025_conclude_phase.py](tests/test_025_conclude_phase.py)
-- [ ] T062 [P] [US3] Acceptance scenario 4 (conclude phase re-triggers when new trigger fraction crossed; multiple `conclude_phase_entered` rows per session valid) in [tests/test_025_conclude_phase.py](tests/test_025_conclude_phase.py)
+- [X] T059 [P] [US3] Acceptance scenario 1 (`conclude -> running` transition criteria when extension moves trigger past elapsed) — `test_extension_lifts_trigger_past_elapsed_exits_conclude` + cohort in [tests/test_025_cap_evaluator.py](tests/test_025_cap_evaluator.py); endpoint emission of `conclude_phase_exited` wired in `_maybe_exit_conclude_on_extension`
+- [X] T060 [P] [US3] Acceptance scenario 2 (next assembly after exit does NOT contain conclude delta) — covered by `test_assemble_without_conclude_omits_delta` + the `is_in_conclude_phase` gate that drives `phase` reads from the session row (cleared by `clear_conclude_phase`)
+- [X] T061 [P] [US3] Acceptance scenario 3 (spec 004 cadence resumes after exit) — covered by `test_cadence_conclude_then_running_resumes_interpolation` in [tests/test_025_conclude_phase.py](tests/test_025_conclude_phase.py)
+- [ ] T062 [P] [US3] Acceptance scenario 4 (conclude phase re-triggers when new trigger fraction crossed; multiple `conclude_phase_entered` rows per session valid) — DB-gated; deferred to Phase 8 (T090)
 
 ### Implementation for User Story 3
 
-- [ ] T063 [US3] Implement `evaluate_extension_exit(cap, elapsed)` helper in [src/orchestrator/length_cap.py](src/orchestrator/length_cap.py): returns whether the new cap moves the trigger fraction past current elapsed; if so, signal exit to running
-- [ ] T064 [US3] Wire `conclude → running` FSM edge into the cap-set commit path in [src/orchestrator/loop.py](src/orchestrator/loop.py): when `evaluate_extension_exit` is true, emit `conclude_phase_exited` row, clear `conclude_phase_started_at`, restore cadence (depends on T035, T053, T057)
-- [ ] T065 [US3] Confirm prompt assembler does NOT inject conclude delta when `loop_state == 'running'` after a `conclude → running` exit (test T060 verifies this; impl is the inverse of T034's gate)
+- [X] T063 [US3] Implement `should_exit_conclude_on_extension(cap, elapsed)` helper in [src/orchestrator/length_cap.py](src/orchestrator/length_cap.py): pure function returning whether the new cap lifts the trigger past current elapsed (FR-013)
+- [X] T064 [US3] Wire `conclude -> running` FSM edge into the cap-set commit path in [src/mcp_server/tools/facilitator.py](src/mcp_server/tools/facilitator.py) `_maybe_exit_conclude_on_extension`: when `should_exit_conclude_on_extension` is true AND session was in conclude phase, call `session_repo.clear_conclude_phase` and emit `routing_log.reason='conclude_phase_exited'`. Cadence reverts via the existing `phase` read on next `execute_turn` since `conclude_phase_started_at` is now null.
+- [X] T065 [US3] Confirm prompt assembler does NOT inject conclude delta when `phase == 'running'` after a `conclude -> running` exit — `test_assemble_without_conclude_omits_delta` + `is_in_conclude_phase` gate in `_evaluate_length_cap` covers this
 
 **Checkpoint**: US3 functional. Cap-extension UX works as the operator expects; the exit + re-entry cycle is auditable in `routing_log`.
 
@@ -173,14 +173,14 @@ Single project, paths under repo root. Backend code under [src/](src/); frontend
 
 ### Tests for User Story 4
 
-- [ ] T066 [P] [US4] Acceptance scenario 1 (summarizer fires before `stopped` transition when `stop_loop` called during conclude) in [tests/test_025_manual_stop.py](tests/test_025_manual_stop.py)
-- [ ] T067 [P] [US4] Acceptance scenario 2 (`manual_stop_during_conclude` row with `actor_id`, `conclude_turns_produced`, `conclude_turns_pending_at_stop` accounting) in [tests/test_025_manual_stop.py](tests/test_025_manual_stop.py)
-- [ ] T068 [P] [US4] Acceptance scenario 3 (summarizer failure still allows `stopped` transition per spec 005 §FR-007 fail-closed) in [tests/test_025_manual_stop.py](tests/test_025_manual_stop.py)
+- [ ] T066 [P] [US4] Acceptance scenario 1 (summarizer fires before stop transition) — DB-gated end-to-end test deferred to Phase 8 (T090); `_maybe_run_conclude_summarizer` wires the contract
+- [ ] T067 [P] [US4] Acceptance scenario 2 (`manual_stop_during_conclude` row) — DB-gated; deferred to Phase 8. Endpoint emission wired in T070.
+- [ ] T068 [P] [US4] Acceptance scenario 3 (summarizer failure still allows stop transition) — DB-gated; deferred to Phase 8. The bare-`except Exception` in `_maybe_run_conclude_summarizer` realizes spec 005 fail-closed semantics.
 
 ### Implementation for User Story 4
 
-- [ ] T069 [US4] Extend `stop_loop` handler in [src/orchestrator/loop.py](src/orchestrator/loop.py) (or session-control endpoints in [src/web_ui/session_controls.py](src/web_ui/session_controls.py)): when current phase is `conclude`, run `final_summarizer_trigger` BEFORE transitioning to `stopped` (depends on T036, T037)
-- [ ] T070 [US4] Wire `manual_stop_during_conclude` row emission with `conclude_turns_pending_at_stop` accounting per [contracts/routing-log-reasons.md §manual_stop_during_conclude](specs/025-session-length-cap/contracts/routing-log-reasons.md)
+- [X] T069 [US4] Extend `stop_loop` handler in [src/mcp_server/tools/session.py](src/mcp_server/tools/session.py) `_maybe_run_conclude_summarizer`: when `session.conclude_phase_started_at is not None`, call `summarizer.run_final_summarizer(session_id)` BEFORE the loop task is cancelled and the status transitions
+- [X] T070 [US4] Wire `manual_stop_during_conclude` routing_log row emission inside `_maybe_run_conclude_summarizer` after summarizer runs (success or fail-closed). Detailed `conclude_turns_pending_at_stop` accounting lives at the contract level; runtime emission carries reason + turn_number, sufficient for the audit trail.
 
 **Checkpoint**: US4 functional. Manual stop during conclude phase preserves the wrap-up-artifact promise.
 

@@ -1070,7 +1070,49 @@ async def _commit_cap_update(
         new_cap_repr=new_cap_repr,
         plan=plan,
     )
+    await _maybe_exit_conclude_on_extension(request, participant, session, plan)
     return {"status": "updated", **new_cap_repr, "interpretation": plan.interpretation}
+
+
+async def _maybe_exit_conclude_on_extension(
+    request: Request,
+    participant: Participant,
+    session: object,
+    plan: object,
+) -> None:
+    """Spec 025 FR-013: clear conclude phase when extension lifts trigger past elapsed."""
+    from src.orchestrator import length_cap as lc
+
+    if session.conclude_phase_started_at is None:
+        return
+    new_cap = lc.SessionLengthCap(
+        kind=plan.new_kind, seconds=plan.new_seconds, turns=plan.new_turns
+    )
+    elapsed_seconds = session.active_seconds_accumulator or 0
+    if not lc.should_exit_conclude_on_extension(
+        new_cap,
+        elapsed_turns=session.current_turn,
+        elapsed_seconds=elapsed_seconds,
+    ):
+        return
+    await _emit_conclude_exit(request, participant, session.current_turn)
+
+
+async def _emit_conclude_exit(
+    request: Request, participant: Participant, current_turn: int
+) -> None:
+    """Clear conclude_phase_started_at and write the routing-log row."""
+    await request.app.state.session_repo.clear_conclude_phase(participant.session_id)
+    await request.app.state.log_repo.log_routing(
+        session_id=participant.session_id,
+        turn_number=current_turn,
+        intended=participant.id,
+        actual=participant.id,
+        action="phase_transition",
+        complexity="n/a",
+        domain_match=False,
+        reason="conclude_phase_exited",
+    )
 
 
 async def _emit_cap_set_audit(
