@@ -313,6 +313,56 @@ starts consuming them — likely as part of a per-spec amendment cluster.
 - **Source spec(s)**: 007 §SC-009 (`security_events` 90-day default)
 - **Note**: Consumed by `scripts/purge_security_events.py`, an operator-scheduled CLI (cron / Ofelia / k8s CronJob — default cadence daily). The orchestrator itself does NOT auto-purge; absence of the env var means "never delete" until the operator runs the script. Default applied by the script when unset is 90 days per 007 §SC-009.
 
+### `SACP_LENGTH_CAP_DEFAULT_KIND`
+
+- **Default**: `none`
+- **Type**: string enum
+- **Valid range**: `none` | `time` | `turns` | `both`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_length_cap_default_kind`
+- **Source spec(s)**: 025 §FR-024
+- **Note**: Deployment-wide default for new sessions. Existing sessions are unaffected. The facilitator can always override per-session at session-create.
+
+### `SACP_LENGTH_CAP_DEFAULT_SECONDS`
+
+- **Default**: unset (no default time cap)
+- **Type**: integer (seconds), or empty
+- **Valid range**: `[60, 2_592_000]` (1 minute to 30 days) when set
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_length_cap_default_seconds`
+- **Source spec(s)**: 025 §FR-024
+- **Note**: Inherited by new sessions when `SACP_LENGTH_CAP_DEFAULT_KIND` is `time` or `both`. Empty is allowed; the facilitator must specify on session-create when the inherited kind requires it.
+
+### `SACP_LENGTH_CAP_DEFAULT_TURNS`
+
+- **Default**: unset (no default turn cap)
+- **Type**: integer, or empty
+- **Valid range**: `[1, 10_000]` when set
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_length_cap_default_turns`
+- **Source spec(s)**: 025 §FR-024
+- **Note**: Inherited by new sessions when `SACP_LENGTH_CAP_DEFAULT_KIND` is `turns` or `both`. Empty is allowed.
+
+### `SACP_CONCLUDE_PHASE_TRIGGER_FRACTION`
+
+- **Default**: `0.80`
+- **Type**: float
+- **Valid range**: strict `(0.0, 1.0)` — both endpoints excluded
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_conclude_phase_trigger_fraction`
+- **Source spec(s)**: 025 §FR-005
+- **Note**: Applies to all sessions, not per-session. Lower values trigger conclude earlier; higher closer to 100%. The exclusive range protects against pathological configurations: 0.0 means "always concluding", 1.0 means "no conclude phase, hard stop only".
+
+### `SACP_CONCLUDE_PHASE_PROMPT_TIER`
+
+- **Default**: `4`
+- **Type**: integer
+- **Valid range**: `{1, 2, 3, 4}` (matches spec 008's tier set)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_conclude_phase_prompt_tier`
+- **Source spec(s)**: 025 §FR-008
+- **Note**: Applies to all sessions. Default Tier 4 is the only tier reliably present (every participant's prompt assembly reaches Tier 4 if they have any custom_prompt OR any spec 021 register-slider delta). Operators with custom tier semantics may attach earlier.
+
 ### `SACP_RATE_LIMIT_PER_MIN`
 
 - **Status**: Reserved
