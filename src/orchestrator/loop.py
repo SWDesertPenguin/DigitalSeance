@@ -310,7 +310,7 @@ class ConversationLoop:
             return False
         cap = lc.cap_from_session(session)
         already_concluding = lc.is_in_conclude_phase(session)
-        elapsed_s = session.active_seconds_accumulator or 0
+        elapsed_s = lc.effective_active_seconds(session)
         evaluation = lc.evaluate_per_dispatch_cap(
             cap,
             elapsed_turns=session.current_turn,

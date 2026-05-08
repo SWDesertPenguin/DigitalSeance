@@ -145,6 +145,31 @@ def cap_from_session(session: object) -> SessionLengthCap:
     )
 
 
+def effective_active_seconds(session: object) -> int:
+    """Spec 025 FR-002 elapsed-time read for cap evaluation.
+
+    Returns the durable `active_seconds_accumulator` when set, else
+    falls back to `(now() - created_at)`. The fallback ignores pause
+    time; the fully pause-aware accumulator lands in a follow-up
+    commit under T051/T052. For the canonical "set time cap, watch
+    it fire at trigger fraction" path the fallback is correct.
+    """
+    from datetime import UTC, datetime
+
+    accumulator = getattr(session, "active_seconds_accumulator", None)
+    if accumulator is not None:
+        return int(accumulator)
+    created = getattr(session, "created_at", None)
+    if created is None:
+        return 0
+    if created.tzinfo is not None:
+        now = datetime.now(UTC)
+    else:
+        # Naive datetime in fixture/legacy code; compare in naive UTC.
+        now = datetime.now(UTC).replace(tzinfo=None)
+    return int((now - created).total_seconds())
+
+
 def is_in_conclude_phase(session: object) -> bool:
     """True when the session row's `conclude_phase_started_at` is non-null.
 

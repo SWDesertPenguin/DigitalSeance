@@ -1002,7 +1002,7 @@ async def _commit_or_disambiguate(
     session = await session_repo.get_session(session_id)
     if session is None:
         raise HTTPException(404, "session_not_found")
-    current_seconds = session.active_seconds_accumulator or 0
+    current_seconds = lc.effective_active_seconds(session)
     intent = lc.detect_decrease_intent(
         submitted_kind=body.length_cap_kind,
         submitted_seconds=body.length_cap_seconds,
@@ -1088,7 +1088,7 @@ async def _maybe_exit_conclude_on_extension(
     new_cap = lc.SessionLengthCap(
         kind=plan.new_kind, seconds=plan.new_seconds, turns=plan.new_turns
     )
-    elapsed_seconds = session.active_seconds_accumulator or 0
+    elapsed_seconds = lc.effective_active_seconds(session)
     if not lc.should_exit_conclude_on_extension(
         new_cap,
         elapsed_turns=session.current_turn,
