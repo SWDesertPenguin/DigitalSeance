@@ -62,3 +62,69 @@ class CapSetEvent:
     interpretation: CapInterpretation | None
     actor_id: str
     at: datetime
+
+
+# Default trigger fraction (overridable via SACP_CONCLUDE_PHASE_TRIGGER_FRACTION).
+DEFAULT_TRIGGER_FRACTION = 0.80
+
+
+def evaluate_trigger_fraction(
+    cap: SessionLengthCap,
+    *,
+    elapsed_turns: int,
+    elapsed_seconds: int,
+    trigger_fraction: float = DEFAULT_TRIGGER_FRACTION,
+) -> str | None:
+    """Return the dimension that crossed its trigger fraction, or None.
+
+    Per FR-005 / FR-006 OR semantics: when both dimensions are set,
+    whichever crosses first triggers the conclude phase. Returns:
+
+    - ``"turns"`` if the turn cap's trigger fraction was crossed first.
+    - ``"time"`` if the time cap's trigger fraction was crossed first.
+    - ``"both"`` if both were already past trigger at evaluation time
+      (rare; the same-dispatch edge case noted in
+      ``contracts/routing-log-reasons.md`` for ``conclude_phase_entered``).
+    - ``None`` if no dimension has crossed (or the cap is inactive).
+
+    Returns ``None`` immediately when ``cap.is_active`` is False so the
+    SC-001 short-circuit holds and no spec 025 evaluation runs on
+    default-cap sessions.
+    """
+    if not cap.is_active:
+        return None
+    turns_crossed = _dimension_crossed(cap.turns, elapsed_turns, trigger_fraction)
+    time_crossed = _dimension_crossed(cap.seconds, elapsed_seconds, trigger_fraction)
+    if turns_crossed and time_crossed:
+        return "both"
+    if turns_crossed:
+        return "turns"
+    if time_crossed:
+        return "time"
+    return None
+
+
+def _dimension_crossed(cap_value: int | None, elapsed: int, fraction: float) -> bool:
+    """True when this dimension's elapsed counter crosses fraction * cap."""
+    if cap_value is None:
+        return False
+    return elapsed >= cap_value * fraction
+
+
+def is_at_or_past_cap(
+    cap: SessionLengthCap,
+    *,
+    elapsed_turns: int,
+    elapsed_seconds: int,
+) -> bool:
+    """True when elapsed is at or past 100% on any set dimension.
+
+    Used to drive the FR-012 auto-pause path: once the last conclude turn
+    completes AND elapsed is at or past 100%, the loop transitions to
+    paused with `routing_log.reason='auto_pause_on_cap'`.
+    """
+    if not cap.is_active:
+        return False
+    if cap.turns is not None and elapsed_turns >= cap.turns:
+        return True
+    return cap.seconds is not None and elapsed_seconds >= cap.seconds

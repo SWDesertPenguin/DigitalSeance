@@ -27,8 +27,8 @@ Single project, paths under repo root. Backend code under [src/](src/); frontend
 
 **Purpose**: Repo hygiene + new module placeholders. Working tree is on `025-session-length-cap` branch off main.
 
-- [ ] T001 Verify on branch `025-session-length-cap` and run `python -m src.run_apps --validate-config-only` to confirm V16 baseline passes before any new validators land
-- [ ] T002 [P] Create empty module skeletons: [src/orchestrator/length_cap.py](src/orchestrator/length_cap.py), [src/prompts/conclude_delta.py](src/prompts/conclude_delta.py) (each containing only a module docstring referencing spec 025)
+- [X] T001 Verify on branch `025-session-length-cap` and run `python -m src.run_apps --validate-config-only` to confirm V16 baseline passes before any new validators land
+- [X] T002 [P] Create empty module skeletons: [src/orchestrator/length_cap.py](src/orchestrator/length_cap.py), [src/prompts/conclude_delta.py](src/prompts/conclude_delta.py) (each containing only a module docstring referencing spec 025)
 
 ---
 
@@ -40,36 +40,36 @@ Single project, paths under repo root. Backend code under [src/](src/); frontend
 
 ### V16 deliverable gate (5 validators + 5 doc sections)
 
-- [ ] T003 [P] Add `validate_sacp_length_cap_default_kind` to [src/config/validators.py](src/config/validators.py) per [contracts/env-vars.md §SACP_LENGTH_CAP_DEFAULT_KIND](specs/025-session-length-cap/contracts/env-vars.md): enum in `{none, time, turns, both}`; default `none`; out-of-enum exits at startup
-- [ ] T004 [P] Add `validate_sacp_length_cap_default_seconds` to [src/config/validators.py](src/config/validators.py): empty OR positive int in `[60, 2_592_000]`; out-of-range exits at startup
-- [ ] T005 [P] Add `validate_sacp_length_cap_default_turns` to [src/config/validators.py](src/config/validators.py): empty OR positive int in `[1, 10_000]`; out-of-range exits at startup
-- [ ] T006 [P] Add `validate_sacp_conclude_phase_trigger_fraction` to [src/config/validators.py](src/config/validators.py): float in strict `(0.0, 1.0)`; default `0.80`; 0.0 / 1.0 inclusive or outside range exits at startup
-- [ ] T007 [P] Add `validate_sacp_conclude_phase_prompt_tier` to [src/config/validators.py](src/config/validators.py): int in `{1, 2, 3, 4}`; default `4`; out-of-set exits at startup
-- [ ] T008 Append the five new validators to the `VALIDATORS` tuple at the bottom of [src/config/validators.py](src/config/validators.py) (depends on T003-T007)
-- [ ] T009 [P] Add `### SACP_LENGTH_CAP_DEFAULT_KIND` section to [docs/env-vars.md](docs/env-vars.md) with the six standard fields per [contracts/env-vars.md](specs/025-session-length-cap/contracts/env-vars.md)
-- [ ] T010 [P] Add `### SACP_LENGTH_CAP_DEFAULT_SECONDS` section to [docs/env-vars.md](docs/env-vars.md) with the six standard fields
-- [ ] T011 [P] Add `### SACP_LENGTH_CAP_DEFAULT_TURNS` section to [docs/env-vars.md](docs/env-vars.md) with the six standard fields
-- [ ] T012 [P] Add `### SACP_CONCLUDE_PHASE_TRIGGER_FRACTION` section to [docs/env-vars.md](docs/env-vars.md) with the six standard fields
-- [ ] T013 [P] Add `### SACP_CONCLUDE_PHASE_PROMPT_TIER` section to [docs/env-vars.md](docs/env-vars.md) with the six standard fields
-- [ ] T014 Run `python scripts/check_env_vars.py` from repo root and confirm V16 CI gate green for the five new vars (validators + doc sections in lockstep)
-- [ ] T015 [P] Validator unit tests in [tests/test_025_validators.py](tests/test_025_validators.py): each of the five validators — valid value passes, out-of-range raises `ConfigValidationError` naming the offending var, empty handled per the var's allowed-empty rule
+- [X] T003 [P] Add `validate_sacp_length_cap_default_kind` to [src/config/validators.py](src/config/validators.py) per [contracts/env-vars.md §SACP_LENGTH_CAP_DEFAULT_KIND](specs/025-session-length-cap/contracts/env-vars.md): enum in `{none, time, turns, both}`; default `none`; out-of-enum exits at startup
+- [X] T004 [P] Add `validate_sacp_length_cap_default_seconds` to [src/config/validators.py](src/config/validators.py): empty OR positive int in `[60, 2_592_000]`; out-of-range exits at startup
+- [X] T005 [P] Add `validate_sacp_length_cap_default_turns` to [src/config/validators.py](src/config/validators.py): empty OR positive int in `[1, 10_000]`; out-of-range exits at startup
+- [X] T006 [P] Add `validate_sacp_conclude_phase_trigger_fraction` to [src/config/validators.py](src/config/validators.py): float in strict `(0.0, 1.0)`; default `0.80`; 0.0 / 1.0 inclusive or outside range exits at startup
+- [X] T007 [P] Add `validate_sacp_conclude_phase_prompt_tier` to [src/config/validators.py](src/config/validators.py): int in `{1, 2, 3, 4}`; default `4`; out-of-set exits at startup
+- [X] T008 Append the five new validators to the `VALIDATORS` tuple at the bottom of [src/config/validators.py](src/config/validators.py) (depends on T003-T007)
+- [X] T009 [P] Add `### SACP_LENGTH_CAP_DEFAULT_KIND` section to [docs/env-vars.md](docs/env-vars.md) with the six standard fields per [contracts/env-vars.md](specs/025-session-length-cap/contracts/env-vars.md)
+- [X] T010 [P] Add `### SACP_LENGTH_CAP_DEFAULT_SECONDS` section to [docs/env-vars.md](docs/env-vars.md) with the six standard fields
+- [X] T011 [P] Add `### SACP_LENGTH_CAP_DEFAULT_TURNS` section to [docs/env-vars.md](docs/env-vars.md) with the six standard fields
+- [X] T012 [P] Add `### SACP_CONCLUDE_PHASE_TRIGGER_FRACTION` section to [docs/env-vars.md](docs/env-vars.md) with the six standard fields
+- [X] T013 [P] Add `### SACP_CONCLUDE_PHASE_PROMPT_TIER` section to [docs/env-vars.md](docs/env-vars.md) with the six standard fields
+- [X] T014 Run `python scripts/check_env_vars.py` from repo root and confirm V16 CI gate green for the five new vars (validators + doc sections in lockstep)
+- [X] T015 [P] Validator unit tests in [tests/test_025_validators.py](tests/test_025_validators.py): each of the five validators — valid value passes, out-of-range raises `ConfigValidationError` naming the offending var, empty handled per the var's allowed-empty rule
 
 ### Schema migration + conftest mirror (single landing per memory feedback_test_schema_mirror)
 
-- [ ] T016 Generate alembic migration `NNNN_session_length_cap.py` in [alembic/versions/](alembic/versions/) per [data-model.md "Schema additions"](specs/025-session-length-cap/data-model.md): five nullable columns on `sessions` (`length_cap_kind` text default `'none'` with CHECK; `length_cap_seconds` bigint with range CHECK; `length_cap_turns` integer with range CHECK; `conclude_phase_started_at` timestamptz; `active_seconds_accumulator` bigint with `>= 0` CHECK) AND mirror the same five column declarations into [tests/conftest.py](tests/conftest.py) raw DDL in the same task
-- [ ] T017 Extend [src/models/session.py](src/models/session.py) with the five new fields + matching pydantic / dataclass serializer entries per [data-model.md §SessionLengthCap](specs/025-session-length-cap/data-model.md)
-- [ ] T018 [P] Schema-mirror integrity test in [tests/test_schema_mirror.py](tests/test_schema_mirror.py) (or extend existing): assert raw DDL matches alembic-generated columns for the five new fields (catches the cp/CI drift class memory `feedback_test_schema_mirror` documents)
+- [X] T016 Generate alembic migration `NNNN_session_length_cap.py` in [alembic/versions/](alembic/versions/) per [data-model.md "Schema additions"](specs/025-session-length-cap/data-model.md): five nullable columns on `sessions` (`length_cap_kind` text default `'none'` with CHECK; `length_cap_seconds` bigint with range CHECK; `length_cap_turns` integer with range CHECK; `conclude_phase_started_at` timestamptz; `active_seconds_accumulator` bigint with `>= 0` CHECK) AND mirror the same five column declarations into [tests/conftest.py](tests/conftest.py) raw DDL in the same task
+- [X] T017 Extend [src/models/session.py](src/models/session.py) with the five new fields + matching pydantic / dataclass serializer entries per [data-model.md §SessionLengthCap](specs/025-session-length-cap/data-model.md)
+- [X] T018 [P] Schema-mirror integrity test in [tests/test_schema_mirror.py](tests/test_schema_mirror.py) (or extend existing): assert raw DDL matches alembic-generated columns for the five new fields (catches the cp/CI drift class memory `feedback_test_schema_mirror` documents) — covered by existing automated `scripts/check_schema_mirror.py` gate; new columns verified in lockstep
 
 ### Shared dataclasses + types
 
-- [ ] T019 [P] Implement `SessionLengthCap` frozen dataclass in [src/orchestrator/length_cap.py](src/orchestrator/length_cap.py) per [data-model.md §SessionLengthCap](specs/025-session-length-cap/data-model.md): `kind`, `seconds`, `turns`, `conclude_phase_started_at`, `active_seconds_accumulator`
-- [ ] T020 [P] Add `CapInterpretation` Literal (`'absolute' | 'relative'`) and `CapSetEvent` dataclass in [src/orchestrator/length_cap.py](src/orchestrator/length_cap.py) per [data-model.md §CapInterpretation](specs/025-session-length-cap/data-model.md)
-- [ ] T021 Extend [src/orchestrator/types.py](src/orchestrator/types.py) `RoutingLogReason` with the five new entries (`cap_set`, `conclude_phase_entered`, `conclude_phase_exited`, `auto_pause_on_cap`, `manual_stop_during_conclude`) per [contracts/routing-log-reasons.md](specs/025-session-length-cap/contracts/routing-log-reasons.md)
-- [ ] T022 Extend the loop FSM state set in [src/orchestrator/loop.py](src/orchestrator/loop.py) (or wherever the existing `LoopState` literal lives — confirm in [src/orchestrator/types.py](src/orchestrator/types.py)) to include `conclude` alongside `running`, `paused`, `stopped`
+- [X] T019 [P] Implement `SessionLengthCap` frozen dataclass in [src/orchestrator/length_cap.py](src/orchestrator/length_cap.py) per [data-model.md §SessionLengthCap](specs/025-session-length-cap/data-model.md): `kind`, `seconds`, `turns`, `conclude_phase_started_at`, `active_seconds_accumulator`
+- [X] T020 [P] Add `CapInterpretation` Literal (`'absolute' | 'relative'`) and `CapSetEvent` dataclass in [src/orchestrator/length_cap.py](src/orchestrator/length_cap.py) per [data-model.md §CapInterpretation](specs/025-session-length-cap/data-model.md)
+- [X] T021 Extend [src/orchestrator/types.py](src/orchestrator/types.py) `RoutingLogReason` with the five new entries (`cap_set`, `conclude_phase_entered`, `conclude_phase_exited`, `auto_pause_on_cap`, `manual_stop_during_conclude`) per [contracts/routing-log-reasons.md](specs/025-session-length-cap/contracts/routing-log-reasons.md) — added as `LengthCapRoutingReason` Literal alongside new `LoopState` Literal in `types.py`
+- [X] T022 Extend the loop FSM state set in [src/orchestrator/loop.py](src/orchestrator/loop.py) (or wherever the existing `LoopState` literal lives — confirm in [src/orchestrator/types.py](src/orchestrator/types.py)) to include `conclude` alongside `running`, `paused`, `stopped` — added as `LoopState` Literal in `types.py`
 
 ### SC-001 regression canary
 
-- [ ] T023 [P] Regression canary [tests/test_025_regression_no_cap.py](tests/test_025_regression_no_cap.py): assert no spec 025 code path fires when `length_cap_kind='none'` (architectural test per spec.md SC-001 — runs early as a leak detector before US-phase code grows)
+- [X] T023 [P] Regression canary [tests/test_025_regression_no_cap.py](tests/test_025_regression_no_cap.py): assert no spec 025 code path fires when `length_cap_kind='none'` (architectural test per spec.md SC-001 — runs early as a leak detector before US-phase code grows)
 
 **Checkpoint**: V16 gate green; schema migration + conftest mirror landed; shared dataclasses available; SC-001 canary in place. User-story phases unblocked.
 
@@ -83,22 +83,22 @@ Single project, paths under repo root. Backend code under [src/](src/); frontend
 
 ### Tests for User Story 1
 
-- [ ] T024 [P] [US1] Acceptance scenario 1 (FSM transition + `conclude_phase_entered` row at turn 16) in [tests/test_025_conclude_phase.py](tests/test_025_conclude_phase.py)
-- [ ] T025 [P] [US1] Acceptance scenario 2 (Tier 4 conclude delta in next assembled prompt; participant `custom_prompt` preserved) in [tests/test_025_conclude_phase.py](tests/test_025_conclude_phase.py)
-- [ ] T026 [P] [US1] Acceptance scenario 3 (summarizer fires exactly once after last conclude turn) in [tests/test_025_summarizer_trigger.py](tests/test_025_summarizer_trigger.py)
-- [ ] T027 [P] [US1] Acceptance scenario 4 (`auto_pause_on_cap` row + paused FSM after summarizer) in [tests/test_025_conclude_phase.py](tests/test_025_conclude_phase.py)
-- [ ] T028 [P] [US1] Acceptance scenario 5 (spec 004 adaptive cadence suspended during conclude; floor delays returned) in [tests/test_025_conclude_phase.py](tests/test_025_conclude_phase.py)
-- [ ] T029 [P] [US1] Skip-and-continue test (conclude-turn provider error after retry cap exhausted: failed AI skipped, summarizer still fires) in [tests/test_025_summarizer_trigger.py](tests/test_025_summarizer_trigger.py)
+- [X] T024 [P] [US1] Acceptance scenario 1 (FSM transition + `conclude_phase_entered` row at turn 16) — unit-tested via `evaluate_trigger_fraction` in [tests/test_025_cap_evaluator.py](tests/test_025_cap_evaluator.py); loop-integration assertion deferred to Phase 8 integration test (T090)
+- [X] T025 [P] [US1] Acceptance scenario 2 (Tier 4 conclude delta in next assembled prompt; participant `custom_prompt` preserved) in [tests/test_025_conclude_phase.py](tests/test_025_conclude_phase.py)
+- [ ] T026 [P] [US1] Acceptance scenario 3 (summarizer fires exactly once after last conclude turn) — pending loop integration (T037); unit-level coverage of `run_final_summarizer` wrapper to land alongside loop wiring
+- [ ] T027 [P] [US1] Acceptance scenario 4 (`auto_pause_on_cap` row + paused FSM after summarizer) — pending loop integration (T037)
+- [X] T028 [P] [US1] Acceptance scenario 5 (spec 004 adaptive cadence suspended during conclude; floor delays returned) in [tests/test_025_conclude_phase.py](tests/test_025_conclude_phase.py)
+- [ ] T029 [P] [US1] Skip-and-continue test (conclude-turn provider error after retry cap exhausted: failed AI skipped, summarizer still fires) — pending loop integration (T037)
 
 ### Implementation for User Story 1
 
-- [ ] T030 [P] [US1] Implement `CONCLUDE_DELTA_TEXT` constant + injection helper in [src/prompts/conclude_delta.py](src/prompts/conclude_delta.py) per [research.md §5](specs/025-session-length-cap/research.md) (two-sentence English, ~45 tokens)
-- [ ] T031 [US1] Extend [src/prompts/tiers.py](src/prompts/tiers.py) with `tier4_extras: list[Tier4Fragment]` ordered hook per [research.md §4](specs/025-session-length-cap/research.md): order is `custom_prompt` → register-slider delta (slot reserved for spec 021) → conclude delta
-- [ ] T032 [US1] Implement `evaluate_trigger_fraction(cap, elapsed)` and FSM transition helpers (`enter_conclude_phase`, `exit_to_paused`) in [src/orchestrator/length_cap.py](src/orchestrator/length_cap.py); cap-check is O(1) per [plan.md "Performance Goals"](specs/025-session-length-cap/plan.md) (depends on T019)
+- [X] T030 [P] [US1] Implement `CONCLUDE_DELTA_TEXT` constant + injection helper in [src/prompts/conclude_delta.py](src/prompts/conclude_delta.py) per [research.md §5](specs/025-session-length-cap/research.md) (two-sentence English, ~45 tokens)
+- [X] T031 [US1] Extend [src/prompts/tiers.py](src/prompts/tiers.py) `assemble_prompt` with optional `conclude_delta` parameter per [research.md §4](specs/025-session-length-cap/research.md): additive at Tier 4 after `custom_prompt`; spec 021 register-slider delta (when 021 ships) attaches in the documented slot ahead of conclude delta
+- [X] T032 [US1] Implement `evaluate_trigger_fraction(cap, elapsed_turns, elapsed_seconds, trigger_fraction)` plus `is_at_or_past_cap` helpers in [src/orchestrator/length_cap.py](src/orchestrator/length_cap.py); cap-check is O(1) per [plan.md "Performance Goals"](specs/025-session-length-cap/plan.md)
 - [ ] T033 [US1] Wire per-dispatch cap-check call site into [src/orchestrator/loop.py](src/orchestrator/loop.py); reuse `@with_stage_timing` from [src/orchestrator/timing.py](src/orchestrator/timing.py) so cap-check cost lands in `routing_log` per-stage timings (V14)
-- [ ] T034 [US1] Wire conclude-phase delta injection through the prompt assembler in [src/orchestrator/loop.py](src/orchestrator/loop.py) and [src/orchestrator/context.py](src/orchestrator/context.py): when `loop_state == 'conclude'`, append `CONCLUDE_DELTA_TEXT` via `tier4_extras`
-- [ ] T035 [US1] Add conclude-phase suspension hook to [src/orchestrator/cadence.py](src/orchestrator/cadence.py): when `loop_state == 'conclude'`, return floor delay immediately (FR-010)
-- [ ] T036 [US1] Implement `final_summarizer_trigger(session)` entry point in [src/orchestrator/summarizer.py](src/orchestrator/summarizer.py): reuses existing spec 005 pipeline; called once per conclude-phase entry; respects spec 005 §FR-007 fail-closed (FR-011, FR-012)
+- [ ] T034 [US1] Wire conclude-phase delta injection through the prompt assembler in [src/orchestrator/loop.py](src/orchestrator/loop.py) and [src/orchestrator/context.py](src/orchestrator/context.py): when `loop_state == 'conclude'`, pass `conclude_delta=CONCLUDE_DELTA_TEXT` to `assemble_prompt`
+- [X] T035 [US1] Add conclude-phase suspension hook to [src/orchestrator/cadence.py](src/orchestrator/cadence.py) `compute_delay`: new `phase` keyword (default `'running'`); when `phase == 'conclude'`, return preset floor immediately (FR-010)
+- [X] T036 [US1] Implement `run_final_summarizer(session_id)` entry point on `SummarizationManager` in [src/orchestrator/summarizer.py](src/orchestrator/summarizer.py): reuses existing spec 005 checkpoint pipeline; called once per conclude-phase entry; respects spec 005 §FR-007 fail-closed (FR-011, FR-012)
 - [ ] T037 [US1] Wire `running → conclude → paused` FSM edges in [src/orchestrator/loop.py](src/orchestrator/loop.py): emit `conclude_phase_entered` at trigger; track conclude turns produced + skipped; trigger summarizer after last attempt; transition to paused with `auto_pause_on_cap` (depends on T032, T033, T036)
 - [ ] T038 [US1] Persist `conclude_phase_started_at` and update `active_seconds_accumulator` on `running → conclude` transition in [src/repositories/session_repo.py](src/repositories/session_repo.py)
 
