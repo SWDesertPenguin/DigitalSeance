@@ -2,7 +2,7 @@
 
 **Feature Branch**: `021-ai-response-shaping`
 **Created**: 2026-05-07
-**Status**: Draft (Phase 3 declared 2026-05-05; scaffold ships now, tasks + implementation deferred)
+**Status**: Clarified 2026-05-07 (Phase 3 declared 2026-05-05; scaffold + clarifications resolved; `/speckit.plan` and `/speckit.tasks` deferred to user invocation)
 **Input**: User description: "Phase 3 AI response shaping. Backlog items #1 (verbosity / filler reduction) and #11 (response-style slider — casual ↔ technical/direct) attack the same axis from two angles. Two configurable dimensions: (1) length — post-output filler scoring catches hedge-to-content ratio, turn-restatement, boilerplate closings, with per-model behavioral profile and a structured turn-format delta in the system prompt that makes padding awkward; (2) register — per-session OR per-participant slider 1-5 feeding a Tier 4 delta in the prompt assembler with saved presets (Direct / Conversational / Technical / Academic). Compress-on-commit work is deferred to spec 026 (context compression). Applies to topologies 1-6 (orchestrator-mediated assembly); incompatible with topology 7 per V12. Primary use cases: consulting and research co-authorship per V13."
 
 ## Overview
@@ -30,11 +30,12 @@ beyond that.
    restatement (n-gram overlap with the immediately preceding turns),
    and boilerplate closings (formulaic sign-offs that add no
    content). When the score crosses a configured threshold the
-   orchestrator triggers a **one-shot retry** with a tightened Tier 4
+   orchestrator triggers a **bounded retry** with a tightened Tier 4
    delta ("Reply briefly and directly, no preamble, no restatement,
-   no closing"). One retry only — never an infinite loop. Per-model
-   behavioral profiles let the threshold and retry-delta wording
-   differ across providers because verbosity tendencies do.
+   no closing"). Up to two retries, hardcoded — never an infinite
+   loop. Per-model behavioral profiles let the threshold and
+   retry-delta wording differ across providers because verbosity
+   tendencies do.
 2. **Register dimension.** A facilitator-controlled session slider
    (1-5) selects among saved register presets that emit a Tier 4
    delta in the prompt assembler. The presets are: 1 (Direct,
@@ -64,63 +65,20 @@ reaches Implemented status.
 
 ## Clarifications
 
-### Initial draft assumptions requiring confirmation
+### 2026-05-07 — Resolutions
 
-- **Slider preset taxonomy.** User input names four presets
-  (Direct, Conversational, Technical, Academic) but specifies a
-  1-5 slider. Drafted as a five-position taxonomy with position 3
-  reserved as "Balanced" (no register delta — tier text alone).
-  This positions the four named presets at 1/2/4/5 and gives
-  operators a no-override middle. [NEEDS CLARIFICATION: confirm
-  the five-position mapping vs. compressing to 1-4 with no middle
-  position vs. some other arrangement.]
-- **Retry budget — one shot or N shots.** User input says "one-shot
-  retry with a tightened delta (one retry budget, no infinite
-  loop)." Drafted as exactly-one retry, hard-coded — if the retry
-  also exceeds the threshold the lower-quality draft is persisted
-  with a `routing_log.reason='filler_retry_exhausted'` row, NOT
-  rejected from the transcript. [NEEDS CLARIFICATION: confirm
-  exactly-one vs. small-integer retry budget (e.g., up to 2)
-  vs. operator-tunable via env var.]
-- **Per-model behavioral profile source.** Drafted as: profiles
-  ship as a hardcoded module dict in `src/orchestrator/shaping.py`
-  keyed by provider family (anthropic, openai, gemini, groq,
-  ollama, vllm) with default thresholds calibrated against
-  observed Phase 1+2 shakedown sessions. Per-model overrides land
-  later as session experience accumulates. [NEEDS CLARIFICATION:
-  confirm hardcoded-dict vs. config-file vs. env-var-per-provider
-  surface for the profile.]
-- **Filler scorer signal weights.** Drafted as: each of the three
-  signals (hedge ratio, restatement overlap, boilerplate closings)
-  contributes a normalized 0.0-1.0 score; the aggregate is a
-  weighted sum with weights documented in the per-model profile.
-  Default weights: 0.5 hedge, 0.3 restatement, 0.2 closing — the
-  hedge signal has the strongest empirical support from observed
-  sessions. [NEEDS CLARIFICATION: confirm the weighted-sum
-  approach vs. a max-of-three approach vs. a learned classifier.]
-- **`/me` surfacing of effective register.** User input says
-  "participants see their effective register in /me response."
-  Drafted as: `/me` returns `register_slider: int (1-5)` plus
-  `register_preset: str (one of: direct, conversational, balanced,
-  technical, academic)` plus `register_source: str (session |
-  participant_override)` so a participant can tell what's in
-  effect and where it came from. [NEEDS CLARIFICATION: confirm
-  the three-field shape and the `register_source` enum.]
-- **Reuse of spec 004 sentence-transformers pipeline.** User
-  input asks 021 to "reuse the sentence-transformers
-  infrastructure rather than spinning a second one." The
-  restatement-overlap signal needs an embedding to detect
-  semantic overlap with prior turns; spec 004's all-MiniLM-L6-v2
-  embedding pipeline is the obvious source. Drafted as: the
-  filler scorer reads `convergence_log.embedding` for the
-  immediately preceding 1-3 turns and computes cosine similarity
-  against the candidate draft's embedding; no new model load.
-  [NEEDS CLARIFICATION: confirm the per-turn embedding read is
-  acceptable cost-wise vs. a lighter n-gram approach.]
+All six initial-draft questions resolved. Five matched the drafted defaults; one (retry budget) diverged.
+
+- **Slider preset taxonomy.** Five-position taxonomy with position 3 (Balanced) emitting no register delta — tier text alone. Confirms the drafted shape. Codified by FR-007 and FR-013.
+- **Retry budget.** **Up to two retries** (small-integer cap, hardcoded). Diverges from the original one-shot draft. Rationale: an over-threshold first retry can occasionally indicate the model needs a second nudge before falling through; a hardcoded cap of 2 keeps the cost bounded without an extra env var. After two over-threshold drafts the second draft is persisted and `routing_log.reason='filler_retry_exhausted'` is logged. Codified by FR-004 (revised) and SC-003 (revised).
+- **Per-model behavioral profile source.** Hardcoded dict in `src/orchestrator/shaping.py`, keyed by provider family (anthropic, openai, gemini, groq, ollama, vllm). Per-model overrides land in a future amendment when session experience justifies the operator-tunable surface. Codified by FR-003.
+- **Filler scorer signal aggregation.** Weighted sum of three normalized signals (hedge 0.5, restatement 0.3, closing 0.2). Weights live in the per-model profile and are tunable per provider family. Codified by FR-002.
+- **`/me` surfacing of effective register.** Three new fields: `register_slider` (int 1-5), `register_preset` (one of: direct, conversational, balanced, technical, academic), `register_source` (one of: session, participant_override). Two-value source enum — when neither session nor override has been touched, the session row's slider value (defaulting to `SACP_REGISTER_DEFAULT`) is reported with `register_source='session'`. Codified by FR-010.
+- **Restatement-overlap signal.** Reuse spec 004's `convergence_log.embedding` for the prior 1-3 turns; compute cosine similarity against the candidate draft's embedding. No second sentence-transformers model load. Codified by FR-001 and FR-012.
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Filler scorer flags hedge-heavy drafts and triggers a one-shot tightened-delta retry (Priority: P1)
+### User Story 1 - Filler scorer flags hedge-heavy drafts and triggers a tightened-delta retry (Priority: P1)
 
 A participant's AI produces a draft with three paragraphs of
 hedging preamble, restates the prior turn's central point, then
@@ -129,10 +87,10 @@ transcript verbatim — the participant burns tokens on filler the
 session does not benefit from, and downstream summarization (spec
 005) inherits the verbosity. With response shaping enabled, the
 filler scorer evaluates the draft, computes a score above
-`SACP_FILLER_THRESHOLD`, and the orchestrator fires a one-shot
-retry with a tightened Tier 4 delta. The retry returns a tighter
-draft. The tighter draft enters the transcript; the original
-hedge-heavy draft is dropped (never persisted) and the retry
+`SACP_FILLER_THRESHOLD`, and the orchestrator fires a tightened
+Tier 4 delta retry (up to two attempts). The first retry that
+scores below threshold becomes the persisted draft; earlier
+hedge-heavy drafts are dropped (never persisted) and each retry
 event is logged to `routing_log` with `reason='filler_retry'`.
 
 **Why this priority**: P1 because this is the dimension that
@@ -146,34 +104,38 @@ ships a register slider that is purely cosmetic.
 is known to produce hedge-heavy output (synthesised via fixture
 or recorded transcript). Assert the orchestrator dispatches the
 turn, evaluates the response, computes a score above the
-configured threshold, fires a retry with the tightened delta,
-and persists the second draft. Verify `routing_log` has one row
-with `reason='filler_retry'` and one row with the normal
-dispatch reason for the original turn. Verify the transcript has
-exactly one message for that turn (the retry's output, not the
-original).
+configured threshold, fires up to two retries with the tightened
+delta, and persists the first retry whose score falls below
+threshold (or the second retry's output when both retries also
+exceed threshold). Verify `routing_log` rows reflect each retry
+event. Verify the transcript has exactly one message for that
+turn (the persisted draft, not any earlier hedge-heavy
+attempt).
 
 **Acceptance Scenarios**:
 
 1. **Given** `SACP_RESPONSE_SHAPING_ENABLED=true` and a draft
    that scores above `SACP_FILLER_THRESHOLD`, **When** the
-   orchestrator processes the response, **Then** a one-shot
-   retry MUST fire with a tightened Tier 4 delta AND only the
-   retry's output enters the transcript.
+   orchestrator processes the response, **Then** a tightened
+   Tier 4 delta retry MUST fire (up to two attempts) AND only
+   the persisted draft (the first retry below threshold, or
+   the second retry's output if both exceed) enters the
+   transcript.
 2. **Given** a draft that scores below the threshold, **When**
    the orchestrator processes the response, **Then** the
    original draft MUST enter the transcript with no retry.
 3. **Given** `SACP_RESPONSE_SHAPING_ENABLED=false`, **When**
    any draft is processed, **Then** no scoring runs, no retry
    fires, and the draft enters the transcript verbatim.
-4. **Given** a retry also exceeds the threshold, **When** the
-   second evaluation completes, **Then** the second draft MUST
-   be persisted (not infinite-loop) AND `routing_log` MUST
-   record `reason='filler_retry_exhausted'`.
+4. **Given** both retries also exceed the threshold, **When**
+   the second retry's evaluation completes, **Then** the
+   second retry's draft MUST be persisted (not infinite-loop)
+   AND `routing_log` MUST record `reason='filler_retry_exhausted'`.
 5. **Given** any retry fires, **When** the routing log is
-   inspected, **Then** an entry MUST record both the original
-   score, the tightened-delta text used, the retry score, and
-   the retry's per-stage timing (cross-ref spec 003 §FR-030).
+   inspected, **Then** an entry per retry MUST record the
+   pre-retry score, the tightened-delta text used, the
+   post-retry score, and the retry's per-stage timing
+   (cross-ref spec 003 §FR-030).
 
 ---
 
@@ -311,10 +273,11 @@ resume the session — override survives. Remove the participant
   `SACP_REGISTER_DEFAULT` if never set).
 - **Tightened-delta retry produces output IDENTICAL to the
   original.** This indicates the model isn't responding to the
-  delta. Both drafts score identically; the second is persisted
-  per FR-008's exhausted-retry rule. A `routing_log` row records
-  the equality so operators can spot model insensitivity to
-  the delta.
+  delta. Both drafts score identically; the pipeline still
+  consumes its retry budget (up to two) and persists the final
+  draft per FR-004's exhausted-retry rule. A `routing_log` row
+  records the equality so operators can spot model insensitivity
+  to the delta.
 - **Sentence-transformers embedding pipeline (spec 004) is
   unavailable.** The restatement signal returns `0.0` (no
   detected overlap) and a warning is logged. The hedge and
@@ -345,19 +308,24 @@ resume the session — override survives. Remove the participant
   overrides land in a follow-up amendment.
 - **FR-004**: When the aggregate filler score exceeds
   `SACP_FILLER_THRESHOLD` for the participant's provider family,
-  the orchestrator MUST fire **one** retry with a tightened
-  Tier 4 delta. The retry budget is exactly one — a second
-  evaluation that also exceeds the threshold persists the
-  second draft and emits
-  `routing_log.reason='filler_retry_exhausted'`.
+  the orchestrator MUST fire a tightened-Tier-4-delta retry. The
+  retry budget is **up to two retries** (hardcoded cap). After
+  the cap, evaluation stops, the most recent draft is persisted,
+  and `routing_log.reason='filler_retry_exhausted'` is emitted.
+  The cap is hardcoded — not env-tunable — to keep the worst-case
+  per-turn dispatch latency bounded.
 - **FR-005**: When the master switch `SACP_RESPONSE_SHAPING_ENABLED`
   is false, the filler scorer MUST NOT run. The original draft
   is persisted verbatim.
-- **FR-006**: The tightened-delta retry MUST consume the
-  participant's provider compound-retry budget (spec 003
-  §FR-031), NOT introduce a separate budget. A retry that
-  exhausts the compound budget falls through to the existing
-  failure path (turn skipped, `routing_log.reason='compound_retry_exhausted'`).
+- **FR-006**: Each tightened-delta retry MUST consume one
+  attempt of the participant's provider compound-retry budget
+  (spec 003 §FR-031); the shaping pipeline does NOT introduce a
+  separate budget. A retry that exhausts the compound budget
+  falls through to the existing failure path (turn skipped,
+  `routing_log.reason='compound_retry_exhausted'`). The shaping
+  cap (FR-004, up to two retries) and the compound-retry budget
+  apply jointly: shaping stops at whichever cap is reached
+  first.
 - **FR-007**: A **session-level register slider** MUST accept
   values 1-5 and emit a Tier 4 delta from the saved-preset
   registry into the prompt assembler (spec 008 §FR-008 Tier 4
@@ -457,11 +425,12 @@ resume the session — override survives. Remove the participant
   pre-feature acceptance test MUST pass byte-identically. The
   master switch fully disables the shaping pipeline; nothing
   else changes.
-- **SC-003**: A retry that also exceeds threshold MUST result
-  in exactly one persisted message (the retry's output), one
-  `routing_log` row with `reason='filler_retry_exhausted'`, and
-  no infinite loop. Verified by a fixture-driven test that
-  forces the retry to score equally high.
+- **SC-003**: When all retries (up to two) exceed threshold the
+  pipeline MUST result in exactly one persisted message (the
+  second retry's output), one `routing_log` row with
+  `reason='filler_retry_exhausted'`, and no infinite loop.
+  Verified by a fixture-driven test that forces both retries
+  to score equally high.
 - **SC-004**: Setting the session register slider MUST be
   reflected in `/me` responses for all participants without
   overrides AND in the assembled prompt's Tier 4 delta text on
@@ -536,13 +505,16 @@ This spec contributes three budgets:
 - **Slider lookup**: O(1) dict access from the hardcoded
   `RegisterPreset` registry. P95 < 1ms; lookup happens once per
   prompt assembly.
-- **Shaping retry dispatch (when fired)**: The retry consumes
+- **Shaping retry dispatch (when fired)**: Each retry consumes
   one full dispatch cycle (003 §FR-030 stage timings) plus the
-  scorer's evaluation cost on the retry's output. The retry
-  P95 latency MUST track the existing per-turn dispatch P95;
-  shaping does not add new dispatch overhead. Budget
+  scorer's evaluation cost on that retry's output. With the
+  hardcoded cap of up to two retries, worst-case shaping
+  overhead per turn is two extra dispatch cycles plus three
+  scorer passes (original + 2 retries). Per-retry P95 latency
+  MUST track the existing per-turn dispatch P95; shaping does
+  not add new dispatch overhead beyond the cap. Budget
   enforcement: `routing_log.shaping_retry_dispatch_ms`
-  captured when the retry fires.
+  captured per retry firing.
 
 ## Configuration (V16) — New Env Vars
 
@@ -658,6 +630,11 @@ range, and fail-closed semantics documented in
 - The retry's tightened delta is fixed text per FR-013 (Direct
   preset's text). A learned per-model delta is a future spec
   enhancement; v1 ships one delta string for all retries.
+- The 2-retry cap (FR-004) is hardcoded rather than env-tunable.
+  Operators who need a different cap file a Constitution §14.2
+  amendment; an env-var surface for the cap is out of scope
+  until session experience justifies the operator-tunable
+  surface.
 - Phase 3 declared 2026-05-05 satisfies the phase gate; this
   spec stays scaffold-only until tasks are scheduled. No
   implementation begins on this spec until the user invokes
