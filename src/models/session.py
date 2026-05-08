@@ -27,6 +27,12 @@ class Session:
     min_model_tier: str
     acceptance_mode: str
     review_gate_pause_scope: str
+    length_cap_kind: str = "none"
+    length_cap_seconds: int | None = None
+    length_cap_turns: int | None = None
+    conclude_phase_started_at: datetime | None = None
+    active_seconds_accumulator: int | None = None
+    active_phase_started_at: datetime | None = None
 
     @classmethod
     def from_record(cls, record: Any) -> Session:
@@ -48,7 +54,21 @@ class Session:
             min_model_tier=record["min_model_tier"],
             acceptance_mode=record["acceptance_mode"],
             review_gate_pause_scope=record["review_gate_pause_scope"],
+            length_cap_kind=_field(record, "length_cap_kind", "none"),
+            length_cap_seconds=_field(record, "length_cap_seconds", None),
+            length_cap_turns=_field(record, "length_cap_turns", None),
+            conclude_phase_started_at=_field(record, "conclude_phase_started_at", None),
+            active_seconds_accumulator=_field(record, "active_seconds_accumulator", None),
+            active_phase_started_at=_field(record, "active_phase_started_at", None),
         )
+
+
+def _field(record: Any, key: str, default: Any) -> Any:
+    """Read an optional column; tolerate older records lacking the field."""
+    try:
+        return record[key]
+    except (KeyError, IndexError):
+        return default
 
 
 @dataclass(frozen=True, slots=True)

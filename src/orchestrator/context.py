@@ -61,11 +61,17 @@ class ContextAssembler:
         session_id: str,
         participant: Participant,
         interjections: list | None = None,
+        phase: str = "running",
     ) -> list[ContextMessage]:
-        """Build context in 5-priority order within token budget."""
+        """Build context in 5-priority order within token budget.
+
+        Spec 025 FR-008: when ``phase='conclude'`` the system prompt picks
+        up the Tier 4 conclude delta. Default ``phase='running'`` preserves
+        pre-feature behavior.
+        """
         budget = _available_budget(participant)
         context: list[ContextMessage] = []
-        used = _add_system_prompt(context, participant)
+        used = _add_system_prompt(context, participant, phase=phase)
         roster = await self._fetch_roster(session_id)
         used = _add_participant_roster(context, roster, participant.id, used)
         used = await self._add_priorities(
@@ -202,12 +208,23 @@ def _estimate_tokens(text: str) -> int:
 def _add_system_prompt(
     context: list[ContextMessage],
     participant: Participant,
+    *,
+    phase: str = "running",
 ) -> int:
-    """Add tiered system prompt as first context message."""
+    """Add tiered system prompt as first context message.
+
+    Spec 025 FR-008/FR-009: when ``phase='conclude'`` the prompt assembler
+    receives the conclude delta as a Tier 4 additive fragment, appended
+    after participant ``custom_prompt``.
+    """
+    from src.prompts.conclude_delta import conclude_delta
+
+    delta = conclude_delta(active=(phase == "conclude"))
     prompt = assemble_prompt(
         prompt_tier=participant.prompt_tier,
         custom_prompt=participant.system_prompt,
         participant_id=participant.id,
+        conclude_delta=delta,
     )
     ctx = ContextMessage("system", prompt, None)
     context.append(ctx)

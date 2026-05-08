@@ -111,6 +111,10 @@ class ConversationLoop:
         self._prior_routing: dict[str, str] = {}
         self._last_downgrade_at: dict[str, datetime] = {}
         self._sustained_low_traffic_started_at: dict[str, datetime] = {}
+        # Spec 025: turn at which conclude phase started (FR-007). Restored
+        # on first cap-check after restart from the routing_log row written
+        # by `conclude_phase_entered`.
+        self._conclude_started_turn: dict[str, int] = {}
 
     @property
     def batch_scheduler(self) -> BatchScheduler | None:
@@ -168,32 +172,43 @@ class ConversationLoop:
     async def execute_turn(self, session_id: str) -> TurnResult:
         """Execute a single turn iteration."""
         start_turn()
-        if not await _session_is_active(self._pool, session_id):
-            msg = f"Session {session_id} is not active"
-            raise SessionNotActiveError(msg)
+        await self._gate_active_or_capped(session_id)
         await self._maybe_evaluate_observer_downgrade(session_id)
         speaker = await self._router.next_speaker(session_id)
         if speaker is None:
             raise AllParticipantsExhaustedError("No active participants")
 
-        skip = await _check_skip_conditions(
-            self._budget,
-            self._breaker,
-            speaker,
-            session_id,
-        )
+        skip = await _check_skip_conditions(self._budget, self._breaker, speaker, session_id)
         if skip:
             await self._log_skip_once(session_id, skip)
             return skip
 
-        return await self._execute_routed_turn(session_id, speaker)
+        phase = await _read_loop_phase(self._pool, session_id)
+        return await self._execute_routed_turn(session_id, speaker, phase=phase)
+
+    async def _gate_active_or_capped(self, session_id: str) -> None:
+        """Raise SessionNotActiveError if the session is paused OR auto-pauses now (FR-012)."""
+        if not await _session_is_active(self._pool, session_id):
+            msg = f"Session {session_id} is not active"
+            raise SessionNotActiveError(msg)
+        # Spec 025 SC-001: short-circuits internally for `length_cap_kind='none'`.
+        if await self._evaluate_length_cap(session_id):
+            msg = f"Session {session_id} auto-paused at length cap"
+            raise SessionNotActiveError(msg)
 
     async def _execute_routed_turn(
         self,
         session_id: str,
         speaker: object,
+        *,
+        phase: str = "running",
     ) -> TurnResult:
-        """Route, assemble, dispatch, and persist a turn."""
+        """Route, assemble, dispatch, and persist a turn.
+
+        Spec 025: ``phase`` flows from `execute_turn` (which reads it from
+        the session row) so the assembler injects the conclude delta and
+        the cadence floors the delay during conclude phase.
+        """
         interjections = await self._int_repo.get_pending(session_id)
         log.debug("Fetched %d interjections for %s", len(interjections), session_id)
         if interjections:
@@ -205,7 +220,7 @@ class ConversationLoop:
         ctx = self._build_turn_context(session_id)
         # Interjections are persisted as messages above, so pass [] here
         # to avoid duplicating them as priority context.
-        result = await self._dispatch_with_delay(ctx, speaker, decision, [])
+        result = await self._dispatch_with_delay(ctx, speaker, decision, [], phase=phase)
         await _mark_delivered(self._int_repo, interjections)
         return result
 
@@ -251,8 +266,15 @@ class ConversationLoop:
         speaker: object,
         decision: object,
         interjections: list,
+        *,
+        phase: str = "running",
     ) -> TurnResult:
-        """Dispatch turn then compute cadence delay."""
+        """Dispatch turn then compute cadence delay.
+
+        Spec 025: ``phase`` flows into the assembler (FR-008 conclude delta)
+        and the cadence (FR-010 floor delay during conclude). Default
+        ``'running'`` preserves pre-feature behavior.
+        """
         result, content = await _dispatch_and_persist(
             ctx,
             self._assembler,
@@ -261,6 +283,7 @@ class ConversationLoop:
             decision,
             interjections=interjections,
             batch_scheduler=self._batch_scheduler,
+            phase=phase,
         )
         if result.skipped:
             return result
@@ -268,9 +291,128 @@ class ConversationLoop:
             ctx.session_id,
             result.turn_number,
             content,
+            phase=phase,
         )
         await self._maybe_summarize(ctx.session_id, result.turn_number)
         return _with_delay(result, delay)
+
+    async def _evaluate_length_cap(self, session_id: str) -> bool:
+        """Spec 025 per-dispatch cap-check + conclude finalization (FR-005..FR-012).
+
+        Returns True when the session has just been auto-paused (caller
+        should treat this as session-not-active). Returns False otherwise,
+        including the no-op case for sessions with `length_cap_kind='none'`.
+        """
+        from src.orchestrator import length_cap as lc
+
+        _cap_start = time.monotonic()
+        session = await self._session_repo().get_session(session_id)
+        if session is None or session.length_cap_kind == "none":
+            record_stage("cap_check", int((time.monotonic() - _cap_start) * 1000))
+            return False
+        cap = lc.cap_from_session(session)
+        evaluation = lc.evaluate_per_dispatch_cap(
+            cap,
+            elapsed_turns=session.current_turn,
+            elapsed_seconds=lc.effective_active_seconds(session),
+            already_in_conclude=lc.is_in_conclude_phase(session),
+        )
+        record_stage("cap_check", int((time.monotonic() - _cap_start) * 1000))
+        return await self._apply_cap_evaluation(session_id, session, evaluation)
+
+    async def _apply_cap_evaluation(
+        self, session_id: str, session: object, evaluation: object
+    ) -> bool:
+        """Apply the result of `evaluate_per_dispatch_cap` — transition or finalize."""
+        if evaluation.enter_conclude:
+            conclude_start = time.monotonic()
+            await self._enter_conclude_phase(
+                session_id, session.current_turn, evaluation.trigger_dimension or "turns"
+            )
+            record_stage("conclude_transition", int((time.monotonic() - conclude_start) * 1000))
+            return False
+        from src.orchestrator import length_cap as lc
+
+        if lc.is_in_conclude_phase(session):
+            return await self._maybe_finalize_conclude_phase(session_id, session)
+        return False
+
+    async def _enter_conclude_phase(
+        self,
+        session_id: str,
+        current_turn: int,
+        trigger_dimension: str,
+    ) -> None:
+        """Mark the session in conclude phase, emit routing-log row, broadcast WS event."""
+        await self._session_repo().mark_conclude_phase_started(session_id)
+        self._conclude_started_turn[session_id] = current_turn
+        await self._log_repo.log_routing(
+            session_id=session_id,
+            turn_number=current_turn,
+            intended=session_id,
+            actual=session_id,
+            action="phase_transition",
+            complexity="n/a",
+            domain_match=False,
+            reason="conclude_phase_entered",
+        )
+        await _broadcast_session_concluding(
+            session_id, current_turn=current_turn, trigger_dimension=trigger_dimension
+        )
+
+    async def _maybe_finalize_conclude_phase(
+        self,
+        session_id: str,
+        session: object,
+    ) -> bool:
+        """Run the final summarizer + auto-pause if every active AI has wrapped.
+
+        Returns True when finalization fired (caller treats session as
+        not-active for this iteration); False when more conclude turns
+        remain.
+        """
+        from src.orchestrator import length_cap as lc
+
+        started = self._conclude_started_turn.get(session_id, session.current_turn)
+        active_ai_count = await _count_active_ai(self._pool, session_id)
+        if not lc.should_finalize_conclude_phase(
+            current_turn=session.current_turn,
+            conclude_started_turn=started,
+            active_ai_count=active_ai_count,
+        ):
+            return False
+        await self._run_finalization(session_id, session.current_turn)
+        return True
+
+    async def _run_finalization(self, session_id: str, current_turn: int) -> None:
+        """Spec 025 FR-011/FR-012: summarizer + paused transition + auto_pause_on_cap row."""
+        outcome = "success"
+        try:
+            await self._summarizer.run_final_summarizer(session_id)
+        except Exception:
+            log.exception("Final summarizer failed for session %s", session_id)
+            outcome = "failed_closed"
+        await self._session_repo().update_status(session_id, "paused")
+        await self._log_repo.log_routing(
+            session_id=session_id,
+            turn_number=current_turn,
+            intended=session_id,
+            actual=session_id,
+            action="phase_transition",
+            complexity="n/a",
+            domain_match=False,
+            reason="auto_pause_on_cap",
+        )
+        await _broadcast_session_concluded(
+            session_id, pause_reason="auto_pause_on_cap", summarizer_outcome=outcome
+        )
+        self._conclude_started_turn.pop(session_id, None)
+
+    def _session_repo(self) -> SessionRepository:
+        """Lazy SessionRepository handle so ConversationLoop owns one shared instance."""
+        if not hasattr(self, "_session_repo_instance"):
+            self._session_repo_instance = SessionRepository(self._pool)
+        return self._session_repo_instance
 
     async def _maybe_summarize(self, session_id: str, turn_number: int) -> None:
         """Run a summarization checkpoint if the threshold has been reached."""
@@ -307,12 +449,17 @@ class ConversationLoop:
         session_id: str,
         turn_number: int,
         content: str,
+        *,
+        phase: str = "running",
     ) -> float:
         """Compute post-turn delay via convergence + cadence.
 
         Also enqueues a divergence prompt as a facilitator-attributed
         interrupt when convergence crosses threshold, so the next AI
         is nudged away from the mirror-response pattern.
+
+        Spec 025 FR-010: ``phase='conclude'`` floors the cadence so wrap-up
+        turns dispatch responsively.
         """
         if not content or turn_number <= 0:
             return 0.0
@@ -329,6 +476,7 @@ class ConversationLoop:
             session_id,
             similarity=similarity,
             preset=preset,
+            phase=phase,
         )
 
     async def _enqueue_divergence(self, session_id: str) -> None:
@@ -550,6 +698,7 @@ async def _dispatch_and_persist(
     *,
     interjections: list | None = None,
     batch_scheduler: BatchScheduler | None = None,
+    phase: str = "running",
 ) -> tuple[TurnResult, str]:
     """Assemble context, dispatch to provider, persist result."""
     response, skip_reason = await _assemble_and_dispatch(
@@ -558,6 +707,7 @@ async def _dispatch_and_persist(
         breaker,
         speaker,
         interjections,
+        phase=phase,
     )
     if response is None:
         return _skip_result(ctx.session_id, speaker.id, skip_reason or "provider_error"), ""
@@ -578,6 +728,8 @@ async def _assemble_and_dispatch(
     breaker: CircuitBreaker,
     speaker: object,
     interjections: list | None = None,
+    *,
+    phase: str = "running",
 ) -> tuple[ProviderResponse | None, str | None]:
     """Build context, call provider, handle errors.
 
@@ -585,12 +737,17 @@ async def _assemble_and_dispatch(
     when context ends with the current speaker's own turn — asking
     Anthropic to "continue" its own message returns empty and would
     otherwise trip the circuit breaker on a healthy participant.
+
+    Spec 025 FR-008: ``phase`` plumbs through to the assembler so the
+    conclude delta lands at Tier 4 only when the loop is in conclude
+    phase; default ``'running'`` preserves pre-feature output.
     """
     assemble_start = time.monotonic()
     context = await assembler.assemble(
         session_id=ctx.session_id,
         participant=speaker,
         interjections=interjections,
+        phase=phase,
     )
     record_stage("assemble", int((time.monotonic() - assemble_start) * 1000))
     if not _has_new_input(context):
@@ -1103,6 +1260,72 @@ async def _emit_draft_staged(session_id: str, draft: object) -> None:
         "created_at": draft.created_at.isoformat() if draft.created_at else None,
     }
     await broadcast_to_session(session_id, review_gate_staged_event(payload))
+
+
+async def _broadcast_session_concluding(
+    session_id: str,
+    *,
+    current_turn: int,
+    trigger_dimension: str,
+) -> None:
+    """Spec 025 FR-017: broadcast `session_concluding` to all session participants."""
+    from src.orchestrator.length_cap import DEFAULT_TRIGGER_FRACTION
+    from src.web_ui.events import session_concluding_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    event = session_concluding_event(
+        trigger_reason=trigger_dimension,
+        trigger_value_turns=current_turn,
+        trigger_value_seconds=0,
+        remaining_turns=None,
+        remaining_seconds=None,
+        trigger_fraction=DEFAULT_TRIGGER_FRACTION,
+    )
+    await broadcast_to_session(session_id, event)
+
+
+async def _broadcast_session_concluded(
+    session_id: str,
+    *,
+    pause_reason: str,
+    summarizer_outcome: str,
+) -> None:
+    """Spec 025 FR-018: broadcast `session_concluded` to all session participants."""
+    from src.web_ui.events import session_concluded_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    event = session_concluded_event(
+        pause_reason=pause_reason, summarizer_outcome=summarizer_outcome
+    )
+    await broadcast_to_session(session_id, event)
+
+
+async def _read_loop_phase(pool: asyncpg.Pool, session_id: str) -> str:
+    """Spec 025: read 'running' or 'conclude' from `sessions.conclude_phase_started_at`.
+
+    Pure read helper so callers don't need to thread the SessionRepository
+    just for the phase string.
+    """
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT conclude_phase_started_at FROM sessions WHERE id = $1",
+            session_id,
+        )
+    if row is None or row["conclude_phase_started_at"] is None:
+        return "running"
+    return "conclude"
+
+
+async def _count_active_ai(pool: asyncpg.Pool, session_id: str) -> int:
+    """Count active AI participants for a session (FR-011 finalization gate)."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT COUNT(*) AS n FROM participants "
+            "WHERE session_id = $1 AND role = 'participant' "
+            "AND status = 'active' AND provider != 'human'",
+            session_id,
+        )
+    return int(row["n"]) if row else 0
 
 
 async def _log_routing(
