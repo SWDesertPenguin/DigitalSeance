@@ -179,6 +179,38 @@ class SessionRepository(BaseRepository):
             raise ValueError(msg)
         return await self.get_session(session_id)  # type: ignore[return-value]
 
+    async def start_active_phase(self, session_id: str) -> None:
+        """Spec 025 T052: mark the start of a new active (running/conclude) phase.
+
+        Sets `active_phase_started_at = NOW()`. Called on `start_loop`
+        and `resume_session` so the time-cap accumulator advances only
+        while the loop is dispatching turns.
+        """
+        await self._execute(
+            "UPDATE sessions SET active_phase_started_at = NOW() WHERE id = $1",
+            session_id,
+        )
+
+    async def freeze_active_phase(self, session_id: str) -> None:
+        """Spec 025 T052: freeze the accumulator on pause or stop.
+
+        Increments `active_seconds_accumulator` by the seconds elapsed
+        since `active_phase_started_at`, then clears the start marker.
+        Idempotent: if `active_phase_started_at` is already null this
+        is a no-op.
+        """
+        await self._execute(
+            """
+            UPDATE sessions
+            SET
+              active_seconds_accumulator = COALESCE(active_seconds_accumulator, 0)
+                + EXTRACT(EPOCH FROM (NOW() - active_phase_started_at))::BIGINT,
+              active_phase_started_at = NULL
+            WHERE id = $1 AND active_phase_started_at IS NOT NULL
+            """,
+            session_id,
+        )
+
     async def mark_conclude_phase_started(self, session_id: str) -> None:
         """Set `sessions.conclude_phase_started_at = now()` for spec 025 FR-007.
 

@@ -152,7 +152,8 @@ _SESSIONS_TABLE_DDL = """
             CHECK (length_cap_turns IS NULL OR length_cap_turns BETWEEN 1 AND 10000),
         conclude_phase_started_at TIMESTAMPTZ,
         active_seconds_accumulator BIGINT
-            CHECK (active_seconds_accumulator IS NULL OR active_seconds_accumulator >= 0)
+            CHECK (active_seconds_accumulator IS NULL OR active_seconds_accumulator >= 0),
+        active_phase_started_at TIMESTAMPTZ
     )
 """
 

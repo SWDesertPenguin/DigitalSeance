@@ -429,6 +429,7 @@ async def pause_session(
     current = await session_repo.get_session(participant.session_id)
     prior = current.status if current else "unknown"
     session = await session_repo.update_status(participant.session_id, "paused")
+    await session_repo.freeze_active_phase(participant.session_id)
     await _broadcast_status(participant.session_id, session.status)
     await _audit_status_change(request, participant, "pause_session", prior, session.status)
     return {"status": session.status}
@@ -448,6 +449,7 @@ async def resume_session(
         return {"status": "active"}
     prior = current.status if current else "unknown"
     session = await session_repo.update_status(participant.session_id, "active")
+    await session_repo.start_active_phase(participant.session_id)
     await _broadcast_status(participant.session_id, session.status)
     await _audit_status_change(request, participant, "resume_session", prior, session.status)
     return {"status": session.status}
@@ -573,6 +575,7 @@ async def start_loop(
     _loop_tasks[sid] = asyncio.create_task(
         _run_loop(loop, sid, session_repo, cm),
     )
+    await session_repo.start_active_phase(sid)
     await _broadcast_loop_status(sid, running=True)
     await _audit_status_change(request, participant, "start_loop", "idle", "running")
     return {"status": "started"}
@@ -602,6 +605,7 @@ async def stop_loop(
         raise HTTPException(403, "Only the facilitator can stop the loop")
     sid = participant.session_id
     await _maybe_run_conclude_summarizer(request, participant, sid)
+    await request.app.state.session_repo.freeze_active_phase(sid)
     was_running = sid in _loop_tasks and not _loop_tasks[sid].done()
     task = _loop_tasks.pop(sid, None)
     if task and not task.done():

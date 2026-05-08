@@ -146,27 +146,46 @@ def cap_from_session(session: object) -> SessionLengthCap:
 
 
 def effective_active_seconds(session: object) -> int:
-    """Spec 025 FR-002 elapsed-time read for cap evaluation.
+    """Spec 025 FR-002 elapsed-time read for cap evaluation (T051/T052).
 
-    Returns the durable `active_seconds_accumulator` when set, else
-    falls back to `(now() - created_at)`. The fallback ignores pause
-    time; the fully pause-aware accumulator lands in a follow-up
-    commit under T051/T052. For the canonical "set time cap, watch
-    it fire at trigger fraction" path the fallback is correct.
+    Fully pause-aware when lifecycle endpoints maintain the two columns:
+
+    - `active_seconds_accumulator`: frozen at pause/stop, incremented
+      from the delta since `active_phase_started_at`.
+    - `active_phase_started_at`: set at start_loop / resume_session,
+      cleared at pause_session / stop_loop.
+
+    With both columns populated the formula is:
+      accumulator + (now - active_phase_started_at)
+
+    When `active_phase_started_at` is null (session is paused or the
+    columns are not yet populated) just return the frozen accumulator.
+
+    Falls back to `(now() - created_at)` only when both columns are
+    null (pre-migration rows or the first dispatch before any start).
     """
     from datetime import UTC, datetime
 
-    accumulator = getattr(session, "active_seconds_accumulator", None)
+    raw_acc = getattr(session, "active_seconds_accumulator", None)
+    accumulator = int(raw_acc) if raw_acc is not None else None
+    started_at = getattr(session, "active_phase_started_at", None)
+    if started_at is not None:
+        base = accumulator if accumulator is not None else 0
+        now = (
+            datetime.now(UTC)
+            if started_at.tzinfo is not None
+            else datetime.now(UTC).replace(tzinfo=None)
+        )
+        return base + int((now - started_at).total_seconds())
     if accumulator is not None:
-        return int(accumulator)
+        return accumulator
+    # Legacy fallback: neither column set yet.
     created = getattr(session, "created_at", None)
     if created is None:
         return 0
-    if created.tzinfo is not None:
-        now = datetime.now(UTC)
-    else:
-        # Naive datetime in fixture/legacy code; compare in naive UTC.
-        now = datetime.now(UTC).replace(tzinfo=None)
+    now = (
+        datetime.now(UTC) if created.tzinfo is not None else datetime.now(UTC).replace(tzinfo=None)
+    )
     return int((now - created).total_seconds())
 
 
