@@ -11,14 +11,47 @@ permissions:
 jobs:
   cleanup:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      OWNER: ${{ github.repository_owner }}
+      PACKAGE: digitalseance
+      KEEP_COUNT: 1   # Aggressive for first run; raised to 5 in Phase D
+      SEMVER_REGEX: '^v[0-9]+\.[0-9]+\.[0-9]+'
     steps:
-      # Pin to immutable SHA per build-image.yml supply-chain hygiene.
-      # Before merging, replace @v5 with the current commit SHA from
-      # github.com/actions/delete-package-versions, matching the pattern
-      # used for actions/checkout, docker/login-action, etc.
-      - uses: actions/delete-package-versions@v5
-        with:
-          package-name: digitalseance
-          package-type: container
-          min-versions-to-keep: 1   # Aggressive for first run; bumped to 5 in Phase D
-          ignore-versions: '^v\d+\.\d+\.\d+.*$'
+      - name: List and prune package versions
+        run: |
+          set -euo pipefail
+
+          # Fetch all versions for the user-owned container package.
+          # GITHUB_TOKEN works because the repo is connected to the package.
+          versions=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/users/${OWNER}/packages/container/${PACKAGE}/versions?per_page=100")
+
+          # Iterate newest-first. Protect anything with a semver tag.
+          # Keep the most recent KEEP_COUNT non-semver versions. Delete the rest.
+          kept=0
+          echo "$versions" | jq -c 'sort_by(.created_at) | reverse | .[]' \
+          | while IFS= read -r v; do
+            id=$(echo "$v" | jq -r '.id')
+            tags=$(echo "$v" | jq -r '.metadata.container.tags // [] | join(",")')
+
+            if echo "$tags" | grep -Eq "${SEMVER_REGEX}"; then
+              echo "PROTECT id=${id} tags=[${tags}]"
+              continue
+            fi
+
+            kept=$((kept + 1))
+            if [ "${kept}" -le "${KEEP_COUNT}" ]; then
+              echo "KEEP    id=${id} tags=[${tags}]"
+              continue
+            fi
+
+            echo "DELETE  id=${id} tags=[${tags}]"
+            gh api \
+              --method DELETE \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "/users/${OWNER}/packages/container/${PACKAGE}/versions/${id}"
+          done
