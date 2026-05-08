@@ -64,7 +64,7 @@ The `message` field carries the persisted-row shape: `turn_number`, `speaker_id`
 }
 ```
 
-Spec 013 §FR-001-FR-003. Coalesced AI-to-human delivery — one envelope per `(session_id, recipient_id)` per cadence tick. Each entry in `messages[]` is a complete `message` event with its own envelope; the renderer's existing per-message handler runs once per entry. State-change events (convergence, session-state transitions, participant updates) MUST NOT route through this envelope — they bypass to direct broadcast per FR-004. Emitted only when `SACP_HIGH_TRAFFIC_BATCH_CADENCE_S` is set; absent otherwise (SC-005 regression contract).
+Coalesced AI-to-human delivery — one envelope per `(session_id, recipient_id)` per cadence tick. Each entry in `messages[]` is a complete `message` event with its own envelope; the renderer's existing per-message handler runs once per entry. State-change events (convergence, session-state transitions, participant updates) bypass this envelope and are broadcast directly. Emitted only when high-traffic batching is enabled; absent in standard operation.
 
 ### `turn_skipped`
 

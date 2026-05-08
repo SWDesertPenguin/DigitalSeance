@@ -69,6 +69,8 @@ def _sanitize_for_participant(participant_id: str, custom_prompt: str) -> str:
 
 
 _SANITIZE_CACHE = _sanitize_for_participant
+
+
 @functools.lru_cache(maxsize=4)
 def _tier_parts(prompt_tier: str) -> tuple[str, ...]:
     return tuple(_TIERS.get(prompt_tier, _TIERS["mid"]))
@@ -82,6 +84,7 @@ def assemble_prompt(
     prompt_tier: str,
     custom_prompt: str = "",
     participant_id: str | None = None,
+    conclude_delta: str = "",
 ) -> str:
     """Assemble the full system prompt from tiers + custom content.
 
@@ -94,6 +97,10 @@ def assemble_prompt(
     When ``participant_id`` is provided, the custom-prompt sanitize pass is
     memoized per (participant_id, custom_prompt) per 008 §FR-012. Callers
     that don't have a participant_id (tests, ad-hoc scripts) skip the cache.
+
+    ``conclude_delta`` (spec 025 FR-008/FR-009) is a Tier 4 additive
+    fragment appended after custom_prompt and after any future spec 021
+    register-slider delta. Empty string disables injection (default).
     """
     parts = list(_tier_parts(prompt_tier))
     if custom_prompt:
@@ -101,6 +108,8 @@ def assemble_prompt(
             parts.append(_sanitize_for_participant(participant_id, custom_prompt))
         else:
             parts.append(sanitize(custom_prompt))
+    if conclude_delta:
+        parts.append(conclude_delta)
     return _embed_canaries(parts, _generate_canaries())
 
 

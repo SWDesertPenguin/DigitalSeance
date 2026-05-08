@@ -126,4 +126,4 @@ Per [research.md §6](../research.md): three additive top-level fields, snake_ca
 
 ## V12 topology gate
 
-In topology 7 (MCP-to-MCP), the orchestrator-side prompt assembler does not exist. The register-preset emitter is skipped at session-start per the V12 topology gate (per [research.md §10](../research.md)). The registry tuple itself remains importable — only the resolver call is gated.
+In topology 7 (MCP-to-MCP), the orchestrator-side prompt assembler does not exist, so the register-preset emitter has no surface to inject Tier 4 deltas into. The emitter is therefore a **structural no-op** in topology 7 — not a runtime-gated skip in v1. v1 of this spec does NOT ship a runtime topology check (no `SACP_TOPOLOGY` env var is introduced); the gate is documented as forward-work in [research.md §10](../research.md) and [quickstart.md](../quickstart.md), and would be implemented if/when topology 7 ships and a topology-selection mechanism exists. The registry tuple itself remains importable in all topologies — only the resolver call would be gated, and only in the future-implementation case.

@@ -86,6 +86,17 @@ class SummarizationManager:
             return
         await self._generate_and_store(session_id, session, candidates)
 
+    async def run_final_summarizer(self, session_id: str) -> None:
+        """Spec 025 FR-011 final summarizer trigger.
+
+        Reuses the existing checkpoint pipeline; the only difference from
+        a normal checkpoint is that this fires once at conclude-phase
+        exit (after the last conclude turn) rather than on the every-N-
+        turns interval. Spec 005 fail-closed (§FR-007) applies — failure
+        does not block the conclude->paused transition (FR-012).
+        """
+        await self.run_checkpoint(session_id)
+
     async def _generate_and_store(
         self,
         session_id: str,
