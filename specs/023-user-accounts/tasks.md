@@ -107,8 +107,8 @@ description: "Task list for spec 023 — User Accounts with Persistent Session H
 
 ### SessionStore extension (spec 011 H-02 reuse + FR-011 reverse index)
 
-- [ ] T032 Extend [src/web_ui/session_store.py](./../../src/web_ui/session_store.py) `SessionEntry` with optional `account_id: str | None = None` field per [research.md §10](./research.md) and [data-model.md "SessionEntry (extended)"](./data-model.md). Backward-compatible (existing token-paste flow leaves `account_id` as `None`).
-- [ ] T033 Add `_by_account: dict[str, set[str]]` reverse index to `SessionStore` in [src/web_ui/session_store.py](./../../src/web_ui/session_store.py) per FR-011: maintained on `create()` / `delete()`; `get_sids_for_account(account_id) -> set[str]`; `delete_other_sids_for_account(account_id, except_sid)` for the password-change invalidation semantics (clarify Q12 — the actor's current sid survives).
+- [X] T032 Extend [src/web_ui/session_store.py](./../../src/web_ui/session_store.py) `SessionEntry` with optional `account_id: str | None = None` field per [research.md §10](./research.md) and [data-model.md "SessionEntry (extended)"](./data-model.md). Backward-compatible (existing token-paste flow leaves `account_id` as `None`).
+- [X] T033 Add `_by_account: dict[str, set[str]]` reverse index to `SessionStore` in [src/web_ui/session_store.py](./../../src/web_ui/session_store.py) per FR-011: maintained on `create()` / `delete()`; `get_sids_for_account(account_id) -> set[str]`; `delete_other_sids_for_account(account_id, except_sid)` for the password-change invalidation semantics (clarify Q12 — the actor's current sid survives).
 
 ### Topology-7 mount gate (research §12)
 
