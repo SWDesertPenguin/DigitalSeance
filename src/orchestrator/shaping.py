@@ -17,17 +17,35 @@ Phase 2 deliverables (T014 + T016):
     response, respectively. Their fields surface as ``routing_log``
     columns; they are not persisted as standalone entities.
 
-The filler-scorer signal helpers, the aggregator, the per-family
-dispatch, the threshold resolver, and the retry orchestrator all land
-in Phase 3 (US1). This module currently exposes only the dataclasses
-and the registry — importable from any user-story phase task without
-pulling in unimplemented behavior.
+Phase 3 (US1) deliverables added below T014 / T016:
+
+  - Three pure signal helpers — ``_hedge_signal``, ``_restatement_signal``,
+    ``_closing_signal`` — per contracts/filler-scorer-adapter.md. Each
+    returns a float in ``[0.0, 1.0]`` over a candidate draft. These are
+    private (underscore-prefixed) because callers consume the aggregate
+    via ``compute_filler_score`` (T026) — the per-signal breakdown is
+    surfaced through the ``FillerScore`` dataclass for ``routing_log``
+    introspection only.
+
+The aggregator, per-family dispatch, threshold resolver, and retry
+orchestrator land later in Phase 3 (T026-T028). Until then this module
+exposes the dataclasses, the registry, and the three pure signal
+helpers — importable from any user-story phase task without pulling in
+unimplemented orchestration behavior.
 """
 
 from __future__ import annotations
 
+import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.orchestrator.convergence import ConvergenceDetector
+
+log = logging.getLogger(__name__)
 
 # Hardcoded shaping retry cap per FR-004. Module-level constant so the
 # value is greppable and the joint-cap logic in evaluate_and_maybe_retry
@@ -183,3 +201,174 @@ class ShapingDecision:
     retry_scores: tuple[FillerScore, ...]
     persisted_index: int
     exhausted: bool
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 (US1): three pure signal helpers
+# ---------------------------------------------------------------------------
+#
+# Each helper returns a float in ``[0.0, 1.0]`` over a candidate draft.
+# The helpers are pure — no DB writes, no I/O beyond the embedding read
+# in ``_restatement_signal`` (which goes to the convergence engine's
+# in-memory ring buffer, not the database). Module-level constants are
+# loaded once at import.
+
+# Hardcoded hedge-token list per research.md §3. Lowercased, multi-word
+# entries match as substrings against the lowercased draft. Operators
+# tune the list via amendment when family-specific patterns surface.
+_HEDGE_TOKENS: tuple[str, ...] = (
+    "i think",
+    "i believe",
+    "perhaps",
+    "maybe",
+    "it seems",
+    "it appears",
+    "in my opinion",
+    "from my perspective",
+    "arguably",
+    "presumably",
+    "i would say",
+    "i'd argue",
+    "to some extent",
+    "more or less",
+    "kind of",
+    "sort of",
+    "in a sense",
+    "if i may",
+)
+
+# Hardcoded closing-pattern regexes per research.md §3. Each pattern is
+# a precompiled re.Pattern so per-call cost is the match-only path, not
+# a recompile. Cap of 3 matches keeps a saturation event from masking
+# the other two signals (research.md §3 rationale).
+_CLOSING_PATTERN_SOURCES: tuple[str, ...] = (
+    r"\bhope (this|that) helps\b",
+    r"\blet me know if\b",
+    r"\bplease (feel free|don'?t hesitate)\b",
+    r"\b(best|kind) regards\b",
+    r"\bcheers!?\s*$",
+    r"\bin (summary|conclusion)[,:]?\s",
+    r"\bto (summarize|conclude|wrap up)[,:]?\s",
+)
+_CLOSING_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(src, re.IGNORECASE | re.MULTILINE) for src in _CLOSING_PATTERN_SOURCES
+)
+_CLOSING_CAP = 3
+
+
+def _hedge_signal(draft_text: str) -> float:
+    """Hedge-to-content ratio for one draft.
+
+    Per contracts/filler-scorer-adapter.md "Hedge-to-content ratio":
+
+    - Lowercases the draft and counts case-insensitive substring matches
+      of every entry in ``_HEDGE_TOKENS``.
+    - Denominator is the whitespace-split token count of the draft (no
+      tokenizer load — keeps this signal under V14's 50ms scorer budget).
+    - Empty draft (zero tokens) returns ``0.0`` per contract.
+    - Result is in ``[0.0, 1.0]`` by construction (the count is bounded
+      above by the token count in any realistic draft; we cap at ``1.0``
+      defensively to absorb pathological inputs without violating the
+      aggregator's invariants).
+    """
+    tokens = draft_text.split()
+    if not tokens:
+        return 0.0
+    lowered = draft_text.lower()
+    hedge_count = 0
+    for hedge in _HEDGE_TOKENS:
+        # Multi-word hedges count once per occurrence; single-word entries
+        # collapse to substring matches as well, which is the spec
+        # behavior (research.md §3: "case-insensitive match").
+        start = 0
+        while True:
+            idx = lowered.find(hedge, start)
+            if idx == -1:
+                break
+            hedge_count += 1
+            start = idx + len(hedge)
+    ratio = hedge_count / len(tokens)
+    return min(ratio, 1.0)
+
+
+def _closing_signal(draft_text: str) -> float:
+    """Boilerplate closing-pattern match count, capped at 3.
+
+    Per contracts/filler-scorer-adapter.md "Boilerplate closing detection":
+
+    - Counts regex matches across all entries in ``_CLOSING_PATTERNS``.
+    - Each pattern contributes the number of distinct, non-overlapping
+      matches it finds (``len(re.findall(...))``).
+    - Returns ``min(matches, _CLOSING_CAP) / _CLOSING_CAP``; in
+      ``[0.0, 1.0]`` by construction.
+    - The cap prevents a draft with multiple stacked sign-offs from
+      saturating the whole aggregate — leaves headroom for the other
+      two signals to contribute (research.md §3 rationale).
+    """
+    if not draft_text:
+        return 0.0
+    total = 0
+    for pattern in _CLOSING_PATTERNS:
+        total += len(pattern.findall(draft_text))
+        if total >= _CLOSING_CAP:
+            return 1.0
+    return total / _CLOSING_CAP
+
+
+def _max_cosine(candidate_bytes: bytes, recent: list[bytes]) -> float:
+    """Max cosine similarity between candidate and any recent embedding.
+
+    Helper extracted from ``_restatement_signal`` so the public helper
+    stays under the 25-line standards-lint ceiling. ``candidate_bytes``
+    and each ``recent`` entry are float32 byte buffers from the
+    sentence-transformers encoder; the cosine math runs in numpy.
+    Clamps to ``[0.0, 1.0]`` defensively — cosine of normalized vectors
+    is mathematically in that range but float rounding can drift.
+    """
+    import numpy as np
+
+    from src.orchestrator.convergence import _cosine_sim
+
+    candidate_vec = np.frombuffer(candidate_bytes, dtype=np.float32)
+    best = 0.0
+    for entry_bytes in recent:
+        other_vec = np.frombuffer(entry_bytes, dtype=np.float32)
+        sim = _cosine_sim(candidate_vec, other_vec)
+        if sim > best:
+            best = sim
+    return min(max(best, 0.0), 1.0)
+
+
+async def _restatement_signal(
+    draft_text: str,
+    engine: ConvergenceDetector,
+) -> float:
+    """Max cosine similarity vs the prior 1-3 turns' embeddings.
+
+    Per contracts/filler-scorer-adapter.md "Restatement (cosine similarity
+    vs prior 1-3 turns)". Reads ``engine.recent_embeddings(depth=3)``;
+    no DB hit (FR-012). Reuses spec 004's encoder so no second
+    sentence-transformers model loads. Empty buffer / unavailable model
+    / embed failure all degrade to ``0.0`` (with warning for the latter
+    two) per the fail-closed contract.
+    """
+    if not draft_text:
+        return 0.0
+    recent = engine.recent_embeddings(depth=3)
+    if not recent:
+        return 0.0
+    model = getattr(engine, "_model", None)
+    if model is None:
+        log.warning("Embedding model unavailable; restatement signal degrades to 0.0")
+        return 0.0
+    from src.orchestrator.convergence import _compute_embedding_async
+
+    try:
+        candidate_bytes = await _compute_embedding_async(model, draft_text)
+    except Exception:
+        log.warning(
+            "Embedding pipeline raised; restatement signal degrades to 0.0",
+            exc_info=True,
+        )
+        return 0.0
+    return _max_cosine(candidate_bytes, recent)
