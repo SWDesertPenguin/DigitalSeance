@@ -195,6 +195,14 @@ Response to client `ping`. Heartbeat watchdog closes 1011 if no ping received wi
 
 **Facilitator-only**. Carries full `previous_value` / `new_value` bodies; non-facilitator clients never see this event type.
 
+### `audit_log_appended`
+
+```json
+{"v": 1, "type": "audit_log_appended", "payload": {<decorated row>}}
+```
+
+**Facilitator-only**. Live push when a new `admin_audit_log` row is committed. The `payload` is the decorated row shape from the audit-log endpoint (same content `GET /tools/admin/audit_log` returns) — server-side scrubbing on `previous_value` / `new_value` for actions whose registry entry sets `scrub_value=true`. Distinct from `audit_entry`: this event consumes the spec 029 paired action-label registry and time formatter, and the SPA's `AuditLogPanel` keys off this event name.
+
 ### `ai_question_opened`
 
 ```json
