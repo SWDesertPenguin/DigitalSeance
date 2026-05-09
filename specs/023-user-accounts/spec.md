@@ -2,7 +2,7 @@
 
 **Feature Branch**: `023-user-accounts`
 **Created**: 2026-05-07
-**Status**: Draft (Phase 3+ scaffold; later than 013/014 — NOT a Phase 3 prerequisite, but a prerequisite for spec 024 facilitator scratch)
+**Status**: Clarified 2026-05-09 (Phase 3+ scaffold; later than 013/014 — NOT a Phase 3 prerequisite, but a prerequisite for spec 024 facilitator scratch)
 **Input**: User description: "Phase 3+ user accounts. Current participant identity is token-scoped (spec 002); closing the browser tab loses access. This adds a login-based identity layer ABOVE the existing token-based participant model — same tokens still gate per-session participant lifecycle, but accounts persist across browser sessions and remember which active and archived sessions a person joined. Email + password auth with argon2id; OAuth migration coordinated with the Phase 3 OAuth roadmap. Pre-authentication rate limiting per audit follow-through. Single-tenant-per-deployment per spec 011's Phase D privacy stance — accounts see only sessions they joined, no cross-tenant browsing. Applies to topologies 1-6 (orchestrator-mediated identity); incompatible with topology 7 per V12. Primary use cases: research co-authorship (§2), consulting (§3), decision-making under asymmetric expertise (§6)."
 
 ## Overview
@@ -77,6 +77,36 @@ identity to attach to. This spec **scaffolds only**: implementation
 begins when the facilitator schedules tasks per Constitution §14.1.
 
 ## Clarifications
+
+### Session 2026-05-09 (Resolved)
+
+All ten initial-draft markers resolved, plus three additional ambiguities surfaced during pre-clarify review. FR text is updated inline below; the original "Initial draft assumptions requiring confirmation" subsection is retained for historical reference.
+
+1. **OAuth migration landing**. The OAuth migration is a separate future spec, NOT spec 014 (`dynamic-mode-assignment`). User input naming "spec 014's auth migration" is interpreted as the Phase 3 OAuth roadmap per Constitution §10. v1 ships email + password; FR-021 keeps the hash-and-credential boundary pluggable for the future OAuth spec. An explanatory cross-ref note is retained in §Cross-References making the misattribution-correction durable.
+
+2. **Email verification mechanism**. Code-entry confirmed: 16-character base32, single-use, 24-hour TTL, as drafted in FR-004. Magic-link, SMS, and no-verification alternatives are all rejected. Magic-link is vulnerable to email-client preview crawlers consuming the single-use token before user click; SMS adds phone-number identity surface and regional-availability friction inconsistent with V13 use cases; no-verification is a credential-stuffing amplifier. Disabling verification entirely is deferred as a possible future env-var enhancement, NOT shipped in v1.
+
+3. **Email transport adapter**. Noop default confirmed for `SACP_EMAIL_TRANSPORT`. When `SACP_ACCOUNTS_ENABLED=true` AND `SACP_EMAIL_TRANSPORT=noop`, the orchestrator MUST emit a startup WARNING naming the consequence (verification codes will appear in `admin_audit_log` only; not suitable for production). The combination MUST NOT fail-closed — operators legitimately run dev/staging with noop transport. The audit-log fallback (edge case "Email transport unavailable") establishes the operator-recoverable pattern.
+
+4. **Password reset flow**. Code-based reset to the registered email confirmed: 16-character base32, single-use, 30-minute TTL (same shape as verification codes, shorter window). Recovery codes printed at signup are deferred to a future enhancement; NOT shipped in v1. Reset attempts MUST count toward the FR-015 per-IP rate limiter. New endpoint pair (request + confirm) and a corresponding FR are planned for `/speckit.plan`-phase work; FR-014 ScrubFilter coverage extends to reset codes.
+
+5. **Account deletion shape**. The drafted shape (zero email + password_hash, retain row with `status='deleted'`, release email after grace, automated debug-export pre-delete via email transport) is confirmed with one tweak: the grace period is env-tunable via a new env var `SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS`, default 7, valid range `[0, 365]`. The `0` value disables the grace period (immediate email release). FR-013 is updated; the env var is added to the V16 list (§Configuration); SC-009 reads the env var rather than hardcoding 7 days.
+
+6. **Session-list pagination**. Offset-based at 50 per page confirmed (FR-008 stands as drafted). When an account's session count crosses 10,000, a warning MUST be logged at query time and an `admin_audit_log` row recording the migration-threshold trip MUST be emitted. Cursor pagination is a backlog item triggered by that threshold, NOT a v1 deliverable.
+
+7. **Active vs. archived response shape**. Two-segment shape `{active_sessions, archived_sessions}` confirmed (FR-008 stands as drafted). Pagination is per segment, NOT across segments — FR-008 is clarified to make this explicit.
+
+8. **Account ownership transfer (P3)**. The in-or-defer ruling for P3 / FR-020 is pinned to `/speckit.plan` time, NOT pre-deferred at clarify. FR-020 carries an explicit decision-checkpoint note: plan phase decides whether FR-020 ships in v1 implementation or splits into a follow-up amendment. The user's brief ("deferred to Phase 4 federation if it complicates Phase 3") is conditional on plan-phase implementation-surface fit; pre-deferral discards information plan phase produces.
+
+9. **SessionStore extension**. Reuse-and-extend confirmed (NOT a parallel new store). FR-016 stands as drafted. Spec 011's `SessionStore` is extended to map `account_id` to the account's session bindings; the opaque sid remains the cookie payload. This keeps cookie validation single-lookup and invalidation single-point.
+
+10. **Pre-auth rate limiter composition**. Separate limiter, additive composition with spec 019 confirmed. FR-015 stands as drafted. Both limiters apply independently with no shared state; either trips first wins. The narrow per-account limiter targets credential-stuffing; spec 019's broad network-layer limiter targets general HTTP abuse. Independent tunability is intentional defense-in-depth.
+
+11. **Email change — notify-old + verify-new (NEW)**. On email change requests, the OLD email MUST receive a heads-up notification (no action required from the user) at the same time the NEW email receives the verification code. Security-sensitive operations notify both addresses to defend against email-takeover attacks. FR-010 is updated to make this explicit.
+
+12. **Password-change SessionStore invalidation semantics (NEW)**. On a successful password change, the orchestrator MUST invalidate all sids associated with the account_id EXCEPT the actor's current authenticated sid (the session driving the change survives; all others are forced to re-authenticate). FR-011 is updated to specify this precise semantic.
+
+13. **Login response payload shape (NEW)**. Login is a two-trip flow. The login response body is minimal (auth state confirmation + session cookie set in the response headers); the SPA follows up with a separate `GET /me/sessions` call to retrieve the session list. This keeps the login endpoint focused, lets `/me/sessions` keep its own pagination, and avoids inflating login responses with potentially large session arrays. FR-007 is updated to make this explicit.
 
 ### Initial draft assumptions requiring confirmation
 
@@ -488,31 +518,63 @@ does.
   accept email + password and return HTTP 200 with a session
   cookie on success, HTTP 401 with generic
   `invalid_credentials` on failure, HTTP 429 on rate-limit.
+  The successful response body is minimal (auth-state
+  confirmation only); the session list is NOT inlined into
+  the login response. The SPA MUST follow up with a separate
+  `GET /me/sessions` call to retrieve the session list
+  (two-trip flow). This keeps `/me/sessions` independently
+  paginable and avoids inflating login responses with
+  potentially large session arrays. (Resolved 2026-05-09.)
 - **FR-008**: A new endpoint `GET /me/sessions` MUST return the
   authenticated account's session list segmented as
   `active_sessions` and `archived_sessions`, ordered by
   last-activity-at descending within each segment, paginated
   at 50 entries per page with offset-based navigation.
+  Pagination MUST be per segment (an offset/limit pair applies
+  within `active_sessions` OR within `archived_sessions`,
+  NOT across the combined list). When an account's joined-
+  session count exceeds 10,000, a warning MUST be logged at
+  query time AND an `admin_audit_log` row MUST be emitted
+  recording the cursor-migration threshold trip; cursor
+  pagination itself remains a backlog item, NOT a v1
+  deliverable. (Resolved 2026-05-09.)
 - **FR-009**: `/me/sessions` MUST scope strictly to the
   authenticated account — no session belonging to another
   account MUST appear.
 - **FR-010**: A new endpoint `POST /tools/account/email/change`
-  MUST emit a verification code to the new email; the email
-  field MUST NOT update until the code is submitted via
-  `POST /tools/account/email/verify`.
+  MUST emit a verification code to the NEW email AND
+  simultaneously emit a heads-up notification to the OLD email
+  (no action required from the recipient of the old-email
+  notification; informational only). The email field MUST NOT
+  update until the verification code is submitted via
+  `POST /tools/account/email/verify`. Notifying both
+  addresses defends against email-takeover attacks where the
+  attacker controls only the new email. (Resolved
+  2026-05-09.)
 - **FR-011**: A new endpoint `POST /tools/account/password/change`
   MUST require the current password and store the new password
-  as an argon2id hash on success.
+  as an argon2id hash on success. On a successful change, the
+  orchestrator MUST invalidate every `SessionStore` sid
+  associated with the account_id EXCEPT the actor's current
+  authenticated sid (the session driving the change survives;
+  all other sessions for that account — additional browser
+  tabs, other devices — are forced to re-authenticate). The
+  current sid is preserved so the actor is not logged out of
+  their own request flow. (Resolved 2026-05-09.)
 - **FR-012**: A new endpoint `POST /tools/account/delete` MUST
   emit an automated debug-export (spec 010 format) to the
   registered email containing every session the account
   joined; zero the email + password fields; flip status to
   `deleted`. The account row MUST remain (no DELETE) to
   preserve participant-audit linkage.
-- **FR-013**: A 7-day grace period after account deletion MUST
+- **FR-013**: A grace period after account deletion MUST
   reserve the email; new account creation with the same email
   is rejected during the grace window. After the window, the
-  email is releasable for re-registration.
+  email is releasable for re-registration. The grace period
+  is governed by `SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS`
+  (default `7`, valid range `[0, 365]`); the value `0`
+  disables the grace period entirely (immediate email
+  release). (Resolved 2026-05-09.)
 - **FR-014**: All account-related endpoints MUST scrub
   password material, verification codes, and reset codes from
   log output (cross-ref spec 007 §FR-012 ScrubFilter).
@@ -546,21 +608,38 @@ does.
   Transfer repoints `account_participants` rows from source
   to target; tokens remain valid (transfer moves ownership
   pointer only, not the per-session credential).
+  **Decision checkpoint**: `/speckit.plan` decides whether
+  FR-020 ships in the v1 implementation or splits into a
+  follow-up amendment. The user's brief defers to Phase 4
+  federation if the v1 implementation surface (deployment-
+  owner-auth model, participant-row repointing path, admin-
+  surface authorization split) does not fit cleanly within
+  v1 scope. Pre-deferring at clarify is rejected; plan
+  phase produces the implementation surface needed to make
+  the in-or-defer call with full information. (Resolved
+  2026-05-09.)
 - **FR-021**: The OAuth migration surface (a future spec)
   MUST be kept open by hashing-and-credential plug-ability:
   the password-hash column is annotated with the hash format
   (argon2id today; OAuth providers later) so future
   alternatives slot in without schema change.
-- **FR-022**: The five new env vars (`SACP_ACCOUNTS_ENABLED`,
+- **FR-022**: The seven new env vars (`SACP_ACCOUNTS_ENABLED`,
   `SACP_PASSWORD_ARGON2_TIME_COST`,
   `SACP_PASSWORD_ARGON2_MEMORY_COST_KB`,
   `SACP_ACCOUNT_SESSION_TTL_HOURS`,
-  `SACP_ACCOUNT_RATE_LIMIT_PER_IP_PER_MIN`) MUST have
+  `SACP_ACCOUNT_RATE_LIMIT_PER_IP_PER_MIN`,
+  `SACP_EMAIL_TRANSPORT`,
+  `SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS`) MUST have
   validator functions in `src/config/validators.py` registered
   in the `VALIDATORS` tuple, AND corresponding sections in
   `docs/env-vars.md` with the six standard fields, BEFORE
   `/speckit.tasks` is run for this spec (V16 deliverable
-  gate).
+  gate). A startup WARNING (NOT a fail-closed exit) MUST be
+  emitted when `SACP_ACCOUNTS_ENABLED=true` AND
+  `SACP_EMAIL_TRANSPORT=noop` simultaneously, naming the
+  consequence (verification, reset, and notification codes
+  appear in `admin_audit_log` only; not suitable for
+  production). (Resolved 2026-05-09.)
 
 ### Key Entities
 
@@ -618,18 +697,24 @@ does.
   fields. Verified by an end-to-end test asserting the
   email transport received the export and the row's
   credential fields are nulls.
-- **SC-009**: Email re-registration during the 7-day grace
-  period MUST be rejected. Verified by deleting an
-  account, attempting re-registration on day 1, asserting
-  rejection; advancing test clock past day 7, asserting
-  acceptance.
+- **SC-009**: Email re-registration during the configured
+  grace window (governed by
+  `SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS`, default `7`)
+  MUST be rejected. Verified by deleting an account,
+  attempting re-registration on day 1, asserting rejection;
+  advancing test clock past the configured window,
+  asserting acceptance. The test reads the env-var value
+  rather than hardcoding 7 days.
 - **SC-010**: Ownership-transfer attempt by a non-deployment-
   owner MUST return HTTP 403. Verified by a test driving the
   endpoint with a regular-account session.
-- **SC-011**: With any of the five new env vars set to an
+- **SC-011**: With any of the seven new env vars set to an
   invalid value, the orchestrator process MUST exit at
   startup with a clear error message naming the offending
-  var (V16 fail-closed gate observed in CI).
+  var (V16 fail-closed gate observed in CI). The
+  `SACP_ACCOUNTS_ENABLED=true` AND
+  `SACP_EMAIL_TRANSPORT=noop` cross-condition emits a
+  startup WARNING but MUST NOT exit.
 - **SC-012**: ScrubFilter coverage MUST be verified for the
   account surface — a test drives login + create + change-
   password and asserts the password material, verification
@@ -696,8 +781,10 @@ This spec contributes four budgets:
 
 ## Configuration (V16) — New Env Vars
 
-Five new env vars are introduced. Each MUST have type, valid
-range, and fail-closed semantics documented in
+Seven new env vars are introduced (resolved 2026-05-09; was
+five at draft, two added by the clarify session: email
+transport adapter and deletion-grace tunable). Each MUST have
+type, valid range, and fail-closed semantics documented in
 `docs/env-vars.md` BEFORE `/speckit.tasks` is run for this
 spec (per V16 deliverable gate).
 
@@ -753,6 +840,34 @@ spec (per V16 deliverable gate).
   startup exit. The limiter applies to `/login` and
   `/create-account` endpoints; it composes additively with
   spec 019's general per-IP network-layer rate limiter.
+
+### `SACP_EMAIL_TRANSPORT`
+
+- **Intended type**: string enum
+- **Intended valid range**: one of `noop`, `smtp`, `ses`,
+  `sendgrid`. Default `noop` (development-friendly; codes
+  appear in `admin_audit_log` only). Operators configure a
+  real transport for production deployments.
+- **Fail-closed semantics**: any non-enumerated value MUST
+  cause startup exit. When `SACP_ACCOUNTS_ENABLED=true` AND
+  `SACP_EMAIL_TRANSPORT=noop`, the orchestrator MUST emit a
+  startup WARNING (NOT an exit) naming the consequence.
+  Operators legitimately run dev/staging with noop transport;
+  the warning catches the obvious production misconfiguration
+  without blocking valid dev flows. (Added 2026-05-09 per
+  clarify session.)
+
+### `SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS`
+
+- **Intended type**: non-negative integer
+- **Intended valid range**: `[0, 365]` days. Default `7`.
+  The value `0` disables the grace period entirely
+  (immediate email release on deletion); the value `365`
+  caps the maximum reservation window at one year.
+  Operators with stricter or looser retention policies
+  tune this knob.
+- **Fail-closed semantics**: outside the range MUST cause
+  startup exit. (Added 2026-05-09 per clarify session.)
 
 ## Cross-References to Existing Specs and Design Docs
 
@@ -835,18 +950,22 @@ spec (per V16 deliverable gate).
 - Single-tenant-per-deployment is the v1 boundary, matching
   spec 011 Phase D clarification. Multi-tenant + cross-
   account discovery is Phase 4+ federation scope.
-- Email transport is a noop adapter by default. Operators
-  configure SMTP/SES/SendGrid via the
-  `SACP_EMAIL_TRANSPORT` adapter (separate env-var
-  surface, settled in `/speckit.plan`).
+- Email transport is a noop adapter by default (resolved
+  2026-05-09; `SACP_EMAIL_TRANSPORT` is now in the V16
+  env-var list with valid range `noop|smtp|ses|sendgrid`).
+  Operators configure SMTP/SES/SendGrid via the adapter for
+  production. A startup WARNING fires when accounts are
+  enabled AND transport is noop simultaneously.
 - Account deletion preserves the `accounts` row to retain
   the FK target for participant-audit linkage. Only the
   email + password_hash fields are zeroed. Art. 17 erasure
   is fulfilled at the credential layer; the audit-log
   carve-out (Art. 17(3)(b)) keeps the participation record.
 - The 7-day email-grace period after deletion is a pragmatic
-  default. Operators with stricter policies can tune via a
-  future env var; v1 hardcodes 7 days.
+  default but is operator-tunable in v1 via the new env var
+  `SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS` (resolved
+  2026-05-09). The `0` value disables the grace period
+  entirely; the upper bound is `365` days.
 - Spec 023 is Phase 3+ scope, NOT a Phase 3 prerequisite.
   Active Phase 3 work (013-022) does not depend on 023. It
   IS a prerequisite for spec 024 facilitator scratch — that
