@@ -163,6 +163,8 @@ def _get_schema_sql() -> list[str]:
         _votes_ddl(),
         _session_register_ddl(),
         _participant_register_override_ddl(),
+        _accounts_ddl(),
+        _account_participants_ddl(),
         *_index_ddls(),
     ]
 
@@ -535,6 +537,50 @@ def _participant_register_override_ddl() -> str:
     """
 
 
+def _accounts_ddl() -> str:
+    # Spec 023 alembic 015: persistent identity layer above per-session
+    # tokens. UUID id, lower-cased email (partial unique index covers
+    # only pending_verification + active so a deleted-account row coexists
+    # with a fresh registration after the grace period — research §2),
+    # argon2id-encoded password_hash with empty-string sentinel on
+    # deletion, CHECK-constrained status, four timestamp columns plus
+    # email_grace_release_at populated at deletion time from
+    # SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS.
+    return """
+        CREATE TABLE accounts (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            email TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending_verification'
+                CHECK (status IN ('pending_verification', 'active', 'deleted')),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_login_at TIMESTAMPTZ,
+            deleted_at TIMESTAMPTZ,
+            email_grace_release_at TIMESTAMPTZ
+        )
+    """
+
+
+def _account_participants_ddl() -> str:
+    # Spec 023 alembic 015: zero-or-more join rows binding an account to
+    # per-session participant records. account_id FK is ON DELETE RESTRICT
+    # (FR-012's preserve-row-on-delete contract); participant_id FK is ON
+    # DELETE CASCADE + UNIQUE (FR-002's at-most-one-account-per-participant
+    # invariant). The btree index on account_id is the primary lookup for
+    # /me/sessions per research.md §9.
+    return """
+        CREATE TABLE account_participants (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            account_id UUID NOT NULL
+                REFERENCES accounts(id) ON DELETE RESTRICT,
+            participant_id TEXT NOT NULL UNIQUE
+                REFERENCES participants(id) ON DELETE CASCADE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """
+
+
 def _index_ddls() -> list[str]:
     return [
         "CREATE INDEX idx_messages_recent ON messages (session_id, branch_id, turn_number DESC)",
@@ -554,6 +600,12 @@ def _index_ddls() -> list[str]:
         "ON admin_audit_log (session_id, timestamp DESC)",
         "CREATE INDEX participant_register_override_session_idx"
         " ON participant_register_override (session_id)",
+        # spec 023 §FR-002 / research §9 — alembic 015 mirror; covers the
+        # /me/sessions JOIN's primary lookup (account_id WHERE).
+        "CREATE UNIQUE INDEX accounts_email_active_uidx"
+        " ON accounts (email)"
+        " WHERE status IN ('pending_verification', 'active')",
+        "CREATE INDEX account_participants_account_idx" " ON account_participants (account_id)",
     ]
 
 
@@ -575,6 +627,7 @@ async def _truncate_all(pool: asyncpg.Pool) -> None:
             " admin_audit_log, convergence_log,"
             " usage_log, routing_log,"
             " session_register, participant_register_override,"
+            " account_participants, accounts,"
             " messages, branches"
             " CASCADE"
         )
