@@ -80,9 +80,9 @@ description: "Task list for spec 023 — User Accounts with Persistent Session H
 
 ### Module skeletons
 
-- [ ] T023 [P] Create empty module skeletons under [src/accounts/](./../../src/accounts/): `__init__.py`, `service.py`, `hashing.py`, `codes.py`, `email_transport.py`, `rate_limit.py`. Each contains only a module docstring referencing spec 023.
-- [ ] T024 [P] Create empty module skeleton [src/repositories/account_repo.py](./../../src/repositories/account_repo.py) (module docstring referencing spec 023).
-- [ ] T025 [P] Create empty module skeleton [src/models/account.py](./../../src/models/account.py) (module docstring referencing spec 023).
+- [X] T023 [P] Create empty module skeletons under [src/accounts/](./../../src/accounts/): `__init__.py`, `service.py`, `hashing.py`, `codes.py`, `email_transport.py`, `rate_limit.py`. Each contains only a module docstring referencing spec 023.
+- [X] T024 [P] Create empty module skeleton [src/repositories/account_repo.py](./../../src/repositories/account_repo.py) (module docstring referencing spec 023).
+- [X] T025 [P] Create empty module skeleton [src/models/account.py](./../../src/models/account.py) (module docstring referencing spec 023).
 
 ### Argon2id wrapper + transparent re-hash
 
@@ -116,7 +116,7 @@ description: "Task list for spec 023 — User Accounts with Persistent Session H
 
 ### Master-switch-off canary (FR-018 — lands FIRST after migration)
 
-- [ ] T035 Master-switch-off canary in [tests/test_023_master_switch_off.py](./../../tests/test_023_master_switch_off.py) per FR-018 + [plan.md "Notes for /speckit.tasks"](./plan.md): with `SACP_ACCOUNTS_ENABLED=0` (default), assert every account endpoint returns HTTP 404 — `POST /tools/account/{create,verify,login,email/change,email/verify,password/change,delete}` and `GET /me/sessions` and `POST /me/sessions/{session_id}/rebind`. Assert the SPA's existing token-paste landing remains the default surface.
+- [X] T035 Master-switch-off canary in [tests/test_023_master_switch_off.py](./../../tests/test_023_master_switch_off.py) per FR-018 + [plan.md "Notes for /speckit.tasks"](./plan.md): with `SACP_ACCOUNTS_ENABLED=0` (default), assert every account endpoint returns HTTP 404 — `POST /tools/account/{create,verify,login,email/change,email/verify,password/change,delete}` and `GET /me/sessions` and `POST /me/sessions/{session_id}/rebind`. Assert the SPA's existing token-paste landing remains the default surface.
 
 ### Cross-validator WARN emit (research §13)
 
