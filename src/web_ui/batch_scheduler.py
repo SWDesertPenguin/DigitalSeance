@@ -117,6 +117,20 @@ class BatchScheduler:
         event = batch_envelope_event(envelope)
         await self._broadcast(envelope.session_id, event)
 
+    def current_max_depth(self, session_id: str | None = None) -> int:
+        """Return the deepest open envelope's message count, optionally session-filtered.
+
+        Spec 014's queue-depth signal source samples this each decision cycle; 0 is
+        returned when no envelope is open (which is also the safe-floor when batching
+        is configured but idle).
+        """
+        items = (
+            (key, env)
+            for key, env in self._envelopes.items()
+            if session_id is None or key[0] == session_id
+        )
+        return max((len(env.messages) for _, env in items), default=0)
+
     async def stop(self) -> None:
         """Cancel all per-session flush tasks; flushes any remaining open envelopes."""
         self._stopped = True

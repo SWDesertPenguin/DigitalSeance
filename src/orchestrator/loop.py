@@ -586,25 +586,14 @@ class ConversationLoop:
         ]
 
     def _sample_queue_depth(self) -> int | None:
-        """Read the per-session batch scheduler's queue depth, or None.
+        """Return the deepest open batch envelope's message count, or None when batching is off.
 
-        Spec 013's BatchScheduler doesn't (yet) expose a public depth
-        accessor. Until it does, this sampler returns 0 when batching is
-        configured but no queue introspection is available. Adapter's
-        ``is_available()`` already gates on ``batch_scheduler is not None``.
+        Adapter's ``is_available()`` already gates on ``batch_scheduler is not None``,
+        so the None branch is the topology / config gate, not a runtime fallback.
         """
         if self._batch_scheduler is None:
             return None
-        # Reach for an internal queue map if the BatchScheduler exposes one;
-        # otherwise return 0 as the safe-floor. Refined in spec 013's
-        # public-API amendment (out of scope for spec 014's hook).
-        queues = getattr(self._batch_scheduler, "_queues", None)
-        if queues is None:
-            return 0
-        try:
-            return max((len(q) for q in queues.values()), default=0)
-        except (AttributeError, TypeError):
-            return 0
+        return self._batch_scheduler.current_max_depth()
 
     def _sample_density_anomalies(self, session_id: str) -> int | None:
         """Sliding-count of density-anomaly rows in the prior minute.
