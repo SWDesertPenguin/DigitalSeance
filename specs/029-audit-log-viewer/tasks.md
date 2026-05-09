@@ -129,10 +129,10 @@ description: "Task list for spec 029 — Human-Readable Audit Log Viewer"
 
 ### Implementation for User Story 3
 
-- [ ] T039 [P] [US3] Add filter-control UI in `AuditLogPanel` (within `frontend/app.jsx`): three controls (actor dropdown sourced from session participants + "Orchestrator" option + facilitator id; action-type dropdown sourced from `AuditLabels.LABELS` keys; time-range start/end inputs); a "Clear filters" button
-- [ ] T040 [P] [US3] Implement client-side filter logic in `AuditLogPanel`: a pure function `applyFilters(rows, filters)` that returns the filtered subset; default rendering uses `applyFilters(rawRows, currentFilters)`; filter state lives in `useState` (no localStorage persistence per research.md §12)
-- [ ] T041 [US3] Implement the filter-control badge counter per FR-013 + research.md §12: a `useState` integer that increments when an `audit_log_appended` event arrives but the new row does NOT match `currentFilters`; counter resets on filter clear or filter change; badge renders `(N hidden)` next to the filter controls when N > 0
-- [ ] T042 [US3] Add unit tests for `applyFilters` in `tests/frontend/test_filter_logic.js` (Node-runnable) covering: single axis match, multi-axis intersection, time-range edge cases, empty filter set returns full input
+- [X] T039 [P] [US3] Add filter-control UI in `AuditLogPanel` (within `frontend/app.jsx`): three controls (actor dropdown sourced from session participants + "Orchestrator" option + facilitator id; action-type dropdown sourced from `AuditLabels.LABELS` keys; time-range start/end inputs); a "Clear filters" button
+- [X] T040 [P] [US3] Implement client-side filter logic in `AuditLogPanel`: a pure function `applyFilters(rows, filters)` that returns the filtered subset; default rendering uses `applyFilters(rawRows, currentFilters)`; filter state lives in `useState` (no localStorage persistence per research.md §12)
+- [X] T041 [US3] Implement the filter-control badge counter per FR-013 + research.md §12: a `useState` integer that increments when an `audit_log_appended` event arrives but the new row does NOT match `currentFilters`; counter resets on filter clear or filter change; badge renders `(N hidden)` next to the filter controls when N > 0
+- [X] T042 [US3] Add unit tests for `applyFilters` in `tests/frontend/test_filter_logic.js` (Node-runnable) covering: single axis match, multi-axis intersection, time-range edge cases, empty filter set returns full input
 
 **Checkpoint**: Filter narrows the visible set; badge surfaces hidden activity; clear restores. Operators with high-event sessions can scope their review.
 

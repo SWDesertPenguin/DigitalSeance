@@ -966,6 +966,38 @@ main.scaffold {
   margin-bottom: 0.5em;
 }
 
+/* Spec 029 US3 filter controls. The badge is the (N hidden) counter for
+ * WS-pushed events that arrived while a filter was active and didn't match.
+ */
+.audit-log-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em 0.75em;
+  align-items: center;
+  padding: 0.5em 0;
+  font-size: 0.85em;
+}
+
+.audit-log-filters label {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.15em;
+}
+
+.audit-log-filters select {
+  font-size: inherit;
+  padding: 0.15em 0.3em;
+  background: var(--panel-alt);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.audit-hidden-badge {
+  margin-left: auto;
+  font-style: italic;
+}
+
 .diff-renderer {
   font-family: monospace;
   font-size: 0.85em;

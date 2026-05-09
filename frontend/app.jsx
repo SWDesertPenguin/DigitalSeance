@@ -2160,8 +2160,8 @@ function DiffRenderer({ previousValue, newValue, format }) {
   );
 }
 
-function AuditLogPanel({ rows, totalCount, nextOffset, onLoadMore, onClose }) {
-  // Spec 029 FR-001 / FR-005 / FR-010 + spec 011 FR-026 / FR-029.
+function AuditLogPanel({ rows, totalCount, nextOffset, participants, onLoadMore, onClose }) {
+  // Spec 029 FR-001 / FR-005 / FR-010 / FR-012 / FR-013 + spec 011 FR-026 / FR-029.
   // Renders a formatted, paginated, reverse-chronological audit-log table
   // for facilitators. The decorated payload from the server already carries
   // human-readable action_label, actor_display_name, and target_display_name
@@ -2170,7 +2170,103 @@ function AuditLogPanel({ rows, totalCount, nextOffset, onLoadMore, onClose }) {
   // dedup-on-id check there prevents double-render against an in-flight HTTP
   // refetch (FR-005). When the panel closes we drop in-flight pushes silently
   // because the next open re-fetches the durable record.
+  //
+  // US3 filter controls (T039-T041) live inline in the panel header. The
+  // pure-logic helpers in frontend/audit_filters.js own the predicate so
+  // the rendered subset and the (N hidden) badge agree on what "match"
+  // means. Filter state is useState only - no localStorage per research §12.
   const [expanded, setExpanded] = useState(() => new Set());
+  const emptyFilters = (typeof AuditFilters !== "undefined" && AuditFilters.EMPTY_FILTERS)
+    ? AuditFilters.EMPTY_FILTERS
+    : { actor: null, action: null, timePreset: "all" };
+  const [filters, setFilters] = useState(emptyFilters);
+  // FR-013: counter of WS-pushed events that arrived while a filter was
+  // active and didn't match. Resets on filter clear / filter change. The
+  // counter reflects events filtered OUT (not events shown) per spec.
+  const [hiddenCount, setHiddenCount] = useState(0);
+  // Snapshot of row ids at the moment the current filter was set; rows
+  // arriving after this point and failing the predicate increment
+  // hiddenCount. Updated whenever filters change.
+  const seenIdsRef = useRef(null);
+  const filtersRef = useRef(filters);
+
+  useEffect(() => {
+    filtersRef.current = filters;
+    seenIdsRef.current = new Set((rows || []).map((r) => r.id));
+    setHiddenCount(0);
+    // The lint here would normally complain about rows in deps; we
+    // INTENTIONALLY only re-snapshot when filters change. Tracking rows
+    // would defeat the purpose (every WS push would reset the counter).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
+
+  useEffect(() => {
+    if (!seenIdsRef.current) {
+      seenIdsRef.current = new Set((rows || []).map((r) => r.id));
+      return;
+    }
+    const currentFilters = filtersRef.current;
+    if (
+      typeof AuditFilters === "undefined" ||
+      !AuditFilters.isEmpty ||
+      AuditFilters.isEmpty(currentFilters)
+    ) {
+      // No active filter - keep the seen-set fresh so a future filter
+      // toggle starts counting from "now", not from old rows.
+      seenIdsRef.current = new Set((rows || []).map((r) => r.id));
+      return;
+    }
+    let added = 0;
+    const nextSeen = new Set(seenIdsRef.current);
+    for (const r of rows || []) {
+      if (nextSeen.has(r.id)) continue;
+      nextSeen.add(r.id);
+      if (!AuditFilters.matchesFilters(r, currentFilters)) {
+        added += 1;
+      }
+    }
+    if (added > 0) {
+      setHiddenCount((c) => c + added);
+    }
+    seenIdsRef.current = nextSeen;
+  }, [rows]);
+
+  const visibleRows = (typeof AuditFilters !== "undefined" && AuditFilters.applyFilters)
+    ? AuditFilters.applyFilters(rows || [], filters)
+    : (rows || []);
+  const filtersActive = (typeof AuditFilters !== "undefined" && AuditFilters.isEmpty)
+    ? !AuditFilters.isEmpty(filters)
+    : false;
+
+  // Sort actor options by display name; orchestrator sentinel always first
+  // when the option is available so operators don't hunt for it.
+  const actorOptions = [];
+  const orchestratorKey = (typeof AuditFilters !== "undefined" && AuditFilters.ORCHESTRATOR_ACTOR_KEY)
+    ? AuditFilters.ORCHESTRATOR_ACTOR_KEY
+    : "__orchestrator__";
+  actorOptions.push({ key: orchestratorKey, label: "Orchestrator" });
+  for (const p of (participants || [])) {
+    actorOptions.push({ key: p.id, label: p.display_name || p.id });
+  }
+
+  // Action options come from the registry so we never list an action
+  // that isn't recognised. Sorted by label for the dropdown.
+  const actionOptions = [];
+  if (typeof AuditLabels !== "undefined" && AuditLabels.LABELS) {
+    for (const key of Object.keys(AuditLabels.LABELS)) {
+      actionOptions.push({ key, label: AuditLabels.LABELS[key].label });
+    }
+    actionOptions.sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  const timePresets = (typeof AuditFilters !== "undefined" && AuditFilters.TIME_PRESETS)
+    ? AuditFilters.TIME_PRESETS
+    : [{ key: "all", label: "All time" }];
+
+  const updateFilter = (axis, value) => {
+    setFilters((prev) => ({ ...prev, [axis]: value }));
+  };
+  const clearFilters = () => setFilters(emptyFilters);
   const formatLabel = (action) => {
     if (typeof AuditLabels !== "undefined" && AuditLabels.formatLabel) {
       return AuditLabels.formatLabel(action);
@@ -2204,8 +2300,59 @@ function AuditLogPanel({ rows, totalCount, nextOffset, onLoadMore, onClose }) {
         <h2>Audit log ({totalCount})</h2>
         <button type="button" className="ghost" onClick={onClose}>Close</button>
       </div>
-      {rows.length === 0 ? (
-        <p className="dim">No audit entries for this session yet.</p>
+      <div className="audit-log-filters">
+        <label>
+          <span className="dim">Actor</span>
+          <select
+            value={filters.actor || ""}
+            onChange={(e) => updateFilter("actor", e.target.value || null)}
+          >
+            <option value="">Any actor</option>
+            {actorOptions.map((opt) => (
+              <option key={opt.key} value={opt.key}>{opt.label}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="dim">Action</span>
+          <select
+            value={filters.action || ""}
+            onChange={(e) => updateFilter("action", e.target.value || null)}
+          >
+            <option value="">Any action</option>
+            {actionOptions.map((opt) => (
+              <option key={opt.key} value={opt.key}>{opt.label}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="dim">Time</span>
+          <select
+            value={filters.timePreset || "all"}
+            onChange={(e) => updateFilter("timePreset", e.target.value)}
+          >
+            {timePresets.map((p) => (
+              <option key={p.key} value={p.key}>{p.label}</option>
+            ))}
+          </select>
+        </label>
+        {filtersActive && (
+          <button type="button" className="ghost" onClick={clearFilters}>
+            Clear filters
+          </button>
+        )}
+        {hiddenCount > 0 && (
+          <span className="audit-hidden-badge dim" title="Audit events hidden by the active filter">
+            ({hiddenCount} hidden)
+          </span>
+        )}
+      </div>
+      {visibleRows.length === 0 ? (
+        <p className="dim">
+          {rows.length === 0
+            ? "No audit entries for this session yet."
+            : "No audit entries match the current filter."}
+        </p>
       ) : (
         <table className="audit-log-table">
           <thead>
@@ -2219,7 +2366,7 @@ function AuditLogPanel({ rows, totalCount, nextOffset, onLoadMore, onClose }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {visibleRows.map((r) => {
               const isExpanded = expanded.has(r.id);
               return (
                 <React.Fragment key={r.id}>
@@ -3565,6 +3712,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                   rows={state.auditLogRows}
                   totalCount={state.auditLogTotalCount}
                   nextOffset={state.auditLogNextOffset}
+                  participants={state.participants}
                   onLoadMore={loadMoreAuditLog}
                   onClose={closeAuditLogPanel}
                 />
