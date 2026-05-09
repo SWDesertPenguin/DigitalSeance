@@ -112,7 +112,7 @@ description: "Task list for spec 023 — User Accounts with Persistent Session H
 
 ### Topology-7 mount gate (research §12)
 
-- [ ] T034 Topology-7 startup gate in the account router init per [research.md §12](./research.md): when `os.environ.get('SACP_TOPOLOGY') == '7'`, refuse to mount and emit a startup ERROR naming the cross-spec incompatibility (spec V12). Same forward-document pattern as specs 014/020/021/025.
+- [X] T034 Topology-7 startup gate in the account router init per [research.md §12](./research.md): when `os.environ.get('SACP_TOPOLOGY') == '7'`, refuse to mount and emit a startup ERROR naming the cross-spec incompatibility (spec V12). Same forward-document pattern as specs 014/020/021/025.
 
 ### Master-switch-off canary (FR-018 — lands FIRST after migration)
 
@@ -120,7 +120,7 @@ description: "Task list for spec 023 — User Accounts with Persistent Session H
 
 ### Cross-validator WARN emit (research §13)
 
-- [ ] T036 Add `emit_accounts_email_transport_warning()` in startup banner code per [research.md §13](./research.md) and [contracts/env-vars.md "Cross-validator interaction"](./contracts/env-vars.md): when `SACP_ACCOUNTS_ENABLED=1` AND `SACP_EMAIL_TRANSPORT=noop`, emit a startup WARNING (NOT a `ValidationFailure`) naming the consequence. Test in [tests/test_023_validators.py](./../../tests/test_023_validators.py) Phase 1 file with a new test asserting the WARN log line.
+- [X] T036 Add `emit_accounts_email_transport_warning()` in startup banner code per [research.md §13](./research.md) and [contracts/env-vars.md "Cross-validator interaction"](./contracts/env-vars.md): when `SACP_ACCOUNTS_ENABLED=1` AND `SACP_EMAIL_TRANSPORT=noop`, emit a startup WARNING (NOT a `ValidationFailure`) naming the consequence. Test in [tests/test_023_validators.py](./../../tests/test_023_validators.py) Phase 1 file with a new test asserting the WARN log line.
 
 **Checkpoint**: argon2-cffi pinned; account package skeletons in place; password hasher, codes primitive, email-transport ABC + noop adapter, rate limiter, repository, and SessionStore extension all landed; topology-7 gate in place; master-switch-off canary green; cross-validator WARN testable. User-story phases unblocked.
 
