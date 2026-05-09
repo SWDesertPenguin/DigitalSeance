@@ -48,16 +48,16 @@ description: "Task list for spec 029 — Human-Readable Audit Log Viewer"
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
 - [X] T005 [P] Create `src/orchestrator/audit_labels.py` with `LABELS: dict[str, dict[str, Any]]` seeded from research.md §9 (21 entries; `rotate_token` and `revoke_token` carry `scrub_value=True`); export `format_label(action) -> str` and `is_scrub_value(action) -> bool` helpers per shared-module-contracts.md §1
-- [ ] T006 [P] Create `src/orchestrator/time_format.py` with `format_iso(dt: datetime) -> str` (millisecond-precision UTC ISO-8601 with `Z` marker; rejects naive datetimes with `ValueError`) and `format_iso_or_none(dt | None)` per shared-module-contracts.md §2
+- [X] T006 [P] Create `src/orchestrator/time_format.py` with `format_iso(dt: datetime) -> str` (millisecond-precision UTC ISO-8601 with `Z` marker; rejects naive datetimes with `ValueError`) and `format_iso_or_none(dt | None)` per shared-module-contracts.md §2
 - [X] T007 [P] Create `frontend/audit_labels.js` (UMD) mirroring the backend `LABELS` keys + `label` strings (no `scrub_value`); export `LABELS` and `formatLabel(action)` (returns `[unregistered: <action>]` fallback) per shared-module-contracts.md §1
-- [ ] T008 [P] Create `frontend/time_format.js` (UMD) with `formatIso(timestamp)`, `formatLocale(timestamp)`, `formatRelative(timestamp)` per shared-module-contracts.md §2; output of `formatIso` MUST byte-equal `format_iso` for the same UTC instant
+- [X] T008 [P] Create `frontend/time_format.js` (UMD) with `formatIso(timestamp)`, `formatLocale(timestamp)`, `formatRelative(timestamp)` per shared-module-contracts.md §2; output of `formatIso` MUST byte-equal `format_iso` for the same UTC instant
 - [X] T009 [P] Create `scripts/check_audit_label_parity.py` per research.md §4: import the Python module, parse the JS module's `LABELS = {...}` literal with a small state-machine parser, compare key-set + label-string parity, exit 1 with a structured error on drift
-- [ ] T010 [P] Create `scripts/check_time_format_parity.py` per research.md §5: invoke both modules against fixed timestamp fixtures (epoch, DST transition, microsecond-precision, naive-rejected, invalid-input); assert byte-equal output
+- [X] T010 [P] Create `scripts/check_time_format_parity.py` per research.md §5: invoke both modules against fixed timestamp fixtures (epoch, DST transition, microsecond-precision, naive-rejected, invalid-input); assert byte-equal output
 - [ ] T011 Wire `scripts/check_audit_label_parity.py` and `scripts/check_time_format_parity.py` into the CI workflow (likely `.github/workflows/ci.yml` or the equivalent); both gates MUST be required-passing checks
 - [X] T012 [P] Add `tests/test_029_action_label_registry.py` with: registry shape coverage (every entry has `label: str`), `scrub_value` default-False semantics, `format_label` fallback, `is_scrub_value` lookup, parity-gate failure-mode test (synthetic drift case)
-- [ ] T013 [P] Add `tests/test_029_time_format_parity.py` with: backend `format_iso` output for fixed UTC instants, `ValueError` on naive datetime, parity-script-passes happy path (Node invocation if Node is available; else mark xfail with rationale)
+- [X] T013 [P] Add `tests/test_029_time_format_parity.py` with: backend `format_iso` output for fixed UTC instants, `ValueError` on naive datetime, parity-script-passes happy path (Node invocation if Node is available; else mark xfail with rationale)
 - [X] T014 [P] Add `tests/frontend/test_audit_labels.js` (Node-runnable) per `frontend_polish_module_pattern`: module loads, exports shape correct, `formatLabel` fallback works
-- [ ] T015 [P] Add `tests/frontend/test_time_format.js` (Node-runnable): `formatIso` output byte-equals fixed expectations, `formatLocale` produces non-empty string, `formatRelative` handles past + future + zero-delta
+- [X] T015 [P] Add `tests/frontend/test_time_format.js` (Node-runnable): `formatIso` output byte-equals fixed expectations, `formatLocale` produces non-empty string, `formatRelative` handles past + future + zero-delta
 
 **Checkpoint**: Foundation ready — registry + formatter exist on both sides with CI parity enforcement; user story implementation can now begin in parallel.
 
