@@ -16,6 +16,7 @@ URLS=(
   "https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.9/babel.min.js"
   "https://cdn.jsdelivr.net/npm/marked@15.0.3/marked.min.js"
   "https://cdn.jsdelivr.net/npm/dompurify@3.2.2/dist/purify.min.js"
+  "https://cdn.jsdelivr.net/npm/diff@5.2.0/dist/diff.min.js"
 )
 
 for url in "${URLS[@]}"; do
