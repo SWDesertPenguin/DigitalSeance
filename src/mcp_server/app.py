@@ -18,6 +18,8 @@ from src.config import load_settings
 from src.database.connection import close_pool, create_pool
 from src.mcp_server.sse import get_connection_manager
 from src.mcp_server.sse_router import router as sse_router
+from src.mcp_server.tools.admin import is_audit_viewer_enabled
+from src.mcp_server.tools.admin import router as admin_router
 from src.mcp_server.tools.debug import router as debug_router
 from src.mcp_server.tools.facilitator import router as facilitator_router
 from src.mcp_server.tools.participant import router as participant_router
@@ -222,6 +224,12 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(proposal_router)
     app.include_router(provider_router)
     app.include_router(debug_router)
+    # Spec 029 §FR-018 — master switch hides the audit-log viewer surface
+    # at the route layer when SACP_AUDIT_VIEWER_ENABLED is unset/false, so
+    # disabled deployments return HTTP 404 from absence of the route rather
+    # than a 200 with empty data.
+    if is_audit_viewer_enabled():
+        app.include_router(admin_router)
 
 
 def _attach_services(
