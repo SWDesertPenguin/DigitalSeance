@@ -383,8 +383,7 @@ async def _update_session_turn(
     """
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE sessions SET last_summary_turn = $1 "
-            "WHERE id = $2 AND last_summary_turn < $1",
+            "UPDATE sessions SET last_summary_turn = $1 WHERE id = $2 AND last_summary_turn < $1",
             turn,
             session_id,
         )

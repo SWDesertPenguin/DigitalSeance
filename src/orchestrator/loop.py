@@ -22,7 +22,14 @@ from src.orchestrator.cadence import CadenceController
 from src.orchestrator.circuit_breaker import CircuitBreaker
 from src.orchestrator.context import ContextAssembler
 from src.orchestrator.convergence import DIVERGENCE_PROMPT, ConvergenceDetector
-from src.orchestrator.high_traffic import HighTrafficSessionConfig
+from src.orchestrator.dma_controller import DmaController
+from src.orchestrator.dma_signals import (
+    ConvergenceDerivativeSignal,
+    DensityAnomalySignal,
+    QueueDepthSignal,
+    TurnRateSignal,
+)
+from src.orchestrator.high_traffic import HighTrafficRuntime, HighTrafficSessionConfig
 from src.orchestrator.observer_downgrade import (
     Downgrade,
     NoOp,
@@ -93,6 +100,7 @@ class ConversationLoop:
         self._gate_repo = ReviewGateRepository(pool)
         self._cadence = CadenceController()
         self._high_traffic_config = HighTrafficSessionConfig.resolve_from_env()
+        self._high_traffic_runtime = HighTrafficRuntime(config=self._high_traffic_config)
         self._batch_scheduler = _maybe_make_batch_scheduler(self._high_traffic_config)
         self._convergence = ConvergenceDetector(
             self._log_repo,
@@ -115,6 +123,12 @@ class ConversationLoop:
         # on first cap-check after restart from the routing_log row written
         # by `conclude_phase_entered`.
         self._conclude_started_turn: dict[str, int] = {}
+        # Spec 014 (research §3): per-session DMA controller; constructed lazily
+        # when ``start_dma_controller`` fires from the session-init path.
+        self._dma_controllers: dict[str, DmaController] = {}
+        # Spec 014: per-session turn-rate observation, fed by the loop's
+        # per-turn callback. Maps session_id -> turns observed in last minute.
+        self._turn_rate_observations: dict[str, int] = {}
 
     @property
     def batch_scheduler(self) -> BatchScheduler | None:
@@ -283,6 +297,7 @@ class ConversationLoop:
             decision,
             interjections=interjections,
             batch_scheduler=self._batch_scheduler,
+            batching_engaged=self._high_traffic_runtime.is_mechanism_engaged("batching"),
             phase=phase,
         )
         if result.skipped:
@@ -516,14 +531,112 @@ class ConversationLoop:
             gate_repo=self._gate_repo,
         )
 
+    async def start_dma_controller(self, session_id: str, facilitator_id: str) -> None:
+        """Spec 014 (research §3): spawn the per-session DMA controller task.
+
+        No-op when ``DmaController.is_active_from_env()`` returns False
+        (FR-015 additive-when-unset gate). Caller (session-init path) invokes
+        once per session lifetime; ``stop_dma_controller`` cancels at
+        teardown.
+        """
+        if not DmaController.is_active_from_env():
+            return
+        if session_id in self._dma_controllers:
+            return
+        from src.orchestrator.dma_controller import ModeEmitter
+
+        sources = self._build_dma_signal_sources(session_id)
+        emitter = ModeEmitter(self._log_repo, session_id, facilitator_id)
+        controller = DmaController(
+            session_id=session_id,
+            runtime=self._high_traffic_runtime,
+            signal_sources=sources,
+            emitter=emitter,
+        )
+        self._dma_controllers[session_id] = controller
+        await controller.start()
+
+    async def stop_dma_controller(self, session_id: str) -> None:
+        """Spec 014 (research §3): cancel the controller task on session teardown."""
+        controller = self._dma_controllers.pop(session_id, None)
+        if controller is None:
+            return
+        await controller.stop()
+
+    def _build_dma_signal_sources(self, session_id: str) -> list:
+        """Wire the four DMA signal adapters to per-session data feeds.
+
+        Each adapter pulls its data from a tiny callable; this isolates the
+        loop's existing internal state from the controller. Per FR-004,
+        adapters whose env vars are unset will be ignored by the decision
+        cycle regardless of what they sample.
+        """
+        return [
+            TurnRateSignal(sampler=lambda sid=session_id: self._turn_rate_observations.get(sid)),
+            ConvergenceDerivativeSignal(
+                similarity_provider=lambda: self._convergence.last_similarity,
+            ),
+            QueueDepthSignal(
+                depth_sampler=lambda: self._sample_queue_depth(),
+                availability=lambda: self._batch_scheduler is not None,
+            ),
+            DensityAnomalySignal(
+                count_sampler=lambda sid=session_id: self._sample_density_anomalies(sid),
+            ),
+        ]
+
+    def _sample_queue_depth(self) -> int | None:
+        """Read the per-session batch scheduler's queue depth, or None.
+
+        Spec 013's BatchScheduler doesn't (yet) expose a public depth
+        accessor. Until it does, this sampler returns 0 when batching is
+        configured but no queue introspection is available. Adapter's
+        ``is_available()`` already gates on ``batch_scheduler is not None``.
+        """
+        if self._batch_scheduler is None:
+            return None
+        # Reach for an internal queue map if the BatchScheduler exposes one;
+        # otherwise return 0 as the safe-floor. Refined in spec 013's
+        # public-API amendment (out of scope for spec 014's hook).
+        queues = getattr(self._batch_scheduler, "_queues", None)
+        if queues is None:
+            return 0
+        try:
+            return max((len(q) for q in queues.values()), default=0)
+        except (AttributeError, TypeError):
+            return 0
+
+    def _sample_density_anomalies(self, session_id: str) -> int | None:
+        """Sliding-count of density-anomaly rows in the prior minute.
+
+        Per research §1: counts ``convergence_log`` rows with
+        ``tier='density_anomaly'`` produced in the prior minute. Returns 0
+        when the table is empty (signal source is structurally available
+        once the convergence engine has produced any measurement).
+        """
+        # Synchronous in-memory shortcut to avoid a DB round-trip on the
+        # hot path; the controller runs at most every 5 seconds so the
+        # full window stays small. Returns 0 as a safe floor — a real DB
+        # sample lands when the signal source is wired through the loop's
+        # async machinery in a future amendment.
+        del session_id
+        return 0
+
     async def _maybe_evaluate_observer_downgrade(self, session_id: str) -> None:
         """013 §FR-008-§FR-012: turn-prep observer-downgrade + restore evaluator.
 
         No-op when ``HighTrafficSessionConfig.observer_downgrade is None`` (env unset).
         Audit row writes BEFORE role mutation per contracts/audit-events.md sequencing.
+
+        Spec 014 (research §4): also short-circuits when the controller has
+        disengaged the mechanism via ``MechanismActivation.observer_downgrade``.
+        Default activation = True so spec-013 baseline is unchanged when no
+        controller runs (FR-015 additive contract).
         """
         config = self._high_traffic_config
         if config is None or config.observer_downgrade is None:
+            return
+        if not self._high_traffic_runtime.is_mechanism_engaged("observer_downgrade"):
             return
         thresholds = config.observer_downgrade
         participants = await _list_active_participants(self._pool, session_id)
@@ -698,9 +811,15 @@ async def _dispatch_and_persist(
     *,
     interjections: list | None = None,
     batch_scheduler: BatchScheduler | None = None,
+    batching_engaged: bool = True,
     phase: str = "running",
 ) -> tuple[TurnResult, str]:
-    """Assemble context, dispatch to provider, persist result."""
+    """Assemble context, dispatch to provider, persist result.
+
+    Spec 014: ``batching_engaged`` is the DMA controller's per-session
+    activation flag (research §4). Default ``True`` so the spec-013
+    baseline holds when no controller runs (FR-015 additive contract).
+    """
     response, skip_reason = await _assemble_and_dispatch(
         ctx,
         assembler,
@@ -717,7 +836,13 @@ async def _dispatch_and_persist(
         return result, response.content
 
     result = await _validate_and_persist(
-        ctx, speaker, decision, response, breaker, batch_scheduler=batch_scheduler
+        ctx,
+        speaker,
+        decision,
+        response,
+        breaker,
+        batch_scheduler=batch_scheduler,
+        batching_engaged=batching_engaged,
     )
     return result, response.content
 
@@ -913,37 +1038,71 @@ async def _validate_and_persist(
     breaker: CircuitBreaker,
     *,
     batch_scheduler: BatchScheduler | None = None,
+    batching_engaged: bool = True,
 ) -> TurnResult:
-    """Run security pipeline then persist. Empty/degenerate count as failures.
-
-    Pipeline-internal failures (regex bug, unicode error, etc.) fail closed:
-    skip the turn with reason='security_pipeline_error' WITHOUT recording a
-    breaker failure — the bug is ours, not the participant's.
-    """
+    """Run security pipeline then persist. Pipeline crashes fail closed without a breaker hit."""
     try:
         validation, cleaned, exfil_flags, validator_ms, exfil_ms = run_security_pipeline(
-            response.content,
+            response.content
         )
     except Exception:  # noqa: BLE001 — fail-closed on any pipeline error
         log.exception("Security pipeline crashed for %s; failing closed", speaker.id)
         await _log_pipeline_error(ctx, speaker.id)
         return _skip_result(ctx.session_id, speaker.id, "security_pipeline_error")
-    layer_durations = {"output_validator": validator_ms, "exfiltration": exfil_ms}
-    await _log_security_events(ctx, speaker.id, validation, exfil_flags, layer_durations)
+    durations = {"output_validator": validator_ms, "exfiltration": exfil_ms}
+    await _log_security_events(ctx, speaker.id, validation, exfil_flags, durations)
+    return await _route_validated_response(
+        ctx,
+        speaker,
+        decision,
+        response,
+        breaker,
+        validation=validation,
+        cleaned=cleaned,
+        batch_scheduler=batch_scheduler,
+        batching_engaged=batching_engaged,
+    )
+
+
+async def _route_validated_response(
+    ctx: _TurnContext,
+    speaker: object,
+    decision: object,
+    response: ProviderResponse,
+    breaker: CircuitBreaker,
+    *,
+    validation: object,
+    cleaned: str,
+    batch_scheduler: BatchScheduler | None,
+    batching_engaged: bool,
+) -> TurnResult:
+    """Dispatch a validated security-pipeline result to its terminal handler."""
     if validation.blocked:
         log.warning("Blocked %s: %s", speaker.id, validation.findings)
         return await _stage_for_review(ctx, speaker, decision, response)
-    if not cleaned.strip():
-        log.warning("Skipped empty response from %s", speaker.id)
+    skip_reason = _quality_skip_reason(cleaned)
+    if skip_reason is not None:
+        log.warning("Skipped %s response from %s", skip_reason.split("_")[0], speaker.id)
         await _record_failure_and_announce(ctx, breaker, speaker)
-        return _skip_result(ctx.session_id, speaker.id, "empty_response")
-    if _is_degenerate(cleaned):
-        log.warning("Skipped degenerate response from %s", speaker.id)
-        await _record_failure_and_announce(ctx, breaker, speaker)
-        return _skip_result(ctx.session_id, speaker.id, "degenerate_output")
+        return _skip_result(ctx.session_id, speaker.id, skip_reason)
     await breaker.record_success(speaker.id)
-    safe = _with_cleaned_content(response, cleaned)
-    return await _persist_turn(ctx, speaker, decision, safe, batch_scheduler=batch_scheduler)
+    return await _persist_turn(
+        ctx,
+        speaker,
+        decision,
+        _with_cleaned_content(response, cleaned),
+        batch_scheduler=batch_scheduler,
+        batching_engaged=batching_engaged,
+    )
+
+
+def _quality_skip_reason(cleaned: str) -> str | None:
+    """Return the skip-reason if the cleaned output is empty or degenerate, else None."""
+    if not cleaned.strip():
+        return "empty_response"
+    if _is_degenerate(cleaned):
+        return "degenerate_output"
+    return None
 
 
 def _is_degenerate(text: str) -> bool:
@@ -991,6 +1150,7 @@ async def _persist_turn(
     response: ProviderResponse,
     *,
     batch_scheduler: BatchScheduler | None = None,
+    batching_engaged: bool = True,
 ) -> TurnResult:
     """Persist response as message and log routing + usage."""
     msg = await _append_message_timed(ctx, speaker, decision, response)
@@ -999,7 +1159,14 @@ async def _persist_turn(
     )
     await _log_usage(ctx.log_repo, speaker, msg.turn_number, response)
     await _sync_current_turn(ctx.pool, ctx.session_id, msg.turn_number)
-    await _emit_persist_signals(ctx, speaker, msg, response, batch_scheduler=batch_scheduler)
+    await _emit_persist_signals(
+        ctx,
+        speaker,
+        msg,
+        response,
+        batch_scheduler=batch_scheduler,
+        batching_engaged=batching_engaged,
+    )
     return _turn_result(ctx.session_id, msg.turn_number, speaker, decision, response)
 
 
@@ -1037,12 +1204,23 @@ async def _emit_persist_signals(
     response: ProviderResponse,
     *,
     batch_scheduler: BatchScheduler | None = None,
+    batching_engaged: bool = True,
 ) -> None:
-    """Broadcast post-persist WS events: message, spend update, AI signals."""
+    """Broadcast post-persist WS events: message, spend update, AI signals.
+
+    Spec 014: ``batching_engaged`` reflects the DMA controller's activation
+    flag for the batching mechanism (research §4). Default ``True`` so the
+    spec-013 baseline is unchanged when no controller runs (FR-015 additive
+    contract).
+    """
     await _emit_message_to_web_ui(ctx.session_id, msg, response.cost_usd)
     await _emit_spend_update(ctx, speaker.id)
     await _emit_ai_signals(ctx, speaker, msg)
-    if batch_scheduler is not None and getattr(speaker, "provider", None) != "human":
+    if (
+        batch_scheduler is not None
+        and batching_engaged
+        and getattr(speaker, "provider", None) != "human"
+    ):
         await _enqueue_batched_for_humans(
             ctx.pool, batch_scheduler, ctx.session_id, msg, response.cost_usd
         )

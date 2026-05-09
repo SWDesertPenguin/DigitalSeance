@@ -610,3 +610,139 @@ def web_app() -> object:
     from src.web_ui.app import create_web_app
 
     return create_web_app()
+
+
+# ---------------------------------------------------------------------------
+# Spec 014 synthetic-signal fixtures (no schema change — DMA reuses existing
+# admin_audit_log; per spec 014 tasks.md schema-mirror non-task block).
+# Per-signal value injectors let DMA tests drive deterministic trajectories
+# without spinning up a real loop / convergence engine / batch scheduler.
+# ---------------------------------------------------------------------------
+
+
+class _SignalFeed:
+    """Mutable per-signal value holder used by synthetic SignalSource adapters.
+
+    Tests append values via ``push(value)`` and the adapter's ``sample()``
+    pops the next value (or replays the last one if drained, mirroring the
+    real adapters' "latest sample" semantic).
+    """
+
+    def __init__(self) -> None:
+        self._values: list[float | int | None] = []
+        self._last: float | int | None = None
+        self._available: bool = True
+
+    def push(self, value: float | int | None) -> None:
+        """Queue a sample value (or None to simulate unavailability)."""
+        self._values.append(value)
+
+    def set_available(self, available: bool) -> None:
+        """Override is_available() — used to test signal_source_unavailable emission."""
+        self._available = available
+
+    def sample(self) -> float | int | None:
+        if self._values:
+            self._last = self._values.pop(0)
+        return self._last
+
+    def is_available(self) -> bool:
+        return self._available and (self._last is not None or bool(self._values))
+
+
+@pytest.fixture
+def dma_signal_feeds() -> dict[str, _SignalFeed]:
+    """Four named feeds — one per spec-014 signal source.
+
+    Test usage:
+        def test_engage(dma_signal_feeds, monkeypatch):
+            monkeypatch.setenv("SACP_DMA_TURN_RATE_THRESHOLD_TPM", "30")
+            dma_signal_feeds["turn_rate"].push(42)
+            ...
+    """
+    return {
+        "turn_rate": _SignalFeed(),
+        "convergence_derivative": _SignalFeed(),
+        "queue_depth": _SignalFeed(),
+        "density_anomaly": _SignalFeed(),
+    }
+
+
+@pytest.fixture
+def dma_synthetic_sources(dma_signal_feeds: dict[str, _SignalFeed]) -> list[object]:
+    """Build the four real SignalSource adapters wired to the synthetic feeds.
+
+    Returns a list suitable for ``DmaController(signal_sources=...)``. The
+    adapters still consult their real env vars for ``is_configured()`` /
+    ``threshold()`` — only the data feed is synthetic. Tests set / unset
+    env vars via ``monkeypatch`` to drive the per-signal-independence path.
+    """
+    from src.orchestrator.dma_signals import (
+        ConvergenceDerivativeSignal,
+        DensityAnomalySignal,
+        QueueDepthSignal,
+        TurnRateSignal,
+    )
+
+    return [
+        TurnRateSignal(sampler=dma_signal_feeds["turn_rate"].sample),
+        ConvergenceDerivativeSignal(
+            similarity_provider=dma_signal_feeds["convergence_derivative"].sample,
+        ),
+        QueueDepthSignal(
+            depth_sampler=dma_signal_feeds["queue_depth"].sample,
+            availability=dma_signal_feeds["queue_depth"].is_available,
+        ),
+        DensityAnomalySignal(count_sampler=dma_signal_feeds["density_anomaly"].sample),
+    ]
+
+
+@pytest.fixture
+def dma_clear_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    """Strip every spec-014 env var so a test starts in a clean state."""
+    for name in (
+        "SACP_DMA_TURN_RATE_THRESHOLD_TPM",
+        "SACP_DMA_CONVERGENCE_DERIVATIVE_THRESHOLD",
+        "SACP_DMA_QUEUE_DEPTH_THRESHOLD",
+        "SACP_DMA_DENSITY_ANOMALY_RATE_THRESHOLD",
+        "SACP_DMA_DWELL_TIME_S",
+        "SACP_AUTO_MODE_ENABLED",
+        "SACP_TOPOLOGY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    return monkeypatch
+
+
+class _RecordingEmitter:
+    """In-memory ModeEmitter stand-in — captures every audit-event call.
+
+    Tests inspect ``calls`` to assert per-event shape and ordering without
+    a real Postgres pool. Each call entry is ``(action, kwargs)``.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def emit_recommendation(self, **kwargs: object) -> None:
+        self.calls.append(("mode_recommendation", kwargs))
+
+    async def emit_transition(self, **kwargs: object) -> None:
+        self.calls.append(("mode_transition", kwargs))
+
+    async def emit_transition_suppressed(self, **kwargs: object) -> None:
+        self.calls.append(("mode_transition_suppressed", kwargs))
+
+    async def emit_decision_cycle_throttled(self, **kwargs: object) -> None:
+        self.calls.append(("decision_cycle_throttled", kwargs))
+
+    async def emit_signal_source_unavailable(self, **kwargs: object) -> None:
+        self.calls.append(("signal_source_unavailable", kwargs))
+
+    def actions(self) -> list[str]:
+        return [c[0] for c in self.calls]
+
+
+@pytest.fixture
+def dma_recording_emitter() -> _RecordingEmitter:
+    """Synthetic emitter that captures every mode_* call for assertions."""
+    return _RecordingEmitter()

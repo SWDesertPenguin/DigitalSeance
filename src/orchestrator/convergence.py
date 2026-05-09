@@ -43,6 +43,21 @@ class ConvergenceDetector:
         self._threshold = threshold
         self._model = None
         self._divergence_prompted = False
+        # Spec 014 hook (research.md §2): expose the most-recent similarity
+        # score for the DMA convergence-derivative signal source. Set on
+        # every similarity computation in ``_compute_similarity``.
+        self._last_similarity: float | None = None
+
+    @property
+    def last_similarity(self) -> float | None:
+        """Most recent similarity score, or None if no turn has been evaluated yet.
+
+        Spec 014 §FR-003 hook (research.md §2): the DMA convergence-derivative
+        signal source reads this property each decision cycle and computes its
+        per-window derivative against its own ring buffer. No DB reads from
+        ``convergence_log`` on the controller's hot path.
+        """
+        return self._last_similarity
 
     def load_model(self) -> None:
         """Load the sentence-transformers model in SafeTensors format only.
@@ -158,8 +173,13 @@ class ConvergenceDetector:
             self._window,
         )
         if len(window) < 3:
+            self._last_similarity = 0.0
             return 0.0
-        return _cosine_similarity_window(embedding, window)
+        similarity = _cosine_similarity_window(embedding, window)
+        # Spec 014 hook (research.md §2): expose the latest similarity for
+        # the DMA convergence-derivative signal source. Single-point write.
+        self._last_similarity = similarity
+        return similarity
 
     async def _log_result(
         self,
