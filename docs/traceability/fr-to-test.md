@@ -60,6 +60,15 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-018 | tests/test_web_ui_auth.py | IP binding mismatch returns generic 403, no IP echo (H-01) |
 | FR-019 | untested | CSP violation report forwarding to aggregator is Phase 3 deferred |
 | FR-020 | untested | Invite-redeem flow; trigger: fix/002-compliance Phase D |
+| FR-021 | untested | Session-create modal cap control set (presets + Custom inputs); trigger: spec 025 UI implementation Phase F or Playwright |
+| FR-022 | untested | Facilitator session-settings cap control + current-elapsed display; trigger: spec 025 UI implementation Phase F or Playwright |
+| FR-023 | untested | Conclude-phase banner driven by `session_concluding` WS event with copy variants per `trigger_reason`; trigger: spec 025 UI implementation Phase F |
+| FR-024 | untested | Cap-decrease 409 disambiguation modal (absolute / relative interpretation); trigger: spec 025 UI implementation Phase F |
+| FR-025 | untested | "View audit log" button in facilitator admin panel gated by FR-009 + `SACP_AUDIT_VIEWER_ENABLED`; trigger: spec 029 UI implementation Phase F |
+| FR-026 | untested | Audit log panel route at `/session/:id/audit` with offset pagination consuming `GET /tools/admin/audit_log`; trigger: spec 029 UI implementation Phase F |
+| FR-027 | untested | Audit log filter controls (actor / action type / time range) + WS-mismatch badge; trigger: spec 029 UI implementation Phase F |
+| FR-028 | untested | Row expansion routes to spec 029 DiffRenderer for diffable values; trigger: spec 029 UI implementation Phase F |
+| FR-029 | untested | `[scrubbed]` placeholder + `[unregistered]` rendering + 2s WS-event apply window; trigger: spec 029 UI implementation Phase F |
 | SR-001 | tests/test_web_ui_app.py, tests/test_011_testability.py | Security headers present; CSP report-uri; per-directive coverage (14 fragments) |
 | SR-001a | untested | WS frame cap (256KB); WS layer max_size not yet wired; trigger: Phase E ops |
 | SR-002 | tests/test_web_ui_app.py | Strict-Transport-Security header present |
