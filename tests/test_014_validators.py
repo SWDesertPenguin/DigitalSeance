@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """V16 startup-validator tests for spec 014 (dynamic mode assignment).
 
 Six new SACP_DMA_* / SACP_AUTO_MODE_ENABLED env vars per spec 014 FR-014.

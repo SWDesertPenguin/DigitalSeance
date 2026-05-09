@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """006: Add security_events table for pipeline observability (CHK008).
 
 Revision ID: 006

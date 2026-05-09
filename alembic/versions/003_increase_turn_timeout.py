@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """003: Increase default turn timeout to 180s for Ollama cold starts.
 
 Revision ID: 003

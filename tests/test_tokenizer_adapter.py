@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Unit tests for the per-provider tokenizer adapters (spec 003 §FR-034)."""
 
 from __future__ import annotations

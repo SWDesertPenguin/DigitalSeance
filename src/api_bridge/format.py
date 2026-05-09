@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Message format translation for AI providers."""
 
 from __future__ import annotations

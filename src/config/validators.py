@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """V16 startup validators for every actually-consumed SACP_* env var.
 
 Per Constitution §12 V16: every SACP_* env var MUST have a documented

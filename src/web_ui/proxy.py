@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Same-origin proxy for MCP tool calls (audit H-02 closure).
 
 The Web UI cookie now resolves to a server-side `SessionEntry` holding

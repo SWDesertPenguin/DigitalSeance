@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Provider compatibility matrix testability suite (Phase F).
 
 Cross-cutting audit (no per-spec FR markers). Cross-ref

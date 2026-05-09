@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """INT-001: 003 turn-loop -> 007 security pipeline -> 008 wiring.
 
 Tests the boundary where:

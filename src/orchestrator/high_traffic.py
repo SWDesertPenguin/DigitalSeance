@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """High-traffic session-mode configuration (spec 013).
 
 Hosts ``HighTrafficSessionConfig`` and ``ObserverDowngradeThresholds`` —

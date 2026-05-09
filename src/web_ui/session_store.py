@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Server-side session-id store for the Web UI.
 
 Audit H-02 / M-08: prior to this module the signed session cookie

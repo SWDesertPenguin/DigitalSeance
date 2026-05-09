@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Convergence detection — embedding similarity with sliding window."""
 
 from __future__ import annotations

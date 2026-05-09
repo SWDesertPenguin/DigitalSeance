@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Authentication and participant lifecycle management."""
 
 from src.auth.guards import (

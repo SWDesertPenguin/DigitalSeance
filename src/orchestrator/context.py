@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Context assembly — 5-priority token budget builder."""
 
 from __future__ import annotations

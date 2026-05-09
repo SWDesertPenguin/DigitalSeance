@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US9: Proposals and voting — acceptance modes and duplicate prevention."""
 
 from __future__ import annotations

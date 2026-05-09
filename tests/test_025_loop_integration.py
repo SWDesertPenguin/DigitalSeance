@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 025 full-flow loop integration scaffold (T090 of tasks.md).
 
 DB-gated end-to-end tests that drive a real session through the full

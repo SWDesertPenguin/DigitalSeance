@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US5: Session lifecycle — status transitions and atomic deletion."""
 
 from __future__ import annotations

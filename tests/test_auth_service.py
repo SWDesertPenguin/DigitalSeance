@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US1/US3/US4: Token auth, rotation, and revocation tests."""
 
 from __future__ import annotations

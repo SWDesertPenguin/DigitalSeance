@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Alembic migration environment for raw-SQL migrations with asyncpg."""
 
 from __future__ import annotations

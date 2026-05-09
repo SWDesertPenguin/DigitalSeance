@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Message repository — append-only transcript with prepared statements.
 
 No update or delete methods. Immutability enforced by interface.

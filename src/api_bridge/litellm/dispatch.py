@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """LiteLLM-backed dispatch — relocated from src/api_bridge/provider.py per spec 020.
 
 This module is the only place under `src/` permitted to import

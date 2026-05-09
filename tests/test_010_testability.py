@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """010 debug-export testability suite (Phase F, fix/010-followups).
 
 Covers audit-plan items not addressed by ``test_mcp_app.py`` /

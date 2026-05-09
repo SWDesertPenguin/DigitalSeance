@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US9: Complexity classifier — pattern-matching heuristic tests."""
 
 from __future__ import annotations

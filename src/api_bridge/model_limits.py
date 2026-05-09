@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Authoritative max-input-token catalog for known provider models.
 
 Defense-in-depth for context assembly: the participant's declared

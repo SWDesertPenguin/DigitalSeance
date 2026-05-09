@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US1 acceptance scenario 3: stream event normalization.
 
 Mock provider streams in OpenAI-shaped delta form and assert the SACP

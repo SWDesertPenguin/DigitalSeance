@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Prometheus-shaped counter surface (spec 019 -- pre-spec-016 stub).
 
 Spec 016's full prometheus_client integration has not landed yet, so

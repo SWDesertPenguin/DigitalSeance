@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Integration: per-participant adapter resolution + reconcile drift report."""
 
 from __future__ import annotations

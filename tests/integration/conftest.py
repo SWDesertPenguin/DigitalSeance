@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Integration-tier conftest — auto-mark every test in this directory.
 
 Tests under `tests/integration/` are automatically tagged with

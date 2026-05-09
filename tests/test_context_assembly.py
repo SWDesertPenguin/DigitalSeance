@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US2: Context assembly — priority order and budget tests."""
 
 from __future__ import annotations

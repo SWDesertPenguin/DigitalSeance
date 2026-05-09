@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """011 web-ui testability suite (Phase B audit fix).
 
 Covers items that are server-testable without a live browser:

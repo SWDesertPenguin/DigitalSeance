@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 025 cap evaluator + helpers (T032 + parts of T024/T028 of tasks.md).
 
 Pure-function unit tests for `evaluate_trigger_fraction` and

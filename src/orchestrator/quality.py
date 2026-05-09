@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Quality detection — n-gram repetition and nonsense checks."""
 
 from __future__ import annotations

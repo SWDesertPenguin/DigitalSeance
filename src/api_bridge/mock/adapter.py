@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Mock `ProviderAdapter` implementation per spec 020 US2.
 
 Deterministic dispatch driven by JSON fixtures loaded from

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Mock adapter fixture loader + matcher per spec 020 contracts.
 
 Loads JSON fixture files from `SACP_PROVIDER_ADAPTER_MOCK_FIXTURES_PATH`

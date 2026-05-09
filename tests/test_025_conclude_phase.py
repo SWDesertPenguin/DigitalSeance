@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 025 conclude-phase Tier 4 delta + cadence suspension (US1 acceptance #2 + #5).
 
 Pure-function unit tests for the prompt-assembler and cadence-controller

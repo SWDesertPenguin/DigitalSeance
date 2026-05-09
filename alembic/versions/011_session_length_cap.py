@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """011: Session length cap — five new sessions columns for spec 025.
 
 Backs spec 025 FR-001 (cap shape) and FR-002 (active-time accumulator).

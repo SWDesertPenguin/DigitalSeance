@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Dynamic mode assignment controller (spec 014).
 
 Per-session signal-driven controller that observes a rolling 5-minute

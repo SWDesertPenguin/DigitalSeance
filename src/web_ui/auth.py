@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Cookie-based auth for the Web UI.
 
 The UI never stores bearer tokens in JS-accessible storage. On login

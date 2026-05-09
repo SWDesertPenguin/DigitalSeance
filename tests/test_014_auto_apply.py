@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US2 acceptance tests: auto-apply behind feature flag (spec 014).
 
 Four spec acceptance scenarios:

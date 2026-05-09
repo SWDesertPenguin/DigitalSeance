@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US3 acceptance tests: observer-downgrade (spec 013 FR-008-FR-012)."""
 
 from __future__ import annotations

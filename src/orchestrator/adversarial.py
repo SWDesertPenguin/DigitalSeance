@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Adversarial rotation — periodic challenger prompt injection."""
 
 from __future__ import annotations

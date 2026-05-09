@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Application configuration loaded from environment variables.
 
 This module became a package in feature 012-audit-fixes (Phase A foundation)

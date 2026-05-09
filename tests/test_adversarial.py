@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US4: Adversarial rotation — counter and prompt injection tests."""
 
 from __future__ import annotations

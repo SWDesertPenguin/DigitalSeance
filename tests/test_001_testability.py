@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """001 core-data-model testability suite (Phase B, fix/001-testability).
 
 Covers audit-plan items not addressed by existing per-module tests:

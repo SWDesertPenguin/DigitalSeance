@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """008 prompts-security-wiring testability suite (Phase F, fix/008-followups).
 
 Covers audit-plan items not addressed by ``test_prompt_tiers.py`` /

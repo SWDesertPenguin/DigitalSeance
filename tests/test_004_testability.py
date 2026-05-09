@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """004 convergence-cadence testability suite (Phase F, fix/004-followups).
 
 Covers audit-plan items not addressed by ``test_convergence.py`` /

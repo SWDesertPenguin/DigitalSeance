@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """End-to-end test: cache directives reach litellm.acompletion intact.
 
 Uses the mock_litellm fixture (patches litellm.acompletion + completion_cost)

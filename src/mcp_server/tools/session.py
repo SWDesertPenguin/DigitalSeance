@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Session lifecycle and loop control endpoints."""
 
 from __future__ import annotations

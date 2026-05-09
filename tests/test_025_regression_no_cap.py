@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 025 SC-001 regression canary (T023 of tasks.md).
 
 Architectural assertion: when `length_cap_kind='none'` (the FR-001 default),

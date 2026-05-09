@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Conversation loop — serialized turn execution engine."""
 
 from __future__ import annotations

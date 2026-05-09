@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US2: MockFixtureMissingError on unconfigured input per FR-007 + SC-004."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Unit tests for context_window clamping in _available_budget (spec 003 §FR-035)."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US6: Interrupt queue — priority ordering and delivery tracking."""
 
 from __future__ import annotations

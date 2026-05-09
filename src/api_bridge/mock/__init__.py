@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Mock provider adapter package (spec 020).
 
 Deterministic fixture-driven dispatch with no network access.

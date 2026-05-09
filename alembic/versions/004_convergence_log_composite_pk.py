@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """004: Fix convergence_log PK to include session_id.
 
 Without session_id in the primary key, a second session on the same

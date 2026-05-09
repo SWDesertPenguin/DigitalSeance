@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 014 in-memory density-anomaly observer (dma_observation module).
 
 Bridges the convergence detector's async DB write path and the DMA

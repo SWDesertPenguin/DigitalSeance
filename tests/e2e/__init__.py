@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Phase 2 Web UI end-to-end tests — Playwright + a live SACP stack.
 
 These tests require:

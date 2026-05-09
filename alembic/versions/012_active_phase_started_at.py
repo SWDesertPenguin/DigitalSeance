@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """012: Active-phase tracker for spec 025 pause-aware time cap.
 
 Adds `active_phase_started_at` (TIMESTAMPTZ, nullable) to `sessions`.

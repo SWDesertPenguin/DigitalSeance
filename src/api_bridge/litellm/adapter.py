@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """LiteLLM-backed `ProviderAdapter` implementation per spec 020 US1.
 
 Thin wrapper that delegates to the helper modules in this package. The

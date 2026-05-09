@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Meta-tests for scripts/check_schema_mirror.py.
 
 Verifies the schema-mirror gate (spec 012 FR-008 / contracts/schema-mirror-ci.md):

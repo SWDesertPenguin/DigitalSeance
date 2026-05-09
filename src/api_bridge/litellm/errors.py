@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """LiteLLM exception -> CanonicalError mapping per spec 020 contract.
 
 Implements the static authoritative table in

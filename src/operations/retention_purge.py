@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Retention purge functions for the 001 §FR-019 retention pattern.
 
 Tables that follow the "indefinite by default + operator-driven purge with

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US1 acceptance tests: human-boundary batching cadence (spec 013).
 
 Cover the four FR-001 / FR-003 / FR-004 contracts from the spec via the

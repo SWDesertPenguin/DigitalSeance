@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Per-test FastAPI app fixture isolation tests (spec 012 FR-009 / US7).
 
 Verifies the `mcp_app` and `web_app` fixtures in conftest.py provide

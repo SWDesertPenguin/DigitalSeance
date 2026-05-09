@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US1-5: Summarization checkpoints — trigger, JSON, fallback, storage."""
 
 from __future__ import annotations

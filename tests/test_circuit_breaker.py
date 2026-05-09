@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US7: Circuit breaker — auto-pause after consecutive failures."""
 
 from __future__ import annotations

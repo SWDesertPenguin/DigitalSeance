@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Shared-services wiring for the Web UI.
 
 The Web UI needs the same pool, auth service, and repositories the MCP

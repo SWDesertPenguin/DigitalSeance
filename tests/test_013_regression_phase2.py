@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """SC-005 regression: spec 013 mechanisms are no-ops with all env vars unset.
 
 The contract: when SACP_HIGH_TRAFFIC_BATCH_CADENCE_S,

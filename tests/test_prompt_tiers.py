@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """System prompt 4-tier assembly tests."""
 
 from __future__ import annotations

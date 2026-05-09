@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 019 US3 -- rejection auditing + Prometheus metrics surface.
 
 Covers:

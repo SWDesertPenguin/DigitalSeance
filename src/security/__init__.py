@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """AI security pipeline — defense-in-depth for multi-model conversation."""
 
 from src.security.exfiltration import filter_exfiltration

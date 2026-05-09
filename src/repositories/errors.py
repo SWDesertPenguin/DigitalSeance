@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Domain error types for repository operations."""
 
 from __future__ import annotations

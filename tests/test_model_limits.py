@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Unit tests for the known-models max-input-tokens catalog (spec 003 §FR-035)."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """002: Add token expiry and IP binding columns.
 
 Revision ID: 002

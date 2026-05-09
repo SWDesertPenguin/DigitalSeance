@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US2/US5: Approval flow and facilitator-initiated removal tests."""
 
 from __future__ import annotations

@@ -2,6 +2,8 @@
 name = "sacp"
 version = "0.1.0"
 description = "Sovereign AI Collaboration Protocol"
+license = "AGPL-3.0-or-later"
+authors = [{ name = "Patrick H Pinder" }]
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",

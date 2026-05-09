@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 025 effective_active_seconds helper (T051 partial of tasks.md).
 
 Pure-function tests for the elapsed-time read helper used by both the

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US1 acceptance scenario 1 smoke test (SC-001 byte-identical regression).
 
 The full byte-identical regression contract is enforced by running the

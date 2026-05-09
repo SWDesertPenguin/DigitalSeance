@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """005: Add review_gate_pause_scope column to sessions.
 
 Revision ID: 005

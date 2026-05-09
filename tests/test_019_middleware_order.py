@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 019 FR-002 startup canary: NetworkRateLimit middleware-order contract.
 
 Two properties (per contracts/middleware-ordering.md):

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """LiteLLM-backed capability lookup per spec 020 FR-011 + research.md §3 / §12.
 
 Computes a `Capabilities` object for a given model by consulting LiteLLM's

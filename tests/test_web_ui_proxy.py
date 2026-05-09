@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Same-origin MCP proxy tests (audit H-02 closure).
 
 The proxy lives at ``/api/mcp/<path>`` on the Web UI; it resolves the

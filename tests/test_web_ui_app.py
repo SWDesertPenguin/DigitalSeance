@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Foundational tests for the Phase 2 Web UI FastAPI app.
 
 Covers tasks T040:

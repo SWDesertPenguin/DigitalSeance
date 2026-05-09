@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Playwright fixtures shared by all Phase 2 e2e tests.
 
 The tests assume a running SACP stack. Rather than starting one here,

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Tests for src/operations/retention_purge.py — 007 §SC-009 purge."""
 
 from __future__ import annotations

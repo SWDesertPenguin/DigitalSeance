@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 025 cap-decrease disambiguation helper (T044-T049 of tasks.md).
 
 Pure-function tests for `detect_decrease_intent` — the FR-026 helper that

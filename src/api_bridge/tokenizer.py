@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Per-provider tokenizer adapters for budget + context-assembly accuracy.
 
 The bridge layer needs to count tokens against the *target* model's

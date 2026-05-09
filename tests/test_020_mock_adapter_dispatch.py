@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US2 acceptance scenarios 1 + 2: mock dispatch + injectable error modes."""
 
 from __future__ import annotations

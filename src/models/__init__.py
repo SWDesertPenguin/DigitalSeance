@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Frozen dataclass models for all SACP entities."""
 
 from src.models.logs import AdminAuditLog, ConvergenceLog, RoutingLog, UsageLog

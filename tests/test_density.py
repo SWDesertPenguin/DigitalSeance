@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Unit tests for the information-density signal (spec 004 §FR-020)."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """End-to-end test: density signal across a 25-turn synthetic session.
 
 Verifies spec 004 §FR-020 wiring against a real Postgres DB:

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """001 migration-safety CI gates (Phase F, fix/001-migration-safety).
 
 Static analysis of `alembic/versions/*.py`. These tests are DB-free —

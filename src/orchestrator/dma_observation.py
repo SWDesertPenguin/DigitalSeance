@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Process-scope in-memory ring buffer for spec 014 density-anomaly sampling.
 
 Spec 014's density-anomaly signal source samples the count of recent

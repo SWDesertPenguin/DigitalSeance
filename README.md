@@ -52,6 +52,6 @@ The codebase enforces a strict secure development pipeline: pre-commit hooks (gi
 
 ## License
 
-Code is licensed under the GNU Affero General Public License v3.0. See [LICENSE](LICENSE) for details.
+Code is licensed under the GNU Affero General Public License v3.0 or later (SPDX: `AGPL-3.0-or-later`). See [LICENSE](LICENSE) for the full text and [NOTICE](NOTICE) for the copyright notice.
 
 Documentation is licensed under Creative Commons Attribution 4.0 International (CC BY 4.0). See [LICENSE-DOCS](LICENSE-DOCS) for details.

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Rate limiting tests — per-participant request throttling."""
 
 from __future__ import annotations

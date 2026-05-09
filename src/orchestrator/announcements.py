@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """System messages announcing participant lifecycle changes in the transcript.
 
 Departures (remove_participant, release_ai_slot, honored exit, circuit-breaker

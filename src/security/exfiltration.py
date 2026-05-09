@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Exfiltration filtering — strip data leakage vectors."""
 
 from __future__ import annotations

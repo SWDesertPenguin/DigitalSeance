@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US4: Operational logs — append-only enforcement and query tests."""
 
 from __future__ import annotations

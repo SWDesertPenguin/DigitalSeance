@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Observability surfaces -- Prometheus-shaped counters and helpers.
 
 Spec 019 contributes the ``sacp_rate_limit_rejection_total`` counter

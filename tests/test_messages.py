@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US3: Messages recorded immutably — append, query, and immutability tests."""
 
 from __future__ import annotations

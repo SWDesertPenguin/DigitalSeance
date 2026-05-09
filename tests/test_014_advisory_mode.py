@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US1 acceptance tests: advisory-mode recommendations (spec 014).
 
 Three spec acceptance scenarios:

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Network-layer per-IP rate-limiting middleware (spec 019).
 
 Token-bucket per source-IP keyed form (IPv4 /32, IPv6 /64). Runs as the

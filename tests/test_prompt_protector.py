@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US6: System prompt extraction defense tests."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """001: Initial SACP schema — 13 core tables.
 
 Revision ID: 001

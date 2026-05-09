@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Observer-downgrade evaluator (spec 013 mechanism 3 / US3).
 
 Hosts the per-turn priority computation, downgrade decision, audit-row

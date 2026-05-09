@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Mock-adapter stream synthesis per spec 020 contracts/stream-event-shape.md."""
 
 from __future__ import annotations

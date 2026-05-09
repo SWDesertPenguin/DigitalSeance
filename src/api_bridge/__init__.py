@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """API bridge — pluggable provider adapter abstraction with LiteLLM and mock implementations.
 
 Spec 020 dissolves the prior `src.api_bridge.provider` module into a

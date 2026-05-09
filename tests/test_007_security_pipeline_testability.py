@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """007 ai-security-pipeline testability suite (Phase B, fix/007-testability).
 
 Covers audit-plan items not addressed by the existing per-module unit tests:

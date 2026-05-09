@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """009 rate-limiting testability suite (Phase F, fix/009-followups).
 
 Covers audit-plan items not addressed by ``test_rate_limiter.py``:

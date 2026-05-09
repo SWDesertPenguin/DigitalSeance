@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Per-stage timing capture for V14 instrumentation.
 
 Decorator-based wall-clock timing for turn-loop and security-pipeline

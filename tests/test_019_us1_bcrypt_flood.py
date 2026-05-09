@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 019 US1 — per-IP rate limiting blocks bcrypt-flood attacks.
 
 Drives the NetworkRateLimitMiddleware directly with synthetic ASGI

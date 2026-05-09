@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """v1 WS event helpers — shape tests that don't need a live DB.
 
 Guards two Test06-Web06 regressions:
