@@ -53,6 +53,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from src.orchestrator.timing import with_stage_timing
+
 if TYPE_CHECKING:
     from src.orchestrator.convergence import ConvergenceDetector
 
@@ -413,6 +415,7 @@ def _aggregate(
     return min(max(total, 0.0), 1.0)
 
 
+@with_stage_timing("shaping_score_ms")
 async def compute_filler_score(
     *,
     draft_text: str,
@@ -431,6 +434,12 @@ async def compute_filler_score(
     Per contracts/filler-scorer-adapter.md the three signal helpers do
     not call each other -- the aggregator collects each helper's float
     independently and applies the per-family weighted sum.
+
+    T032 V14 instrumentation: each invocation accumulates into the
+    turn's ``shaping_score_ms`` counter via the ``@with_stage_timing``
+    decorator. ``record_stage`` is a no-op when no turn context is
+    active so unit tests that call this directly don't need a
+    ``start_turn()`` boundary.
     """
     hedge = _hedge_signal(draft_text)
     restatement = await _restatement_signal(draft_text, engine)

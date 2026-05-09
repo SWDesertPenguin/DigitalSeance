@@ -100,24 +100,29 @@ def test_master_switch_off_values_pass_validator(
 # ---------------------------------------------------------------------------
 
 
-def test_loop_module_does_not_import_shaping() -> None:
-    """No spec 021 shaping symbols are bound at loop-module load.
+def test_loop_imports_shaping_wiring_under_master_switch_guard() -> None:
+    """Post-T029: loop.py imports the shaping wiring helpers but the call is
+    guarded by ``response_shaping_enabled()`` so a master-switch-off run
+    returns ``(response, None)`` byte-equal to pre-feature.
 
-    Phase 3 (T029) will add the ``evaluate_and_maybe_retry`` call site,
-    guarded by a master-switch read. This canary asserts the pre-wiring
-    state: no shaping-module attribute is currently visible from
-    ``loop_module.__dict__``. When T029 lands, the assertion tightens to
-    "shaping symbols are imported but the call is guarded by the switch."
+    Two architectural assertions pin the SC-002 invariant:
+
+    1. ``shape_response`` and ``response_shaping_enabled`` are visible
+       at the loop-module level (the wiring landed). The pre-T029
+       canary asserted these were absent; this test inverts it.
+    2. ``response_shaping_enabled()`` returns ``False`` when the env var
+       is unset (the autouse fixture clears it). The wiring thus
+       short-circuits and no shaping retry can fire under the off
+       state, satisfying SC-002.
     """
-    leaked = [
-        name
-        for name in dir(loop_module)
-        if name.startswith(("compute_filler_score", "evaluate_and_maybe_retry"))
-    ]
-    assert not leaked, (
-        f"SC-002 leak: loop.py exposes shaping symbols pre-T029: {leaked}. "
-        "Wiring landed before the master-switch guard."
-    )
+    expected = ("response_shaping_enabled", "shape_response", "ShapingMetadata")
+    present = [name for name in expected if name in dir(loop_module)]
+    assert set(present) == set(
+        expected
+    ), f"T029 wiring incomplete: missing wiring symbols {set(expected) - set(present)}."
+    # Master-switch-off short-circuit: the runtime guard must return False
+    # under the autouse-fixture-cleared env var so the call site is dead.
+    assert loop_module.response_shaping_enabled() is False
 
 
 def test_loop_module_does_not_import_register_presets() -> None:
