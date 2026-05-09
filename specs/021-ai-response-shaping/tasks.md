@@ -78,11 +78,11 @@ Single project, paths under repo root. Backend code under [src/](src/); tests un
 
 ### Tests for User Story 1
 
-- [ ] T018 [P] [US1] Acceptance scenario 1 (over-threshold draft → tightened retry fires; only persisted draft enters transcript) in [tests/test_021_filler_scorer.py](./../../tests/test_021_filler_scorer.py)
-- [ ] T019 [P] [US1] Acceptance scenario 2 (below-threshold draft → no retry; original draft enters transcript) in [tests/test_021_filler_scorer.py](./../../tests/test_021_filler_scorer.py)
-- [ ] T020 [P] [US1] Acceptance scenario 3 (dispatch-path-level guarantee with `SACP_RESPONSE_SHAPING_ENABLED=false`): assert a DISTINCT property from T017 — with master switch off, the new `routing_log` columns (`shaping_score_ms`, `shaping_retry_dispatch_ms`, `filler_score`, `shaping_retry_delta_text`, `shaping_reason`) are NULL on every dispatch row (no value bleeding through), and the user-facing dispatch result (message content, dispatch counts, cost values) is byte-equal to a pre-feature baseline run. T017 is the architectural canary (no spec-021 code path fires); T020 is the row-introspection canary (no spec-021 column carries shaping-on values).
-- [ ] T021 [P] [US1] Acceptance scenario 4 (both retries exceed threshold → second retry's draft persisted; `routing_log.reason='filler_retry_exhausted'`; no infinite loop) in [tests/test_021_filler_scorer.py](./../../tests/test_021_filler_scorer.py) — covers SC-003
-- [ ] T022 [P] [US1] Acceptance scenario 5 (per-retry routing-log row records pre-retry score, tightened-delta text, post-retry score, per-stage timing) in [tests/test_021_filler_scorer.py](./../../tests/test_021_filler_scorer.py) — covers SC-006
+- [X] T018 [P] [US1] Acceptance scenario 1 (over-threshold draft → tightened retry fires; only persisted draft enters transcript) in [tests/test_021_filler_scorer.py](./../../tests/test_021_filler_scorer.py)
+- [X] T019 [P] [US1] Acceptance scenario 2 (below-threshold draft → no retry; original draft enters transcript) in [tests/test_021_filler_scorer.py](./../../tests/test_021_filler_scorer.py)
+- [X] T020 [P] [US1] Acceptance scenario 3 (dispatch-path-level guarantee with `SACP_RESPONSE_SHAPING_ENABLED=false`): assert a DISTINCT property from T017 — with master switch off, the new `routing_log` columns (`shaping_score_ms`, `shaping_retry_dispatch_ms`, `filler_score`, `shaping_retry_delta_text`, `shaping_reason`) are NULL on every dispatch row (no value bleeding through), and the user-facing dispatch result (message content, dispatch counts, cost values) is byte-equal to a pre-feature baseline run. T017 is the architectural canary (no spec-021 code path fires); T020 is the row-introspection canary (no spec-021 column carries shaping-on values).
+- [X] T021 [P] [US1] Acceptance scenario 4 (both retries exceed threshold → second retry's draft persisted; `routing_log.reason='filler_retry_exhausted'`; no infinite loop) in [tests/test_021_filler_scorer.py](./../../tests/test_021_filler_scorer.py) — covers SC-003
+- [X] T022 [P] [US1] Acceptance scenario 5 (per-retry routing-log row records pre-retry score, tightened-delta text, post-retry score, per-stage timing) in [tests/test_021_filler_scorer.py](./../../tests/test_021_filler_scorer.py) — covers SC-006
 
 ### Implementation for User Story 1
 
