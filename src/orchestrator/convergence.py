@@ -134,6 +134,11 @@ class ConvergenceDetector:
                 density_value=density,
                 baseline_value=mean,
             )
+            # Spec 014: feed the in-memory observer so the DMA controller's
+            # density-anomaly signal source can sample without a DB round-trip.
+            from src.orchestrator.dma_observation import record_density_anomaly
+
+            record_density_anomaly(session_id)
         await self._session_repo.replace_density_baseline(
             session_id, update_baseline(baseline, density)
         )
