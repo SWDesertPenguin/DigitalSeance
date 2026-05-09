@@ -2,36 +2,53 @@
 
 **Sovereign AI Collaboration Protocol (SACP)**
 
-A multi-sovereign orchestrator for persistent AI-to-AI conversation with human drop-in collaboration. Each participant brings their own AI, API key, model choice, and budget. The orchestrator manages the conversation loop, turn routing, cost tracking, and human interjection while preserving participant sovereignty.
+SACP is a multi-sovereign orchestrator that enables persistent, autonomous AI-to-AI conversation with human drop-in collaboration. Each participant brings their own AI, API key, model choice, and budget. The orchestrator manages the conversation loop, turn routing, cost tracking, and human interjection while preserving participant sovereignty.
 
 This is a collaboration protocol — closer to IRC or Matrix than to CrewAI or AutoGen. No single operator controls all the AIs. No shared API key. No centralized billing.
 
-## The Problem
+## What Problem Does This Solve?
 
-Existing multi-agent frameworks (CrewAI, AutoGen, LangGraph) assume a single operator running all the models. Existing collaboration tools (Copilot, ChatGPT shared conversations) assume many humans talking to one AI. Nothing lets multiple people, each with their own AI, hold a persistent autonomous conversation where the AIs do the heavy lifting and humans drop in when they want to.
+Single-operator agent frameworks (CrewAI, AutoGen, LangGraph) let one person spin up multiple AI agents under one API key, one config, one budget. When the task finishes, the system shuts down.
 
-SACP fills that gap.
+Shared-AI collaboration tools (Copilot Cowork, Slack AI) give multiple humans access to a single AI. Many humans, one AI.
+
+Neither handles the case where multiple independent people — each with their own AI, their own context, their own project knowledge — need their AIs to work together on a shared project. Open-source contributors, co-authors, research teams, consulting engagements — any distributed collaboration where participants have been building context separately and need to synchronize without copy-paste.
+
+SACP fills that gap. Multiple humans, multiple AIs, persistent conversation, distributed cost.
 
 ## How It Works
 
-A facilitator runs the orchestrator (Docker container). Participants join with invite codes, register their preferred AI provider and model, and set a routing preference that controls how engaged they want to be — from "respond every turn" down to "only talk to me when a human speaks."
+A facilitator runs the orchestrator as a Docker container. Participants join via invite codes, register their AI provider and model, and set a routing preference that controls their level of engagement — from responding every turn down to only responding when a human speaks.
 
-The orchestrator runs a serialized conversation loop: pick the next participant, build a context window from recent history, call their AI provider through LiteLLM, validate the response, log costs, check for convergence, and repeat. Humans can interject at any time through MCP tools or the web UI. Their messages jump the queue via an interrupt system.
+The orchestrator runs a serialized conversation loop: select the next participant, build a context window from recent history and summaries, call their AI provider through LiteLLM, validate the response against a seven-layer security pipeline, log costs, check for convergence, and repeat. When all humans walk away, the AIs keep working. Humans drop in through MCP clients (Claude Desktop, Claude Code) or the Web UI, inject messages, steer direction, and leave.
 
-> **Deployment note**: SACP is designed to run inside the provided Docker Compose stack, where ports 8750 (MCP) and 8751 (Web UI) are scoped to the container's network namespace. Running `python -m src.run_apps` directly on a host binds those ports to `0.0.0.0` on every interface — only do this for local development behind a firewall or reverse proxy, never as a production exposure.
+## Interfaces
 
-### Conversation Quality
+Two FastAPI apps run in one process:
 
-The loop isn't just round-robin prompting. Three mechanisms keep conversations productive:
+**MCP server on 8750** — authoritative API surface covering session lifecycle, participant actions, facilitator governance, proposals, and debug export. Intended for MCP clients (Claude Desktop, Claude Code).
 
-- **Adversarial rotation** — every N turns, one AI gets a temporary instruction to challenge the weakest assumption in the current direction
-- **Convergence detection** — embedding similarity over a sliding window detects when the conversation is going in circles, with graduated intervention
-- **Adaptive cadence** — turn pacing self-regulates based on content quality (productive = faster, repetitive = slower)
+**Web UI on 8751** — single-file React SPA. HttpOnly signed cookies carry the bearer. Strict CSP, SRI-pinned CDN dependencies, hardened markdown renderer. Real-time updates delivered over WebSocket. Per-IP connection limits enforced.
 
-## Further Details
+## Governance
 
-See the [Wiki](https://github.com/SWDesertPenguin/DigitalSeance/wiki) for more details.
+The facilitator — the person running the orchestrator — approves participants, sets session configuration, and manages lifecycle. Three roles: facilitator, participant, pending. Pending participants get a redacted holding screen (humans-in-room visible, transcript hidden) until approved. Sessions move through active → paused → archived states. Archive stops the loop, broadcasts a banner to all participants, and auto-generates a final summary. Facilitator role is transferable; the `Facilitator-` display-name prefix follows the role on transfer.
 
+## Security Posture
+
+SACP handles API keys and auth tokens from multiple participants. Security controls target the NIST SP 800-53 moderate baseline for relevant control families (AC, AU, IA, SC, SI). API keys are encrypted at rest. Auth tokens are hashed. All remote connections use TLS in production. No secrets in code, config, or logs — the log scrubber redacts credentials, PII, and payment data patterns.
+
+The codebase enforces a strict secure development pipeline: pre-commit hooks (gitleaks, bandit SAST, ruff, coding-standards lint), parameterized SQL throughout, and a comprehensive red-team runbook keyed to the seven-layer pipeline.
+
+## Status
+
+**Phase 1 COMPLETE** — core engine shipped: data model, participant auth, turn loop, convergence detection, summarization, MCP server, AI security pipeline, and rate limiting.
+
+**Phase 2 COMPLETE** — Web UI shipped with full session lifecycle, participant governance, and facilitator controls. Post-release shakedown sweeps addressed UX and correctness issues.
+
+**Phase 3 (In Progress)** — advanced features under active development: audit hardening, high-traffic scalability, dynamic routing, AI response shaping, user accounts, session-length caps, context compression, participant standby modes, and a human-readable audit log viewer.
+
+**Phase 4 (planned)** — federation, multi-orchestrator linking, OAuth 2.1, local model support (Ollama/vLLM), and step-up authorization.
 
 ## License
 
