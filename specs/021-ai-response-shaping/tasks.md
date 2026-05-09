@@ -64,7 +64,7 @@ Single project, paths under repo root. Backend code under [src/](src/); tests un
 
 ### SC-002 regression canary
 
-- [ ] T017 [P] Regression canary [tests/test_021_master_switch_disabled.py](./../../tests/test_021_master_switch_disabled.py): assert no spec 021 shaping code path fires when `SACP_RESPONSE_SHAPING_ENABLED=false` (architectural test per spec.md SC-002 — runs early as a leak detector before US-phase code grows; the canary lands EARLY per [plan.md "Notes for /speckit.tasks"](./plan.md))
+- [X] T017 [P] Regression canary [tests/test_021_master_switch_disabled.py](./../../tests/test_021_master_switch_disabled.py): assert no spec 021 shaping code path fires when `SACP_RESPONSE_SHAPING_ENABLED=false` (architectural test per spec.md SC-002 — runs early as a leak detector before US-phase code grows; the canary lands EARLY per [plan.md "Notes for /speckit.tasks"](./plan.md))
 
 **Checkpoint**: V16 gate green; schema migration + conftest mirror landed; spec 004 hook in place; shared dataclasses available; SC-002 canary in place. User-story phases unblocked.
 
