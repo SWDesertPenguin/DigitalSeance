@@ -239,6 +239,16 @@ function initialState() {
     // session_concluded or loop_status(running=false).
     concluding: false,
     concludingRemaining: null, // { turns: int|null, seconds: int|null }
+    // Spec 029 audit-log viewer (FR-001 / FR-010 / spec 011 FR-025..FR-029).
+    // `auditViewerEnabled` is the probe result for SACP_AUDIT_VIEWER_ENABLED:
+    //   null  -> not yet probed (or probe in flight)
+    //   true  -> button + route render
+    //   false -> master switch off, hide the button
+    auditViewerEnabled: null,
+    auditLogPanelOpen: false,    // FR-026: panel mounted state — drives drop/keep on WS push
+    auditLogRows: [],            // decorated rows (most recent first)
+    auditLogTotalCount: 0,
+    auditLogNextOffset: null,
   };
 }
 
@@ -400,6 +410,43 @@ function reducer(state, action) {
         ...state,
         auditEntries: [action.event.entry, ...state.auditEntries].slice(0, 100),
       };
+    case "audit_log_appended": {
+      // Spec 029 FR-010 / spec 011 FR-029. The decorated row ships in
+      // ``event.payload``. When the panel is closed we silently drop the
+      // event — FR-005 requires a panel re-fetch on open, so missed
+      // pushes are not data loss (the audit log is the durable source).
+      // When mounted, prepend with dedup against an id Set so an HTTP
+      // refetch racing with a WS push doesn't double-render.
+      if (!state.auditLogPanelOpen) return state;
+      const row = action.event.payload || {};
+      if (row.id == null) return state;
+      const seen = new Set(state.auditLogRows.map((r) => r.id));
+      if (seen.has(row.id)) return state;
+      return {
+        ...state,
+        auditLogRows: [row, ...state.auditLogRows],
+        auditLogTotalCount: state.auditLogTotalCount + 1,
+      };
+    }
+    case "audit_viewer_enabled":
+      // Probe result from the /tools/admin/audit_log master-switch HEAD.
+      return { ...state, auditViewerEnabled: !!action.value };
+    case "audit_log_panel_set_open":
+      return { ...state, auditLogPanelOpen: !!action.value };
+    case "audit_log_page_loaded": {
+      // FR-001 endpoint response. Replace rows on offset=0; append on
+      // offset>0 (paginate-forward via the next_offset cursor).
+      const rows = action.rows || [];
+      const merged = action.append
+        ? [...state.auditLogRows, ...rows]
+        : rows;
+      return {
+        ...state,
+        auditLogRows: merged,
+        auditLogTotalCount: action.totalCount || 0,
+        auditLogNextOffset: action.nextOffset == null ? null : action.nextOffset,
+      };
+    }
     case "turn_skipped": {
       // US10 T141: feed the health-badge tooltip.
       const { participant_id: pid, reason, turn_number } = action.event;
@@ -1837,7 +1884,7 @@ function ReviewGateEditor({ draft, onSave, onClose }) {
   );
 }
 
-function AdminPanel({ participants, session, auditEntries, onApprove, onReject, onInvite, onTransfer, onConfig, onCapSet }) {
+function AdminPanel({ participants, session, auditEntries, auditViewerEnabled, onApprove, onReject, onInvite, onTransfer, onConfig, onCapSet, onOpenAuditLog }) {
   // US6 T120–T125.
   const [open, setOpen] = useState(false);
   const [invite, setInvite] = useState(null);
@@ -1982,8 +2029,95 @@ function AdminPanel({ participants, session, auditEntries, onApprove, onReject, 
                 <code>{e.target_id}</code>
               </div>
             ))}
+            {auditViewerEnabled && (
+              <button
+                type="button"
+                className="full-width"
+                onClick={onOpenAuditLog}
+                title="Open the formatted audit-log viewer (spec 029)"
+              >
+                View audit log
+              </button>
+            )}
           </details>
         </>
+      )}
+    </section>
+  );
+}
+
+function AuditLogPanel({ rows, totalCount, nextOffset, onLoadMore, onClose }) {
+  // Spec 029 FR-001 / FR-005 / FR-010 + spec 011 FR-026 / FR-029.
+  // Renders a formatted, paginated, reverse-chronological audit-log table
+  // for facilitators. The decorated payload from the server already carries
+  // human-readable action_label, actor_display_name, and target_display_name
+  // strings — we render them straight without re-deriving anything client-side.
+  // Live ``audit_log_appended`` WS pushes prepend rows via the reducer; the
+  // dedup-on-id check there prevents double-render against an in-flight HTTP
+  // refetch (FR-005). When the panel closes we drop in-flight pushes silently
+  // because the next open re-fetches the durable record.
+  const formatLabel = (action) => {
+    if (typeof AuditLabels !== "undefined" && AuditLabels.formatLabel) {
+      return AuditLabels.formatLabel(action);
+    }
+    return String(action);
+  };
+  const formatTs = (ts) => {
+    if (!ts) return "";
+    if (typeof TimeFormat !== "undefined" && TimeFormat.formatLocale) {
+      try { return TimeFormat.formatLocale(ts); } catch (_e) { /* fall through */ }
+    }
+    return String(ts);
+  };
+  return (
+    <section className="panel audit-log-panel">
+      <div className="panel-header">
+        <h2>Audit log ({totalCount})</h2>
+        <button type="button" className="ghost" onClick={onClose}>Close</button>
+      </div>
+      {rows.length === 0 ? (
+        <p className="dim">No audit entries for this session yet.</p>
+      ) : (
+        <table className="audit-log-table">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Actor</th>
+              <th>Action</th>
+              <th>Target</th>
+              <th>Summary</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="dim">{formatTs(r.timestamp)}</td>
+                <td>{r.actor_display_name || "?"}</td>
+                <td>
+                  <span className="audit-action-label">{r.action_label || formatLabel(r.action)}</span>
+                  <code className="dim audit-action-raw"> {r.action}</code>
+                </td>
+                <td>{r.target_display_name || (r.target_id ? <code className="dim">{r.target_id}</code> : "")}</td>
+                <td className="audit-summary">
+                  {r.summary || (
+                    (r.previous_value || r.new_value) && (
+                      <span className="dim">
+                        {r.previous_value != null && <code>{r.previous_value}</code>}
+                        {r.previous_value != null && r.new_value != null && " -> "}
+                        {r.new_value != null && <code>{r.new_value}</code>}
+                      </span>
+                    )
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {nextOffset != null && (
+        <button type="button" className="full-width" onClick={onLoadMore}>
+          Load more ({rows.length} of {totalCount})
+        </button>
       )}
     </section>
   );
@@ -3132,6 +3266,55 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
       .catch(() => { /* non-facilitator will 403; ignore */ });
   }, [isFacilitator, auth.session_id, state.auditEntries.length]);
 
+  // Spec 029 audit-viewer probe (FR-018 master switch / spec 011 FR-025).
+  // Hit the FR-001 endpoint with limit=1; a 200 means SACP_AUDIT_VIEWER_ENABLED
+  // is true on the server and the facilitator route is mounted, so the SPA
+  // renders the "View audit log" button. Any other status (404 most commonly,
+  // also 403 for non-facilitators) hides the button.
+  useEffect(() => {
+    if (!isFacilitator || !auth.session_id) return;
+    if (state.auditViewerEnabled !== null) return;
+    mcpCall(`/tools/admin/audit_log?session_id=${encodeURIComponent(auth.session_id)}&limit=1`)
+      .then(() => dispatch({ type: "audit_viewer_enabled", value: true }))
+      .catch(() => dispatch({ type: "audit_viewer_enabled", value: false }));
+  }, [isFacilitator, auth.session_id, state.auditViewerEnabled]);
+
+  // Spec 029 FR-001 page-load helper. Resets the panel state on offset=0;
+  // appends paginate-forward results when offset > 0. Errors surface as
+  // an alert — this is a facilitator-only surface and silent failure
+  // would obscure server-side configuration drift.
+  const fetchAuditLogPage = async (offset) => {
+    try {
+      const data = await mcpCall(
+        `/tools/admin/audit_log?session_id=${encodeURIComponent(auth.session_id)}&offset=${offset}`,
+      );
+      dispatch({
+        type: "audit_log_page_loaded",
+        rows: data?.rows || [],
+        totalCount: data?.total_count || 0,
+        nextOffset: data?.next_offset == null ? null : data.next_offset,
+        append: offset > 0,
+      });
+    } catch (e) {
+      alert(`Audit log fetch failed: ${e.message || e}`);
+    }
+  };
+
+  const openAuditLogPanel = async () => {
+    dispatch({ type: "audit_log_panel_set_open", value: true });
+    await fetchAuditLogPage(0);
+  };
+
+  const closeAuditLogPanel = () => {
+    dispatch({ type: "audit_log_panel_set_open", value: false });
+  };
+
+  const loadMoreAuditLog = async () => {
+    if (state.auditLogNextOffset != null) {
+      await fetchAuditLogPage(state.auditLogNextOffset);
+    }
+  };
+
   return (
     <div className="app-shell">
       <Header
@@ -3204,13 +3387,24 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                 participants={state.participants}
                 session={state.session}
                 auditEntries={state.auditEntries}
+                auditViewerEnabled={state.auditViewerEnabled === true}
                 onApprove={approveParticipant}
                 onReject={rejectParticipant}
                 onInvite={createInvite}
                 onTransfer={transferFacilitator}
                 onConfig={setSessionConfig}
                 onCapSet={setLengthCap}
+                onOpenAuditLog={openAuditLogPanel}
               />
+              {state.auditLogPanelOpen && (
+                <AuditLogPanel
+                  rows={state.auditLogRows}
+                  totalCount={state.auditLogTotalCount}
+                  nextOffset={state.auditLogNextOffset}
+                  onLoadMore={loadMoreAuditLog}
+                  onClose={closeAuditLogPanel}
+                />
+              )}
             </>
           ) : auth && (
             <button className="full-width" onClick={() => setShowAddDialog(true)}>
