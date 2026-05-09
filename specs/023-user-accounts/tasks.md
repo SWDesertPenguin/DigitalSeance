@@ -103,7 +103,7 @@ description: "Task list for spec 023 — User Accounts with Persistent Session H
 
 ### Account repository
 
-- [ ] T031 Implement `accounts` + `account_participants` CRUD in [src/repositories/account_repo.py](./../../src/repositories/account_repo.py) per [data-model.md](./data-model.md): `create_account`, `get_account_by_id`, `get_account_by_email_for_login` (case-insensitive email lookup; returns `None` if not found OR status='deleted'), `update_account_email`, `update_account_password_hash`, `mark_account_deleted` (zero email + password_hash; populate `deleted_at` + `email_grace_release_at`), `update_last_login_at`, `link_participant_to_account`, `list_participants_for_account`.
+- [X] T031 Implement `accounts` + `account_participants` CRUD in [src/repositories/account_repo.py](./../../src/repositories/account_repo.py) per [data-model.md](./data-model.md): `create_account`, `get_account_by_id`, `get_account_by_email_for_login` (case-insensitive email lookup; returns `None` if not found OR status='deleted'), `update_account_email`, `update_account_password_hash`, `mark_account_deleted` (zero email + password_hash; populate `deleted_at` + `email_grace_release_at`), `update_last_login_at`, `link_participant_to_account`, `list_participants_for_account`.
 
 ### SessionStore extension (spec 011 H-02 reuse + FR-011 reverse index)
 
