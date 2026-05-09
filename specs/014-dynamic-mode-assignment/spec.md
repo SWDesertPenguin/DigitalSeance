@@ -2,7 +2,7 @@
 
 **Feature Branch**: `014-dynamic-mode-assignment`
 **Created**: 2026-05-02
-**Status**: Draft (Phase 3 declared 2026-05-05; secondary gate "spec 013 reaches Status: Implemented" satisfied 2026-05-07 when 013 reached Status: Implemented; both gates green — ready for `/speckit.implement`)
+**Status**: Implemented 2026-05-08 (Phase 3 declared 2026-05-05; secondary gate satisfied 2026-05-07; controller + signal sources + audit events landed via PR #326; queue-depth bug fix #328; density-anomaly observer + last_known_state audit cosmetic #330)
 **Input**: User description: "Phase 3 dynamic mode assignment — the controller layer above spec 013 high-traffic mode. Watches a rolling 5-minute window of session signals (turn rate, convergence-derivative, queue depth, density-anomaly rate) and decides when to engage or disengage high-traffic mode mechanisms. Decisions are rate-capped (decisions-per-minute) and hysteresis-bounded (dwell time) to prevent flap. Defaults to advisory mode in initial Phase 3 deployment; auto-apply behind feature flag SACP_AUTO_MODE_ENABLED off by default. Applies to topologies 1–6 (orchestrator-driven); incompatible with topology 7 per V12. Primary use cases: consulting, research co-authorship, and technical review/audit per V13."
 
 ## Overview
