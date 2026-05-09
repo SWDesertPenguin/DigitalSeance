@@ -1017,6 +1017,172 @@ def validate_audit_viewer_retention_days() -> ValidationFailure | None:
     return None
 
 
+def validate_accounts_enabled() -> ValidationFailure | None:
+    """SACP_ACCOUNTS_ENABLED: '0' or '1', default '0'. 023 §FR-018 / FR-022.
+
+    Master switch for the entire account surface. When '0' (default), all
+    seven account endpoints + GET /me/sessions return HTTP 404 and the SPA
+    falls back to the existing token-paste landing. When '1', the account
+    router mounts (subject to SACP_TOPOLOGY != '7' per research.md §12).
+    """
+    return _validate_bool_enum("SACP_ACCOUNTS_ENABLED")
+
+
+def validate_password_argon2_time_cost() -> ValidationFailure | None:
+    """SACP_PASSWORD_ARGON2_TIME_COST: int in [1, 10], default 2. 023 §FR-003.
+
+    Argon2id time cost (number of iterations). OWASP 2024 password-storage
+    cheat-sheet minimum is 2; values below 2 emit an OWASP-floor WARN at
+    startup but pass syntactic validation. Above 10 introduces unacceptable
+    login latency on commodity hardware.
+    """
+    val = os.environ.get("SACP_PASSWORD_ARGON2_TIME_COST")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_PASSWORD_ARGON2_TIME_COST",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 10:
+        return ValidationFailure(
+            "SACP_PASSWORD_ARGON2_TIME_COST",
+            f"must be in [1, 10]; got {num}",
+        )
+    return None
+
+
+def validate_password_argon2_memory_cost_kb() -> ValidationFailure | None:
+    """SACP_PASSWORD_ARGON2_MEMORY_COST_KB: int in [7168, 1048576], default 19456. 023 §FR-003.
+
+    Argon2id memory cost (kilobytes). OWASP 2024 cheat-sheet recommends
+    19456 (19 MiB) as the default; values below 7168 (7 MiB) are below the
+    audit floor and refuse to bind. Values above 1048576 (1 GiB) risk
+    memory exhaustion on small instances.
+    """
+    val = os.environ.get("SACP_PASSWORD_ARGON2_MEMORY_COST_KB")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_PASSWORD_ARGON2_MEMORY_COST_KB",
+            f"must be integer; got {val!r}",
+        )
+    if not 7168 <= num <= 1048576:
+        return ValidationFailure(
+            "SACP_PASSWORD_ARGON2_MEMORY_COST_KB",
+            f"must be in [7168, 1048576] (7 MiB to 1 GiB); got {num}",
+        )
+    return None
+
+
+def validate_account_session_ttl_hours() -> ValidationFailure | None:
+    """SACP_ACCOUNT_SESSION_TTL_HOURS: int in [1, 8760], default 168. 023 §FR-017.
+
+    Account login session cookie TTL in hours. Default 168 (7 days);
+    operators tightening or loosening the default tune this knob within
+    the [1, 8760] envelope (1 hour to 1 year).
+    """
+    val = os.environ.get("SACP_ACCOUNT_SESSION_TTL_HOURS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_ACCOUNT_SESSION_TTL_HOURS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 8760:
+        return ValidationFailure(
+            "SACP_ACCOUNT_SESSION_TTL_HOURS",
+            f"must be in [1, 8760] (1 hour to 1 year); got {num}",
+        )
+    return None
+
+
+def validate_account_rate_limit_per_ip_per_min() -> ValidationFailure | None:
+    """SACP_ACCOUNT_RATE_LIMIT_PER_IP_PER_MIN: int in [1, 1000], default 10. 023 §FR-015.
+
+    Per-IP rate limit threshold for /tools/account/login and
+    /tools/account/create. Separate state container from spec 019's
+    middleware (clarify Q10 — additive composition, no shared state).
+    Below 1 disables the limiter (rejected); above 1000 the limiter is
+    essentially absent.
+    """
+    val = os.environ.get("SACP_ACCOUNT_RATE_LIMIT_PER_IP_PER_MIN")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_ACCOUNT_RATE_LIMIT_PER_IP_PER_MIN",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 1000:
+        return ValidationFailure(
+            "SACP_ACCOUNT_RATE_LIMIT_PER_IP_PER_MIN",
+            f"must be in [1, 1000]; got {num}",
+        )
+    return None
+
+
+_EMAIL_TRANSPORT_VALID = ("noop", "smtp", "ses", "sendgrid")
+
+
+def validate_email_transport() -> ValidationFailure | None:
+    """SACP_EMAIL_TRANSPORT: enum noop|smtp|ses|sendgrid, default noop. 023 §FR-022.
+
+    Selects the EmailTransport adapter at startup. v1 ships only the
+    'noop' adapter; the other three values pass syntactic validation here
+    but the adapter factory raises NotImplementedError at startup with a
+    clear pointer to specs/023-user-accounts/contracts/email-transport.md
+    (research.md §4, §6). Operators needing real transport defer enabling
+    accounts until the follow-up email-transport spec ships.
+    """
+    val = os.environ.get("SACP_EMAIL_TRANSPORT")
+    if val is None or val.strip() == "":
+        return None
+    if val not in _EMAIL_TRANSPORT_VALID:
+        return ValidationFailure(
+            "SACP_EMAIL_TRANSPORT",
+            f"must be one of {list(_EMAIL_TRANSPORT_VALID)}; got {val!r}",
+        )
+    return None
+
+
+def validate_account_deletion_email_grace_days() -> ValidationFailure | None:
+    """SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS: int in [0, 365], default 7. 023 §FR-013.
+
+    Reserves a deleted account's email address for re-registration during
+    the configured window. The value 0 disables the grace period entirely
+    (immediate email release on deletion). 365 caps the maximum reservation
+    window at one year. Read at deletion time to populate
+    accounts.email_grace_release_at.
+    """
+    val = os.environ.get("SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS",
+            f"must be integer; got {val!r}",
+        )
+    if not 0 <= num <= 365:
+        return ValidationFailure(
+            "SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS",
+            f"must be in [0, 365]; got {num}",
+        )
+    return None
+
+
 def validate_web_ui_cookie_key() -> ValidationFailure | None:
     """SACP_WEB_UI_COOKIE_KEY: required signing key for Web UI session cookies.
 
@@ -1090,6 +1256,13 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_audit_viewer_enabled,
     validate_audit_viewer_page_size,
     validate_audit_viewer_retention_days,
+    validate_accounts_enabled,
+    validate_password_argon2_time_cost,
+    validate_password_argon2_memory_cost_kb,
+    validate_account_session_ttl_hours,
+    validate_account_rate_limit_per_ip_per_min,
+    validate_email_transport,
+    validate_account_deletion_email_grace_days,
 )
 
 

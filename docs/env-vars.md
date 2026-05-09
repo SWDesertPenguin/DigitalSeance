@@ -275,6 +275,76 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Source spec(s)**: 021 §FR-005 / SC-002 (master switch for the filler-scorer + retry pipeline)
 - **Note**: Setting this var to `false` MUST disable the entire filler-scorer + retry pipeline; pre-feature acceptance tests pass byte-identically (SC-002 regression contract). The register slider is independent of this switch — slider deltas always emit regardless of master-switch state, since the slider is a prompt-composition concern not a shaping concern (spec edge case).
 
+### `SACP_ACCOUNTS_ENABLED`
+
+- **Default**: `0` (master switch ships off; operators opt in)
+- **Type**: bool-style enum (`"0"` / `"1"`)
+- **Valid range**: exactly `0` or `1`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_accounts_enabled`
+- **Source spec(s)**: 023 §FR-018 / FR-022 (master switch for the entire user-account surface)
+- **Note**: When `0` (the default), the seven account endpoints (`POST /tools/account/{create,verify,login,email/change,email/verify,password/change,delete}`) AND `GET /me/sessions` AND `POST /me/sessions/{id}/rebind` all return `HTTP 404` and the SPA falls back to the existing token-paste landing per FR-018. When `1`, the account router mounts (subject to `SACP_TOPOLOGY != '7'` per research.md §12). With `1` AND `SACP_EMAIL_TRANSPORT=noop` simultaneously, a startup WARNING is emitted naming the consequence (verification, reset, and notification codes appear in `admin_audit_log` only — not suitable for production). The combination MUST NOT fail-closed since operators legitimately run dev/staging with noop transport.
+
+### `SACP_PASSWORD_ARGON2_TIME_COST`
+
+- **Default**: `2` (OWASP 2024 password-storage cheat-sheet minimum)
+- **Type**: positive integer (Argon2id iteration count)
+- **Valid range**: `1 <= value <= 10` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_password_argon2_time_cost`
+- **Source spec(s)**: 023 §FR-003 / FR-022 (Argon2id parameter for new password hashes)
+- **Note**: Applies to ALL new password hashes (creation + transparent re-hash on parameter change per SC-007). Existing hashes verify with their stored params. Below `2` is below the OWASP 2024 floor and emits a startup WARNING (NOT a fail-closed exit) — operators on constrained hardware may legitimately run below the floor with the warning logged. Above `10` introduces unacceptable login latency on commodity hardware and refuses to bind.
+
+### `SACP_PASSWORD_ARGON2_MEMORY_COST_KB`
+
+- **Default**: `19456` (19 MiB) per OWASP 2024 password-storage cheat sheet
+- **Type**: positive integer (kilobytes)
+- **Valid range**: `7168 <= value <= 1048576` (7 MiB to 1 GiB; inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_password_argon2_memory_cost_kb`
+- **Source spec(s)**: 023 §FR-003 / FR-022 (Argon2id memory parameter for new password hashes)
+- **Note**: Applies to ALL new password hashes. Below `19456` (the OWASP 2024 floor) emits a startup WARNING (operators on constrained hardware accept the warning); below the absolute floor of `7168` refuses to bind outright. Above `1048576` (1 GiB) refuses to bind to prevent memory exhaustion on small instances. The hash format encodes the parameters used at hash time, so transparent re-hash on parameter change is supported via `argon2.PasswordHasher.check_needs_rehash`.
+
+### `SACP_ACCOUNT_SESSION_TTL_HOURS`
+
+- **Default**: `168` (7 days)
+- **Type**: positive integer (hours)
+- **Valid range**: `1 <= value <= 8760` (1 hour to 1 year; inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_account_session_ttl_hours`
+- **Source spec(s)**: 023 §FR-017 / FR-022 (account login session cookie TTL)
+- **Note**: Sets the `Max-Age` of the account session cookie issued on login. After expiry, the SPA receives `HTTP 401` on the next session-store-gated request and presents the login flow per spec 011's existing 401 handler. Distinct from the per-session participant token TTL governed by spec 002 — the account cookie sits ABOVE the token in the identity hierarchy.
+
+### `SACP_ACCOUNT_RATE_LIMIT_PER_IP_PER_MIN`
+
+- **Default**: `10`
+- **Type**: positive integer (login attempts per IP per minute)
+- **Valid range**: `1 <= value <= 1000` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_account_rate_limit_per_ip_per_min`
+- **Source spec(s)**: 023 §FR-015 / FR-022 (per-IP rate limiter for /tools/account/login + /tools/account/create)
+- **Note**: Applies to `POST /tools/account/login` and `POST /tools/account/create` only — narrowly targeting credential-stuffing attacks on the account surface. Composes ADDITIVELY with spec 019's general per-IP network-layer rate limiter (`SACP_NETWORK_RATELIMIT_RPM`); the two limiters do not share state and either tripping wins. Below `1` disables the limiter (rejected); above `1000` the limiter is essentially absent. Limit exceedance returns `HTTP 429` with `Retry-After` mirroring spec 009 §FR-002 / FR-003 shape.
+
+### `SACP_EMAIL_TRANSPORT`
+
+- **Default**: `noop` (development-friendly; codes appear in `admin_audit_log` only)
+- **Type**: string enum
+- **Valid range**: `noop` | `smtp` | `ses` | `sendgrid`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_email_transport`
+- **Source spec(s)**: 023 §FR-022 / Configuration (V16) section (email transport adapter selection)
+- **Note**: Selects the `EmailTransport` adapter at startup. v1 ships only the `noop` adapter; the other three values pass SYNTACTIC validation here but the adapter factory raises `NotImplementedError` at startup with a pointer to `specs/023-user-accounts/contracts/email-transport.md`. Operators needing real transport should defer enabling accounts until the follow-up email-transport spec ships. When `SACP_ACCOUNTS_ENABLED=1` AND this value is `noop` simultaneously, a startup WARNING is emitted (NOT a fail-closed exit) per FR-022 — verification, reset, and notification codes appear in `admin_audit_log` only and are NOT suitable for production.
+
+### `SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS`
+
+- **Default**: `7`
+- **Type**: non-negative integer (days)
+- **Valid range**: `0 <= value <= 365` (inclusive). The value `0` disables the grace period entirely (immediate email release on deletion).
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_account_deletion_email_grace_days`
+- **Source spec(s)**: 023 §FR-013 / FR-022 (email reservation window after account deletion)
+- **Note**: Read at deletion time to populate `accounts.email_grace_release_at = deleted_at + (value * interval '1 day')`. Re-registration with the same email is rejected during the grace window per FR-013; after `now() > email_grace_release_at` the email is releasable for fresh registration. Operators with stricter retention policies set this lower (or to `0` for immediate release); operators with longer retention windows set this higher up to one year.
+
 ## Reserved (documented but not yet wired)
 
 These vars appear in the debug-export config snapshot allowlist but are NOT consumed by application code. Operators setting them today will see the value in the debug snapshot but no behavioral effect. Validators land when application code starts consuming them — likely as part of a per-spec amendment cluster.
