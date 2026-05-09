@@ -49,5 +49,5 @@ Two new `action` strings written to `admin_audit_log` (no schema change). Cross-
 
 - Both events are append-only via the existing `admin_audit_log` path (V9 log integrity).
 - Both are visible in operator-facing log queries; no separate UI surface in Phase 1 (Web UI rendering is a follow-up if operators ask for it; spec 011 is unchanged by this spec).
-- `facilitator_id` on every row is `null` for both events — these are infrastructure-tier events with no facilitator context (the limiter runs pre-auth).
+- `session_id` and `facilitator_id` on every row carry the literal sentinel string `"__network_layer__"`. These are infrastructure-tier events with no session or facilitator context (the limiter runs pre-auth), but `admin_audit_log`'s schema requires NOT NULL on those columns. The sentinel is the v1 implementation contract; downstream audit consumers (e.g., spec 029's audit-log viewer) MUST detect the sentinel and label such rows as "Network layer (pre-auth)" rather than dereferencing it as a real session or facilitator id. See [research.md §"Network-layer audit row identity"](../research.md) for the rationale (no schema migration in v1).
 - Both events are emitted only when `SACP_NETWORK_RATELIMIT_ENABLED=true`. When the master switch is off, the middleware is not registered and no rows of either action are emitted (SC-006).

@@ -107,6 +107,21 @@ Resolves the eight open decisions queued in [plan.md §"Phase 0 — Outline & Re
 
 ---
 
+## Network-layer audit row identity
+
+**Question**: how should `network_rate_limit_rejected` and `source_ip_unresolvable` rows handle `admin_audit_log`'s NOT NULL `session_id` and `facilitator_id` columns? The events fire pre-auth; there is no session or facilitator context.
+
+**Decision**: write the literal sentinel string `"__network_layer__"` in both columns for both events. Resolved 2026-05-09 during the post-implementation finalize pass.
+
+**Rationale**: keeps spec 019 "no schema delta" — no alembic migration, no `tests/conftest.py` schema-mirror change, no spec.md amendment. The audit consumers (operator-facing log queries today; spec 029's audit-log viewer in future) detect the sentinel and label such rows as "Network layer (pre-auth)" rather than dereferencing it as a real id. The sentinel value is reserved by convention — no real session_id or facilitator_id ever uses double-underscore boundaries — so collision risk is zero.
+
+**Alternatives considered**:
+- **Alembic migration making `session_id` / `facilitator_id` / `target_id` nullable** — proper schema modeling, lets audit consumers distinguish "no context" from "specific id" via SQL NULL. Costs: spec amendment (data-model.md says "Schema additions: None"), conftest mirror update per project memory, audit-repo write-path changes, downstream consumer updates that currently assume NOT NULL. Rejected for v1; a future audit-viewer amendment can carry it if NULL semantics are demanded.
+- **Per-event nullable columns via partial index / check constraint** — same migration cost as above with extra schema complexity. Rejected.
+- **Synthetic session id derived from `source_ip_keyed`** — would conflate audit rows with real session activity for the same IP; rejected on those grounds.
+
+---
+
 ## Summary of Resolutions
 
 | # | Question | Decision |
@@ -119,5 +134,6 @@ Resolves the eight open decisions queued in [plan.md §"Phase 0 — Outline & Re
 | 6 | Audit coalescing flush | Background asyncio task, 1-minute cadence; NOT in request path |
 | 7 | Metric label set | `(endpoint_class, exempt_match)` only; no PII / IP / path |
 | 8 | Topology-7 forward note | Middleware registered but idle; no spec amendment needed |
+| 9 | Network-layer audit row identity | Sentinel `"__network_layer__"` in NOT NULL session_id/facilitator_id; no schema migration |
 
 All Phase 0 unknowns resolved. Phase 1 design docs (data-model.md, contracts/, quickstart.md) can proceed.

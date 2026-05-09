@@ -2,7 +2,7 @@
 
 **Feature Branch**: `019-network-rate-limiting`
 **Created**: 2026-05-06
-**Status**: Draft
+**Status**: Implemented 2026-05-08 (Phase 1 hardening; implementation + tests landed via PR #324; pre-auth audit rows carry the `"__network_layer__"` sentinel in `session_id` / `facilitator_id` per [research.md "Network-layer audit row identity"](./research.md))
 **Input**: User description: "Network-layer abuse protection via per-IP rate limiting. SACP exposes HTTP/SSE endpoints — the MCP server on port 8750 in Phase 1, the Web UI on port 8751 in Phase 2. Both surfaces need protection against abuse. Bcrypt-protected token validation paths are particularly sensitive: unbounded request rates can enable CPU-DoS via repeated bcrypt validation even before authentication succeeds. The rate limiter must coexist with the existing auth layer, exempt operational endpoints (/health, /metrics), and remain architecturally distinct from per-participant cost tracking, which is an application-layer concern. The two layers do not share state and do not interact. Rejected requests must be auditable and visible in the metrics surface. Phase 1 scope. Cross-references §7 of sacp-design.md."
 
 ## Overview
