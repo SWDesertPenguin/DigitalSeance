@@ -596,20 +596,15 @@ class ConversationLoop:
         return self._batch_scheduler.current_max_depth()
 
     def _sample_density_anomalies(self, session_id: str) -> int | None:
-        """Sliding-count of density-anomaly rows in the prior minute.
+        """Sliding-count of density-anomaly observations in the prior minute.
 
-        Per research §1: counts ``convergence_log`` rows with
-        ``tier='density_anomaly'`` produced in the prior minute. Returns 0
-        when the table is empty (signal source is structurally available
-        once the convergence engine has produced any measurement).
+        Reads the spec-014 in-memory observer fed by the convergence
+        detector when it persists ``tier='density_anomaly'`` rows. The
+        observer keeps the controller's hot path DB-free.
         """
-        # Synchronous in-memory shortcut to avoid a DB round-trip on the
-        # hot path; the controller runs at most every 5 seconds so the
-        # full window stays small. Returns 0 as a safe floor — a real DB
-        # sample lands when the signal source is wired through the loop's
-        # async machinery in a future amendment.
-        del session_id
-        return 0
+        from src.orchestrator.dma_observation import count_recent_density_anomalies
+
+        return count_recent_density_anomalies(session_id, window_seconds=60)
 
     async def _maybe_evaluate_observer_downgrade(self, session_id: str) -> None:
         """013 §FR-008-§FR-012: turn-prep observer-downgrade + restore evaluator.

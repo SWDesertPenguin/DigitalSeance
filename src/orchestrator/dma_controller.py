@@ -167,6 +167,10 @@ class ControllerState:
     last_transition_at: datetime | None = None
     dwell_floor_at: datetime | None = None
     signal_health: dict[str, SignalHealthFlag] = field(default_factory=dict)
+    # Snapshot of `signal_health` BEFORE the current cycle's poll updated it.
+    # Audit reads this so `last_known_state` reflects the actual prior state
+    # rather than the post-overwrite "UNAVAILABLE" value.
+    prior_signal_health: dict[str, SignalHealthFlag] = field(default_factory=dict)
     unavailability_emitted_in_dwell: set[str] = field(default_factory=set)
     throttle_emitted_in_dwell: bool = False
     sustained_below_since: datetime | None = None
@@ -365,6 +369,9 @@ class DmaController:
     ) -> None:
         """Sample one configured signal source and update aggregator lists in place."""
         stage_start = time.monotonic()
+        # Snapshot prior state so audit's last_known_state is the pre-overwrite value.
+        prior = self._state.signal_health.get(source.name, "AVAILABLE")
+        self._state.prior_signal_health[source.name] = prior
         try:
             if not source.is_available():
                 self._state.signal_health[source.name] = "UNAVAILABLE"
@@ -748,7 +755,7 @@ async def _maybe_emit_unavailability(
     for signal_name in outcome.unavailable_signals:
         if signal_name in controller.state.unavailability_emitted_in_dwell:
             continue
-        last_known = controller.state.signal_health.get(signal_name, "UNAVAILABLE")
+        last_known = controller.state.prior_signal_health.get(signal_name, "AVAILABLE")
         await controller._emitter.emit_signal_source_unavailable(
             signal_name=signal_name,
             last_known_state=last_known,
