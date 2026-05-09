@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-"""Spec 021 AI response shaping — filler scorer + per-family profile dispatch.
+"""Spec 021 AI response shaping -- filler scorer + per-family profile dispatch.
 
 Phase 2 deliverables (T014 + T016):
 
@@ -17,29 +17,40 @@ Phase 2 deliverables (T014 + T016):
     response, respectively. Their fields surface as ``routing_log``
     columns; they are not persisted as standalone entities.
 
-Phase 3 (US1) deliverables added below T014 / T016:
+Phase 3 (US1) deliverables (T023-T028):
 
-  - Three pure signal helpers — ``_hedge_signal``, ``_restatement_signal``,
-    ``_closing_signal`` — per contracts/filler-scorer-adapter.md. Each
-    returns a float in ``[0.0, 1.0]`` over a candidate draft. These are
-    private (underscore-prefixed) because callers consume the aggregate
-    via ``compute_filler_score`` (T026) — the per-signal breakdown is
-    surfaced through the ``FillerScore`` dataclass for ``routing_log``
-    introspection only.
+  - Three pure signal helpers -- ``_hedge_signal``, ``_restatement_signal``,
+    ``_closing_signal`` -- per contracts/filler-scorer-adapter.md. Each
+    returns a float in ``[0.0, 1.0]`` over a candidate draft.
+  - ``_aggregate`` + ``compute_filler_score`` (T026): weighted sum of the
+    three signal helpers using the per-family ``BehavioralProfile``
+    weights; returns a ``FillerScore`` with the aggregate and per-signal
+    breakdown.
+  - ``profile_for`` + ``threshold_for`` (T027): per-family profile lookup
+    and threshold resolution. ``SACP_FILLER_THRESHOLD`` env var, when set,
+    overrides every family's profile default uniformly per research.md
+    Sec 9.
+  - ``evaluate_and_maybe_retry`` (T028): retry orchestrator. Hardcoded
+    ``SHAPING_RETRY_CAP=2`` per FR-004; joint cap with the participant's
+    compound-retry budget per FR-006. Pure-orchestrator -- the dispatch
+    callable is supplied by the loop wiring (T029) so this module stays
+    decoupled from ``loop.py``.
 
-The aggregator, per-family dispatch, threshold resolver, and retry
-orchestrator land later in Phase 3 (T026-T028). Until then this module
-exposes the dataclasses, the registry, and the three pure signal
-helpers — importable from any user-story phase task without pulling in
-unimplemented orchestration behavior.
+The post-dispatch wiring into ``loop.py`` lands in T029 (next batch).
+Until then this module exposes the dataclasses, the registry, the three
+pure signal helpers, the aggregator, the per-family dispatch, the
+threshold resolver, and the retry orchestrator -- importable from any
+user-story phase task.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -372,3 +383,270 @@ async def _restatement_signal(
         )
         return 0.0
     return _max_cosine(candidate_bytes, recent)
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 (US1): aggregator + scorer entry point (T026)
+# ---------------------------------------------------------------------------
+
+
+def _aggregate(
+    *,
+    hedge: float,
+    restatement: float,
+    closing: float,
+    profile: BehavioralProfile,
+) -> float:
+    """Weighted sum of the three signal floats using per-family weights.
+
+    Per contracts/filler-scorer-adapter.md "Aggregation". Each input is
+    in ``[0.0, 1.0]`` and the three weights sum to ``1.0`` per FR-002
+    (module-load asserted on every ``BehavioralProfile`` entry), so the
+    output is in ``[0.0, 1.0]`` by construction. Defensive clamp absorbs
+    float rounding drift at the boundary.
+    """
+    total = (
+        profile.hedge_weight * hedge
+        + profile.restatement_weight * restatement
+        + profile.closing_weight * closing
+    )
+    return min(max(total, 0.0), 1.0)
+
+
+async def compute_filler_score(
+    *,
+    draft_text: str,
+    profile: BehavioralProfile,
+    engine: ConvergenceDetector,
+) -> FillerScore:
+    """Score a candidate draft on three filler signals.
+
+    Pure function over the draft -- no DB writes, no side effects.
+    Reads the engine's in-memory recent-embeddings ring buffer for the
+    restatement signal (no DB read per FR-012). Returns a ``FillerScore``
+    holding the aggregate and per-signal breakdown; the aggregate
+    surfaces as ``routing_log.filler_score`` and the per-signal floats
+    are informational for post-hoc audit.
+
+    Per contracts/filler-scorer-adapter.md the three signal helpers do
+    not call each other -- the aggregator collects each helper's float
+    independently and applies the per-family weighted sum.
+    """
+    hedge = _hedge_signal(draft_text)
+    restatement = await _restatement_signal(draft_text, engine)
+    closing = _closing_signal(draft_text)
+    aggregate = _aggregate(
+        hedge=hedge,
+        restatement=restatement,
+        closing=closing,
+        profile=profile,
+    )
+    return FillerScore(
+        aggregate=aggregate,
+        hedge_signal=hedge,
+        restatement_signal=restatement,
+        closing_signal=closing,
+        evaluated_at=datetime.now(UTC),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 (US1): per-family dispatch + threshold resolver (T027)
+# ---------------------------------------------------------------------------
+
+
+def profile_for(provider_family: str) -> BehavioralProfile:
+    """Look up the per-family ``BehavioralProfile``.
+
+    Per contracts/filler-scorer-adapter.md "Per-family BehavioralProfile
+    dispatch". Family lookup uses the participant's existing
+    ``model_family`` attribute -- no new env var, no new config surface.
+    Raises ``KeyError`` for unknown families: an unknown family at this
+    point indicates a misconfigured participant, not a graceful-degrade
+    case (fail loud).
+    """
+    return BEHAVIORAL_PROFILES[provider_family]
+
+
+def threshold_for(profile: BehavioralProfile) -> float:
+    """Resolve the effective filler-score threshold.
+
+    Per contracts/filler-scorer-adapter.md "Threshold resolution":
+
+    - When ``SACP_FILLER_THRESHOLD`` env var is set, that value overrides
+      every family's default uniformly per research.md Sec 9.
+    - When unset (or empty / whitespace), each family's
+      ``profile.default_threshold`` applies.
+
+    The validator ``validate_filler_threshold`` (T003) ensures any set
+    value is a float in ``[0.0, 1.0]`` at startup, so this resolver
+    trusts the env-var contents to parse cleanly. Any parse failure here
+    falls back to the per-family default with a warning -- runtime
+    drift after startup is the only path that lands here.
+    """
+    raw = os.environ.get("SACP_FILLER_THRESHOLD")
+    if raw is None or raw.strip() == "":
+        return profile.default_threshold
+    try:
+        return float(raw)
+    except ValueError:
+        log.warning(
+            "SACP_FILLER_THRESHOLD=%r failed to parse at runtime; "
+            "falling back to per-family default %.3f",
+            raw,
+            profile.default_threshold,
+        )
+        return profile.default_threshold
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 (US1): retry orchestrator (T028)
+# ---------------------------------------------------------------------------
+#
+# ``evaluate_and_maybe_retry`` is the public entry point that ``loop.py``
+# (T029) wires in post-dispatch when ``SACP_RESPONSE_SHAPING_ENABLED=true``.
+# It scores the original draft, fires up to ``SHAPING_RETRY_CAP=2`` retries
+# with the profile's tightened delta when the score crosses threshold, and
+# stops at whichever cap fires first per FR-006:
+#
+#   - hard cap of 2 retries (FR-004), OR
+#   - the participant's compound-retry budget reaching zero (FR-006).
+#
+# The dispatch callable is supplied by the caller (loop.py) as a closure
+# that already has the participant + tier + tightened-delta wiring in
+# place. This module owns the orchestration; the loop owns the wiring.
+
+# Reason strings persisted to ``routing_log.shaping_reason`` per FR-011 +
+# data-model.md "routing_log extension". Module-level constants so the
+# strings are greppable and the loop wiring (T029) reads them directly.
+SHAPING_REASON_FILLER_RETRY = "filler_retry"
+SHAPING_REASON_FILLER_RETRY_EXHAUSTED = "filler_retry_exhausted"
+SHAPING_REASON_COMPOUND_RETRY_EXHAUSTED = "compound_retry_exhausted"
+SHAPING_REASON_PIPELINE_ERROR = "shaping_pipeline_error"
+
+
+async def evaluate_and_maybe_retry(
+    *,
+    draft_text: str,
+    profile: BehavioralProfile,
+    engine: ConvergenceDetector,
+    dispatch: Callable[[str], Awaitable[str]],
+    compound_budget_remaining: int,
+) -> tuple[str, ShapingDecision, int]:
+    """Score the draft; if over threshold, fire bounded tightened-delta retries.
+
+    Per contracts/filler-scorer-adapter.md "Retry orchestration" and
+    research.md Sec 4.
+
+    Joint cap (FR-006): shaping stops at whichever fires first --
+    ``SHAPING_RETRY_CAP=2`` (FR-004) OR ``compound_budget_remaining``
+    reaching zero. When the compound budget is the binding cap (i.e.
+    fewer than 2 slots remain at entry, OR the budget runs out mid-loop
+    while ``SHAPING_RETRY_CAP`` would still allow another retry), the
+    decision's ``exhausted`` flag stays ``False`` and the caller logs
+    ``SHAPING_REASON_COMPOUND_RETRY_EXHAUSTED`` instead of
+    ``SHAPING_REASON_FILLER_RETRY_EXHAUSTED``.
+
+    Returns ``(persisted_text, decision, retries_consumed)``. The caller
+    persists ``persisted_text`` as the turn's message content (FR-016
+    byte-equal: shaping does NOT mutate provider output beyond
+    selecting which dispatched draft becomes the persisted one), feeds
+    ``decision`` to the routing-log emitter, and decrements its
+    compound-retry budget by ``retries_consumed``.
+    """
+    threshold = threshold_for(profile)
+    original_score = await compute_filler_score(
+        draft_text=draft_text,
+        profile=profile,
+        engine=engine,
+    )
+    if original_score.aggregate < threshold:
+        return draft_text, _decision_no_retry(original_score), 0
+    persisted_text, retry_scores, exhausted = await _drive_retry_loop(
+        original_text=draft_text,
+        original_score=original_score,
+        threshold=threshold,
+        profile=profile,
+        engine=engine,
+        dispatch=dispatch,
+        compound_budget_remaining=compound_budget_remaining,
+    )
+    decision = ShapingDecision(
+        original_score=original_score,
+        retries_fired=len(retry_scores),
+        retry_scores=tuple(retry_scores),
+        persisted_index=_persisted_index(retry_scores, exhausted, threshold),
+        exhausted=exhausted,
+    )
+    return persisted_text, decision, len(retry_scores)
+
+
+def _decision_no_retry(original_score: FillerScore) -> ShapingDecision:
+    """Build a ``ShapingDecision`` for the no-retry path (score below threshold)."""
+    return ShapingDecision(
+        original_score=original_score,
+        retries_fired=0,
+        retry_scores=(),
+        persisted_index=0,
+        exhausted=False,
+    )
+
+
+async def _drive_retry_loop(
+    *,
+    original_text: str,
+    original_score: FillerScore,
+    threshold: float,
+    profile: BehavioralProfile,
+    engine: ConvergenceDetector,
+    dispatch: Callable[[str], Awaitable[str]],
+    compound_budget_remaining: int,
+) -> tuple[str, list[FillerScore], bool]:
+    """Run up to SHAPING_RETRY_CAP retries; return (persisted_text, scores, exhausted).
+
+    ``exhausted`` is True iff every retry slot allowed by the joint cap
+    was consumed AND the final retry's score was still above threshold.
+    The compound-budget-binding case (cap not reached, but budget ran
+    out) returns ``exhausted=False`` so the caller logs
+    ``compound_retry_exhausted`` rather than ``filler_retry_exhausted``.
+    """
+    persisted_text = original_text
+    persisted_score = original_score
+    retry_scores: list[FillerScore] = []
+    max_retries = min(SHAPING_RETRY_CAP, max(compound_budget_remaining, 0))
+    for _ in range(max_retries):
+        retry_text = await dispatch(profile.retry_delta_text)
+        retry_score = await compute_filler_score(
+            draft_text=retry_text,
+            profile=profile,
+            engine=engine,
+        )
+        retry_scores.append(retry_score)
+        persisted_text = retry_text
+        persisted_score = retry_score
+        if retry_score.aggregate < threshold:
+            return persisted_text, retry_scores, False
+    exhausted = max_retries == SHAPING_RETRY_CAP and persisted_score.aggregate >= threshold
+    return persisted_text, retry_scores, exhausted
+
+
+def _persisted_index(
+    retry_scores: list[FillerScore],
+    exhausted: bool,
+    threshold: float,
+) -> int:
+    """Index into ``[original, *retry_scores]`` for the persisted draft.
+
+    - 0 retries fired -> 0 (original persisted; only reached when the
+      caller bypasses ``_drive_retry_loop`` entirely, but the helper is
+      defensive against that path too).
+    - Last retry below threshold -> index of that retry (1 or 2).
+    - All retries above threshold (exhausted OR compound-budget cap) ->
+      index of the last retry fired.
+    """
+    if not retry_scores:
+        return 0
+    last = retry_scores[-1]
+    if not exhausted and last.aggregate < threshold:
+        return len(retry_scores)
+    return len(retry_scores)

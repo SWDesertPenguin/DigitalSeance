@@ -186,12 +186,19 @@ def test_convergence_module_has_no_shaping_wiring() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_shaping_module_only_exports_dataclasses_and_registry() -> None:
-    """Phase 2 deliverable shape: shaping.py exposes the BehavioralProfile
-    registry, FillerScore / ShapingDecision dataclasses, and the constant
-    SHAPING_RETRY_CAP. It does NOT yet expose ``compute_filler_score``,
-    ``evaluate_and_maybe_retry``, ``profile_for``, or ``threshold_for`` —
-    those land in Phase 3 (T026-T028).
+def test_shaping_module_exports_dataclasses_registry_and_orchestrator() -> None:
+    """Phase 3 (US1) deliverable shape (T023-T028 landed): shaping.py exposes
+    the BehavioralProfile registry, FillerScore / ShapingDecision dataclasses,
+    the SHAPING_RETRY_CAP constant, the aggregator + scorer entry point, the
+    per-family dispatch + threshold resolver, and the retry orchestrator.
+
+    The presence of ``compute_filler_score`` / ``evaluate_and_maybe_retry`` /
+    ``profile_for`` / ``threshold_for`` does NOT violate SC-002 on its own --
+    SC-002 is about the dispatch path firing them. The master-switch guard
+    lives at the call site (T029 in ``loop.py``); ``test_loop_module_does_not
+    _import_shaping`` below pins that guard's pre-wiring state until T029
+    lands and that canary tightens to "imports the module but the call is
+    short-circuited when the switch is off".
     """
     public = {n for n in dir(shaping_module) if not n.startswith("_")}
     assert "BehavioralProfile" in public
@@ -199,17 +206,16 @@ def test_shaping_module_only_exports_dataclasses_and_registry() -> None:
     assert "FillerScore" in public
     assert "ShapingDecision" in public
     assert "SHAPING_RETRY_CAP" in public
-    # Implementation symbols MUST be absent today.
-    for unimplemented in (
+    # Phase 3 (T026-T028) implementation symbols are now present.
+    for symbol in (
         "compute_filler_score",
         "evaluate_and_maybe_retry",
         "profile_for",
         "threshold_for",
     ):
-        assert unimplemented not in public, (
-            f"SC-002 leak: shaping.{unimplemented} landed before Phase 3 wiring; "
-            "the master-switch guard MUST be in place at the call site."
-        )
+        assert (
+            symbol in public
+        ), f"shaping.{symbol} expected after T026-T028 land; module shape regressed."
 
 
 def test_register_presets_module_shape() -> None:
