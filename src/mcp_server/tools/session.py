@@ -393,6 +393,7 @@ async def set_session_name(
         action="rename_session",
         target_id=session.id,
         new_value=session.name,
+        broadcast_session_id=session.id,
     )
     from src.web_ui.events import session_updated_event
     from src.web_ui.websocket import broadcast_to_session
@@ -479,6 +480,7 @@ async def _audit_status_change(
         target_id=participant.session_id,
         previous_value=prior,
         new_value=new,
+        broadcast_session_id=participant.session_id,
     )
 
 

@@ -339,6 +339,7 @@ class LogRepository(BaseRepository):
             target_id=session_id,
             previous_value=previous_value,
             new_value=new_value,
+            broadcast_session_id=session_id,
         )
 
     async def log_mode_transition(
@@ -380,6 +381,7 @@ class LogRepository(BaseRepository):
             target_id=session_id,
             previous_value=previous_value,
             new_value=new_value,
+            broadcast_session_id=session_id,
         )
 
     async def log_mode_transition_suppressed(
@@ -412,6 +414,7 @@ class LogRepository(BaseRepository):
             target_id=session_id,
             previous_value=previous_value,
             new_value=new_value,
+            broadcast_session_id=session_id,
         )
 
     async def log_decision_cycle_throttled(
@@ -445,6 +448,7 @@ class LogRepository(BaseRepository):
             target_id=session_id,
             previous_value=previous_value,
             new_value=new_value,
+            broadcast_session_id=session_id,
         )
 
     async def log_signal_source_unavailable(
@@ -478,6 +482,7 @@ class LogRepository(BaseRepository):
             target_id=session_id,
             previous_value=previous_value,
             new_value=new_value,
+            broadcast_session_id=session_id,
         )
 
     # --- Security Events ---
