@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from src.api_bridge.adapter import initialize_adapter
 from src.config import load_settings
 from src.database.connection import close_pool, create_pool
 from src.mcp_server.sse import get_connection_manager
@@ -31,13 +32,32 @@ logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Manage app lifecycle — pool, services, shutdown."""
+    """Manage app lifecycle — adapter init, pool, services, shutdown.
+
+    Spec 020: env-var validation runs ahead of this hook (in
+    `src/run_apps.py`). The lifespan imports the adapter packages so
+    `AdapterRegistry` has both `litellm` and `mock` registered before
+    `initialize_adapter()` reads `SACP_PROVIDER_ADAPTER`, then
+    instantiates the chosen adapter BEFORE the FastAPI router accepts
+    connections.
+    """
+    import src.api_bridge.litellm  # noqa: F401
+    import src.api_bridge.mock  # noqa: F401
+    from src.api_bridge.adapter import _reset_adapter_for_tests
+
+    # Idempotent in tests: each per-test FastAPI fixture (spec 012 US7)
+    # stands the app up fresh, so we clear any prior adapter binding
+    # before reinitializing. Production lifespan runs exactly once per
+    # process, so the reset is a no-op there.
+    _reset_adapter_for_tests()
+    initialize_adapter()
     settings = load_settings()
     pool = await create_pool(settings.database)
     app.state.connection_manager = get_connection_manager()
     _attach_services(app, pool, settings.encryption.key)
     yield
     await close_pool(pool)
+    _reset_adapter_for_tests()
 
 
 def create_app() -> FastAPI:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import uuid
 from collections.abc import AsyncGenerator
@@ -39,6 +40,50 @@ os.environ.setdefault(
     "SACP_WEB_UI_COOKIE_KEY",
     "test-only-cookie-key-do-not-use-in-prod-32chars-minimum",
 )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _spec_020_register_adapters() -> None:
+    """Spec 020: ensure both adapters are registered for the test session.
+
+    Production-path init runs in `src/mcp_server/app.py:_lifespan`. Tests
+    that exercise dispatch outside of the FastAPI lifespan (e.g.,
+    `test_loop_integration.py`'s direct `loop.execute_turn(...)` calls
+    via `mock_litellm`) need the LiteLLM adapter registered so
+    `get_adapter()` returns an instance. This session-scoped fixture
+    imports both adapter packages so the registry is populated; the
+    individual adapter selection is still env-var-driven via
+    `SACP_PROVIDER_ADAPTER` per FR-002.
+    """
+    import src.api_bridge.litellm  # noqa: F401
+    import src.api_bridge.mock  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def _spec_020_init_adapter(request: pytest.FixtureRequest) -> object:
+    """Per-test adapter initialization for the default LiteLLM path.
+
+    Resets the active-adapter slot before each test (so SC-005 fail-
+    closed tests start clean) and initializes the LiteLLM adapter when
+    the env var is unset / explicitly `litellm`. Tests that drive their
+    own `initialize_adapter()` (e.g., `test_020_adapter_registry.py`)
+    request the marker `no_adapter_autoinit` to skip auto-init.
+    """
+    from src.api_bridge.adapter import (
+        AdapterRegistry,
+        _reset_adapter_for_tests,
+        initialize_adapter,
+    )
+
+    _reset_adapter_for_tests()
+    skip_marker = request.node.get_closest_marker("no_adapter_autoinit")
+    if skip_marker is None and AdapterRegistry.get("litellm") is not None:
+        adapter_name = os.environ.get("SACP_PROVIDER_ADAPTER", "litellm").lower()
+        if adapter_name == "litellm":
+            with contextlib.suppress(SystemExit):
+                initialize_adapter()
+    yield
+    _reset_adapter_for_tests()
 
 
 @pytest.fixture(scope="session")

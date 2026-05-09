@@ -1,0 +1,53 @@
+{
+  "responses": [
+    {
+      "match": {
+        "mode": "substring",
+        "value": "hello"
+      },
+      "response": {
+        "content": "hello world",
+        "input_tokens": 42,
+        "output_tokens": 10,
+        "cost_usd": 0.0,
+        "model": "mock-model",
+        "latency_ms": 5
+      }
+    },
+    {
+      "match": {
+        "mode": "hash",
+        "value": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "response": {
+        "content": "exact-replay match",
+        "input_tokens": 8,
+        "output_tokens": 4,
+        "cost_usd": 0.0,
+        "model": "mock-model",
+        "latency_ms": 1
+      }
+    }
+  ],
+  "errors": [],
+  "capabilities": {
+    "default": {
+      "supports_streaming": true,
+      "supports_tool_calling": true,
+      "supports_prompt_caching": false,
+      "max_context_tokens": 200000,
+      "tokenizer_name": "mock-tokenizer",
+      "recommended_temperature_range": [0.0, 1.0],
+      "provider_family": "mock"
+    },
+    "no_tool_model": {
+      "supports_streaming": true,
+      "supports_tool_calling": false,
+      "supports_prompt_caching": false,
+      "max_context_tokens": 8192,
+      "tokenizer_name": "mock-tokenizer",
+      "recommended_temperature_range": [0.0, 1.0],
+      "provider_family": "mock"
+    }
+  }
+}

@@ -21,7 +21,7 @@ Covers audit-plan items:
 """
 
 # ruff: noqa: I001
-# Import order: src.auth must be primed before src.api_bridge.provider's
+# Import order: src.auth must be primed before src.api_bridge.litellm.dispatch's
 # dispatch path is exercised through src.repositories.
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ import pytest
 import src.auth  # noqa: F401  -- prime auth package
 import litellm
 
-from src.api_bridge.provider import (
+from src.api_bridge.litellm.dispatch import (
     _compute_cost,
     _normalize_ollama_model,
     dispatch,
@@ -82,14 +82,14 @@ async def test_per_provider_rate_limit_triggers_retry(
 ) -> None:
     """RateLimitError from any provider is caught and retried by dispatch_with_retry."""
     err = builder()
-    with patch("src.api_bridge.provider.litellm") as mock_litellm:
+    with patch("src.api_bridge.litellm.dispatch.litellm") as mock_litellm:
         mock_litellm.acompletion = AsyncMock(side_effect=err)
         mock_litellm.RateLimitError = litellm.RateLimitError
         mock_litellm.Timeout = litellm.Timeout
         mock_litellm.ContextWindowExceededError = litellm.ContextWindowExceededError
         mock_litellm.suppress_debug_info = True
         with (
-            patch("src.api_bridge.provider.asyncio.sleep", new=AsyncMock()),
+            patch("src.api_bridge.litellm.dispatch.asyncio.sleep", new=AsyncMock()),
             pytest.raises(ProviderDispatchError),
         ):
             await dispatch_with_retry(**_base_kwargs(model=model), max_retries=2)
@@ -119,7 +119,7 @@ async def test_per_provider_auth_error_does_not_retry(
 ) -> None:
     """AuthenticationError surfaces as ProviderDispatchError on the first attempt."""
     err = builder()
-    with patch("src.api_bridge.provider.litellm") as mock_litellm:
+    with patch("src.api_bridge.litellm.dispatch.litellm") as mock_litellm:
         mock_litellm.acompletion = AsyncMock(side_effect=err)
         mock_litellm.RateLimitError = litellm.RateLimitError
         mock_litellm.Timeout = litellm.Timeout
@@ -139,7 +139,7 @@ async def test_per_provider_auth_error_does_not_retry(
 def test_compute_cost_returns_zero_when_lookup_raises() -> None:
     """Models LiteLLM doesn't price (Ollama, custom) get cost = 0.0, not exception."""
     response = provider_stubs.ollama_response()
-    with patch("src.api_bridge.provider.litellm") as mock_litellm:
+    with patch("src.api_bridge.litellm.dispatch.litellm") as mock_litellm:
         mock_litellm.completion_cost.side_effect = Exception("model not in registry")
         cost = _compute_cost(response, "ollama_chat/llama3.2:1b")
     assert cost == 0.0
@@ -148,7 +148,7 @@ def test_compute_cost_returns_zero_when_lookup_raises() -> None:
 def test_compute_cost_uses_litellm_when_lookup_succeeds() -> None:
     """Priced models return whatever LiteLLM's registry reports."""
     response = provider_stubs.openai_response()
-    with patch("src.api_bridge.provider.litellm") as mock_litellm:
+    with patch("src.api_bridge.litellm.dispatch.litellm") as mock_litellm:
         mock_litellm.completion_cost.return_value = 0.0042
         cost = _compute_cost(response, "gpt-4o")
     assert cost == 0.0042
@@ -161,7 +161,7 @@ def test_compute_cost_uses_litellm_when_lookup_succeeds() -> None:
 
 async def test_max_tokens_omitted_when_none() -> None:
     """When max_tokens kwarg is None, the field is absent in the LiteLLM call."""
-    with patch("src.api_bridge.provider.litellm") as mock_litellm:
+    with patch("src.api_bridge.litellm.dispatch.litellm") as mock_litellm:
         mock_litellm.acompletion = AsyncMock(return_value=provider_stubs.openai_response())
         mock_litellm.completion_cost.return_value = 0.001
         mock_litellm.suppress_debug_info = True
@@ -172,7 +172,7 @@ async def test_max_tokens_omitted_when_none() -> None:
 
 async def test_max_tokens_forwarded_when_set() -> None:
     """When max_tokens kwarg is supplied, the value reaches the LiteLLM call."""
-    with patch("src.api_bridge.provider.litellm") as mock_litellm:
+    with patch("src.api_bridge.litellm.dispatch.litellm") as mock_litellm:
         mock_litellm.acompletion = AsyncMock(return_value=provider_stubs.openai_response())
         mock_litellm.completion_cost.return_value = 0.001
         mock_litellm.suppress_debug_info = True
@@ -214,7 +214,7 @@ def test_non_ollama_model_passthrough() -> None:
 
 async def test_ollama_request_omits_api_key() -> None:
     """Ollama dispatches MUST NOT pass an api_key kwarg (local server, no auth)."""
-    with patch("src.api_bridge.provider.litellm") as mock_litellm:
+    with patch("src.api_bridge.litellm.dispatch.litellm") as mock_litellm:
         mock_litellm.acompletion = AsyncMock(return_value=provider_stubs.ollama_response())
         mock_litellm.completion_cost.return_value = 0.0
         mock_litellm.suppress_debug_info = True
@@ -227,7 +227,7 @@ async def test_ollama_request_omits_api_key() -> None:
 
 async def test_non_ollama_request_includes_api_key_when_present() -> None:
     """Non-Ollama dispatches DO pass api_key when supplied."""
-    with patch("src.api_bridge.provider.litellm") as mock_litellm:
+    with patch("src.api_bridge.litellm.dispatch.litellm") as mock_litellm:
         mock_litellm.acompletion = AsyncMock(return_value=provider_stubs.openai_response())
         mock_litellm.completion_cost.return_value = 0.001
         mock_litellm.suppress_debug_info = True

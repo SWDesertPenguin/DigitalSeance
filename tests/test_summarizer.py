@@ -190,13 +190,14 @@ async def test_generate_summary_falls_back_to_next_cheapest(monkeypatch) -> None
     """Round09: cheapest AI on dead quota → use next-cheapest, no 500."""
     calls: list[str] = []
 
-    async def fake_dispatch(*, model, **kwargs):
-        calls.append(model)
-        if model == "gemini/gemini-2.0-flash-lite-001":
-            raise ProviderDispatchError("simulated 429")
-        return SimpleNamespace(content=_VALID_SUMMARY_JSON)
+    class _StubAdapter:
+        async def dispatch_with_retry(self, request):
+            calls.append(request.model)
+            if request.model == "gemini/gemini-2.0-flash-lite-001":
+                raise ProviderDispatchError("simulated 429")
+            return SimpleNamespace(content=_VALID_SUMMARY_JSON)
 
-    monkeypatch.setattr(summarizer_mod, "dispatch_with_retry", fake_dispatch)
+    monkeypatch.setattr(summarizer_mod, "get_adapter", lambda: _StubAdapter())
     cheapest = _stub_participant("gemini/gemini-2.0-flash-lite-001")
     fallback = _stub_participant("anthropic/claude-haiku-4-5-20251001")
     out = await _generate_summary(turns=[], candidates=[cheapest, fallback], encryption_key="k")
@@ -208,10 +209,11 @@ async def test_generate_summary_falls_back_to_next_cheapest(monkeypatch) -> None
 async def test_generate_summary_raises_when_all_candidates_fail(monkeypatch) -> None:
     """Every candidate dies → re-raise so the 500 path still fires."""
 
-    async def fake_dispatch(*, model, **kwargs):
-        raise ProviderDispatchError(f"down: {model}")
+    class _StubAdapter:
+        async def dispatch_with_retry(self, request):
+            raise ProviderDispatchError(f"down: {request.model}")
 
-    monkeypatch.setattr(summarizer_mod, "dispatch_with_retry", fake_dispatch)
+    monkeypatch.setattr(summarizer_mod, "get_adapter", lambda: _StubAdapter())
     candidates = [_stub_participant("m1"), _stub_participant("m2")]
     with pytest.raises(ProviderDispatchError):
         await _generate_summary(turns=[], candidates=candidates, encryption_key="k")

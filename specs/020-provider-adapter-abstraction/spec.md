@@ -2,7 +2,7 @@
 
 **Feature Branch**: `020-provider-adapter-abstraction`
 **Created**: 2026-05-06
-**Status**: Clarified 2026-05-08 (Phase 3 declared 2026-05-05; scaffold + clarifications resolved; `/speckit.plan` and `/speckit.tasks` deferred to user invocation)
+**Status**: Implemented 2026-05-08 (Phase 3 declared 2026-05-05; scaffold + clarifications resolved; LiteLLM + mock adapters + cutover landed; FR-005 architectural test green; SC-001 byte-identical regression confirmed via CI matrix)
 **Input**: User description: "Pluggable provider adapter abstraction for SACP's bridge layer. SACP Phase 1 uses LiteLLM as the bridge layer for provider translation across Anthropic, OpenAI, OpenAI-compatible endpoints, Ollama, and vLLM. External dependencies at the network boundary of a multi-tenant orchestrator carry inherent supply-chain risk; SACP needs a clean abstraction layer that could swap LiteLLM for in-house provider adapters if the dependency ever needs to be replaced. Designing the interface now — without building in-house adapters — costs little and provides a swap path. The adapter interface defines SACP's internal message format (stable across all adapters) and normalizes provider-specific tool-calling formats, streaming protocols, error taxonomies, token counting, and cache-control directives at the API boundary. Phase 1 ships a single LiteLLM-backed adapter behind the interface plus a mock adapter for testing. Future phases may introduce provider-specific adapters one at a time, feature-flag gated. Phase 1 scope: interface definition, LiteLLM-backed implementation, mock for testing. Cross-references §6 of sacp-design.md (provider abstraction) and the circuit-breaker feature (error-taxonomy integration)."
 
 ## Overview

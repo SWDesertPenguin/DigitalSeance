@@ -1,4 +1,11 @@
-"""LiteLLM provider bridge — dispatch, streaming, retry."""
+"""LiteLLM-backed dispatch — relocated from src/api_bridge/provider.py per spec 020.
+
+This module is the only place under `src/` permitted to import
+`litellm`; the FR-005 architectural test enforces that constraint.
+The function bodies preserve pre-feature behavior byte-identically per
+FR-014 / SC-001 — the abstraction is an internal-architecture refactor,
+not a behavior change.
+"""
 
 from __future__ import annotations
 
@@ -10,9 +17,9 @@ from typing import Any
 
 import litellm
 
+from src.api_bridge.adapter import ProviderResponse
 from src.api_bridge.caching import CacheDirectives, apply_directives
 from src.database.encryption import decrypt_value
-from src.orchestrator.types import ProviderResponse
 from src.repositories.errors import (
     CompoundRetryExhaustedError,
     ContextWindowOverflowError,
@@ -85,7 +92,7 @@ async def dispatch_with_retry(
 
     Bounded by 003 §FR-031: total elapsed (per-attempt + backoff) is
     capped at SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS (default 600s).
-    Crossing SACP_COMPOUND_RETRY_WARN_FACTOR × timeout (default 2× per-attempt
+    Crossing SACP_COMPOUND_RETRY_WARN_FACTOR x timeout (default 2x per-attempt
     timeout = 360s) emits a `compound_retry_warn` log line once. Hitting
     the cap raises CompoundRetryExhaustedError.
     """
@@ -310,7 +317,7 @@ async def _log_heartbeat(model: str, timeout: int) -> None:
         elapsed = int(time.monotonic() - start)
         remaining = timeout - elapsed
         log.info(
-            "Waiting for %s… %ds elapsed, %ds remaining",
+            "Waiting for %s... %ds elapsed, %ds remaining",
             model,
             elapsed,
             remaining,

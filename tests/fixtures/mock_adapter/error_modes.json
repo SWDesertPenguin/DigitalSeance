@@ -1,0 +1,58 @@
+{
+  "responses": [],
+  "errors": [
+    {
+      "match": {"mode": "substring", "value": "trigger 5xx"},
+      "canonical_category": "error_5xx",
+      "retry_after_seconds": null,
+      "provider_message": "mock provider unavailable"
+    },
+    {
+      "match": {"mode": "substring", "value": "trigger 4xx"},
+      "canonical_category": "error_4xx",
+      "retry_after_seconds": null,
+      "provider_message": "mock bad request"
+    },
+    {
+      "match": {"mode": "substring", "value": "trigger auth"},
+      "canonical_category": "auth_error",
+      "retry_after_seconds": null,
+      "provider_message": "mock auth failure"
+    },
+    {
+      "match": {"mode": "substring", "value": "trigger rate limit"},
+      "canonical_category": "rate_limit",
+      "retry_after_seconds": 30,
+      "provider_message": "mock rate limit"
+    },
+    {
+      "match": {"mode": "substring", "value": "trigger timeout"},
+      "canonical_category": "timeout",
+      "retry_after_seconds": null,
+      "provider_message": "mock timeout"
+    },
+    {
+      "match": {"mode": "substring", "value": "trigger quality"},
+      "canonical_category": "quality_failure",
+      "retry_after_seconds": null,
+      "provider_message": "mock content policy"
+    },
+    {
+      "match": {"mode": "substring", "value": "trigger unknown"},
+      "canonical_category": "unknown",
+      "retry_after_seconds": null,
+      "provider_message": "mock unknown failure"
+    }
+  ],
+  "capabilities": {
+    "default": {
+      "supports_streaming": true,
+      "supports_tool_calling": true,
+      "supports_prompt_caching": false,
+      "max_context_tokens": 200000,
+      "tokenizer_name": "mock-tokenizer",
+      "recommended_temperature_range": [0.0, 1.0],
+      "provider_family": "mock"
+    }
+  }
+}

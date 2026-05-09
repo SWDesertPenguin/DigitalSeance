@@ -16,6 +16,7 @@ Per spec 012 FR-004 / contracts/config-validator-cli.md.
 
 from __future__ import annotations
 
+import json
 import os
 import urllib.parse
 from collections.abc import Callable, Iterator
@@ -886,6 +887,63 @@ def validate_network_ratelimit_max_keys() -> ValidationFailure | None:
     return None
 
 
+# Spec 020 — provider adapter abstraction. The validator hardcodes the
+# v1 valid set (`litellm`, `mock`); future adapter specs extend this set
+# in their landing PRs per research.md §9. Hardcoding is intentional:
+# startup validation runs before adapter packages import (which would
+# populate the runtime AdapterRegistry), so the validator cannot consult
+# the registry at validation time.
+_PROVIDER_ADAPTER_VALID = ("litellm", "mock")
+
+
+def validate_provider_adapter() -> ValidationFailure | None:
+    """SACP_PROVIDER_ADAPTER: adapter name from registry, default 'litellm'.
+
+    Per spec 020 FR-002 / FR-003 / SC-005. Out-of-set values exit at
+    startup with an error message listing registered names.
+    """
+    val = os.environ.get("SACP_PROVIDER_ADAPTER")
+    if val is None or val.strip() == "":
+        return None
+    folded = val.strip().lower()
+    if folded not in _PROVIDER_ADAPTER_VALID:
+        return ValidationFailure(
+            "SACP_PROVIDER_ADAPTER",
+            f"must be one of {sorted(_PROVIDER_ADAPTER_VALID)}; got {val!r}",
+        )
+    return None
+
+
+_MOCK_PATH_VAR = "SACP_PROVIDER_ADAPTER_MOCK_FIXTURES_PATH"
+
+
+def validate_provider_adapter_mock_fixtures_path() -> ValidationFailure | None:
+    """SACP_PROVIDER_ADAPTER_MOCK_FIXTURES_PATH required + readable when adapter='mock'.
+
+    Cross-validator dependency on SACP_PROVIDER_ADAPTER per spec 020
+    FR-006 / FR-007 / SC-004; ignored when adapter is anything else.
+    """
+    adapter = os.environ.get("SACP_PROVIDER_ADAPTER", "litellm").strip().lower()
+    if adapter != "mock":
+        return None
+    path = os.environ.get(_MOCK_PATH_VAR)
+    if path is None or path.strip() == "":
+        return ValidationFailure(
+            _MOCK_PATH_VAR,
+            f"SACP_PROVIDER_ADAPTER=mock requires {_MOCK_PATH_VAR} to be set",
+        )
+    if not os.path.isfile(path):
+        return ValidationFailure(_MOCK_PATH_VAR, f"{path!r} is not a readable file")
+    try:
+        with open(path, encoding="utf-8") as f:
+            json.load(f)
+    except json.JSONDecodeError as exc:
+        return ValidationFailure(_MOCK_PATH_VAR, f"{path!r} contains invalid JSON: {exc}")
+    except OSError as exc:
+        return ValidationFailure(_MOCK_PATH_VAR, f"{path!r} could not be read: {exc}")
+    return None
+
+
 def validate_web_ui_cookie_key() -> ValidationFailure | None:
     """SACP_WEB_UI_COOKIE_KEY: required signing key for Web UI session cookies.
 
@@ -954,6 +1012,8 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_network_ratelimit_burst,
     validate_network_ratelimit_trust_forwarded_headers,
     validate_network_ratelimit_max_keys,
+    validate_provider_adapter,
+    validate_provider_adapter_mock_fixtures_path,
 )
 
 

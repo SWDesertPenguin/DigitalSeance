@@ -1,0 +1,36 @@
+{
+  "responses": [
+    {
+      "match": {"mode": "substring", "value": "stream me"},
+      "response": {
+        "content": "hello world",
+        "input_tokens": 5,
+        "output_tokens": 2,
+        "cost_usd": 0.0,
+        "model": "mock-model",
+        "latency_ms": 3
+      },
+      "stream_events": [
+        {"event_type": "text_delta", "content": "hello "},
+        {"event_type": "text_delta", "content": "world"},
+        {
+          "event_type": "finalization",
+          "finish_reason": "stop",
+          "usage": {"prompt_tokens": 5, "completion_tokens": 2}
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "capabilities": {
+    "default": {
+      "supports_streaming": true,
+      "supports_tool_calling": true,
+      "supports_prompt_caching": false,
+      "max_context_tokens": 200000,
+      "tokenizer_name": "mock-tokenizer",
+      "recommended_temperature_range": [0.0, 1.0],
+      "provider_family": "mock"
+    }
+  }
+}
