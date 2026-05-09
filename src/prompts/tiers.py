@@ -87,6 +87,7 @@ def assemble_prompt(
     custom_prompt: str = "",
     participant_id: str | None = None,
     conclude_delta: str = "",
+    shaping_retry_delta_text: str | None = None,
 ) -> str:
     """Assemble the full system prompt from tiers + custom content.
 
@@ -103,6 +104,15 @@ def assemble_prompt(
     ``conclude_delta`` (spec 025 FR-008/FR-009) is a Tier 4 additive
     fragment appended after custom_prompt and after any future spec 021
     register-slider delta. Empty string disables injection (default).
+
+    ``shaping_retry_delta_text`` (spec 021 T030) is the per-family
+    tightened-Tier-4 delta inserted on a shaping retry, supplied by the
+    retry orchestrator (``src.orchestrator.shaping.evaluate_and_maybe_retry``)
+    via the dispatch closure in ``loop.py``. Appended after
+    ``custom_prompt`` and (per US2 ordering note in
+    contracts/register-preset-interface.md) after any register-preset
+    delta. ``None`` disables injection (default — no retry in flight, or
+    the master switch is off).
     """
     parts = list(_tier_parts(prompt_tier))
     if custom_prompt:
@@ -112,6 +122,8 @@ def assemble_prompt(
             parts.append(sanitize(custom_prompt))
     if conclude_delta:
         parts.append(conclude_delta)
+    if shaping_retry_delta_text:
+        parts.append(shaping_retry_delta_text)
     return _embed_canaries(parts, _generate_canaries())
 
 

@@ -140,19 +140,27 @@ def test_loop_module_does_not_import_register_presets() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_log_routing_signature_excludes_shaping_columns() -> None:
+def test_log_routing_signature_includes_shaping_columns() -> None:
     """T031 plumbs the five new shaping columns through ``log_routing``.
 
-    Pre-T031: the function signature MUST NOT include any of the five
-    new column names as keyword parameters. If it does, US1 wiring landed
-    early and the master-switch guard hasn't been audited yet.
+    Post-T031: the function signature MUST include all five new column
+    names as keyword parameters AND each parameter MUST default to
+    ``None``. The default-to-``None`` invariant is the SC-002 byte-equal
+    guarantee at the persistence layer: every existing
+    ``log_routing(...)`` caller that omits the new kwargs writes NULL
+    into the five new columns, byte-equal to the pre-feature row shape.
+    Only the spec-021 loop wiring (T029) explicitly passes non-None
+    values, and it does so only when ``SACP_RESPONSE_SHAPING_ENABLED``
+    is on.
     """
     sig = inspect.signature(log_repo_module.LogRepository.log_routing)
-    params = set(sig.parameters)
-    leaked = [c for c in _NEW_ROUTING_LOG_COLUMNS if c in params]
-    assert not leaked, (
-        f"SC-002 leak: log_routing accepts shaping columns pre-T031: {leaked}. "
-        "Plumbing landed before the master-switch guard."
+    params = sig.parameters
+    missing = [c for c in _NEW_ROUTING_LOG_COLUMNS if c not in params]
+    assert not missing, f"T031 plumbing incomplete: log_routing missing shaping columns: {missing}."
+    bad_default = [c for c in _NEW_ROUTING_LOG_COLUMNS if params[c].default is not None]
+    assert not bad_default, (
+        "T031 plumbing regression: shaping kwargs must default to None so "
+        f"shaping-off callers write NULL (SC-002 byte-equal): {bad_default}."
     )
 
 

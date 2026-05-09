@@ -39,6 +39,11 @@ class LogRepository(BaseRepository):
         dispatch_ms: int | None = None,
         persist_ms: int | None = None,
         advisory_lock_wait_ms: int | None = None,
+        shaping_score_ms: int | None = None,
+        shaping_retry_dispatch_ms: int | None = None,
+        filler_score: float | None = None,
+        shaping_retry_delta_text: str | None = None,
+        shaping_reason: str | None = None,
     ) -> RoutingLog:
         """Append a routing decision log entry.
 
@@ -46,6 +51,17 @@ class LogRepository(BaseRepository):
         Constitution §12 V14 / 003 §FR-030 + §FR-032; populated by the
         turn-loop persist path (012 US6) and remain NULL on skip-path
         / pre-instrumentation rows.
+
+        Spec 021 (T031): the five shaping columns
+        (``shaping_score_ms``..``shaping_reason``) are NULL on every row
+        when ``SACP_RESPONSE_SHAPING_ENABLED`` is off (SC-002 byte-equal)
+        and on skip-path rows. When shaping is on, the loop wiring (T029)
+        populates ``shaping_score_ms`` + ``filler_score`` on every
+        evaluation, ``shaping_retry_dispatch_ms`` +
+        ``shaping_retry_delta_text`` on each per-retry row, and
+        ``shaping_reason`` per FR-011 (one of ``'filler_retry'`` /
+        ``'filler_retry_exhausted'`` /
+        ``'compound_retry_exhausted'`` / ``'shaping_pipeline_error'``).
         """
         record = await self._fetch_one(
             _INSERT_ROUTING_SQL,
@@ -62,6 +78,11 @@ class LogRepository(BaseRepository):
             dispatch_ms,
             persist_ms,
             advisory_lock_wait_ms,
+            shaping_score_ms,
+            shaping_retry_dispatch_ms,
+            filler_score,
+            shaping_retry_delta_text,
+            shaping_reason,
         )
         return RoutingLog.from_record(record)
 
@@ -615,9 +636,12 @@ _INSERT_ROUTING_SQL = """
          actual_participant, routing_action,
          complexity_score, domain_match, reason,
          route_ms, assemble_ms, dispatch_ms, persist_ms,
-         advisory_lock_wait_ms)
+         advisory_lock_wait_ms,
+         shaping_score_ms, shaping_retry_dispatch_ms,
+         filler_score, shaping_retry_delta_text, shaping_reason)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-            $9, $10, $11, $12, $13)
+            $9, $10, $11, $12, $13,
+            $14, $15, $16, $17, $18)
     RETURNING *
 """
 
