@@ -98,7 +98,14 @@ async def dispatch_with_retry(
     timeout = 360s) emits a `compound_retry_warn` log line once. Hitting
     the cap raises CompoundRetryExhaustedError.
     """
+    # Pull the public (non-credential) model identifier into a separate
+    # local before the dispatch_kwargs dict assembles. Keeps the warn-log
+    # taint flow distinct from the credential-bearing dict so static
+    # analyzers (CodeQL py/clear-text-logging-sensitive-data) don't flag
+    # the operational log line.
+    public_model = str(model)
     return await _retry_loop(
+        public_model=public_model,
         max_retries=max_retries,
         dispatch_kwargs={
             "model": model,
@@ -113,7 +120,12 @@ async def dispatch_with_retry(
     )
 
 
-async def _retry_loop(*, max_retries: int, dispatch_kwargs: dict[str, Any]) -> ProviderResponse:
+async def _retry_loop(
+    *,
+    public_model: str,
+    max_retries: int,
+    dispatch_kwargs: dict[str, Any],
+) -> ProviderResponse:
     """Run the bounded retry loop. See dispatch_with_retry for FR-031 semantics."""
     cap_sec, warn_threshold = _retry_thresholds(dispatch_kwargs["timeout"])
     start = time.monotonic()
@@ -121,7 +133,7 @@ async def _retry_loop(*, max_retries: int, dispatch_kwargs: dict[str, Any]) -> P
     last_error: Exception | None = None
     for attempt in range(max_retries):
         warned = _check_retry_budget(
-            model=dispatch_kwargs["model"],
+            public_model=public_model,
             start=start,
             cap_sec=cap_sec,
             warn_threshold=warn_threshold,
@@ -144,7 +156,7 @@ async def _retry_loop(*, max_retries: int, dispatch_kwargs: dict[str, Any]) -> P
 
 def _check_retry_budget(
     *,
-    model: str,
+    public_model: str,
     start: float,
     cap_sec: float,
     warn_threshold: float,
@@ -162,7 +174,7 @@ def _check_retry_budget(
     if not warned and elapsed >= warn_threshold:
         log.warning(
             "compound_retry_warn: model=%s elapsed=%.1fs threshold=%.1fs attempt=%d",
-            model,
+            public_model,
             elapsed,
             warn_threshold,
             attempt,
