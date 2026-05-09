@@ -5,6 +5,10 @@ No update or delete methods. Append-only enforced by interface.
 
 from __future__ import annotations
 
+import json
+from datetime import datetime
+from typing import Any
+
 from src.models.logs import AdminAuditLog, ConvergenceLog, RoutingLog, SecurityEvent, UsageLog
 from src.repositories.base import BaseRepository
 
@@ -213,6 +217,188 @@ class LogRepository(BaseRepository):
         )
         return [AdminAuditLog.from_record(r) for r in rows]
 
+    # --- Spec 014 mode_* audit-event helpers (DMA controller) ---
+    # Five new ``action`` strings reuse the existing admin_audit_log table
+    # (no schema change). See specs/014-dynamic-mode-assignment/contracts/
+    # audit-events.md for row-level field semantics.
+
+    async def log_mode_recommendation(
+        self,
+        *,
+        session_id: str,
+        facilitator_id: str,
+        previous_action: str | None,
+        action: str,
+        triggers: list[str],
+        signal_observations: list[dict[str, Any]],
+        dwell_floor_at: datetime | None,
+    ) -> AdminAuditLog:
+        """Append a ``mode_recommendation`` row (014 §FR-005).
+
+        Fires in BOTH advisory and auto-apply modes whenever the controller's
+        decision differs from ``ControllerState.last_emitted_action``.
+        ``target_id`` is the session_id (the audit row's subject is the
+        session, not a participant).
+        """
+        previous_value = (
+            json.dumps({"action": previous_action}) if previous_action is not None else None
+        )
+        new_value = json.dumps(
+            {
+                "action": action,
+                "triggers": triggers,
+                "signal_observations": signal_observations,
+                "dwell_floor_at": _iso_or_none(dwell_floor_at),
+            }
+        )
+        return await self.log_admin_action(
+            session_id=session_id,
+            facilitator_id=facilitator_id,
+            action="mode_recommendation",
+            target_id=session_id,
+            previous_value=previous_value,
+            new_value=new_value,
+        )
+
+    async def log_mode_transition(
+        self,
+        *,
+        session_id: str,
+        facilitator_id: str,
+        previous_action: str | None,
+        action: str,
+        triggers: list[str],
+        signal_observations: list[dict[str, Any]],
+        engaged_mechanisms: list[str],
+        skipped_mechanisms: list[str],
+        dwell_floor_at: datetime | None,
+    ) -> AdminAuditLog:
+        """Append a ``mode_transition`` row (014 §FR-006).
+
+        Pairs with ``mode_recommendation`` at the same ``decision_at``;
+        operators JOIN on ``(target_id, timestamp)`` to trace recommendation
+        through to transition.
+        """
+        previous_value = json.dumps(
+            {"action": previous_action, "engaged_mechanisms": engaged_mechanisms}
+        )
+        new_value = json.dumps(
+            {
+                "action": action,
+                "triggers": triggers,
+                "signal_observations": signal_observations,
+                "engaged_mechanisms": engaged_mechanisms,
+                "skipped_mechanisms": skipped_mechanisms,
+                "dwell_floor_at": _iso_or_none(dwell_floor_at),
+            }
+        )
+        return await self.log_admin_action(
+            session_id=session_id,
+            facilitator_id=facilitator_id,
+            action="mode_transition",
+            target_id=session_id,
+            previous_value=previous_value,
+            new_value=new_value,
+        )
+
+    async def log_mode_transition_suppressed(
+        self,
+        *,
+        session_id: str,
+        facilitator_id: str,
+        current_action: str | None,
+        would_have_fired: str,
+        eligible_at: datetime,
+    ) -> AdminAuditLog:
+        """Append a ``mode_transition_suppressed`` row (014 §FR-008).
+
+        Emitted when auto-apply would have fired a transition but the dwell
+        floor blocked it. ``reason`` is fixed to ``"dwell_floor_not_reached"``
+        in Phase 3 — reserved for future reasons per data-model.md.
+        """
+        previous_value = json.dumps({"current_action": current_action})
+        new_value = json.dumps(
+            {
+                "would_have_fired": would_have_fired,
+                "reason": "dwell_floor_not_reached",
+                "eligible_at": _iso_or_none(eligible_at),
+            }
+        )
+        return await self.log_admin_action(
+            session_id=session_id,
+            facilitator_id=facilitator_id,
+            action="mode_transition_suppressed",
+            target_id=session_id,
+            previous_value=previous_value,
+            new_value=new_value,
+        )
+
+    async def log_decision_cycle_throttled(
+        self,
+        *,
+        session_id: str,
+        facilitator_id: str,
+        cap_per_minute: int,
+        last_cycle_at: datetime | None,
+        next_eligible_at: datetime,
+    ) -> AdminAuditLog:
+        """Append a ``decision_cycle_throttled`` row (014 §FR-002 + FR-013).
+
+        Rate-limited per FR-013: at most one row per dwell window per session.
+        The caller (``DmaController._maybe_emit_throttled``) enforces the
+        rate limit; this helper is the single audit-write point.
+        """
+        previous_value = json.dumps(
+            {"cap_per_minute": cap_per_minute, "last_cycle_at": _iso_or_none(last_cycle_at)}
+        )
+        new_value = json.dumps(
+            {
+                "reason": "rate_cap_exceeded",
+                "next_eligible_at": _iso_or_none(next_eligible_at),
+            }
+        )
+        return await self.log_admin_action(
+            session_id=session_id,
+            facilitator_id=facilitator_id,
+            action="decision_cycle_throttled",
+            target_id=session_id,
+            previous_value=previous_value,
+            new_value=new_value,
+        )
+
+    async def log_signal_source_unavailable(
+        self,
+        *,
+        session_id: str,
+        facilitator_id: str,
+        signal_name: str,
+        last_known_state: str,
+        since: datetime,
+        rate_limited_until: datetime,
+    ) -> AdminAuditLog:
+        """Append a ``signal_source_unavailable`` row (014 §FR-013).
+
+        Rate-limited per FR-013: at most one row per dwell window per signal
+        per session. The caller enforces the rate limit; this helper is the
+        single audit-write point.
+        """
+        previous_value = json.dumps({"signal": signal_name, "last_known_state": last_known_state})
+        new_value = json.dumps(
+            {
+                "signal": signal_name,
+                "since": _iso_or_none(since),
+                "rate_limited_until": _iso_or_none(rate_limited_until),
+            }
+        )
+        return await self.log_admin_action(
+            session_id=session_id,
+            facilitator_id=facilitator_id,
+            action="signal_source_unavailable",
+            target_id=session_id,
+            previous_value=previous_value,
+            new_value=new_value,
+        )
+
     # --- Security Events ---
 
     async def log_security_event(
@@ -261,6 +447,15 @@ class LogRepository(BaseRepository):
         """Fetch all security events for a session in chronological order."""
         rows = await self._fetch_all(_SECURITY_EVENTS_SQL, session_id)
         return [SecurityEvent.from_record(r) for r in rows]
+
+
+def _iso_or_none(value: datetime | None) -> str | None:
+    """Render a datetime as ISO-8601, or pass through None.
+
+    Spec 014 helper: every mode_* audit row payload field that names a
+    timestamp uses this for consistent JSON encoding.
+    """
+    return value.isoformat() if value is not None else None
 
 
 async def _broadcast_audit_entry(entry: AdminAuditLog) -> None:
