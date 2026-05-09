@@ -76,7 +76,7 @@ description: "Task list for spec 023 — User Accounts with Persistent Session H
 
 ### Dependency landing (research §1)
 
-- [ ] T022 Add `argon2-cffi` to [pyproject.toml](./../../pyproject.toml) and refresh the lockfile if applicable. Pin per Constitution §6.3 to a known-current version (research.md §1). The transitive `cffi` is already in the dependency tree via `cryptography`.
+- [X] T022 Add `argon2-cffi` to [pyproject.toml](./../../pyproject.toml) and refresh the lockfile if applicable. Pin per Constitution §6.3 to a known-current version (research.md §1). The transitive `cffi` is already in the dependency tree via `cryptography`.
 
 ### Module skeletons
 

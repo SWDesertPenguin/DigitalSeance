@@ -24,6 +24,11 @@ dependencies = [
     "psycopg2-binary>=2.9.12",
     "itsdangerous>=2.2.0",
     "websockets>=13.0",
+    # Spec 023 user-accounts FR-003: argon2id password hashing via the
+    # OWASP-recommended Python implementation. Pinned per Constitution
+    # §6.3; the wrapping module src/accounts/hashing.py owns the only
+    # call sites so a future swap stays internal-architecture.
+    "argon2-cffi>=25.1.0,<26.0.0",
 ]
 
 [project.optional-dependencies]
