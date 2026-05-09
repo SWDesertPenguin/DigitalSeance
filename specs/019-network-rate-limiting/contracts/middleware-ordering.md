@@ -10,14 +10,14 @@ This document specifies (1) the FastAPI registration semantics that achieve "fir
 
 ## FastAPI registration semantics
 
-FastAPI middleware is registered via `app.add_middleware(...)` calls in `src/main.py`. FastAPI processes middleware in **reverse order of registration**: the LAST `add_middleware` call becomes the OUTERMOST middleware (the one that wraps everything else and sees requests first).
+FastAPI middleware is registered via `app.add_middleware(...)` calls inside `src/mcp_server/app.py::_add_middleware`, which is invoked from `create_app()`. FastAPI processes middleware in **reverse order of registration**: the LAST `add_middleware` call becomes the OUTERMOST middleware (the one that wraps everything else and sees requests first).
 
-To make `NetworkRateLimitMiddleware` the outermost / first-to-run, it MUST be the LAST `add_middleware` call in `src/main.py`'s middleware-registration block.
+To make `NetworkRateLimitMiddleware` the outermost / first-to-run, it MUST be the LAST `add_middleware` call in `_add_middleware`'s registration block.
 
 ### Required pattern
 
 ```python
-# src/main.py — middleware registration block
+# src/mcp_server/app.py — inside _add_middleware(app)
 
 # Register inner middleware first (executes later in request handling)
 app.add_middleware(SomeInnerMiddleware, ...)
@@ -52,7 +52,7 @@ def test_network_ratelimit_is_outermost_when_enabled(monkeypatch):
     monkeypatch.setenv("SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS", "false")
     monkeypatch.setenv("SACP_NETWORK_RATELIMIT_MAX_KEYS", "100000")
 
-    app = build_app()  # the project's app factory
+    app = create_app()  # the project's app factory
 
     # FastAPI's user_middleware is a list; the LAST entry is the outermost.
     middleware_classes = [m.cls for m in app.user_middleware]
@@ -70,7 +70,7 @@ def test_network_ratelimit_absent_when_disabled(monkeypatch):
     """FR-014, SC-006: middleware MUST NOT be registered when ENABLED=false."""
     monkeypatch.setenv("SACP_NETWORK_RATELIMIT_ENABLED", "false")
 
-    app = build_app()
+    app = create_app()
 
     middleware_classes = [m.cls.__name__ for m in app.user_middleware]
     assert "NetworkRateLimitMiddleware" not in middleware_classes, (

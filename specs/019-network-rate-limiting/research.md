@@ -102,7 +102,7 @@ Resolves the eight open decisions queued in [plan.md §"Phase 0 — Outline & Re
 **Rationale**: forward-compatibility without spec amendment. The middleware is registered process-wide at startup; topology selection is a deployment-shape concern that does not require the middleware to be conditionally registered. Operators running topology 7 see no behavior change because there's no traffic to limit. The audit and metrics surfaces remain wired but emit nothing.
 
 **Alternatives considered**:
-- **Conditionally skip middleware registration in topology 7** — adds a topology-aware branch in `src/main.py`. Unnecessary; idle middleware costs nothing. Rejected.
+- **Conditionally skip middleware registration in topology 7** — adds a topology-aware branch in `src/mcp_server/app.py::_add_middleware`. Unnecessary; idle middleware costs nothing. Rejected.
 - **Ship spec 019 v2 when topology 7 lands** — premature; v1 is forward-compatible by construction.
 
 ---

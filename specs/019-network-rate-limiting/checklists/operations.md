@@ -41,7 +41,7 @@
 - [ ] CHK021 Is the recovery path for "audit row missing despite metric increment" specified clearly enough for an operator to identify the root cause (background flush task crashed; metric counter remains accurate)? [Clarity, Quickstart §"Troubleshooting"]
 - [ ] CHK022 Are the requirements for "spurious `source_ip_unresolvable` rows" recovery specified (proxy misconfiguration; inspect `reason` field; fix proxy)? [Completeness, Quickstart §"Troubleshooting"]
 - [ ] CHK023 Is the recovery path for "high `routing_log` middleware-duration values" specified (raise `_MAX_KEYS` toward upper bound)? [Clarity, Quickstart §"Troubleshooting"]
-- [ ] CHK024 Are the requirements for "test_019_middleware_order.py failure on a developer's branch" specified — operator (or developer) inspects `src/main.py` middleware-registration order, fixes ordering? [Completeness, Quickstart §"Troubleshooting"]
+- [ ] CHK024 Are the requirements for "test_019_middleware_order.py failure on a developer's branch" specified — operator (or developer) inspects `src/mcp_server/app.py::_add_middleware` registration order, fixes ordering? [Completeness, Quickstart §"Troubleshooting"]
 
 ## V14 Performance Monitoring
 
