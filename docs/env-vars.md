@@ -214,6 +214,37 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Validation rule**: `validators.validate_network_ratelimit_max_keys`
 - **Source spec(s)**: 019 §FR-004 (memory bound on the per-IP budget map)
 - **Note**: LRU bound on the per-IP budget map. When the map exceeds this size, the least-recently-accessed entry is evicted via `OrderedDict.popitem(last=False)` (O(1) amortized). Memory bound is `MAX_KEYS × ~300 bytes per entry`; default 100k = ~30MB worst case. Raise toward 1M for deployments with high IP diversity (public-internet-exposed, or NAT-egress-fronted with many client IPs).
+
+### `SACP_AUDIT_VIEWER_ENABLED`
+
+- **Default**: `false`
+- **Type**: boolean (string `"true"`/`"false"`, case-insensitive; `"1"`/`"0"` accepted)
+- **Valid range**: exactly `true` or `false` (after case-folding) — equivalently `1` or `0`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_audit_viewer_enabled`
+- **Source spec(s)**: 029 §FR-018 (master switch for the human-readable audit log viewer surface)
+- **Note**: When `false` (the default), the `GET /tools/admin/audit_log` route is NOT mounted and ALL callers receive `HTTP 404` per FR-018. The `audit_log_appended` WebSocket broadcast also remains dormant. Setting to `true` mounts the route and enables the live broadcast helper at `src/repositories/log_repo.py:append_audit_event`. The underlying `admin_audit_log` writes occur regardless of this switch — the surface is gated, not the durable record.
+
+### `SACP_AUDIT_VIEWER_PAGE_SIZE`
+
+- **Default**: `50`
+- **Type**: positive integer (rows per page)
+- **Valid range**: `10 <= value <= 500` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_audit_viewer_page_size`
+- **Source spec(s)**: 029 §FR-005 / FR-017 (offset-based pagination cap for the audit log viewer endpoint)
+- **Note**: Caps the `limit` query parameter on `GET /tools/admin/audit_log`. Callers may request smaller pages; values above this ceiling (or above `500` regardless) return `HTTP 400`. Default 50 balances render latency on the SPA against round-trip count for typical session lengths (1k+ audit rows scrolled in pages of 50).
+
+### `SACP_AUDIT_VIEWER_RETENTION_DAYS`
+
+- **Default**: unset (no retention WHERE clause; the viewer renders every row in `admin_audit_log` for the session)
+- **Type**: integer (days), or empty
+- **Valid range**: `1 <= value <= 36500` (1 day to 100 years) when set
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_audit_viewer_retention_days`
+- **Source spec(s)**: 029 §FR-016 / FR-017 (display-only retention cap for the audit log viewer)
+- **Note**: When set, the endpoint applies `WHERE timestamp >= NOW() - INTERVAL 'N days'` to both the rows and `total_count` queries. Retention applies to viewer DISPLAY only — the underlying `admin_audit_log` table is untouched (durable indefinitely per spec 001 §FR-019) and remains queryable via spec 010 debug-export.
+
 ### `SACP_FILLER_THRESHOLD`
 
 - **Default**: unset (per-family default from the `BehavioralProfile` dict in `src/orchestrator/shaping.py` applies — anthropic/openai default `0.60`; gemini/groq/ollama/vllm default `0.55`)

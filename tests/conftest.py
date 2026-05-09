@@ -497,6 +497,10 @@ def _index_ddls() -> list[str]:
         "CREATE INDEX idx_invites_session ON invites (session_id)",
         "CREATE INDEX idx_proposals_session ON proposals (session_id, status)",
         "CREATE INDEX idx_review_gate_pending ON review_gate_drafts (session_id, status)",
+        # spec 029 §FR-001 / FR-005 — alembic 013 mirror; covers the audit
+        # log viewer endpoint query plan (session_id WHERE + timestamp DESC).
+        "CREATE INDEX idx_admin_audit_log_session_timestamp "
+        "ON admin_audit_log (session_id, timestamp DESC)",
     ]
 
 
