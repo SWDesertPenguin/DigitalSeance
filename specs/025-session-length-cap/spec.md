@@ -2,7 +2,7 @@
 
 **Feature Branch**: `025-session-length-cap`
 **Created**: 2026-05-07
-**Status**: Draft (Phase 3 declared 2026-05-05; scaffold ships now, tasks + implementation deferred)
+**Status**: Implemented 2026-05-08 (Phase 3 declared 2026-05-05; full implementation through close-out via PR #313 — US1–US4, V14 perf timing, Phase 8 polish, frontend cap_config + cap_disambiguation modules; doc-deliverables catch-up via PR #319; recon-scrub continuation through public docs)
 **Input**: User description: "Phase 3 session-length cap with auto-conclude phase. Unbounded sessions accumulate cost as transcripts grow and rarely produce clean endings; operators stop the loop under budget/context pressure and lose the chance for AIs to hand off coherent conclusions. Configurable cap turns 'ran out of budget' into 'got planned closure'. Default: no cap. Two cap dimensions (OR'd, whichever fires first): wall-clock time since loop start, total AI turn count. Presets: Short / Medium / Long / Custom. At ~80% of the configured cap, the orchestrator transitions the session into a conclude phase: a Tier 4 prompt delta tells AIs the session is wrapping and asks each for a position summary + final conclusion. After every active AI has produced a conclusion turn, the existing spec 005 summarizer fires one final time and the loop pauses. Facilitator can extend the cap or stop_loop manually at any point. Applies to topologies 1-6 (orchestrator-mediated state); incompatible with topology 7. Primary use cases: consulting (§3), research co-authorship (§2), technical review and audit (§5)."
 
 ## Overview
