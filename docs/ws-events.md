@@ -130,6 +130,34 @@ Draft fields: `id`, `participant_id`, `draft_content`, `context_summary`, `creat
 
 Partial-row payload — UI merges into `state.session` rather than replacing.
 
+### `session_concluding`
+
+```json
+{
+  "v": 1, "type": "session_concluding",
+  "trigger_reason": "turns|time|both",
+  "trigger_value": {"turns": N, "seconds": N},
+  "remaining": {"turns": N|null, "seconds": N|null},
+  "trigger_fraction": F,
+  "at": "<iso>"
+}
+```
+
+Emitted on the running → conclude lifecycle transition. Broadcast to every connected session participant. `remaining` carries countdown values for capped dimensions; null on uncapped. Cap values themselves are not in this payload — visibility of the cap is gated separately to the facilitator surface.
+
+### `session_concluded`
+
+```json
+{
+  "v": 1, "type": "session_concluded",
+  "pause_reason": "<string>",
+  "summarizer_outcome": "success|failed_closed|skipped",
+  "at": "<iso>"
+}
+```
+
+Emitted on the conclude → paused/stopped lifecycle transition. Broadcast to every connected session participant. `pause_reason` mirrors the corresponding `routing_log.reason`; `summarizer_outcome` reports the outcome of the final summarizer call.
+
 ### `loop_status`
 
 ```json

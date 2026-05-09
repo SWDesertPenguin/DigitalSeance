@@ -40,7 +40,10 @@ CANONICAL_DOCS = (
     # matrix concentrates recon value and is not shipped to public docs/.
     # Other US5 docs strip cross-references to it before shipping.
     "compliance-mapping.md",
-    "operational-runbook.md",
+    # operational-runbook.md was removed from the public tree as part of
+    # the spec 025 recon-scrub continuation (2026-05-08); the aggregate
+    # runbook concentrated recon-rich operational detail. No longer a
+    # canonical public deliverable.
 )
 
 # HTTP error status codes (>= 400) emitted at any call site we care about.
