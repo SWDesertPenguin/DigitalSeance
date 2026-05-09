@@ -86,7 +86,7 @@ description: "Task list for spec 023 — User Accounts with Persistent Session H
 
 ### Argon2id wrapper + transparent re-hash
 
-- [ ] T026 [P] Implement `PasswordHasher` wrapper in [src/accounts/hashing.py](./../../src/accounts/hashing.py) per [research.md §1, §8](./research.md): `hash(plaintext) -> str`, `verify(stored_hash, plaintext) -> bool`, `needs_rehash(stored_hash) -> bool`. Reads `SACP_PASSWORD_ARGON2_TIME_COST` and `SACP_PASSWORD_ARGON2_MEMORY_COST_KB` at construction; `parallelism=1` hardcoded per FR-003. OWASP-floor WARN emit on below-floor parameter selection.
+- [X] T026 [P] Implement `PasswordHasher` wrapper in [src/accounts/hashing.py](./../../src/accounts/hashing.py) per [research.md §1, §8](./research.md): `hash(plaintext) -> str`, `verify(stored_hash, plaintext) -> bool`, `needs_rehash(stored_hash) -> bool`. Reads `SACP_PASSWORD_ARGON2_TIME_COST` and `SACP_PASSWORD_ARGON2_MEMORY_COST_KB` at construction; `parallelism=1` hardcoded per FR-003. OWASP-floor WARN emit on below-floor parameter selection.
 
 ### Verification + reset code primitive
 
