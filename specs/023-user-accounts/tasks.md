@@ -94,8 +94,8 @@ description: "Task list for spec 023 — User Accounts with Persistent Session H
 
 ### Email transport ABC + noop adapter
 
-- [ ] T028 [P] Define `EmailTransport` Protocol + `NoopEmailTransport` adapter in [src/accounts/email_transport.py](./../../src/accounts/email_transport.py) per [research.md §4](./research.md) and [contracts/email-transport.md](./contracts/email-transport.md): async `send(to, subject, body, purpose)` method; noop adapter writes a structured `admin_audit_log` row with `action='account_email_noop_emitted'` (purpose, hashed `to`, body length); body content NOT logged.
-- [ ] T029 Adapter factory in [src/accounts/email_transport.py](./../../src/accounts/email_transport.py): `select_transport()` reads `SACP_EMAIL_TRANSPORT`; returns `NoopEmailTransport()` for `noop`; raises `NotImplementedError` for `smtp/ses/sendgrid` with the documented message pointing at `contracts/email-transport.md`. Mounted at startup so misconfiguration exits before binding ports.
+- [X] T028 [P] Define `EmailTransport` Protocol + `NoopEmailTransport` adapter in [src/accounts/email_transport.py](./../../src/accounts/email_transport.py) per [research.md §4](./research.md) and [contracts/email-transport.md](./contracts/email-transport.md): async `send(to, subject, body, purpose)` method; noop adapter writes a structured `admin_audit_log` row with `action='account_email_noop_emitted'` (purpose, hashed `to`, body length); body content NOT logged.
+- [X] T029 Adapter factory in [src/accounts/email_transport.py](./../../src/accounts/email_transport.py): `select_transport()` reads `SACP_EMAIL_TRANSPORT`; returns `NoopEmailTransport()` for `noop`; raises `NotImplementedError` for `smtp/ses/sendgrid` with the documented message pointing at `contracts/email-transport.md`. Mounted at startup so misconfiguration exits before binding ports.
 
 ### Per-IP login rate limiter
 
