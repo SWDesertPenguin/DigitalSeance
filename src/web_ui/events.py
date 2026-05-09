@@ -161,6 +161,20 @@ def audit_entry_event(entry: dict[str, Any]) -> dict[str, Any]:
     return _envelope("audit_entry", entry=entry)
 
 
+def audit_log_appended_event(payload: dict[str, Any]) -> dict[str, Any]:
+    """A new ``admin_audit_log`` row was committed (spec 029 FR-010).
+
+    The payload is the decorated row shape from
+    ``contracts/audit-log-endpoint.md`` — same content the FR-001 endpoint
+    returns, including server-side scrubbing on ``previous_value`` and
+    ``new_value`` for actions whose registry entry sets ``scrub_value=True``.
+    Distinct from ``audit_entry_event`` (the legacy ``audit_entry`` push):
+    the new event uses the spec 029 paired action-label registry and time
+    formatter, and the SPA's ``AuditLogPanel`` consumes this event by name.
+    """
+    return _envelope("audit_log_appended", payload=payload)
+
+
 def ai_question_opened_event(
     *,
     participant_id: str,

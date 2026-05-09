@@ -946,6 +946,77 @@ def validate_provider_adapter_mock_fixtures_path() -> ValidationFailure | None:
     return None
 
 
+def validate_audit_viewer_enabled() -> ValidationFailure | None:
+    """SACP_AUDIT_VIEWER_ENABLED: bool, default false. 029 §FR-018.
+
+    Master switch for the human-readable audit log viewer surface. When unset
+    or 'false', the GET /tools/admin/audit_log route is NOT mounted and the
+    audit_log_appended WS broadcast remains dormant. Accepts 'true'/'false'
+    (case-insensitive) or '1'/'0' per the existing validator convention
+    (mirrors validate_response_shaping_enabled / validate_network_ratelimit_enabled).
+    """
+    val = os.environ.get("SACP_AUDIT_VIEWER_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val.strip().lower() not in ("true", "false", "1", "0"):
+        return ValidationFailure(
+            "SACP_AUDIT_VIEWER_ENABLED",
+            f"must be 'true'/'false' (case-insensitive) or '1'/'0'; got {val!r}",
+        )
+    return None
+
+
+def validate_audit_viewer_page_size() -> ValidationFailure | None:
+    """SACP_AUDIT_VIEWER_PAGE_SIZE: int [10, 500], default 50. 029 §FR-005 / FR-017.
+
+    Caps the ``limit`` query parameter on GET /tools/admin/audit_log. Values
+    outside the inclusive range refuse to bind so an operator misconfiguration
+    cannot ship an unreasonable page size in production.
+    """
+    val = os.environ.get("SACP_AUDIT_VIEWER_PAGE_SIZE")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_AUDIT_VIEWER_PAGE_SIZE",
+            f"must be integer; got {val!r}",
+        )
+    if not 10 <= num <= 500:
+        return ValidationFailure(
+            "SACP_AUDIT_VIEWER_PAGE_SIZE",
+            f"must be in [10, 500]; got {num}",
+        )
+    return None
+
+
+def validate_audit_viewer_retention_days() -> ValidationFailure | None:
+    """SACP_AUDIT_VIEWER_RETENTION_DAYS: empty OR int [1, 36500]. 029 §FR-016 / FR-017.
+
+    Display-only retention cap. Empty (default) means no WHERE clause — the
+    viewer renders every audit row for the session. When set, the endpoint
+    applies ``WHERE timestamp >= NOW() - INTERVAL 'N days'``. The underlying
+    ``admin_audit_log`` table is untouched regardless.
+    """
+    val = os.environ.get("SACP_AUDIT_VIEWER_RETENTION_DAYS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_AUDIT_VIEWER_RETENTION_DAYS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 36500:
+        return ValidationFailure(
+            "SACP_AUDIT_VIEWER_RETENTION_DAYS",
+            f"must be in [1, 36500] (1 day to 100 years); got {num}",
+        )
+    return None
+
+
 def validate_web_ui_cookie_key() -> ValidationFailure | None:
     """SACP_WEB_UI_COOKIE_KEY: required signing key for Web UI session cookies.
 
@@ -1016,6 +1087,9 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_network_ratelimit_max_keys,
     validate_provider_adapter,
     validate_provider_adapter_mock_fixtures_path,
+    validate_audit_viewer_enabled,
+    validate_audit_viewer_page_size,
+    validate_audit_viewer_retention_days,
 )
 
 

@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.models.logs import AdminAuditLog, ConvergenceLog, RoutingLog, SecurityEvent, UsageLog
 from src.repositories.base import BaseRepository
+
+if TYPE_CHECKING:
+    from src.orchestrator.audit_log_view import AuditLogPage
 
 
 class LogRepository(BaseRepository):
@@ -218,6 +221,62 @@ class LogRepository(BaseRepository):
             session_id,
         )
         return [AdminAuditLog.from_record(r) for r in rows]
+
+    async def _fetch_audit_page_raw(
+        self,
+        session_id: str,
+        offset: int,
+        limit: int,
+        retention_days: int | None,
+    ) -> tuple[list, int]:
+        """Run the page + count SQL pair; returns (raw_rows, total_count)."""
+        if retention_days is not None and retention_days > 0:
+            rows_sql = _AUDIT_LOG_PAGE_RETENTION_SQL
+            count_sql = _AUDIT_LOG_COUNT_RETENTION_SQL
+            raw_rows = await self._fetch_all(rows_sql, session_id, retention_days, limit, offset)
+            count_record = await self._fetch_one(count_sql, session_id, retention_days)
+        else:
+            raw_rows = await self._fetch_all(_AUDIT_LOG_PAGE_SQL, session_id, limit, offset)
+            count_record = await self._fetch_one(_AUDIT_LOG_COUNT_SQL, session_id)
+        total_count = int(count_record["total"]) if count_record else 0
+        return raw_rows, total_count
+
+    async def _load_session_name_map(self, session_id: str) -> dict[str, str]:
+        """Build a per-session participant id -> display_name lookup."""
+        participant_rows = await self._fetch_all(
+            "SELECT id, display_name FROM participants WHERE session_id = $1",
+            session_id,
+        )
+        return {r["id"]: r["display_name"] for r in participant_rows}
+
+    async def get_audit_log_page(
+        self,
+        session_id: str,
+        *,
+        offset: int,
+        limit: int,
+        retention_days: int | None = None,
+    ) -> AuditLogPage:
+        """Paginated, decorated audit-log page for the FR-001 endpoint (spec 029).
+
+        The covering index on ``(session_id, timestamp DESC)`` (alembic 013)
+        supports both the rows page and the parallel COUNT(*). Display-name
+        JOINs run in Python (audit rows use TEXT identifiers with no FK;
+        deleted-participant rows still need to render). Per FR-014 the
+        decoration step applies server-side scrubbing before rows leave.
+        """
+        from src.orchestrator.audit_log_view import AuditLogPage, decorate_row
+
+        raw_rows, total_count = await self._fetch_audit_page_raw(
+            session_id, offset, limit, retention_days
+        )
+        name_by_id = await self._load_session_name_map(session_id)
+        decorated = [
+            decorate_row(dict(r), session_id=session_id, name_by_id=name_by_id) for r in raw_rows
+        ]
+        rendered = offset + len(decorated)
+        next_offset = rendered if rendered < total_count else None
+        return AuditLogPage(rows=decorated, total_count=total_count, next_offset=next_offset)
 
     # --- Spec 014 mode_* audit-event helpers (DMA controller) ---
     # Five new ``action`` strings reuse the existing admin_audit_log table
@@ -460,6 +519,61 @@ def _iso_or_none(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
+def _entry_to_record(entry: AdminAuditLog) -> dict[str, Any]:
+    """Project an ``AdminAuditLog`` row to the dict shape ``decorate_row`` expects."""
+    return {
+        "id": entry.id,
+        "timestamp": entry.timestamp,
+        "facilitator_id": entry.facilitator_id,
+        "action": entry.action,
+        "target_id": entry.target_id,
+        "previous_value": entry.previous_value,
+        "new_value": entry.new_value,
+    }
+
+
+async def broadcast_audit_log_appended(
+    *,
+    session_id: str,
+    entry: AdminAuditLog,
+    name_by_id: dict[str, str] | None = None,
+    orchestrator_actor_ids: frozenset[str] | None = None,
+) -> None:
+    """Push the spec 029 ``audit_log_appended`` WS event to facilitators.
+
+    Wraps every failure mode so the call site cannot abort the underlying
+    INSERT — the durable record is authoritative; the live push is
+    best-effort. Per ``contracts/ws-events.md`` and FR-014 the payload
+    carries the server-scrubbed row shape. Late-imports the web_ui layer
+    so repositories stay decoupled at import time.
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
+    try:
+        from src.orchestrator.audit_log_view import decorate_row, row_to_payload
+        from src.web_ui.events import audit_log_appended_event
+        from src.web_ui.websocket import broadcast_to_session_roles
+
+        decorated = decorate_row(
+            _entry_to_record(entry),
+            session_id=session_id,
+            name_by_id=name_by_id or {},
+            orchestrator_actor_ids=orchestrator_actor_ids,
+        )
+        await broadcast_to_session_roles(
+            session_id,
+            audit_log_appended_event(row_to_payload(decorated)),
+            allow_roles=frozenset({"facilitator"}),
+        )
+    except Exception:  # noqa: BLE001 — durability invariant (durable record wins)
+        log.exception(
+            "audit_log_appended broadcast failed session_id=%s action=%s",
+            session_id,
+            entry.action,
+        )
+
+
 async def _broadcast_audit_entry(entry: AdminAuditLog) -> None:
     """Push an audit_entry WS event to facilitators only.
 
@@ -574,6 +688,38 @@ _AUDIT_LOG_SQL = """
     SELECT * FROM admin_audit_log
     WHERE session_id = $1
     ORDER BY timestamp
+"""
+
+# spec 029 FR-001 / FR-005 — paginated reverse-chronological page query.
+# The covering index on (session_id, timestamp DESC) (alembic 013) supports
+# this WHERE + ORDER + LIMIT plan.
+_AUDIT_LOG_PAGE_SQL = """
+    SELECT * FROM admin_audit_log
+    WHERE session_id = $1
+    ORDER BY timestamp DESC
+    LIMIT $2 OFFSET $3
+"""
+
+_AUDIT_LOG_COUNT_SQL = """
+    SELECT COUNT(*) AS total FROM admin_audit_log
+    WHERE session_id = $1
+"""
+
+# spec 029 FR-016 — display-only retention cap. Postgres-side INTERVAL math
+# parameterized via integer days; rejected at validator boundary so the
+# value is always [1, 36500] when set.
+_AUDIT_LOG_PAGE_RETENTION_SQL = """
+    SELECT * FROM admin_audit_log
+    WHERE session_id = $1
+      AND timestamp >= NOW() - make_interval(days => $2)
+    ORDER BY timestamp DESC
+    LIMIT $3 OFFSET $4
+"""
+
+_AUDIT_LOG_COUNT_RETENTION_SQL = """
+    SELECT COUNT(*) AS total FROM admin_audit_log
+    WHERE session_id = $1
+      AND timestamp >= NOW() - make_interval(days => $2)
 """
 
 _INSERT_SECURITY_EVENT_SQL = """
