@@ -123,3 +123,28 @@ async def test_us1_slack_budget_warns_on_late_close() -> None:
     await asyncio.sleep(1.2)
     await scheduler.stop()
     assert len(capture.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_current_max_depth_reports_deepest_envelope() -> None:
+    """Spec 014's queue-depth signal source samples the deepest open envelope."""
+    scheduler = BatchScheduler(cadence_s=60, broadcast=_Capture())
+    assert scheduler.current_max_depth() == 0
+    for i in range(3):
+        scheduler.enqueue(
+            session_id="s1",
+            recipient_id="human-1",
+            source_turn_id=f"t{i}",
+            message=_make_message(f"t{i}"),
+        )
+    for i in range(2):
+        scheduler.enqueue(
+            session_id="s2",
+            recipient_id="human-1",
+            source_turn_id=f"u{i}",
+            message=_make_message(f"u{i}"),
+        )
+    assert scheduler.current_max_depth() == 3
+    assert scheduler.current_max_depth(session_id="s2") == 2
+    assert scheduler.current_max_depth(session_id="never") == 0
+    await scheduler.stop()
