@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from functools import partial
 
 import numpy as np
@@ -49,6 +50,12 @@ class ConvergenceDetector:
         # score for the DMA convergence-derivative signal source. Set on
         # every similarity computation in ``_compute_similarity``.
         self._last_similarity: float | None = None
+        # Spec 021 hook (021/research.md §2): expose the most-recent embedding
+        # bytes plus a depth-3 ring buffer for the filler scorer's restatement
+        # signal. Updated in ``_log_result`` at the same point as the
+        # similarity log. No DB read on the shaping hot path (FR-012).
+        self._last_embedding: bytes | None = None
+        self._recent_embeddings: deque[bytes] = deque(maxlen=3)
 
     @property
     def last_similarity(self) -> float | None:
@@ -60,6 +67,26 @@ class ConvergenceDetector:
         ``convergence_log`` on the controller's hot path.
         """
         return self._last_similarity
+
+    @property
+    def last_embedding(self) -> bytes | None:
+        """Most recent turn's embedding bytes, or None if no turn yet.
+
+        Spec 021 §FR-001 / FR-012 hook (021/research.md §2): the filler
+        scorer's restatement signal reads recent embeddings via
+        ``recent_embeddings`` to avoid a second sentence-transformers model
+        load. No behavior change to spec 004's convergence pipeline.
+        """
+        return self._last_embedding
+
+    def recent_embeddings(self, depth: int = 3) -> list[bytes]:
+        """Up to ``depth`` most recent embeddings, oldest first.
+
+        Returns a shorter list when fewer turns have elapsed. Empty when
+        no turn has been evaluated yet. Spec 021 §FR-001 / FR-012 — bounded
+        ring-buffer read for the restatement-signal scorer.
+        """
+        return list(self._recent_embeddings)[-depth:]
 
     def load_model(self) -> None:
         """Load the sentence-transformers model in SafeTensors format only.
@@ -197,6 +224,11 @@ class ConvergenceDetector:
         divergence_prompted: bool = False,
     ) -> None:
         """Log convergence measurement."""
+        # Spec 021 hook (021/research.md §2): mirror the just-logged embedding
+        # into the in-memory ring buffer for the filler scorer's restatement
+        # signal. Single-point write at the same site as the persistence log.
+        self._last_embedding = embedding
+        self._recent_embeddings.append(embedding)
         await self._log_repo.log_convergence(
             turn_number=turn_number,
             session_id=session_id,

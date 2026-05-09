@@ -161,6 +161,8 @@ def _get_schema_sql() -> list[str]:
         _invites_ddl(),
         _proposals_ddl(),
         _votes_ddl(),
+        _session_register_ddl(),
+        _participant_register_override_ddl(),
         *_index_ddls(),
     ]
 
@@ -300,30 +302,41 @@ def _messages_ddl() -> str:
     """
 
 
+# Per-stage timing columns (route_ms..advisory_lock_wait_ms) added in
+# alembic 008 backing 003 §FR-030 / §FR-032 + Constitution §12 V14.
+# Five shaping columns (shaping_score_ms..shaping_reason) added in
+# alembic 013 backing 021 §FR-011 — all NULL-default for backward
+# compatibility (SC-002).
+_ROUTING_LOG_TABLE_DDL = """
+    CREATE TABLE routing_log (
+        id SERIAL PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id),
+        turn_number INTEGER NOT NULL,
+        intended_participant TEXT NOT NULL
+            REFERENCES participants(id),
+        actual_participant TEXT NOT NULL
+            REFERENCES participants(id),
+        routing_action TEXT NOT NULL,
+        complexity_score TEXT NOT NULL,
+        domain_match BOOLEAN NOT NULL,
+        reason TEXT NOT NULL,
+        timestamp TIMESTAMP DEFAULT NOW(),
+        route_ms INTEGER,
+        assemble_ms INTEGER,
+        dispatch_ms INTEGER,
+        persist_ms INTEGER,
+        advisory_lock_wait_ms INTEGER,
+        shaping_score_ms INTEGER,
+        shaping_retry_dispatch_ms INTEGER,
+        filler_score NUMERIC(4,3),
+        shaping_retry_delta_text TEXT,
+        shaping_reason TEXT
+    )
+"""
+
+
 def _routing_log_ddl() -> str:
-    # Per-stage timing columns (route_ms..advisory_lock_wait_ms) added in
-    # alembic 008 backing 003 §FR-030 / §FR-032 + Constitution §12 V14.
-    return """
-        CREATE TABLE routing_log (
-            id SERIAL PRIMARY KEY,
-            session_id TEXT NOT NULL REFERENCES sessions(id),
-            turn_number INTEGER NOT NULL,
-            intended_participant TEXT NOT NULL
-                REFERENCES participants(id),
-            actual_participant TEXT NOT NULL
-                REFERENCES participants(id),
-            routing_action TEXT NOT NULL,
-            complexity_score TEXT NOT NULL,
-            domain_match BOOLEAN NOT NULL,
-            reason TEXT NOT NULL,
-            timestamp TIMESTAMP DEFAULT NOW(),
-            route_ms INTEGER,
-            assemble_ms INTEGER,
-            dispatch_ms INTEGER,
-            persist_ms INTEGER,
-            advisory_lock_wait_ms INTEGER
-        )
-    """
+    return _ROUTING_LOG_TABLE_DDL
 
 
 def _usage_log_ddl() -> str:
@@ -484,6 +497,44 @@ def _votes_ddl() -> str:
     """
 
 
+def _session_register_ddl() -> str:
+    # Spec 021 alembic 013: one row per session holding the register
+    # slider value (1-5). FK on session cascades on session delete
+    # (FR-015). FK on facilitator references participants(id) since
+    # facilitator is a role on participants — no separate facilitators
+    # table exists.
+    return """
+        CREATE TABLE session_register (
+            session_id TEXT PRIMARY KEY
+                REFERENCES sessions(id) ON DELETE CASCADE,
+            slider_value INTEGER NOT NULL
+                CHECK (slider_value BETWEEN 1 AND 5),
+            set_by_facilitator_id TEXT NOT NULL
+                REFERENCES participants(id),
+            last_changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """
+
+
+def _participant_register_override_ddl() -> str:
+    # Spec 021 alembic 013: zero-or-one row per participant holding a
+    # per-participant override of the session slider. Cascades on
+    # participant or session delete (FR-015 / SC-007).
+    return """
+        CREATE TABLE participant_register_override (
+            participant_id TEXT PRIMARY KEY
+                REFERENCES participants(id) ON DELETE CASCADE,
+            session_id TEXT NOT NULL
+                REFERENCES sessions(id) ON DELETE CASCADE,
+            slider_value INTEGER NOT NULL
+                CHECK (slider_value BETWEEN 1 AND 5),
+            set_by_facilitator_id TEXT NOT NULL
+                REFERENCES participants(id),
+            last_changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """
+
+
 def _index_ddls() -> list[str]:
     return [
         "CREATE INDEX idx_messages_recent ON messages (session_id, branch_id, turn_number DESC)",
@@ -497,6 +548,8 @@ def _index_ddls() -> list[str]:
         "CREATE INDEX idx_invites_session ON invites (session_id)",
         "CREATE INDEX idx_proposals_session ON proposals (session_id, status)",
         "CREATE INDEX idx_review_gate_pending ON review_gate_drafts (session_id, status)",
+        "CREATE INDEX participant_register_override_session_idx"
+        " ON participant_register_override (session_id)",
     ]
 
 
@@ -517,6 +570,7 @@ async def _truncate_all(pool: asyncpg.Pool) -> None:
             " review_gate_drafts, interrupt_queue,"
             " admin_audit_log, convergence_log,"
             " usage_log, routing_log,"
+            " session_register, participant_register_override,"
             " messages, branches"
             " CASCADE"
         )
