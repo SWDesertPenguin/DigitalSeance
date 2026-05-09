@@ -413,6 +413,20 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Source spec(s)**: 020 §FR-006 / FR-007 / SC-004
 - **Note**: Cross-validator dependency on `SACP_PROVIDER_ADAPTER` — when the adapter is `mock`, the path MUST be set + readable + JSON-parseable; when the adapter is any other value, this var is ignored entirely. Same shape as the spec 014 `SACP_AUTO_MODE_ENABLED` ↔ `SACP_DMA_DWELL_TIME_S` precedent.
 
+### `SACP_MOCK_CAPABILITY_SET`
+
+- **Status**: Reserved
+- **Phase 3 trigger**: 020 mock-adapter capability-set selection (currently fixture-driven via the default key)
+- **Intended type**: string, capability-set key from the loaded mock fixture file
+- **Note**: Read by the mock adapter to pick which `capabilities` block applies to a dispatched model; ignored when `SACP_PROVIDER_ADAPTER` is anything other than `mock`. Validator deferred until a downstream consumer requires structured capability-set selection.
+
+### `SACP_TOPOLOGY`
+
+- **Status**: Reserved
+- **Phase 3 trigger**: forward-proof gate for topology 7 (MCP-to-MCP) per spec 014 research §7 + spec 020 research §10
+- **Intended type**: integer, `1`-`7`
+- **Note**: Read but unvalidated in v1. Topology 7 short-circuits provider adapter init (spec 020) and DMA controller spawn (spec 014); other values are no-ops. Wiring + validator land with the topology-7 selector amendment.
+
 ### `SACP_RATE_LIMIT_PER_MIN`
 
 - **Status**: Reserved
