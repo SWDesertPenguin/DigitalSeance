@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """V16 startup-validator tests for spec 019 (network-layer rate limiting).
 
 Five new SACP_NETWORK_RATELIMIT_* env vars per spec 019 FR-013. Each

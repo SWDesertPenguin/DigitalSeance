@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Pluggable provider adapter abstraction (spec 020).
 
 The sole boundary between the dispatch path and any underlying provider

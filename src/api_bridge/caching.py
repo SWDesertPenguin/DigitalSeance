@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Provider-native prompt caching directives and translation.
 
 Phase 1 wiring of the dispatch-time `cache_directives` parameter:

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """E2E coverage for US1 — Facilitator Creates and Monitors a Session.
 
 Implements task T058 from specs/011-web-ui/tasks.md. The test walks

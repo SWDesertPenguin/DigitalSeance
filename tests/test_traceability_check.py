@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Meta-tests for scripts/check_traceability.py.
 
 Verifies the FR-to-test traceability gate (spec 012 FR-003 /

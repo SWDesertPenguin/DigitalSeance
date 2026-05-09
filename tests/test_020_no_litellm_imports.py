@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """FR-005 architectural test: no `import litellm` outside the LiteLLM adapter.
 
 Walks `src/` and asserts no Python file outside `src/api_bridge/litellm/`

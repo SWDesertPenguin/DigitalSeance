@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """SSE connection manager — per-session asyncio.Queue fan-out.
 
 Phase 2 note: the MCP app (port 8750) and the Web UI app (port 8751)

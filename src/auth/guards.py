@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Role-based authorization guard functions.
 
 Each guard raises a typed error on failure. Called at the

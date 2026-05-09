@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Meta-tests for V16 startup config validation (spec 012 FR-004).
 
 Verifies src.config.validators + src.run_apps.--validate-config-only

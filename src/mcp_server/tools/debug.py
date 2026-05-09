@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Debug tool endpoints — read-only diagnostic dumps for facilitators."""
 
 from __future__ import annotations

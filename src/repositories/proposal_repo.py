@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Proposal and Vote repository — decision-making with acceptance modes."""
 
 from __future__ import annotations

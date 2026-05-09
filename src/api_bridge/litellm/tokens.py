@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Token counting for the LiteLLM adapter per spec 020 FR-012.
 
 Uses the per-model tokenizer adapters in `src/api_bridge/tokenizer.py`.

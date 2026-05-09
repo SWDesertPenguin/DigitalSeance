@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Polish stress tests: throttle cap + unavailability rate-limit (spec 014).
 
 Covers:

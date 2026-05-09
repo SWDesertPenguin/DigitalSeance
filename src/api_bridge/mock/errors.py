@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Mock adapter exception classes per spec 020 contracts.
 
 These exceptions surface in tests that exercise the dispatch path

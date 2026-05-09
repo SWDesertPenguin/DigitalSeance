@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 019 Phase 6 -- fail-closed pipeline edge cases (T049).
 
 Covers three V15 fail-closed surfaces:

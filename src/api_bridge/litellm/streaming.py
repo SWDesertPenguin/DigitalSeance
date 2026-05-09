@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """LiteLLM stream chunk -> SACP `StreamEvent` normalization.
 
 Per spec 020 FR-009 + contracts/stream-event-shape.md: SACP-internal

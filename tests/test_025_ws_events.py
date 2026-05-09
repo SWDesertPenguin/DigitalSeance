@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 025 WS event payload contracts (T071-T074 of tasks.md).
 
 Pure unit tests for the `session_concluding` and `session_concluded`

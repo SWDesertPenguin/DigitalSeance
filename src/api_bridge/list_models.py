@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Live model enumeration per provider.
 
 Operators previously had to type model strings by hand into the AddAI

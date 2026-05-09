@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """v1 WebSocket event schema + helpers.
 
 Contract lives in ``specs/011-web-ui/contracts/websocket-events.md``.

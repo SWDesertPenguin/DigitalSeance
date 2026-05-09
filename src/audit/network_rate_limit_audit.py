@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Network-layer rate-limit audit emission (spec 019 US3).
 
 Per-(source_ip_keyed, minute_bucket) rejection coalescer + background

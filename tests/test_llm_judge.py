@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """LLM-judge interface stub — Phase 1 contract tests."""
 
 from __future__ import annotations

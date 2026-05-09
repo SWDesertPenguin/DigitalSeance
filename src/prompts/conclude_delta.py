@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 025 conclude-phase Tier 4 prompt delta.
 
 Per spec 025 research.md §5 and data-model.md §ConcludeDelta, this module

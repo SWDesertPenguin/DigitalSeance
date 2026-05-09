@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US1 acceptance scenario 4: LiteLLM exception -> CanonicalError mapping.
 
 One assertion per row of the 14-row mapping table per

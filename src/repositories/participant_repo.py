@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Participant repository — join, config, encryption, departure."""
 
 from __future__ import annotations

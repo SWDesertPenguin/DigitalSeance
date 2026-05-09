@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Information-density signal for response-quality validation.
 
 Phase 1 addition to the post-turn quality pipeline. Computes a density

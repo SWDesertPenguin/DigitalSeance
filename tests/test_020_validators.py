@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Validator unit tests for spec 020's two new SACP_* env vars."""
 
 from __future__ import annotations

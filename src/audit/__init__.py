@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Audit package -- append-only audit-log writers.
 
 Hosts spec 019's network_rate_limit_audit module (per-(IP, minute)

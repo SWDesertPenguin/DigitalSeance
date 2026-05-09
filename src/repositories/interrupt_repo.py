@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Interrupt queue repository — priority-ordered human interjections."""
 
 from __future__ import annotations

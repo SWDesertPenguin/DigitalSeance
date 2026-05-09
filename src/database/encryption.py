@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Fernet encryption helpers for API key protection at rest."""
 
 from __future__ import annotations

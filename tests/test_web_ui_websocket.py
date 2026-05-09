@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """WebSocket tests for the Phase 2 Web UI — task T041.
 
 Covers:

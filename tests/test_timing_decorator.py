@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Meta-tests for src.orchestrator.timing (spec 012 FR-007 / Constitution §12 V14).
 
 Verifies:

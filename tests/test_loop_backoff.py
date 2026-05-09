@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Unit tests for the turn-loop skip-spam backoff helper."""
 
 from __future__ import annotations

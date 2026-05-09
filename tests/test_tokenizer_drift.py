@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Drift assertion: same English-prose text across all three adapters."""
 
 from __future__ import annotations

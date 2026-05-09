@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Facilitator tool endpoints — invite, approve, remove, revoke, transfer."""
 
 from __future__ import annotations

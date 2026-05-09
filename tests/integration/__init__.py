@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Cross-spec integration test tier.
 
 Tests in this package cover boundaries BETWEEN specs (e.g., turn-loop +

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Calibration: density distribution across benign + adversarial corpora.
 
 Phase 1 ships the 1.5× default threshold (spec 004 §FR-020). This test

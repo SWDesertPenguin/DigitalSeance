@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Pure-function detectors for AI output signals — questions + exit intent.
 
 These signals surface in the Web UI so facilitators can see when an AI

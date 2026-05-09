@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Invite repository — hashed tokens with use limits and expiry."""
 
 from __future__ import annotations

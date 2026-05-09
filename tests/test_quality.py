@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US5: Quality detection — n-gram repetition tests."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Turn router — 8-mode routing with round-robin rotation."""
 
 from __future__ import annotations

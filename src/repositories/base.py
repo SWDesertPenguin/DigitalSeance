@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Base repository with asyncpg pool reference and query helpers."""
 
 from __future__ import annotations

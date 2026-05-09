@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Review gate draft repository — AI response staging for human review."""
 
 from __future__ import annotations

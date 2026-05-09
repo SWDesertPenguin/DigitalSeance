@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Unit tests for sliding-window turn cap (SACP_CONTEXT_MAX_TURNS)."""
 
 from __future__ import annotations

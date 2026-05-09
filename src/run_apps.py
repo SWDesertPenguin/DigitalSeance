@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Launch the MCP server (8750) and the Web UI (8751) in one process.
 
 Both apps cooperate on the asyncio event loop via asyncio.gather. The

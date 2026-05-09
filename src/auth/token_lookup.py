@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """HMAC-keyed token-lookup helpers for indexed auth resolution.
 
 Audit C-02. The pre-fix `_find_by_token` bcrypt-scanned every row in

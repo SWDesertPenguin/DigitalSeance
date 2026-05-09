@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """010: Density signal — convergence_log tier + sessions baseline window.
 
 Backs spec 004 §FR-020 (information-density anomaly logging). Two

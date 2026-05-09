@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Output validation — pattern + semantic checks on AI responses."""
 
 from __future__ import annotations

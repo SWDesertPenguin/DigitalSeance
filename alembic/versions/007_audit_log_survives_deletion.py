@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """007: Drop FK constraints from admin_audit_log so entries survive session deletion (CHK010).
 
 Spec 001 FR-019 mandates that admin audit log entries be retained indefinitely

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """006 mcp-server testability suite (Phase B, fix/006-testability).
 
 Covers audit-plan items not addressed by the existing test_mcp_app.py and

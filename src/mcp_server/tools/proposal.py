@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Proposal tool endpoints — create, vote, resolve, list.
 
 Phase 2c backend gap (T150). The underlying ProposalRepository

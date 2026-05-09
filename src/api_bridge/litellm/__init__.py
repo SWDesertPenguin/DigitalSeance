@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """LiteLLM-backed provider adapter package (spec 020).
 
 This package is the only location under `src/` permitted to import

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Per-session batch scheduler (spec 013 mechanism 1 / US1).
 
 Hosts ``BatchEnvelope`` and the per-session flush task that coalesces

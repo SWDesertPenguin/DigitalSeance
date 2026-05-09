@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """LLM-as-judge interface contract (deferred — Phase 1 stub).
 
 This module is a deliberate stub. Phase 1 ships pattern-matching defenses only.

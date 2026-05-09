@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """MCP app tests — application creation and router registration."""
 
 from __future__ import annotations

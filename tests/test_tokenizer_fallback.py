@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Fallback path verification when SDK round-trip fails."""
 
 from __future__ import annotations

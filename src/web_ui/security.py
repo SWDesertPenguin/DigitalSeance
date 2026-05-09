@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Security-header + CORS middleware for the Web UI.
 
 FR-001..FR-003 and SR-001..SR-008 require a strict posture: no inline

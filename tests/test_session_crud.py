@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US1: Facilitator creates a session — atomic creation and query tests."""
 
 from __future__ import annotations

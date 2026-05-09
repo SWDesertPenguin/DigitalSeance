@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """SSE streaming endpoint — real-time turn updates per session."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Data types for orchestrator operations.
 
 Spec 020 relocates `ProviderResponse` to `src.api_bridge.adapter` (the

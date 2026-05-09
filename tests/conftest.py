@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Shared pytest fixtures for SACP database tests."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Enum types for all SACP domain values."""
 
 from __future__ import annotations

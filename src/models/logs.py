@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Operational log frozen dataclass models — all append-only."""
 
 from __future__ import annotations

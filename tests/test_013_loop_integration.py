@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """DB-bound integration tests for spec 013 loop wiring (T024 / T026 / T042-T045).
 
 Exercise the post-013-framework integration paths against a real Postgres

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US2 acceptance tests: per-session convergence-threshold override (spec 013 FR-005-FR-007)."""
 
 from __future__ import annotations

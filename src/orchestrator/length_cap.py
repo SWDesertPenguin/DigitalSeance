@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 025 session-length cap evaluator and active-time accumulator.
 
 Per spec 025 plan.md and data-model.md, this module owns:

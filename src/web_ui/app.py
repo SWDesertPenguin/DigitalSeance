@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """FastAPI app factory for the SACP Web UI (port 8751).
 
 Separate from the MCP server on 8750 so it can run a stricter security

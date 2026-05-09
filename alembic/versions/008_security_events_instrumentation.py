@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """008: Per-stage instrumentation columns + facilitator-override audit fields.
 
 Adds the columns that back V14 performance budgets (Constitution §12) and

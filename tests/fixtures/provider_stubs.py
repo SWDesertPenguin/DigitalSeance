@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Per-provider stub fixtures for LiteLLM dispatch testing.
 
 These minimal stubs synthesise litellm-shaped exceptions and responses for

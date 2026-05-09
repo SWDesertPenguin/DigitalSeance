@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Log repository — append-only operational logs.
 
 No update or delete methods. Append-only enforced by interface.

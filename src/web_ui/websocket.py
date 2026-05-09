@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """WebSocket endpoint + per-session broadcast manager.
 
 The manager is a module-level singleton so the MCP app's broadcast

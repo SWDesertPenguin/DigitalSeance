@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 015 breaker integration through canonical-category dispatch (spec 020 T040).
 
 The breaker's `record_failure(participant_id)` interface is unchanged

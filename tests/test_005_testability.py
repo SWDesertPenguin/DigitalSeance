@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """005 summarization-checkpoints testability suite (Phase F, fix/005-followups).
 
 Covers audit-plan items not addressed by ``test_summarizer.py``:

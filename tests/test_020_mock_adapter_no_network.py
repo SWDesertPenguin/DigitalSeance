@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US2 acceptance scenario 3: mock adapter makes no outbound network call."""
 
 from __future__ import annotations

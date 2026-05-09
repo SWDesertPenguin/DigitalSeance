@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Corpus-fixture sanity tests (spec 012 FR-001 / FR-002).
 
 Verifies tests/fixtures/{benign,adversarial}_corpus.txt have the shape

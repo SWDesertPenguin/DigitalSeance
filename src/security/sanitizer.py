@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Context sanitization - strip injection patterns from messages."""
 
 from __future__ import annotations

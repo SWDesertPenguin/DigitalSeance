@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """002 participant-auth testability suite (Phase B audit fix).
 
 Covers:

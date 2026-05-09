@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US1 capabilities authority smoke test.
 
 Confirms the per-process per-model cache returns the same instance on

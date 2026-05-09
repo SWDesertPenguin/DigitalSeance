@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """US3 acceptance tests: per-signal-source independence (spec 014).
 
 Four spec acceptance scenarios:

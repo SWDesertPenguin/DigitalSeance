@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 012 FR-006 / Constitution §4.9 approach (b) — review-gate re-pipeline.
 
 Verifies that approve_draft and edit_draft:

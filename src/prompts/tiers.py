@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """4-tier delta system prompt assembly."""
 
 from __future__ import annotations

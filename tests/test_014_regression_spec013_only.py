@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """SC-004 regression canary: spec 014 controller is inactive when unconfigured.
 
 The contract: when ALL ``SACP_DMA_*`` and ``SACP_AUTO_MODE_ENABLED`` env

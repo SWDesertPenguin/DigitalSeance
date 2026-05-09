@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Signal-source adapters for the DMA controller (spec 014).
 
 Four independent adapters — TurnRate, ConvergenceDerivative, QueueDepth,

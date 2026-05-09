@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """009: Add HMAC-keyed auth_token_lookup column for indexed token resolution.
 
 Revision ID: 009

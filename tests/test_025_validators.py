@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Spec 025 V16 validator unit tests (T015 of tasks.md).
 
 Covers each of the five new SACP_* validators per spec 025 FR-024 / FR-025

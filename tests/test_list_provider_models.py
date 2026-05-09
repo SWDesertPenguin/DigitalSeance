@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Provider model-listing tests.
 
 Mocks each provider's HTTP API via ``httpx.MockTransport`` to verify
