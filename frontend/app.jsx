@@ -2046,6 +2046,120 @@ function AdminPanel({ participants, session, auditEntries, auditViewerEnabled, o
   );
 }
 
+function DiffRenderer({ previousValue, newValue, format }) {
+  // Spec 029 FR-008 / US2 + spec 011 FR-028 / FR-029. Side-by-side diff
+  // for review_gate_edit and any audit row carrying previous_value /
+  // new_value. Threshold dispatch comes from frontend/diff_engine.js
+  // (the locked constants per shared-module-contracts.md §3 / §4); we
+  // never re-derive thresholds here.
+  //
+  // Behavior contract per shared-module-contracts.md:
+  //   - previousValue == null && newValue != null -> "first set" indicator
+  //   - either value === "[scrubbed]" -> render placeholders, no compute
+  //   - format === "auto" probes JSON.parse on both sides
+  //   - <=50KB main-thread sync; 50KB-500KB inline-blob Worker; >500KB raw
+  //   - per-row word-level toggle recomputes lazily on click
+  const [wordLevel, setWordLevel] = useState(false);
+  const [asyncChanges, setAsyncChanges] = useState(null);
+  const [asyncError, setAsyncError] = useState(null);
+  const engine = (typeof DiffEngine !== "undefined") ? DiffEngine : null;
+
+  // Compute size + mode once per render. The engine treats null inputs
+  // as zero-length so chooseDiffMode returns "main" for the first-set
+  // and scrub paths -- we still short-circuit those before invoking
+  // the engine because their UI is not a diff.
+  const byteSize = engine ? engine._maxByteSize(previousValue, newValue) : 0;
+  const mode = engine ? engine.chooseDiffMode(byteSize) : "main";
+  const scrubbed = previousValue === "[scrubbed]" || newValue === "[scrubbed]";
+  const firstSet = previousValue == null && newValue != null;
+
+  useEffect(() => {
+    // Reset async state when the inputs change so a row re-expand does
+    // not flash the previous diff under the new "computing" placeholder.
+    setAsyncChanges(null);
+    setAsyncError(null);
+    if (!engine || mode !== "worker" || scrubbed || firstSet) return;
+    let cancelled = false;
+    engine
+      .diffLinesViaWorker(previousValue, newValue, format || "auto")
+      .then((changes) => { if (!cancelled) setAsyncChanges(changes); })
+      .catch((err) => { if (!cancelled) setAsyncError(String(err && err.message || err)); });
+    return () => { cancelled = true; };
+  }, [previousValue, newValue, format, mode, scrubbed, firstSet, engine]);
+
+  if (scrubbed) {
+    // Spec 011 FR-029: never invoke the diff engine when either side is
+    // scrubbed; the SPA must render placeholders so a future renderer
+    // change cannot accidentally leak the raw values.
+    return (
+      <div className="diff-renderer diff-scrubbed">
+        <div className="diff-scrubbed-msg">[scrubbed] - sensitive value redacted</div>
+      </div>
+    );
+  }
+  if (firstSet) {
+    return (
+      <div className="diff-renderer diff-first-set">
+        <div className="dim">First set:</div>
+        <pre className="diff-block diff-added">{String(newValue)}</pre>
+      </div>
+    );
+  }
+  if (!engine) {
+    return <div className="diff-renderer diff-unavailable dim">Diff engine unavailable.</div>;
+  }
+  if (mode === "raw") {
+    return (
+      <div className="diff-renderer diff-raw">
+        <div className="dim">Value too large for diff (over {engine.WORKER_BYTE_THRESHOLD} chars). Showing raw values.</div>
+        <div className="diff-cols">
+          <pre className="diff-block diff-removed">{previousValue == null ? "" : String(previousValue)}</pre>
+          <pre className="diff-block diff-added">{newValue == null ? "" : String(newValue)}</pre>
+        </div>
+      </div>
+    );
+  }
+
+  let changes = null;
+  if (mode === "main") {
+    if (wordLevel) {
+      changes = engine.diffWordsSync(previousValue, newValue);
+    } else {
+      changes = engine.diffLinesSync(previousValue, newValue, format || "auto");
+    }
+  } else if (mode === "worker") {
+    if (asyncError) {
+      return <div className="diff-renderer diff-error dim">Diff failed: {asyncError}</div>;
+    }
+    if (asyncChanges == null) {
+      return <div className="diff-renderer diff-computing dim">Computing diff...</div>;
+    }
+    changes = wordLevel
+      ? engine.diffWordsSync(previousValue, newValue)
+      : asyncChanges;
+  }
+
+  return (
+    <div className="diff-renderer">
+      <div className="diff-controls">
+        <label className="diff-toggle">
+          <input type="checkbox" checked={wordLevel}
+            onChange={(e) => setWordLevel(e.target.checked)} />
+          {" Word-level diff"}
+        </label>
+      </div>
+      <div className="diff-changes">
+        {(changes || []).map((c, idx) => {
+          const cls = c.added ? "diff-added"
+            : c.removed ? "diff-removed"
+            : "diff-context";
+          return <pre key={idx} className={"diff-block " + cls}>{c.value}</pre>;
+        })}
+      </div>
+    </div>
+  );
+}
+
 function AuditLogPanel({ rows, totalCount, nextOffset, onLoadMore, onClose }) {
   // Spec 029 FR-001 / FR-005 / FR-010 + spec 011 FR-026 / FR-029.
   // Renders a formatted, paginated, reverse-chronological audit-log table
@@ -2056,6 +2170,7 @@ function AuditLogPanel({ rows, totalCount, nextOffset, onLoadMore, onClose }) {
   // dedup-on-id check there prevents double-render against an in-flight HTTP
   // refetch (FR-005). When the panel closes we drop in-flight pushes silently
   // because the next open re-fetches the durable record.
+  const [expanded, setExpanded] = useState(() => new Set());
   const formatLabel = (action) => {
     if (typeof AuditLabels !== "undefined" && AuditLabels.formatLabel) {
       return AuditLabels.formatLabel(action);
@@ -2069,6 +2184,20 @@ function AuditLogPanel({ rows, totalCount, nextOffset, onLoadMore, onClose }) {
     }
     return String(ts);
   };
+  const toggleExpand = (id) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const hasDiffableValues = (r) => (
+    // Mount the diff renderer only when at least one side carries a value
+    // AND the row is not in the both-sides-scrubbed placeholder state.
+    (r.previous_value !== null && r.previous_value !== undefined) ||
+    (r.new_value !== null && r.new_value !== undefined)
+  );
   return (
     <section className="panel audit-log-panel">
       <div className="panel-header">
@@ -2081,6 +2210,7 @@ function AuditLogPanel({ rows, totalCount, nextOffset, onLoadMore, onClose }) {
         <table className="audit-log-table">
           <thead>
             <tr>
+              <th></th>
               <th>Timestamp</th>
               <th>Actor</th>
               <th>Action</th>
@@ -2089,28 +2219,62 @@ function AuditLogPanel({ rows, totalCount, nextOffset, onLoadMore, onClose }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.id}>
-                <td className="dim">{formatTs(r.timestamp)}</td>
-                <td>{r.actor_display_name || "?"}</td>
-                <td>
-                  <span className="audit-action-label">{r.action_label || formatLabel(r.action)}</span>
-                  <code className="dim audit-action-raw"> {r.action}</code>
-                </td>
-                <td>{r.target_display_name || (r.target_id ? <code className="dim">{r.target_id}</code> : "")}</td>
-                <td className="audit-summary">
-                  {r.summary || (
-                    (r.previous_value || r.new_value) && (
-                      <span className="dim">
-                        {r.previous_value != null && <code>{r.previous_value}</code>}
-                        {r.previous_value != null && r.new_value != null && " -> "}
-                        {r.new_value != null && <code>{r.new_value}</code>}
-                      </span>
-                    )
+            {rows.map((r) => {
+              const isExpanded = expanded.has(r.id);
+              return (
+                <React.Fragment key={r.id}>
+                  <tr>
+                    <td>
+                      <button type="button" className="audit-expand-btn"
+                        aria-expanded={isExpanded}
+                        title={isExpanded ? "Collapse row" : "Expand row"}
+                        onClick={() => toggleExpand(r.id)}>
+                        {isExpanded ? "-" : "+"}
+                      </button>
+                    </td>
+                    <td className="dim">{formatTs(r.timestamp)}</td>
+                    <td>{r.actor_display_name || "?"}</td>
+                    <td>
+                      <span className="audit-action-label">{r.action_label || formatLabel(r.action)}</span>
+                      <code className="dim audit-action-raw"> {r.action}</code>
+                    </td>
+                    <td>{r.target_display_name || (r.target_id ? <code className="dim">{r.target_id}</code> : "")}</td>
+                    <td className="audit-summary">
+                      {r.summary || (
+                        (r.previous_value || r.new_value) && (
+                          <span className="dim">
+                            {r.previous_value != null && <code>{r.previous_value}</code>}
+                            {r.previous_value != null && r.new_value != null && " -> "}
+                            {r.new_value != null && <code>{r.new_value}</code>}
+                          </span>
+                        )
+                      )}
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="audit-row-expanded">
+                      <td></td>
+                      <td colSpan={5}>
+                        <div className="audit-row-meta dim">
+                          <span>id: <code>{r.id}</code></span>
+                          {r.actor_id && <span> · actor_id: <code>{r.actor_id}</code></span>}
+                          {r.target_id && <span> · target_id: <code>{r.target_id}</code></span>}
+                        </div>
+                        {hasDiffableValues(r) ? (
+                          <DiffRenderer
+                            previousValue={r.previous_value}
+                            newValue={r.new_value}
+                            format="auto"
+                          />
+                        ) : (
+                          <div className="dim">No previous_value / new_value on this action.</div>
+                        )}
+                      </td>
+                    </tr>
                   )}
-                </td>
-              </tr>
-            ))}
+                </React.Fragment>
+              );
+            })}
           </tbody>
         </table>
       )}
