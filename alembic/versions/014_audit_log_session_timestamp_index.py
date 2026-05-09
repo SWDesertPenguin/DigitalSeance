@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-"""013: Add (session_id, timestamp DESC) index to admin_audit_log.
+"""014: Add (session_id, timestamp DESC) index to admin_audit_log.
 
 Spec 029 §FR-001 / FR-005 — the human-readable audit log viewer's read
 path queries the table by ``session_id`` with ``ORDER BY timestamp DESC
@@ -16,15 +16,15 @@ query plan. ``IF NOT EXISTS`` guards a re-run on environments that may
 have hand-applied the index out-of-band (forward-only operational
 hygiene per Constitution §6).
 
-Revision ID: 013
-Revises: 012
+Revision ID: 014
+Revises: 013
 Create Date: 2026-05-09
 """
 
 from alembic import op
 
-revision = "013"
-down_revision = "012"
+revision = "014"
+down_revision = "013"
 branch_labels = None
 depends_on = None
 
