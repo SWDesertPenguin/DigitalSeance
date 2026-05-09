@@ -90,7 +90,7 @@ description: "Task list for spec 023 — User Accounts with Persistent Session H
 
 ### Verification + reset code primitive
 
-- [ ] T027 [P] Implement code generation + HMAC hashing in [src/accounts/codes.py](./../../src/accounts/codes.py) per [research.md §3](./research.md) and [contracts/codes.md](./contracts/codes.md): 16-char Crockford base32 via `secrets.token_bytes(10)`; HMAC-SHA256 hash using `SACP_AUTH_LOOKUP_KEY`; `make_verification_code()` (24h TTL), `make_reset_code()` (30min TTL), `make_email_change_code()` (24h TTL); consumed-on-submit lookup against `admin_audit_log` rows.
+- [X] T027 [P] Implement code generation + HMAC hashing in [src/accounts/codes.py](./../../src/accounts/codes.py) per [research.md §3](./research.md) and [contracts/codes.md](./contracts/codes.md): 16-char Crockford base32 via `secrets.token_bytes(10)`; HMAC-SHA256 hash using `SACP_AUTH_LOOKUP_KEY`; `make_verification_code()` (24h TTL), `make_reset_code()` (30min TTL), `make_email_change_code()` (24h TTL); consumed-on-submit lookup against `admin_audit_log` rows.
 
 ### Email transport ABC + noop adapter
 
