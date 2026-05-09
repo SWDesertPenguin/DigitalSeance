@@ -96,6 +96,19 @@ jobs:
       - name: Doc-deliverables gate (canonical docs + HTTP/WS code coverage)
         run: python scripts/check_doc_deliverables.py
 
+      - name: Audit-label parity gate (spec 029 FR-006)
+        # Backend src/orchestrator/audit_labels.py vs frontend mirror
+        # frontend/audit_labels.js. Drift on either side fails CI before
+        # the panel renders [unregistered: ...] rows in production.
+        run: python scripts/check_audit_label_parity.py
+
+      - name: Time-formatter parity gate (spec 029 FR-009)
+        # Byte-equal output of src/orchestrator/time_format.format_iso
+        # and frontend/time_format.formatIso for fixed UTC instants.
+        # Catches drift between Python isoformat truncation and the
+        # JS formatter ahead of any timestamp display divergence.
+        run: python scripts/check_time_format_parity.py
+
       - name: Run unit tests (fast tier)
         run: pytest -v --tb=short -m "not integration"
 
