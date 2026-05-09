@@ -395,6 +395,24 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Source spec(s)**: 025 §FR-008
 - **Note**: Applies to all sessions. Default Tier 4 is the only tier reliably present (every participant's prompt assembly reaches Tier 4 if they have any custom_prompt OR any spec 021 register-slider delta). Operators with custom tier semantics may attach earlier.
 
+### `SACP_PROVIDER_ADAPTER`
+
+- **Default**: `litellm`
+- **Type**: string, adapter name from `AdapterRegistry`. Case-folded to lowercase before lookup.
+- **Valid range**: any name registered in `AdapterRegistry`. v1 ships `litellm` and `mock`; future provider-specific adapters extend this set in their landing PRs.
+- **Validation rule**: `validators.validate_provider_adapter`
+- **Source spec(s)**: 020 §FR-002 / FR-003 / SC-005
+- **Note**: Process-wide and immutable for the process lifetime per FR-002. Mid-process adapter swap is OUT OF SCOPE per FR-015. An invalid value causes startup exit with an error listing registered names per V16 fail-closed.
+
+### `SACP_PROVIDER_ADAPTER_MOCK_FIXTURES_PATH`
+
+- **Default**: unset. Required only when `SACP_PROVIDER_ADAPTER=mock`; ignored otherwise.
+- **Type**: filesystem path to a JSON fixture file
+- **Valid range**: must be a readable file path with valid JSON content matching the schema in `specs/020-provider-adapter-abstraction/contracts/mock-fixtures.md`
+- **Validation rule**: `validators.validate_provider_adapter_mock_fixtures_path`
+- **Source spec(s)**: 020 §FR-006 / FR-007 / SC-004
+- **Note**: Cross-validator dependency on `SACP_PROVIDER_ADAPTER` — when the adapter is `mock`, the path MUST be set + readable + JSON-parseable; when the adapter is any other value, this var is ignored entirely. Same shape as the spec 014 `SACP_AUTO_MODE_ENABLED` ↔ `SACP_DMA_DWELL_TIME_S` precedent.
+
 ### `SACP_RATE_LIMIT_PER_MIN`
 
 - **Status**: Reserved

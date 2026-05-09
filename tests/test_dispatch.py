@@ -28,7 +28,7 @@ def _base_kwargs() -> dict:
 
 async def test_dispatch_returns_provider_response(mock_litellm):
     """Successful dispatch returns a well-formed ProviderResponse."""
-    from src.api_bridge.provider import dispatch
+    from src.api_bridge.litellm.dispatch import dispatch
 
     result = await dispatch(**_base_kwargs())
     assert result.content == "Test AI response"
@@ -41,7 +41,7 @@ async def test_dispatch_returns_provider_response(mock_litellm):
 
 async def test_dispatch_ollama_skips_api_key(mock_litellm):
     """Ollama models must not send api_key to litellm."""
-    from src.api_bridge.provider import dispatch
+    from src.api_bridge.litellm.dispatch import dispatch
 
     kwargs = _base_kwargs()
     kwargs["model"] = "ollama/llama3"
@@ -52,7 +52,7 @@ async def test_dispatch_ollama_skips_api_key(mock_litellm):
 
 async def test_dispatch_passes_api_base(mock_litellm):
     """Custom api_base is forwarded to litellm.acompletion."""
-    from src.api_bridge.provider import dispatch
+    from src.api_bridge.litellm.dispatch import dispatch
 
     kwargs = _base_kwargs()
     kwargs["api_base"] = "http://localhost:11434"
@@ -63,7 +63,7 @@ async def test_dispatch_passes_api_base(mock_litellm):
 
 async def test_dispatch_with_retry_succeeds(mock_litellm):
     """Happy path: retry wrapper succeeds on first attempt."""
-    from src.api_bridge.provider import dispatch_with_retry
+    from src.api_bridge.litellm.dispatch import dispatch_with_retry
 
     result = await dispatch_with_retry(**_base_kwargs())
     assert result.content == "Test AI response"
@@ -74,7 +74,7 @@ async def test_retry_on_rate_limit(mock_litellm):
     """Rate limit errors trigger retry with backoff."""
     import litellm as _litellm
 
-    from src.api_bridge.provider import dispatch_with_retry
+    from src.api_bridge.litellm.dispatch import dispatch_with_retry
 
     effects = [
         _litellm.RateLimitError("rate limited", "provider", "model", None),
@@ -82,7 +82,7 @@ async def test_retry_on_rate_limit(mock_litellm):
         _build_fake_response(),
     ]
     mock_litellm.acompletion.side_effect = effects
-    with patch("src.api_bridge.provider.asyncio.sleep", AsyncMock()):
+    with patch("src.api_bridge.litellm.dispatch.asyncio.sleep", AsyncMock()):
         result = await dispatch_with_retry(**_base_kwargs())
     assert result.content == "Test AI response"
     assert mock_litellm.acompletion.await_count == 3
@@ -92,7 +92,7 @@ async def test_timeout_no_retry(mock_litellm):
     """Timeout errors must not be retried."""
     import litellm as _litellm
 
-    from src.api_bridge.provider import dispatch_with_retry
+    from src.api_bridge.litellm.dispatch import dispatch_with_retry
     from src.repositories.errors import ProviderDispatchError
 
     mock_litellm.acompletion.side_effect = _litellm.Timeout(
@@ -107,7 +107,7 @@ async def test_timeout_no_retry(mock_litellm):
 
 async def test_cost_fallback_to_zero(mock_litellm):
     """Unknown model cost falls back to 0.0."""
-    from src.api_bridge.provider import dispatch
+    from src.api_bridge.litellm.dispatch import dispatch
 
     mock_litellm.completion_cost.side_effect = Exception("unknown model")
     result = await dispatch(**_base_kwargs())
@@ -118,7 +118,7 @@ async def test_context_window_exceeded_surfaces_distinct_error(mock_litellm):
     """LiteLLM ContextWindowExceededError → ContextWindowOverflowError, not retried."""
     import litellm as _litellm
 
-    from src.api_bridge.provider import dispatch_with_retry
+    from src.api_bridge.litellm.dispatch import dispatch_with_retry
     from src.repositories.errors import ContextWindowOverflowError
 
     mock_litellm.acompletion.side_effect = _litellm.ContextWindowExceededError(
@@ -137,7 +137,7 @@ async def test_context_window_overflow_is_provider_dispatch_error(mock_litellm):
     """ContextWindowOverflowError keeps the ProviderDispatchError ancestry."""
     import litellm as _litellm
 
-    from src.api_bridge.provider import dispatch_with_retry
+    from src.api_bridge.litellm.dispatch import dispatch_with_retry
     from src.repositories.errors import ProviderDispatchError
 
     mock_litellm.acompletion.side_effect = _litellm.ContextWindowExceededError(
@@ -173,8 +173,8 @@ async def test_fr031_compound_retry_exhausted_raised_when_cap_exceeded(mock_lite
     """003 §FR-031: hitting the cumulative-elapsed cap raises CompoundRetryExhaustedError."""
     import litellm as _litellm
 
-    from src.api_bridge import provider as provider_mod
-    from src.api_bridge.provider import dispatch_with_retry
+    from src.api_bridge.litellm import dispatch as provider_mod
+    from src.api_bridge.litellm.dispatch import dispatch_with_retry
     from src.repositories.errors import CompoundRetryExhaustedError
 
     # start=0, attempt-0 elapsed=250 (under cap), attempt-1 elapsed=500 (== cap → raise).
@@ -184,7 +184,7 @@ async def test_fr031_compound_retry_exhausted_raised_when_cap_exceeded(mock_lite
         "rate limited", "provider", "model", None
     )
     with (
-        patch("src.api_bridge.provider.asyncio.sleep", AsyncMock()),
+        patch("src.api_bridge.litellm.dispatch.asyncio.sleep", AsyncMock()),
         pytest.raises(CompoundRetryExhaustedError),
     ):
         await dispatch_with_retry(**_base_kwargs())
@@ -196,8 +196,8 @@ async def test_fr031_compound_retry_exhausted_subclasses_provider_dispatch_error
     """CompoundRetryExhaustedError must keep the ProviderDispatchError ancestry."""
     import litellm as _litellm
 
-    from src.api_bridge import provider as provider_mod
-    from src.api_bridge.provider import dispatch_with_retry
+    from src.api_bridge.litellm import dispatch as provider_mod
+    from src.api_bridge.litellm.dispatch import dispatch_with_retry
     from src.repositories.errors import ProviderDispatchError
 
     monkeypatch.setattr(provider_mod.time, "monotonic", _fake_clock(0.0, 250.0, 500.0))
@@ -206,7 +206,7 @@ async def test_fr031_compound_retry_exhausted_subclasses_provider_dispatch_error
         "rate limited", "provider", "model", None
     )
     with (
-        patch("src.api_bridge.provider.asyncio.sleep", AsyncMock()),
+        patch("src.api_bridge.litellm.dispatch.asyncio.sleep", AsyncMock()),
         pytest.raises(ProviderDispatchError),
     ):
         await dispatch_with_retry(**_base_kwargs())
@@ -220,8 +220,8 @@ async def test_fr031_compound_retry_warn_logged_once_at_threshold(
 
     import litellm as _litellm
 
-    from src.api_bridge import provider as provider_mod
-    from src.api_bridge.provider import dispatch_with_retry
+    from src.api_bridge.litellm import dispatch as provider_mod
+    from src.api_bridge.litellm.dispatch import dispatch_with_retry
 
     # start=0, attempt-0 elapsed=0 (no warn), attempt-1 elapsed=150 (warn at 120),
     # attempt-2 elapsed=200 (warn already fired; still under cap).
@@ -233,8 +233,8 @@ async def test_fr031_compound_retry_warn_logged_once_at_threshold(
         _litellm.RateLimitError("rate limited", "provider", "model", None),
         _build_fake_response(),
     ]
-    caplog.set_level(logging.WARNING, logger="src.api_bridge.provider")
-    with patch("src.api_bridge.provider.asyncio.sleep", AsyncMock()):
+    caplog.set_level(logging.WARNING, logger="src.api_bridge.litellm.dispatch")
+    with patch("src.api_bridge.litellm.dispatch.asyncio.sleep", AsyncMock()):
         result = await dispatch_with_retry(timeout=60, **_base_kwargs())
     assert result.content == "Test AI response"
     warnings = [r for r in caplog.records if "compound_retry_warn" in r.getMessage()]
@@ -245,11 +245,11 @@ async def test_fr031_no_warn_when_under_threshold(mock_litellm, monkeypatch, cap
     """No warn log if elapsed never crosses warn_factor × per-attempt timeout."""
     import logging
 
-    from src.api_bridge import provider as provider_mod
-    from src.api_bridge.provider import dispatch_with_retry
+    from src.api_bridge.litellm import dispatch as provider_mod
+    from src.api_bridge.litellm.dispatch import dispatch_with_retry
 
     monkeypatch.setattr(provider_mod.time, "monotonic", _fake_clock(0.0, 1.0, 2.0))
-    caplog.set_level(logging.WARNING, logger="src.api_bridge.provider")
+    caplog.set_level(logging.WARNING, logger="src.api_bridge.litellm.dispatch")
     await dispatch_with_retry(timeout=60, **_base_kwargs())
     warnings = [r for r in caplog.records if "compound_retry_warn" in r.getMessage()]
     assert warnings == []
@@ -257,7 +257,7 @@ async def test_fr031_no_warn_when_under_threshold(mock_litellm, monkeypatch, cap
 
 async def test_fr031_invalid_cap_falls_back_to_default(mock_litellm, monkeypatch):
     """Garbage in SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS → fall back to 600s default."""
-    from src.api_bridge.provider import _compound_retry_cap_seconds
+    from src.api_bridge.litellm.dispatch import _compound_retry_cap_seconds
 
     monkeypatch.setenv("SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS", "not-a-number")
     assert _compound_retry_cap_seconds() == 600.0

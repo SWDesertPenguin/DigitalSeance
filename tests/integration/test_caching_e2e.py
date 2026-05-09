@@ -14,7 +14,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 from src.api_bridge.caching import BreakpointPosition, CacheDirectives
-from src.api_bridge.provider import dispatch_with_retry
+from src.api_bridge.litellm.dispatch import dispatch_with_retry
 from src.database.encryption import encrypt_value
 
 

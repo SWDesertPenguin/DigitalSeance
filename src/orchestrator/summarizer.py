@@ -7,8 +7,8 @@ import logging
 
 import asyncpg
 
+from src.api_bridge.adapter import ProviderRequest, get_adapter
 from src.api_bridge.format import to_provider_messages
-from src.api_bridge.provider import dispatch_with_retry
 from src.api_bridge.tokenizer import default_estimator
 from src.models.participant import Participant
 from src.orchestrator.branch import get_main_branch_id
@@ -226,13 +226,15 @@ async def _summarize_with(
     """Single-model summary attempt with JSON-validity retry."""
     response = None
     for attempt in range(3):
-        response = await dispatch_with_retry(
-            model=participant.model,
-            messages=messages,
-            api_key_encrypted=participant.api_key_encrypted,
-            encryption_key=encryption_key,
-            api_base=participant.api_endpoint,
-            timeout=120,
+        response = await get_adapter().dispatch_with_retry(
+            ProviderRequest(
+                model=participant.model,
+                messages=messages,
+                api_key_encrypted=participant.api_key_encrypted,
+                encryption_key=encryption_key,
+                api_base=participant.api_endpoint,
+                timeout=120,
+            )
         )
         parsed = _validate_summary_json(response.content)
         if parsed is not None:
@@ -383,8 +385,7 @@ async def _update_session_turn(
     """
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE sessions SET last_summary_turn = $1 "
-            "WHERE id = $2 AND last_summary_turn < $1",
+            "UPDATE sessions SET last_summary_turn = $1 WHERE id = $2 AND last_summary_turn < $1",
             turn,
             session_id,
         )

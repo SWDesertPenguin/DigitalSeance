@@ -12,9 +12,9 @@ from typing import Any
 
 import asyncpg
 
+from src.api_bridge.adapter import ProviderRequest, get_adapter
 from src.api_bridge.caching import build_session_cache_directives
 from src.api_bridge.format import to_provider_messages
-from src.api_bridge.provider import dispatch_with_retry
 from src.api_bridge.tokenizer import default_estimator
 from src.orchestrator.branch import get_main_branch_id
 from src.orchestrator.budget import BudgetEnforcer
@@ -972,15 +972,17 @@ async def _dispatch_to_provider(
         session_id=session_id,
         model=speaker.model,
     )
-    return await dispatch_with_retry(
-        model=speaker.model,
-        messages=messages,
-        api_key_encrypted=speaker.api_key_encrypted,
-        encryption_key=encryption_key,
-        api_base=speaker.api_endpoint,
-        timeout=speaker.turn_timeout_seconds,
-        max_tokens=speaker.max_tokens_per_turn,
-        cache_directives=directives,
+    return await get_adapter().dispatch_with_retry(
+        ProviderRequest(
+            model=speaker.model,
+            messages=messages,
+            api_key_encrypted=speaker.api_key_encrypted,
+            encryption_key=encryption_key,
+            api_base=speaker.api_endpoint,
+            timeout=speaker.turn_timeout_seconds,
+            max_tokens=speaker.max_tokens_per_turn,
+            cache_directives=directives,
+        )
     )
 
 

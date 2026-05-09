@@ -1,9 +1,18 @@
-"""Data types for orchestrator operations."""
+"""Data types for orchestrator operations.
+
+Spec 020 relocates `ProviderResponse` to `src.api_bridge.adapter` (the
+canonical home for SACP <-> adapter boundary types). The class is
+re-exported here so existing imports
+(`from src.orchestrator.types import ProviderResponse`) continue to
+work without churning every call site.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
+
+from src.api_bridge.adapter import ProviderResponse as ProviderResponse  # noqa: F401
 
 # Spec 025 FR-001 / data-model.md "LoopState (existing FSM, extended)":
 # `conclude` is the new state alongside the existing running / paused /
@@ -61,13 +70,5 @@ class ContextMessage:
     source_turn: int | None
 
 
-@dataclass(frozen=True, slots=True)
-class ProviderResponse:
-    """Response from an AI provider call."""
-
-    content: str
-    input_tokens: int
-    output_tokens: int
-    cost_usd: float
-    model: str
-    latency_ms: int
+# `ProviderResponse` lives in `src.api_bridge.adapter` per spec 020;
+# re-exported above for back-compat.

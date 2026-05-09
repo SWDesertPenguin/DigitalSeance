@@ -8,8 +8,10 @@ provider limit. This module provides a small lookup so the assembler
 can floor the budget at the model's true limit.
 
 Resolution order:
-  1. `litellm.get_model_info(model)["max_input_tokens"]` — covers every
-     model LiteLLM ships metadata for (the bulk of the catalog).
+  1. The LiteLLM adapter package's `litellm_max_input_tokens(model)` —
+     covers every model LiteLLM ships metadata for (the bulk of the
+     catalog). Lazy-imported so the FR-005 architectural test continues
+     to pass: this module itself does not import `litellm`.
   2. A small explicit fallback table — covers the handful of models the
      project tests against most often, so a LiteLLM metadata regression
      doesn't take this defense down with it.
@@ -18,6 +20,10 @@ Resolution order:
 The fallback table is deliberately minimal; expanding it indefinitely
 turns this module into a maintenance burden. Add an entry only when a
 production-relevant model is missing from LiteLLM metadata.
+
+Spec 020 / T076 relocates the inline `import litellm` that previously
+lived in `_from_litellm()` to `src/api_bridge/litellm/capabilities.py`
+so the FR-005 architectural test passes for this file.
 """
 
 from __future__ import annotations
@@ -60,31 +66,29 @@ def known_max_input_tokens(model: str) -> int | None:
 
 
 def _from_litellm(model: str) -> int | None:
-    """Pull max_input_tokens from LiteLLM's bundled model metadata."""
+    """Pull max_input_tokens via the LiteLLM adapter package helper.
+
+    Lazy-imports `src.api_bridge.litellm.capabilities` so this module
+    holds no top-level dependency on the LiteLLM adapter package — keeps
+    `model_limits.py` callable from contexts where the adapter package
+    is absent (e.g., topology 7) without breaking the FR-005
+    architectural test.
+    """
     try:
-        import litellm
+        from src.api_bridge.litellm.capabilities import litellm_max_input_tokens
     except ImportError:
         return None
     try:
-        info = litellm.get_model_info(model)
+        return litellm_max_input_tokens(model)
     except Exception:
-        # LiteLLM raises BadRequestError / KeyError for unknown models;
-        # treat all errors as "no metadata" and let the fallback table
-        # or the operator's declared value carry.
         return None
-    if not isinstance(info, dict):
-        return None
-    raw = info.get("max_input_tokens") or info.get("max_tokens")
-    if not isinstance(raw, int) or raw <= 0:
-        return None
-    return raw
 
 
 def _strip_provider_prefix(model: str) -> str:
     """Remove the LiteLLM provider prefix so fallback lookups match.
 
-    `anthropic/claude-sonnet-4-6` → `claude-sonnet-4-6`,
-    `gemini/gemini-2.5-flash-lite` → `gemini-2.5-flash-lite`, etc.
+    `anthropic/claude-sonnet-4-6` -> `claude-sonnet-4-6`,
+    `gemini/gemini-2.5-flash-lite` -> `gemini-2.5-flash-lite`, etc.
     """
     for prefix in ("anthropic/", "openai/", "gemini/", "vertex_ai/", "google/"):
         if model.startswith(prefix):
