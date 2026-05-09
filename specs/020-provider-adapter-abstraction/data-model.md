@@ -64,12 +64,14 @@ Outbound payload from every dispatch call. Existing type from `src/orchestrator/
 |---|---|---|
 | `model` | `str` | The model that produced the response. |
 | `content` | `str` | Generated text. |
-| `prompt_tokens` | `int` | Inbound tokens; from adapter's parse of provider response. |
-| `completion_tokens` | `int` | Outbound tokens; from adapter's parse of provider response. |
-| `cost` | `float \| None` | Per-call cost in USD; `None` when adapter cannot compute (e.g., self-hosted Ollama). |
+| `input_tokens` | `int` | Inbound tokens; from adapter's parse of provider response. |
+| `output_tokens` | `int` | Outbound tokens; from adapter's parse of provider response. |
+| `cost_usd` | `float` | Per-call cost in USD; the adapter writes `0.0` when it cannot compute (e.g., self-hosted Ollama). |
 | `latency_ms` | `int` | Wall-clock latency from dispatch start to response receipt. |
-| `provider_family` | `str` | Bounded enum value from `Capabilities` per [research.md §12](./research.md). Spec 016 metrics label source. |
-| `finish_reason` | `str` | Provider's finish reason (e.g., `"stop"`, `"length"`, `"tool_calls"`). |
+
+Field names match the pre-feature `src/orchestrator/types.py` definition exactly (FR-014 byte-identical regression). The mock fixture parser also accepts the alias names `prompt_tokens` / `completion_tokens` / `cost` for fixture-author convenience; both shapes resolve to the same canonical fields.
+
+`provider_family` and `finish_reason` are NOT on `ProviderResponse` in v1 — `provider_family` lives on `Capabilities` (queried separately via `adapter.capabilities(model)`) and `finish_reason` surfaces only on streaming `StreamEvent`s with `event_type=FINALIZATION`. Future amendment may promote one or both onto `ProviderResponse`.
 
 Lifetime: returned from adapter call; consumed by orchestrator's per-turn loop; persisted to `messages` and `routing_log` via existing repositories.
 
@@ -112,7 +114,7 @@ Yielded by `stream(request)`. Single SACP-internal event shape covering all prov
 | `content` | `str \| None` | Populated on `TEXT_DELTA`. |
 | `tool_call` | `dict \| None` | Populated on `TOOL_CALL_DELTA`. Shape: `{"id": str, "name": str, "arguments": dict \| str}`. |
 | `finish_reason` | `str \| None` | Populated on `FINALIZATION`. Provider's finish reason. |
-| `usage` | `dict \| None` | Populated on `FINALIZATION`. Shape: `{"prompt_tokens": int, "completion_tokens": int}`. |
+| `usage` | `dict \| None` | Populated on `FINALIZATION`. Shape: `{"prompt_tokens": int, "completion_tokens": int}` — these are the LiteLLM streaming chunk's native field names, preserved as-is on the wire and only normalized to the `ProviderResponse` field names (`input_tokens` / `output_tokens`) in the non-streaming dispatch path. |
 
 Lifetime: streamed from adapter to orchestrator's split-stream accumulator (sacp-design.md §6.5); consumed and discarded.
 

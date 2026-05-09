@@ -101,9 +101,9 @@ def _default_stream(response: ProviderResponse) -> list[StreamEvent]:
         StreamEvent(event_type=StreamEventType.TEXT_DELTA, content=response.content),
         StreamEvent(
             event_type=StreamEventType.FINALIZATION,
-            finish_reason=response.finish_reason,
-            usage={"prompt_tokens": response.prompt_tokens,
-                   "completion_tokens": response.completion_tokens},
+            finish_reason="stop",  # mock adapter has no streaming finish_reason source
+            usage={"prompt_tokens": response.input_tokens,
+                   "completion_tokens": response.output_tokens},
         ),
     ]
 ```
