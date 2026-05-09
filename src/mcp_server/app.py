@@ -92,7 +92,16 @@ def _add_exception_handlers(app: FastAPI) -> None:
 
 
 def _add_middleware(app: FastAPI) -> None:
-    """Add CORS middleware (LAN default, SACP_CORS_ORIGINS override)."""
+    """Add CORS middleware + (optional) network-layer rate limiter.
+
+    Per spec 019 contracts/middleware-ordering.md the
+    ``NetworkRateLimitMiddleware`` MUST be the LAST add_middleware call
+    (= outermost on the request stack per FastAPI's reverse-order
+    semantics) so it runs BEFORE auth / bcrypt / anything else.
+    Conditional on ``SACP_NETWORK_RATELIMIT_ENABLED=true`` (FR-014 /
+    SC-006: the middleware MUST NOT appear in user_middleware when
+    disabled — pre-feature byte-identical).
+    """
     cors_env = os.environ.get("SACP_CORS_ORIGINS", "")
     if cors_env:
         origins = [o.strip() for o in cors_env.split(",") if o.strip()]
@@ -104,6 +113,56 @@ def _add_middleware(app: FastAPI) -> None:
         )
     else:
         _add_lan_cors(app)
+    _add_network_rate_limit(app)
+
+
+def _add_network_rate_limit(app: FastAPI) -> None:
+    """Conditionally register the spec 019 per-IP limiter as outermost."""
+    raw_enabled = os.environ.get("SACP_NETWORK_RATELIMIT_ENABLED", "").strip().lower()
+    if raw_enabled not in ("true", "1"):
+        return
+    from src.middleware.network_rate_limit import NetworkRateLimitMiddleware
+
+    rpm = int(os.environ.get("SACP_NETWORK_RATELIMIT_RPM", "60"))
+    burst = int(os.environ.get("SACP_NETWORK_RATELIMIT_BURST", "15"))
+    max_keys = int(os.environ.get("SACP_NETWORK_RATELIMIT_MAX_KEYS", "100000"))
+    raw_trust = (
+        os.environ.get(
+            "SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS",
+            "false",
+        )
+        .strip()
+        .lower()
+    )
+    trust_forwarded_headers = raw_trust in ("true", "1")
+    app.add_middleware(
+        NetworkRateLimitMiddleware,
+        rpm=rpm,
+        burst=burst,
+        max_keys=max_keys,
+        trust_forwarded_headers=trust_forwarded_headers,
+    )
+    _log_middleware_order(app)
+
+
+def _log_middleware_order(app: FastAPI) -> None:
+    """Emit the FR-002 introspection line (contracts/middleware-ordering.md).
+
+    Format pinned by contracts/middleware-ordering.md: ``Middleware order
+    (outermost first): [Name1, Name2, ...]`` — bracket-list form WITHOUT
+    quotes around class names so the caplog regex anchors on a stable
+    prefix.
+    """
+    # FastAPI's add_middleware() prepends to user_middleware (insert at
+    # index 0), so user_middleware[0] is the most recently registered =
+    # OUTERMOST. The introspection log shows OUTERMOST FIRST, which is
+    # the natural list order — no reverse needed.
+    outermost_first = [m.cls.__name__ for m in app.user_middleware]
+    rendered = "[" + ", ".join(outermost_first) + "]"
+    logging.getLogger(__name__).info(
+        "Middleware order (outermost first): %s",
+        rendered,
+    )
 
 
 def _add_lan_cors(app: FastAPI) -> None:

@@ -54,11 +54,15 @@ def test_network_ratelimit_is_outermost_when_enabled(monkeypatch):
 
     app = create_app()  # the project's app factory
 
-    # FastAPI's user_middleware is a list; the LAST entry is the outermost.
+    # FastAPI's add_middleware() prepends to user_middleware (insert at
+    # index 0), so the LAST registered middleware ends up at index 0 —
+    # which becomes the OUTERMOST. The FIRST entry of the list is the
+    # outermost; the LAST entry is the innermost.
     middleware_classes = [m.cls for m in app.user_middleware]
     assert middleware_classes, "expected at least one middleware registered"
-    assert middleware_classes[-1].__name__ == "NetworkRateLimitMiddleware", (
-        f"FR-002 violated: NetworkRateLimitMiddleware MUST be outermost; "
+    assert middleware_classes[0].__name__ == "NetworkRateLimitMiddleware", (
+        f"FR-002 violated: NetworkRateLimitMiddleware MUST be outermost "
+        f"(index 0 of user_middleware after FastAPI's prepend semantics); "
         f"got order {[c.__name__ for c in middleware_classes]}"
     )
 ```
