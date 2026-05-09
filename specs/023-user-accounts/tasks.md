@@ -99,7 +99,7 @@ description: "Task list for spec 023 — User Accounts with Persistent Session H
 
 ### Per-IP login rate limiter
 
-- [ ] T030 [P] Implement `LoginRateLimiter` sliding-window per-IP in [src/accounts/rate_limit.py](./../../src/accounts/rate_limit.py) per [research.md §5](./research.md): `dict[str, deque[float]]` keyed by `extract_client_ip(request)`; window = 60s; threshold = `SACP_ACCOUNT_RATE_LIMIT_PER_IP_PER_MIN`; async `check(ip) -> None` raises `RateLimitExceeded` (HTTP 429 + `Retry-After`). Separate state from spec 019's middleware (FR-015 / clarify Q10).
+- [X] T030 [P] Implement `LoginRateLimiter` sliding-window per-IP in [src/accounts/rate_limit.py](./../../src/accounts/rate_limit.py) per [research.md §5](./research.md): `dict[str, deque[float]]` keyed by `extract_client_ip(request)`; window = 60s; threshold = `SACP_ACCOUNT_RATE_LIMIT_PER_IP_PER_MIN`; async `check(ip) -> None` raises `RateLimitExceeded` (HTTP 429 + `Retry-After`). Separate state from spec 019's middleware (FR-015 / clarify Q10).
 
 ### Account repository
 
