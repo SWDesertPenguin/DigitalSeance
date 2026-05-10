@@ -284,5 +284,6 @@ Spec 024's amendment FR(s) MUST cite this document and:
 | Date | Change | Reason |
 |---|---|---|
 | 2026-05-08 | Initial draft | Phase 1 of spec 029 plan |
+| 2026-05-09 | Verified against landed signatures (T044). No divergence — every cited path exists, every public symbol matches the documented surface, threshold constants pinned to 50,000 / 500,000. The architectural test (`tests/test_029_architectural.py`) and freshness test (`tests/test_029_contract_freshness.py`) enforce this going forward. | T044 closure during US4 implementation |
 
 Future amendments to this contract MUST add a row here citing the amending PR and the consumer specs reviewed.
