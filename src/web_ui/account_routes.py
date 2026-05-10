@@ -33,8 +33,9 @@ account_id (FR-016 + audit H-02).
 from __future__ import annotations
 
 import logging
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, HTTPException, Path, Query, Request, Response, status
 from pydantic import BaseModel, Field
 
 from src.accounts.rate_limit import RateLimitExceeded
@@ -43,9 +44,11 @@ from src.web_ui.auth import (
     COOKIE_MAX_AGE_SECONDS,
     COOKIE_NAME,
     _make_cookie_value,
+    _parse_cookie_value,
     _secure_cookie_flag,
     extract_client_ip,
 )
+from src.web_ui.session_store import SessionEntry
 
 log = logging.getLogger(__name__)
 
@@ -110,6 +113,28 @@ def _set_session_cookie(response: Response, request: Request, sid: str) -> None:
         samesite="strict",
         path="/",
     )
+
+
+async def _require_account_session(
+    request: Request,
+    sacp_ui_token: Annotated[str | None, Cookie()] = None,
+) -> tuple[SessionEntry, str]:
+    """Resolve the cookie sid → ``SessionEntry`` and require account_id.
+
+    Spec 023 FR-016: account-cookie auth shares the spec 011 cookie
+    plumbing (signed sid; lookup against ``SessionStore``). The
+    additional gate is that ``entry.account_id`` MUST be set — token-
+    paste sessions are rejected so the account-only surface stays
+    isolated from the legacy participant-token flow.
+    """
+    if not sacp_ui_token:
+        raise HTTPException(401, detail={"error": "not_authenticated"})
+    sid = _parse_cookie_value(sacp_ui_token)
+    store = request.app.state.session_store
+    entry = await store.get(sid)
+    if entry is None or entry.account_id is None:
+        raise HTTPException(401, detail={"error": "not_authenticated"})
+    return entry, sid
 
 
 def _to_http(exc: AccountServiceError) -> HTTPException:
@@ -204,6 +229,50 @@ async def login_endpoint(
         "account_id": result.account_id,
         "expires_in": COOKIE_MAX_AGE_SECONDS,
     }
+
+
+# ---------------------------------------------------------------------------
+# US2 endpoints — /me/sessions + rebind (T056, T057)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/me/sessions")
+async def list_me_sessions_endpoint(
+    request: Request,
+    sacp_ui_token: Annotated[str | None, Cookie()] = None,
+    active_offset: Annotated[int, Query(ge=0)] = 0,
+    archived_offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict:
+    """Return the authenticated account's segmented session list (FR-008)."""
+    entry, _ = await _require_account_session(request, sacp_ui_token)
+    service = _resolve_account_service(request)
+    try:
+        return await service.list_sessions(
+            account_id=entry.account_id,
+            active_offset=active_offset,
+            archived_offset=archived_offset,
+        )
+    except AccountServiceError as exc:
+        raise _to_http(exc) from exc
+
+
+@router.post("/me/sessions/{session_id}/rebind")
+async def rebind_session_endpoint(
+    request: Request,
+    session_id: Annotated[str, Path(min_length=1, max_length=128)],
+    sacp_ui_token: Annotated[str | None, Cookie()] = None,
+) -> dict:
+    """Bind the account-cookie sid to a session-scoped participant (FR-016)."""
+    entry, sid = await _require_account_session(request, sacp_ui_token)
+    service = _resolve_account_service(request)
+    try:
+        return await service.rebind_to_session(
+            account_id=entry.account_id,
+            session_id=session_id,
+            sid=sid,
+        )
+    except AccountServiceError as exc:
+        raise _to_http(exc) from exc
 
 
 # ---------------------------------------------------------------------------

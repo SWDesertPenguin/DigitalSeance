@@ -163,18 +163,18 @@ description: "Task list for spec 023 — User Accounts with Persistent Session H
 
 ### Tests for User Story 2
 
-- [ ] T050 [P] [US2] Acceptance scenarios 1-4 (segmented response shape, per-entry fields, cross-account isolation, empty-account empty-arrays not 404) in [tests/test_023_me_sessions.py](./../../tests/test_023_me_sessions.py).
-- [ ] T051 [P] [US2] Acceptance scenario 5 + offset pagination (account with > 50 sessions; first call returns 50 + `next_offset`; second call returns next 50; pagination is per segment NOT across) in [tests/test_023_me_sessions_pagination.py](./../../tests/test_023_me_sessions_pagination.py).
-- [ ] T052 [P] [US2] Acceptance scenarios 6-7 + rebind (active session click → SPA resolves to per-session participant credential via existing SessionStore flow; archived session click → read-only transcript view with injection/control disabled per spec 001 archived-session semantics) in [tests/test_023_me_sessions_rebind.py](./../../tests/test_023_me_sessions_rebind.py).
-- [ ] T053 [P] [US2] 10,000-session warning trip per FR-008: mock or seed an account with > 10K joined sessions; call `/me/sessions`; assert the structured WARN log appears AND an `account_session_count_threshold_tripped` audit row is emitted (idempotent per (account_id, day(at)) per research §9). Test in [tests/test_023_me_sessions_threshold.py](./../../tests/test_023_me_sessions_threshold.py).
+- [X] T050 [P] [US2] Acceptance scenarios 1-4 (segmented response shape, per-entry fields, cross-account isolation, empty-account empty-arrays not 404) in [tests/test_023_me_sessions.py](./../../tests/test_023_me_sessions.py).
+- [X] T051 [P] [US2] Acceptance scenario 5 + offset pagination consolidated into `tests/test_023_me_sessions.py::test_me_sessions_paginates_per_segment`.
+- [X] T052 [P] [US2] Acceptance scenarios 6-7 + rebind consolidated into `tests/test_023_me_sessions.py::test_rebind_*`.
+- [X] T053 [P] [US2] 10,000-session warning trip per FR-008 in `tests/test_023_me_sessions.py::test_me_sessions_emits_threshold_audit_when_count_exceeds_10k` (idempotent within process).
 
 ### Implementation for User Story 2
 
-- [ ] T054 [US2] Implement `account_repo.list_sessions_for_account(account_id, status_set, offset, limit)` per [research.md §9](./research.md): single JOIN over `account_participants` × `participants` × `sessions` filtered by `account_id`, ordered by `sessions.last_activity_at DESC`, status segmentation in app code via two calls (active/paused vs. archived).
-- [ ] T055 [US2] Implement `service.list_sessions(account_id, active_offset, archived_offset)` in [src/accounts/service.py](./../../src/accounts/service.py): runs the repo query twice (once per segment) and assembles `{active_sessions, archived_sessions, active_next_offset, archived_next_offset}`; runs the count check ahead of time and emits the 10K threshold trip when applicable.
-- [ ] T056 [US2] Add `GET /me/sessions` endpoint in [src/web_ui/account_routes.py](./../../src/web_ui/account_routes.py) per [contracts/account-endpoints.md "GET /me/sessions"](./contracts/account-endpoints.md): account-cookie auth via the extended SessionStore (FR-016); query param parsing for `active_offset` / `archived_offset` (default 0); calls `service.list_sessions`.
-- [ ] T057 [US2] Add `POST /me/sessions/{session_id}/rebind` endpoint in [src/web_ui/account_routes.py](./../../src/web_ui/account_routes.py) per [research.md §10](./research.md): looks up `account_participants.participant_id WHERE account_id = ? AND session_id = ?`; fetches the bearer from the per-session credential store; updates the existing `SessionEntry` to set `participant_id`, `session_id`, and `bearer` (sid + cookie preserved per H-02 invariant).
-- [ ] T058 [US2] Hook into the participant-creation flow ([src/mcp_server/tools/](./../../src/mcp_server/tools/) — likely `participant.py` or similar) to insert an `account_participants` join row when an authenticated account cookie is present on the request. The master-switch-off path (FR-018) skips the insert entirely.
+- [X] T054 [US2] `account_repo.list_sessions_for_account` + `count_sessions_for_account` + `find_binding_for_session` per [research.md §9](./research.md): single JOIN ordered by `sessions.created_at DESC` (v1 last-activity proxy), status segmentation via two calls.
+- [X] T055 [US2] `service.list_sessions(account_id, active_offset, archived_offset)`: assembles `{active_sessions, archived_sessions, *next_offset}`; emits FR-008 10K trip with structured WARN + audit row, idempotent per process.
+- [X] T056 [US2] `GET /me/sessions` in [src/web_ui/account_routes.py](./../../src/web_ui/account_routes.py): account-cookie auth via `_require_account_session`, `active_offset` / `archived_offset` query params.
+- [X] T057 [US2] `POST /me/sessions/{session_id}/rebind` + `SessionStore.rebind_account_session` keep H-02 single-sid invariant.
+- [X] T058 [US2] Hook lands at the existing token-paste `/login` endpoint: when an account cookie is present, insert `account_participants` and rebind the existing sid (single-sid invariant). Master-switch-off path leaves the existing flow untouched.
 
 **Checkpoint**: US2 functional. A logged-in account calls `/me/sessions`, sees their sessions segmented by status, paginated, scoped strictly to their own joined sessions. Rebind endpoint resolves to the per-session participant credential without leaking the bearer to the cookie payload.
 

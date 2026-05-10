@@ -66,12 +66,14 @@ class SharedServices:
     register_repo: RegisterRepository
     session_store: SessionStore
     account_service: AccountService | None = None
+    account_repo: AccountRepository | None = None
 
 
 def build_services(pool: asyncpg.Pool, encryption_key: str) -> SharedServices:
     """Construct a SharedServices record against an existing pool."""
     log_repo = LogRepository(pool)
     session_store = get_session_store()
+    account_repo = AccountRepository(pool) if should_mount_account_router() else None
     return SharedServices(
         pool=pool,
         encryption_key=encryption_key,
@@ -85,8 +87,9 @@ def build_services(pool: asyncpg.Pool, encryption_key: str) -> SharedServices:
         log_repo=log_repo,
         register_repo=RegisterRepository(pool),
         session_store=session_store,
+        account_repo=account_repo,
         account_service=_maybe_build_account_service(
-            pool=pool, log_repo=log_repo, session_store=session_store
+            pool=pool, log_repo=log_repo, session_store=session_store, account_repo=account_repo
         ),
     )
 
@@ -106,6 +109,7 @@ def attach_to_app(app: FastAPI, services: SharedServices) -> None:
     app.state.register_repo = services.register_repo
     app.state.session_store = services.session_store
     app.state.account_service = services.account_service
+    app.state.account_repo = services.account_repo
 
 
 async def build_standalone_services() -> SharedServices:
@@ -128,8 +132,9 @@ def prime_from_mcp_app(web_app: FastAPI, mcp_app: FastAPI) -> None:
     pool = mcp_app.state.pool
     log_repo = mcp_app.state.log_repo
     session_store = get_session_store()
+    account_repo = AccountRepository(pool) if should_mount_account_router() else None
     account_service = _maybe_build_account_service(
-        pool=pool, log_repo=log_repo, session_store=session_store
+        pool=pool, log_repo=log_repo, session_store=session_store, account_repo=account_repo
     )
     services = SharedServices(
         pool=pool,
@@ -144,6 +149,7 @@ def prime_from_mcp_app(web_app: FastAPI, mcp_app: FastAPI) -> None:
         log_repo=log_repo,
         register_repo=mcp_app.state.register_repo,
         session_store=session_store,
+        account_repo=account_repo,
         account_service=account_service,
     )
     attach_to_app(web_app, services)
@@ -151,15 +157,16 @@ def prime_from_mcp_app(web_app: FastAPI, mcp_app: FastAPI) -> None:
 
 def _maybe_build_account_service(
     *,
-    pool: asyncpg.Pool,
+    pool: asyncpg.Pool,  # noqa: ARG001 — kept for future signature stability
     log_repo: LogRepository,
     session_store: SessionStore,
+    account_repo: AccountRepository | None,
 ) -> AccountService | None:
     """Construct the AccountService only when the mount gate passes."""
-    if not should_mount_account_router():
+    if not should_mount_account_router() or account_repo is None:
         return None
     return AccountService(
-        account_repo=AccountRepository(pool),
+        account_repo=account_repo,
         log_repo=log_repo,
         session_store=session_store,
     )

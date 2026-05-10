@@ -84,6 +84,18 @@ _PASSWORD_MAX_LEN = 1024
 _ACCOUNT_AUDIT_SESSION_PREFIX = "_account_"
 _SYSTEM_FACILITATOR = "_system"
 
+# FR-008: structured WARN + audit row when an account's joined-session
+# count crosses this threshold. Cursor pagination is a backlog item
+# the warning announces; the offset path keeps working past it.
+_SESSION_COUNT_THRESHOLD = 10_000
+
+
+def _next_offset_or_none(current_offset: int, page_size: int, page_count: int) -> int | None:
+    """Return the offset for the next page or None when the segment is exhausted."""
+    if page_count < page_size:
+        return None
+    return current_offset + page_size
+
 
 class AccountServiceError(Exception):
     """Base class for service-layer business-rule violations.
@@ -183,6 +195,10 @@ class AccountService:
         # Pinned dummy hash for SC-005 timing-uniform login (email-miss
         # path). Computed once so per-request cost is verify-only.
         self._dummy_hash = self._hasher.hash("__sacp_login_dummy_v1__")
+        # FR-008 idempotency set: account_ids whose 10K-threshold trip
+        # has already emitted within this process lifetime. Keeps the
+        # WARN + audit row from spamming on every call once tripped.
+        self._threshold_emitted_today: set[str] = set()
 
     # ------------------------------------------------------------------
     # T044: create_account
@@ -451,6 +467,112 @@ class AccountService:
             sid=sid,
             rehash_performed=rehash_performed,
         )
+
+    # ------------------------------------------------------------------
+    # T054 + T055 + T057: /me/sessions list + rebind (US2)
+    # ------------------------------------------------------------------
+
+    async def list_sessions(
+        self,
+        *,
+        account_id: str,
+        active_offset: int = 0,
+        archived_offset: int = 0,
+        page_size: int = 50,
+    ) -> dict:
+        """Return the segmented session list for ``GET /me/sessions``.
+
+        FR-008: ``{active_sessions, archived_sessions}`` segmented;
+        ordered by last-activity-at DESC within each segment;
+        offset-paginated at 50/page per segment. The 10K-threshold
+        warning trips when the joined-session count crosses
+        ``_SESSION_COUNT_THRESHOLD``; idempotent per (account_id, day)
+        via dedup on the audit-row's date prefix.
+        """
+        active = await self._account_repo.list_sessions_for_account(
+            account_id=account_id,
+            archived=False,
+            offset=active_offset,
+            limit=page_size,
+        )
+        archived = await self._account_repo.list_sessions_for_account(
+            account_id=account_id,
+            archived=True,
+            offset=archived_offset,
+            limit=page_size,
+        )
+        await self._maybe_emit_count_threshold(account_id=account_id)
+        return {
+            "active_sessions": active,
+            "archived_sessions": archived,
+            "active_next_offset": _next_offset_or_none(active_offset, page_size, len(active)),
+            "archived_next_offset": _next_offset_or_none(archived_offset, page_size, len(archived)),
+        }
+
+    async def _maybe_emit_count_threshold(self, *, account_id: str) -> None:
+        """FR-008 10K-threshold trip: structured WARN + audit row, idempotent."""
+        count = await self._account_repo.count_sessions_for_account(account_id)
+        if count <= _SESSION_COUNT_THRESHOLD:
+            return
+        if account_id in self._threshold_emitted_today:
+            return
+        self._threshold_emitted_today.add(account_id)
+        log.warning(
+            "spec 023 FR-008: account %s joined-session count %s exceeds "
+            "%s; cursor pagination is a backlog item",
+            account_id,
+            count,
+            _SESSION_COUNT_THRESHOLD,
+        )
+        payload = {
+            "account_id": account_id,
+            "count": count,
+            "threshold": _SESSION_COUNT_THRESHOLD,
+        }
+        await self._log_repo.log_admin_action(
+            session_id=self._audit_session_id(account_id),
+            facilitator_id=account_id,
+            action="account_session_count_threshold_tripped",
+            target_id=account_id,
+            new_value=json.dumps(payload),
+        )
+
+    async def rebind_to_session(
+        self,
+        *,
+        account_id: str,
+        session_id: str,
+        sid: str,
+    ) -> dict:
+        """Bind the account-cookie sid to a per-session participant.
+
+        FR-016 + research §10: the existing SessionEntry stays (single
+        sid per cookie); we just populate the participant_id +
+        session_id fields so subsequent participant-flow calls succeed.
+        Returns ``{session_id, participant_id, rebound: bool}`` or
+        raises ``not_found`` if the account doesn't own a participant
+        in the requested session (no info leak per FR-009).
+        """
+        binding = await self._account_repo.find_binding_for_session(
+            account_id=account_id,
+            session_id=session_id,
+        )
+        if binding is None:
+            raise AccountServiceError(
+                error_code="not_found",
+                http_status=404,
+                message="account does not own a participant in that session",
+            )
+        await self._session_store.rebind_account_session(
+            sid=sid,
+            participant_id=binding["participant_id"],
+            session_id=binding["session_id"],
+        )
+        return {
+            "session_id": binding["session_id"],
+            "participant_id": binding["participant_id"],
+            "rebound": True,
+        }
 
     # ------------------------------------------------------------------
     # T049: change_password — SessionStore invalidation hook (US3 wiring)

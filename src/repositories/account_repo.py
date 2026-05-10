@@ -41,6 +41,43 @@ from src.repositories.base import BaseRepository
 # env var is unset / empty. The validator already enforces [0, 365].
 _DEFAULT_GRACE_DAYS = 7
 
+# Status segmentation for the /me/sessions response (FR-008 + clarify
+# Q7). "Live" covers active and paused — both are non-archived. The
+# archived bucket holds only the literal 'archived' state today; future
+# values like 'deleted' join it once spec 010 retention sweeps land.
+_LIVE_STATUSES = ("active", "paused")
+_ARCHIVED_STATUSES = ("archived",)
+
+
+_LIST_SESSIONS_SQL = """
+    SELECT s.id              AS session_id,
+           s.name            AS name,
+           s.created_at      AS last_activity_at,
+           s.status          AS status,
+           p.id              AS participant_id,
+           p.role            AS role
+    FROM account_participants ap
+    JOIN participants p ON p.id = ap.participant_id
+    JOIN sessions s     ON s.id = p.session_id
+    WHERE ap.account_id = $1
+      AND s.status = ANY($2::text[])
+    ORDER BY s.created_at DESC
+    LIMIT $3 OFFSET $4
+"""
+
+
+def _session_row_to_dict(record) -> dict:  # noqa: ANN001 — asyncpg.Record
+    """Convert an SC-003 list-sessions row to the contract-shaped dict."""
+    last_activity = record["last_activity_at"]
+    return {
+        "session_id": record["session_id"],
+        "name": record["name"],
+        "last_activity_at": last_activity.isoformat() if last_activity else None,
+        "status": record["status"],
+        "participant_id": record["participant_id"],
+        "role": record["role"],
+    }
+
 
 def _read_grace_days() -> int:
     """Read SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS, falling back to default."""
@@ -221,6 +258,80 @@ class AccountRepository(BaseRepository):
             uuid.UUID(account_id),
         )
         return [AccountParticipant.from_record(r) for r in records]
+
+    async def list_sessions_for_account(
+        self,
+        *,
+        account_id: str,
+        archived: bool,
+        offset: int,
+        limit: int,
+    ) -> list[dict]:
+        """Return sessions an account has joined, segmented by archived state.
+
+        Implements the FR-008 segmented response: `archived=False` returns
+        live sessions (`status IN ('active', 'paused')`); `archived=True`
+        returns archived ones. Ordered by ``sessions.created_at DESC``
+        (used as the v1 last-activity proxy until a dedicated column
+        lands per research §9). Each row carries the columns the
+        contract enumerates: session_id, name, last_activity_at, role,
+        participant_id, status.
+        """
+        statuses = _ARCHIVED_STATUSES if archived else _LIVE_STATUSES
+        records = await self._fetch_all(
+            _LIST_SESSIONS_SQL,
+            uuid.UUID(account_id),
+            list(statuses),
+            int(limit),
+            int(offset),
+        )
+        return [_session_row_to_dict(r) for r in records]
+
+    async def count_sessions_for_account(self, account_id: str) -> int:
+        """Total joined-session count for the FR-008 10K-threshold check."""
+        record = await self._fetch_one(
+            """
+            SELECT COUNT(*) AS n
+            FROM account_participants
+            WHERE account_id = $1
+            """,
+            uuid.UUID(account_id),
+        )
+        return int(record["n"]) if record is not None else 0
+
+    async def find_binding_for_session(
+        self,
+        *,
+        account_id: str,
+        session_id: str,
+    ) -> dict | None:
+        """Look up the participant_id this account owns in a given session.
+
+        Returns ``None`` if the account has no participant in the session
+        (cross-account isolation enforced via ``account_id`` filter).
+        Used by the rebind endpoint (FR-016) to bind the existing sid
+        to the per-session participant credential.
+        """
+        record = await self._fetch_one(
+            """
+            SELECT p.id AS participant_id,
+                   p.session_id AS session_id,
+                   p.role AS role
+            FROM account_participants ap
+            JOIN participants p ON p.id = ap.participant_id
+            WHERE ap.account_id = $1
+              AND p.session_id = $2
+            """,
+            uuid.UUID(account_id),
+            session_id,
+        )
+        if record is None:
+            return None
+        return {
+            "participant_id": record["participant_id"],
+            "session_id": record["session_id"],
+            "role": record["role"],
+        }
 
 
 def make_account_repository(pool: asyncpg.Pool) -> AccountRepository:

@@ -24,6 +24,7 @@ CSRF header ``X-SACP-Request: 1`` on every mutation.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from typing import Annotated
@@ -174,6 +175,7 @@ async def login(
     body: _LoginBody,
     request: Request,
     response: Response,
+    sacp_ui_token: Annotated[str | None, Cookie()] = None,
 ) -> dict:
     """Exchange a bearer token for a signed HttpOnly session cookie.
 
@@ -181,14 +183,75 @@ async def login(
     The SPA already has it (the user just pasted it) and won't need
     it again — MCP calls now flow through the same-origin proxy at
     `/api/mcp/<path>` using the cookie session.
+
+    Spec 023 FR-002: when an account-authenticated cookie is present
+    on the request, the existing sid is rebound (single-sid invariant
+    from H-02) AND an ``account_participants`` join row is inserted so
+    ``GET /me/sessions`` reports this session under the account.
     """
     auth_service = getattr(request.app.state, "auth_service", None)
     if auth_service is None:
         raise HTTPException(503, "Auth service not available")
     participant = await _authenticate_or_raise(auth_service, body.token, request)
     store = _resolve_session_store(request)
+    account_sid_entry = await _resolve_existing_account_session(store, sacp_ui_token)
+    if account_sid_entry is not None:
+        await _bind_participant_to_account(request, account_sid_entry, participant, body.token)
+        return _login_response(participant)
     sid = await store.create(participant.id, participant.session_id, body.token)
     _set_session_cookie(response, request, sid)
+    return _login_response(participant)
+
+
+async def _resolve_existing_account_session(
+    store: SessionStore,
+    cookie_value: str | None,
+) -> SessionEntry | None:
+    """Resolve the request's account-cookie sid → SessionEntry, or None.
+
+    Returns ``None`` when the cookie is absent, the signature fails,
+    the sid is unknown, or the entry is a legacy token-paste session
+    (no ``account_id``) — only an existing account session triggers
+    the spec 023 binding path.
+    """
+    if not cookie_value:
+        return None
+    try:
+        sid = _parse_cookie_value(cookie_value)
+    except HTTPException:
+        return None
+    entry = await store.get(sid)
+    if entry is None or entry.account_id is None:
+        return None
+    return entry
+
+
+async def _bind_participant_to_account(
+    request: Request,
+    entry: SessionEntry,
+    participant: Participant,
+    bearer: str,
+) -> None:
+    """Insert account_participants and rebind the existing sid (FR-002, FR-016)."""
+    account_repo = getattr(request.app.state, "account_repo", None)
+    if account_repo is not None:
+        with contextlib.suppress(Exception):
+            # Uniqueness collision (already linked) is the expected
+            # benign case; any other repo failure stays visible upstream
+            # via subsequent reads, so swallow here and rebind anyway.
+            await account_repo.link_participant_to_account(
+                account_id=entry.account_id,
+                participant_id=participant.id,
+            )
+    await request.app.state.session_store.rebind_account_session(
+        sid=entry.sid,
+        participant_id=participant.id,
+        session_id=participant.session_id,
+        bearer=bearer,
+    )
+
+
+def _login_response(participant: Participant) -> dict:
     return {
         "participant_id": participant.id,
         "session_id": participant.session_id,

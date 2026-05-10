@@ -146,6 +146,37 @@ class SessionStore:
         """Active entry count (test introspection)."""
         return len(self._entries)
 
+    async def rebind_account_session(
+        self,
+        *,
+        sid: str,
+        participant_id: str,
+        session_id: str,
+        bearer: str | None = None,
+    ) -> bool:
+        """Populate participant binding fields on an existing account sid.
+
+        Spec 023 FR-016 + research §10: the rebind endpoint resolves an
+        active session entry and writes the per-session participant
+        identity into the same ``SessionEntry`` so the existing cookie
+        carries through. The sid is preserved (single-sid-per-cookie
+        invariant from H-02). Returns False if the sid is unknown,
+        True on success.
+        """
+        async with self._lock:
+            entry = self._entries.get(sid)
+            if entry is None:
+                return False
+            self._entries[sid] = SessionEntry(
+                sid=entry.sid,
+                participant_id=participant_id,
+                session_id=session_id,
+                bearer=bearer if bearer is not None else entry.bearer,
+                created_at=entry.created_at,
+                account_id=entry.account_id,
+            )
+            return True
+
     async def get_sids_for_account(self, account_id: str) -> set[str]:
         """Return all currently-active sids minted for ``account_id``.
 
