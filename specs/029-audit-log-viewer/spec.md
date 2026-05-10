@@ -53,20 +53,21 @@ the **shared-component contract**:
 
 - **Action-label registry** — a paired backend Python module
   (`src/orchestrator/audit_labels.py`) and frontend JS module
-  (`src/web_ui/static/audit_labels.js`) mapping audit action
+  (`frontend/audit_labels.js`) mapping audit action
   strings to human-readable labels. The backend module is the
   source of truth; the API returns formatted labels in responses;
   the frontend mirror handles client-side rendering of new actions
   before page reload. A CI gate enforces parity between the two
   modules — every backend label has a frontend mirror, no drift.
-- **Diff renderer** — a single React component
-  (`src/web_ui/static/components/DiffRenderer.tsx` or .jsx) accepting
+- **Diff renderer** — a single React component (inline
+  `DiffRenderer` in `frontend/app.jsx` plus pure-logic helpers in
+  `frontend/diff_engine.js`) accepting
   `(previousValue, newValue, format)` props. Frontend-only; the
   backend supplies the raw values from `admin_audit_log.previous_value`
   and `new_value`.
 - **Time formatter** — paired backend Python utility
   (`src/orchestrator/time_format.py`) and frontend JS utility
-  (`src/web_ui/static/time_format.js`) for consistent timestamp
+  (`frontend/time_format.js`) for consistent timestamp
   rendering across audit-related surfaces. Backend-formatted
   timestamps appear in API responses; frontend-formatted timestamps
   appear when rendering live-pushed events that haven't been
@@ -157,6 +158,24 @@ shared components exist before downstream specs need them.
 - **Phase 1+2 shakedown reference.** Paraphrased without test
   session IDs per the established pattern. Confirm the
   paraphrase is acceptable.
+
+### Session 2026-05-09
+
+- Path corrections from implementation-time alignment with the
+  established `frontend_polish_module_pattern` (UMD modules at
+  `frontend/*.js` loaded ahead of `frontend/app.jsx`). The
+  early draft cited `src/web_ui/static/...` paths that do not
+  exist in this repo; the actual landed paths are:
+  - `frontend/audit_labels.js` → `frontend/audit_labels.js`
+  - `src/web_ui/static/components/DiffRenderer.tsx` → inline
+    component in `frontend/app.jsx` plus pure-logic helpers in
+    `frontend/diff_engine.js`
+  - `frontend/time_format.js` → `frontend/time_format.js`
+  These corrections cascade through Overview, FR-006, FR-008,
+  FR-009, the User Story 4 acceptance scenarios, and the spec
+  011 amendment FR-028. The shared-module contract document
+  (`contracts/shared-module-contracts.md`) was authored against
+  the corrected paths from the start.
 
 ### Session 2026-05-08
 
@@ -379,13 +398,14 @@ it, spec 029 becomes the foundation that 022 and 024 build on.
 **Independent Test**: Architectural test: assert
 `src/orchestrator/audit_labels.py` exists and exports a
 `LABELS` dict. Assert
-`src/web_ui/static/audit_labels.js` exists and exports a
+`frontend/audit_labels.js` exists and exports a
 `LABELS` map. Run the parity gate (`scripts/check_audit_label_parity.py`)
 and assert it passes. Assert
-`src/web_ui/static/components/DiffRenderer.tsx` exists with
-the documented props signature. Assert
+`frontend/app.jsx` defines the inline `DiffRenderer` component
+and `frontend/diff_engine.js` exports the locked threshold
+constants with the documented props signature. Assert
 `src/orchestrator/time_format.py` and
-`src/web_ui/static/time_format.js` both exist with mirroring
+`frontend/time_format.js` both exist with mirroring
 public APIs.
 
 **Acceptance Scenarios**:
@@ -397,7 +417,7 @@ public APIs.
    `label: str` (and optionally `scrub_value: bool`) per
    FR-006.
 2. **Given** the spec is implemented, **When** the
-   `src/web_ui/static/audit_labels.js` module is loaded by
+   `frontend/audit_labels.js` module is loaded by
    the SPA, **Then** it MUST export a `LABELS` object with
    the same keys as the Python module AND each entry's
    `label` field MUST match exactly (parity enforced by CI
@@ -490,7 +510,7 @@ public APIs.
   `total_count` metadata.
 - **FR-006**: An action-label registry MUST exist as paired
   modules: backend Python (`src/orchestrator/audit_labels.py`)
-  and frontend JS (`src/web_ui/static/audit_labels.js`). The
+  and frontend JS (`frontend/audit_labels.js`). The
   backend module is the source of truth. The registry shape
   MUST be `dict[str, dict[str, Any]]` keyed by action string;
   each entry MUST contain `label: str` (the human-readable
@@ -508,8 +528,10 @@ public APIs.
   the raw `action` string. Clients render the label;
   operators searching for raw action strings can still find
   them.
-- **FR-008**: A diff renderer component MUST exist at
-  `src/web_ui/static/components/DiffRenderer.tsx` (or .jsx)
+- **FR-008**: A diff renderer component MUST exist as an
+  inline `DiffRenderer` React component in `frontend/app.jsx`
+  with pure-logic helpers in `frontend/diff_engine.js` (UMD,
+  loaded ahead of `app.jsx` per `frontend_polish_module_pattern`),
   accepting `(previousValue, newValue, format)` props.
   Format values: `json` | `text` | `auto`. Diff engine MUST
   be Myers line-by-line as the default mode; the component
@@ -525,7 +547,7 @@ public APIs.
   values match exactly.
 - **FR-009**: A time formatter MUST exist as paired modules:
   backend Python (`src/orchestrator/time_format.py`) and
-  frontend JS (`src/web_ui/static/time_format.js`). The two
+  frontend JS (`frontend/time_format.js`). The two
   modules MUST produce identical output for the same input
   timestamp; a CI gate
   (`scripts/check_time_format_parity.py`) enforces this. The

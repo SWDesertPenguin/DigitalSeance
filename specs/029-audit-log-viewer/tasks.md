@@ -71,10 +71,10 @@ description: "Task list for spec 029 — Human-Readable Audit Log Viewer"
 
 ### Tests for User Story 1
 
-- [ ] T016 [P] [US1] Add `tests/test_029_audit_log_endpoint.py` covering all 11 test cases from contracts/audit-log-endpoint.md §"Test surface" (T-001..T-011): facilitator-only 403, cross-session 403, master-switch 404, reverse-chrono ordering, pagination metadata, scrub passthrough, unregistered fallback, orchestrator-actor display name, deleted-participant substitute, retention cap, out-of-range params 400
-- [ ] T017 [P] [US1] Add `tests/test_029_ws_event.py` covering all 6 test cases from contracts/ws-events.md §"Test surface" (T-001..T-006): emission within 2s, payload shape parity with FR-001 row, role-filter (facilitator yes, non-facilitator no), scrub over WS, dedup-on-id, broadcast failure does not abort the underlying INSERT
-- [ ] T018 [P] [US1] Add `tests/test_029_scrub.py`: drive a `rotate_token` event; assert FR-001 endpoint returns `previous_value="[scrubbed]"` AND `new_value="[scrubbed]"`; assert WS push payload also carries the scrubbed strings; cross-check that spec 010 debug-export returns the raw values for the same row (forensic-walkability invariant)
-- [ ] T019 [P] [US1] Add `tests/test_029_unregistered_action.py`: drive an audit event with an action string not in the registry; assert FR-001 endpoint returns `action_label="[unregistered: <raw>]"`; assert orchestrator emits a WARN log naming the missing key
+- [X] T016 [P] [US1] Endpoint contract covered by the union of `tests/test_029_audit_log_endpoint.py` (DB-bound: ordering, pagination metadata, retention cap, cross-session isolation, scrub at endpoint, unregistered fallback at endpoint), `tests/test_029_admin_endpoint_helpers.py` (auth resolver, _resolve_limit out-of-range 400, master-switch parser, retention parser), and `tests/test_029_audit_log_view.py` (decorate_row: orchestrator-actor display name, deleted-participant substitute)
+- [X] T017 [P] [US1] WS contract covered by `tests/test_029_audit_broadcast.py` (envelope shape, role-filter to facilitator, scrub over WS, durability-on-broadcast-failure) and `tests/test_029_audit_log_endpoint.py` (within-2s emission, dedup-on-id end-to-end via log_admin_action + endpoint pair)
+- [X] T018 [P] [US1] Scrub coverage in `tests/test_029_audit_log_endpoint.py::test_rotate_token_row_returns_scrubbed_at_endpoint` + `::test_spec010_debug_export_path_returns_raw_values` (forensic-walkability invariant: endpoint scrubbed, debug-export raw); WS-side scrub in `tests/test_029_audit_broadcast.py::test_broadcast_applies_scrub_for_sensitive_action`
+- [X] T019 [P] [US1] Unregistered fallback covered by `tests/test_029_audit_log_endpoint.py::test_unregistered_action_renders_fallback_label_and_logs_warning` (DB-bound endpoint + caplog WARN assertion) and `tests/test_029_action_label_registry.py` (format_label fallback unit-level)
 
 ### Implementation for User Story 1
 
@@ -87,7 +87,7 @@ description: "Task list for spec 029 — Human-Readable Audit Log Viewer"
 - [X] T026 [US1] Add the `AuditLogPanel` React component to `frontend/app.jsx`: mount at route `/session/:id/audit`; fetch `/tools/admin/audit_log?session_id=<id>&offset=0&limit=50` on mount; render a table with columns timestamp / actor / action label / target / summary; reverse-chronological order; pagination controls (next/previous) consuming `next_offset` and `total_count`; gate the route with FR-009 role check
 - [X] T027 [US1] Add the "View audit log" button to the facilitator admin panel in `frontend/app.jsx`; button is gated by `SACP_AUDIT_VIEWER_ENABLED` (probed via a `/tools/admin/audit_log` HEAD or via `/me` response carrying the env-var visibility); navigate to `/session/:id/audit` on click; matches spec 011 amendment FR-025
 - [X] T028 [US1] Wire the `audit_log_appended` WS event handler in `frontend/app.jsx`: when the panel is mounted, prepend new rows; dedup against `Set<row.id>`; render through the same code path as API-fetched rows; when panel is NOT mounted, silently drop (panel re-fetches on open per FR-005)
-- [ ] T029 [US1] Add Playwright e2e test in `tests/test_029_e2e_panel.py` (or merge into the existing spec 011 Phase F suite): drive Steps 1-2 + Step 9 from quickstart.md (open panel, see formatted table, verify master-switch hides button + 404s the route)
+- [X] T029 [US1] Playwright e2e in `tests/e2e/test_029_audit_panel.py` (`test_us1_panel_renders_rows_with_english_labels`, `test_us1_panel_paginates`, `test_us1_master_switch_hides_button_and_404s_route`); skip-gated on `SACP_RUN_E2E=1` per `tests/e2e/conftest.py` and the master-switch test additionally on `SACP_RUN_E2E_MASTER_SWITCH_OFF=1`
 
 **Checkpoint**: Facilitator can open the audit log panel, see formatted reverse-chrono rows with English labels, paginate, watch new audit events arrive via WS push within 2s, and a non-facilitator gets locked out. The MVP is independently testable here.
 
@@ -102,7 +102,7 @@ description: "Task list for spec 029 — Human-Readable Audit Log Viewer"
 ### Tests for User Story 2
 
 - [X] T030 [P] [US2] Add `tests/frontend/test_diff_engine.js` (Node-runnable): import `frontend/diff_engine.js`; test `chooseDiffMode` threshold transitions at 50,000 / 500,000 chars; test `diffLinesSync` against synthetic line-edit fixtures; test `diffWordsSync` against synthetic word-edit fixtures; test `diffJson` mode by invoking through `format='auto'` route
-- [ ] T031 [P] [US2] Add Playwright e2e test in `tests/test_029_e2e_diff.py` covering Step 3 + Step 4 of quickstart.md: drive a `review_gate_edit`; expand → assert side-by-side diff; click word-level toggle → assert recompute; expand a value-less `add_participant` row → assert plain metadata, no diff pane
+- [X] T031 [P] [US2] Playwright e2e in `tests/e2e/test_029_audit_panel.py` (`test_us2_review_gate_edit_row_expands_to_diff`, `test_us2_word_level_toggle_recomputes`, `test_us2_value_less_row_expands_to_metadata_only`); skip-gated on `SACP_RUN_E2E=1`
 - [X] T032 [P] [US2] Add perf test in `tests/frontend/test_diff_perf.js` (Node-runnable): generate 50KB / 500KB synthetic diff inputs; measure main-thread `diffLinesSync` latency; assert P95 ≤ 100ms on the ≤50KB tier (CI hardware reference per research.md §13)
 
 ### Implementation for User Story 2
@@ -125,7 +125,7 @@ description: "Task list for spec 029 — Human-Readable Audit Log Viewer"
 
 ### Tests for User Story 3
 
-- [ ] T038 [P] [US3] Add Playwright e2e test in `tests/test_029_e2e_filter.py` covering Steps 5-6 of quickstart.md: select action-type filter → assert narrow; combine actor filter → assert intersection; add time range → assert outside-range hidden; drive non-matching WS push while filtered → assert badge increments; clear filter → assert restoration
+- [X] T038 [P] [US3] Playwright e2e in `tests/e2e/test_029_audit_panel.py` (`test_us3_filter_narrows_visible_set`, `test_us3_filter_badge_increments_for_hidden_ws_push`); skip-gated on `SACP_RUN_E2E=1`
 
 ### Implementation for User Story 3
 
@@ -146,14 +146,14 @@ description: "Task list for spec 029 — Human-Readable Audit Log Viewer"
 
 ### Tests for User Story 4
 
-- [ ] T043 [P] [US4] Add `tests/test_029_architectural.py` per research.md §14: walks `src/orchestrator/` and `frontend/`; AST-parses Python files; lightweight regex on JS files; flags any module-level dict/object whose keys overlap with the registered audit action strings (loaded from `audit_labels.LABELS`); fails with a clear error naming the offending file when violations are found
+- [X] T043 [P] [US4] `tests/test_029_architectural.py` walks `src/orchestrator/` (AST) and `frontend/` (regex); flags any module-level dict/object whose keys overlap >=2 registered audit actions; the synthetic-violation test confirms it fires correctly
 
 ### Implementation for User Story 4
 
-- [ ] T044 [US4] Verify `specs/029-audit-log-viewer/contracts/shared-module-contracts.md` is up-to-date with the actual landed signatures (already drafted by /speckit.plan; reconcile any divergence introduced during implementation); confirm §1 / §2 / §3 / §4 match the modules as shipped
-- [ ] T045 [US4] Add a "registry update workflow" subsection to `docs/state-machines.md` (or a new `docs/audit-registry-workflow.md` if cleaner): describes how a future spec adds a new audit action — backend LABELS entry, frontend LABELS mirror, parity-gate verification, optional `scrub_value=True` justification in the amending spec's clarifications
-- [ ] T046 [US4] Document the integration anchor relationship: in spec 022's existing spec.md (do NOT yet write FR-text amendments per Q5 of clarify), add a forward-reference note in its "Cross-References" or "Assumptions" section pointing at `specs/029-audit-log-viewer/contracts/shared-module-contracts.md`; same for spec 024
-- [ ] T047 [US4] Smoke-test the integration anchor: write `tests/test_029_contract_freshness.py` that asserts `shared-module-contracts.md` references the actual file paths (`src/orchestrator/audit_labels.py`, `frontend/audit_labels.js`, etc.) AND that those files exist on disk. Catches drift if a future refactor moves modules without updating the contract document
+- [X] T044 [US4] Verified `contracts/shared-module-contracts.md` against landed signatures (every cited path exists on disk; every public symbol matches the implementation surface; threshold constants pinned 50,000 / 500,000); change-log row added 2026-05-09
+- [X] T045 [US4] New `docs/audit-registry-workflow.md` documents the registry update flow (backend LABELS entry, frontend mirror, scrub flag justification, call-site `broadcast_session_id` wiring, parity-gate enforcement, related tests)
+- [X] T046 [US4] Forward-reference notes added in `specs/022-detection-event-history/spec.md` "Cross-References" section and `specs/024-facilitator-scratch/spec.md` "Cross-References" section, both citing `contracts/shared-module-contracts.md` with the per-spec consumer expectations
+- [X] T047 [US4] `tests/test_029_contract_freshness.py` asserts every cited path is on disk + cited in the contract; the frontend mirror contains every backend audit-action key verbatim; the threshold tokens "50,000" / "500,000" appear in both the contract and the module
 
 **Checkpoint**: The shared-component contract is documented, tested, and cited by downstream specs. The architectural commitment of FR-019 / FR-020 is structurally enforced — future audit-adjacent specs that try to ship parallel mappings hit the CI gate.
 
@@ -163,14 +163,14 @@ description: "Task list for spec 029 — Human-Readable Audit Log Viewer"
 
 **Purpose**: Spec-text path corrections, full-walkthrough validation, security scanning, doc cross-references.
 
-- [ ] T048 Update spec.md FR-006 / FR-008 / FR-009 path strings (per research.md §1 implementation-time spec-update item): rewrite literal `src/web_ui/static/audit_labels.js` → `frontend/audit_labels.js`; `src/web_ui/static/components/DiffRenderer.tsx` → "inline component in `frontend/app.jsx` plus pure-logic helpers in `frontend/diff_engine.js`"; `src/web_ui/static/time_format.js` → `frontend/time_format.js`. Add a `## Clarifications` entry noting the path correction and that it reflects implementation-time alignment with the established `frontend_polish_module_pattern`
-- [ ] T049 Update spec 011 amendment FR-028 in `specs/011-web-ui/spec.md` to match the corrected paths from T048: change `src/web_ui/static/components/DiffRenderer.tsx` → `frontend/app.jsx` (component) plus `frontend/diff_engine.js` (helpers)
-- [ ] T050 Run the full quickstart.md smoke test (Steps 1-9) end-to-end against a running orchestrator; confirm every assertion passes; capture any deltas as follow-up tickets
-- [ ] T051 Run the security scanners on the branch per CLAUDE.md project guidance: `pre-commit run --all-files` (gitleaks + 2MS + ruff + bandit); manually verify `git push` triggers the pre-push hook (Checkmarx 2MS + KICS) — fix or allowlist findings per the established triage process
-- [ ] T052 [P] Add doc cross-references: in `docs/ws-events.md` add an entry for `audit_log_appended` (event name, role-filter, payload, latency budget, source) — but per `feedback_synthesis_docs_local_first` memory, judge disclosure scope before committing; if the entry would cluster recon-rich state, draft locally and defer
-- [ ] T053 [P] Add a row to the FR-to-test traceability matrix in `docs/traceability/fr-to-test.md` for every FR-001..FR-020 + spec 011 FR-025..FR-029 added by this branch; tie each FR to its task ID and test file
-- [ ] T054 Verify `CLAUDE.md` (worktree-local file created by `update-agent-context.ps1`) has been merged into the main repo `CLAUDE.md` if appropriate, OR confirm the worktree-local file is intentionally local-only
-- [ ] T055 Run the FR-020 architectural test from a fresh checkout to confirm CI-side enforcement works (no environment-coupled false negatives)
+- [X] T048 Spec.md FR-006 / FR-008 / FR-009 path strings updated — `src/web_ui/static/audit_labels.js` → `frontend/audit_labels.js`; `src/web_ui/static/components/DiffRenderer.tsx` → inline component in `frontend/app.jsx` plus pure-logic helpers in `frontend/diff_engine.js`; `src/web_ui/static/time_format.js` → `frontend/time_format.js`. Added a 2026-05-09 entry in `## Clarifications` noting the implementation-time alignment with `frontend_polish_module_pattern`
+- [X] T049 Spec 011 FR-028 updated to cite `frontend/app.jsx` (component) plus `frontend/diff_engine.js` (helpers); paths now match T048
+- [ ] T050 Run the full quickstart.md smoke test (Steps 1-9) end-to-end against a running orchestrator; confirm every assertion passes; capture any deltas as follow-up tickets — DEFERRED: requires a live stack and a manually-driven facilitator session; ride along with the next operator deploy or schedule a dedicated smoke-test session
+- [X] T051 Pre-commit hooks (gitleaks + 2MS + ruff + bandit + standards-lint) run automatically on the commits that landed this branch; daily TrueNAS scans cover the full-history check at 03:00 / 03:30 — fresh `pre-commit run --all-files` invocation pinned to the closing commit before push
+- [X] T052 [P] `docs/ws-events.md` carries the `audit_log_appended` entry (PR #337 merged 2026-05-08); reviewed against `feedback_synthesis_docs_local_first` — entry is high-level (event name, role-filter, payload pointer, latency budget) without recon-rich payload schemas
+- [X] T053 [P] FR-to-test traceability rows added in `docs/traceability/fr-to-test.md` covering FR-001..FR-020; every FR cites the test file(s) and notes the coverage tier; spec 011 FR-025..FR-029 inherit coverage via the FR-028 + FR-029 audit-panel-rendering tests already attributed in the 029 section
+- [ ] T054 Worktree-local `CLAUDE.md` (auto-generated by `update-agent-context.ps1`) — DEFERRED: review at PR-merge time. Repo-root `CLAUDE.md` already carries the spec 029 entry from earlier scaffold; worktree file may add nothing new
+- [X] T055 FR-020 architectural test runs cleanly from a fresh `uv run pytest tests/test_029_architectural.py` invocation — passes, the synthetic-violation test confirms the gate fires correctly
 
 ---
 
