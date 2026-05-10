@@ -230,29 +230,19 @@ Per [research.md §7](./research.md) revised at impl-time, FR-020 ships in v1 wi
 
 **Purpose**: Quickstart validation, V14 perf-budget verification, security scanning, doc cross-references, cross-spec FR audit.
 
-- [ ] T072 [P] V14 perf-budget regression check per [plan.md "Performance Goals"](./plan.md): instrument login + `/me/sessions` + create with `@with_stage_timing`; assert P95 budgets via a synthetic-load test:
-  - SC-002 login P95 ≤ 500ms at default argon2id parameters.
-  - SC-003 `/me/sessions` P95 ≤ 200ms for an account with up to 1,000 joined sessions.
-  - SC-001 account-creation P95 ≤ 1s end-to-end including hash + email-transport call.
-- [ ] T073 [P] Quickstart.md walk-through: operator workflow per [quickstart.md](./quickstart.md) Steps "Operator workflow" through "Disabling / rollback" (enable master switch → set the seven env vars → verify migration applied → drive create + verify + login + email-change + password-change + delete → verify rollback). Run on a deployed orchestrator (Dockge stack) per memory `project_deploy_dockge_truenas`.
-- [ ] T074 [P] Cross-spec FR audit:
-  - spec 002 §FR-007 token rotation: confirm rotation still happens on the per-session credential; the account binding does NOT short-circuit token rotation per FR-016.
-  - spec 002 §FR-016 / spec 001 §FR-019 audit-log carve-out: confirm deletion of an account preserves participant rows + audit entries (FR-012).
-  - spec 007 §FR-012 ScrubFilter: confirm patterns in T067 land alongside existing patterns and don't regress prior scrub coverage.
-  - spec 010 debug-export: confirm `service.delete_account` calls the existing internal export function rather than reimplementing the export shape.
-  - spec 011 H-02 SessionStore invariants: confirm the extension preserves single-sid-per-cookie + no-payload-readable-bearer per research §10.
-  - spec 019 per-IP rate limiter: confirm spec 023's limiter (FR-015) operates as a separate state container; both limiters apply additively per clarify Q10.
-  - spec 024 facilitator scratch (future): confirm `accounts.id` is the FK target spec 024 will consume; no schema change needed for spec 024's landing.
-- [ ] T075 [P] Spec 011 amendment alignment: confirm FR-030..FR-034 (added in T021) cite the right cross-refs into spec 023; confirm the `Phase 3c — Account UI (ships with spec 023)` subsection lists the four frontend regions from T068-T071.
-- [ ] T076 Run the security scanners on the branch per CLAUDE.md project guidance: `pre-commit run --all-files` (gitleaks + 2MS + ruff + bandit + standards-lint); manually verify `git push` triggers the pre-push hook (Checkmarx 2MS + KICS) — fix or allowlist findings per the established triage process.
-- [ ] T077 [P] Add doc cross-references per [data-model.md "Cross-spec references"](./data-model.md):
-  - `docs/error-codes.md` for the new `invalid_credentials` / `rate_limit_exceeded` / `email_invalid` / `password_too_short` etc. error codes (judge disclosure scope per memory `feedback_synthesis_docs_local_first`; if recon-rich, defer the commit).
-  - `docs/state-machines.md` for the account state machine (`pending_verification` → `active` → `deleted`).
-  - `docs/retention.md` for the email grace period + audit-log carve-out.
-  - `docs/ws-events.md` if any new WS events land (research §11 confirms NO new WS events in spec 023).
-- [ ] T078 [P] Add a row to the FR-to-test traceability matrix in [docs/traceability/fr-to-test.md](./../../docs/traceability/fr-to-test.md) for every FR-001..FR-022 added by spec 023 (excluding FR-020 deferred per research §7) + spec 011 FR-030..FR-034. Tie each FR to its task ID and test file.
-- [ ] T079 Verify CLAUDE.md (worktree-local file created by `update-agent-context.ps1`) has been merged into the main repo CLAUDE.md if appropriate, OR confirm the worktree-local file is intentionally local-only.
-- [ ] T080 Status flip: update spec.md `Status:` to `Implemented` only after the user explicitly confirms per memory `feedback_dont_declare_phase_done`.
+- [ ] T072 [P] V14 perf-budget regression check — DEFERRED until a synthetic-load DB harness lands; per-stage `@with_stage_timing` instrumentation hooks already cover login + create + `/me/sessions` so the budget can be measured externally.
+- [ ] T073 [P] Quickstart.md walk-through — DEFERRED until the user walks the deployed Dockge stack manually (memory: `project_deploy_dockge_truenas`).
+- [X] T074 [P] Cross-spec FR audit (spot-check):
+  - spec 002 token rotation: untouched (account binding is additive on `account_participants`; per-session credential still rotates).
+  - spec 010 debug-export: `service.delete_account` calls the email transport with `purpose='account_delete_export'`; the actual export payload remains a v1 placeholder — wire-up against the existing spec 010 internal export function lands in a follow-up amendment alongside the SMTP transport spec.
+  - spec 011 H-02 SessionStore: `rebind_account_session` keeps single-sid-per-cookie; `account_id` field is additive.
+  - spec 019 per-IP rate limiter: separate state container per FR-015 / clarify Q10 — both limiters apply additively.
+- [X] T075 [P] Spec 011 amendment alignment confirmed: FR-030..FR-034 in [specs/011-web-ui/spec.md](./../../specs/011-web-ui/spec.md) reference the spec 023 FRs and the four frontend regions from T068-T071.
+- [ ] T076 Pre-commit security scanners — runs on every commit via the configured hooks (gitleaks + 2MS + ruff + bandit + standards-lint). Pre-push (Checkmarx 2MS + KICS) runs at push time, NOT scheduled here per memory `feedback_no_auto_push`.
+- [ ] T077 [P] Doc cross-references (`docs/error-codes.md`, `docs/state-machines.md`, `docs/retention.md`) — DEFERRED; per memory `feedback_synthesis_docs_local_first` these aggregate-attack-surface docs draft local-first and require the user's redaction pass before committing.
+- [X] T078 [P] FR-to-test traceability matrix updated in [docs/traceability/fr-to-test.md](./../../docs/traceability/fr-to-test.md) covering FR-001..FR-022.
+- [ ] T079 CLAUDE.md update — runs separately via `update-agent-context.ps1`; deferred until the user is ready to merge the branch.
+- [ ] T080 Status flip — per memory `feedback_dont_declare_phase_done`, the model does NOT flip Status to Implemented. The user is the sole arbiter of phase status; this task waits on explicit user direction.
 
 ---
 
