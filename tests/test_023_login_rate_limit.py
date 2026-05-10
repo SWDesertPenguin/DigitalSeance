@@ -16,8 +16,8 @@ from __future__ import annotations
 from typing import Any
 
 import asyncpg
+import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from src.accounts.rate_limit import LoginRateLimiter
 from src.accounts.service import AccountService
@@ -26,6 +26,7 @@ from src.repositories.log_repo import LogRepository
 from src.web_ui.app import create_web_app
 from src.web_ui.security import CSRF_HEADER, CSRF_VALUE
 from src.web_ui.session_store import SessionStore
+from tests.conftest import asgi_client
 
 _CSRF = {CSRF_HEADER: CSRF_VALUE}
 
@@ -66,9 +67,9 @@ async def test_login_rate_limit_trips_at_threshold(
     app_with_low_threshold: Any,
 ) -> None:
     """The 4th call from the same IP returns 429 + Retry-After."""
-    with TestClient(app_with_low_threshold) as client:
+    async with asgi_client(app_with_low_threshold) as client:
         responses = [
-            client.post(
+            await client.post(
                 "/tools/account/login",
                 json={"email": "x@example.com", "password": "any-password-12"},
                 headers=_CSRF,
@@ -85,8 +86,8 @@ async def test_login_rate_limit_trips_at_threshold(
     assert int(retry_after) >= 1
 
 
-def _login_at_ip(client: TestClient, ip: str) -> int:
-    response = client.post(
+async def _login_at_ip(client: httpx.AsyncClient, ip: str) -> int:
+    response = await client.post(
         "/tools/account/login",
         json={"email": "x@example.com", "password": "any-password-12"},
         headers={**_CSRF, "X-Forwarded-For": ip},
@@ -102,11 +103,11 @@ async def test_login_rate_limit_per_ip_isolation(
 
     os.environ["SACP_TRUST_PROXY"] = "1"
     try:
-        with TestClient(app_with_low_threshold) as client:
+        async with asgi_client(app_with_low_threshold) as client:
             for _ in range(3):
-                _login_at_ip(client, "10.0.0.1")
-            assert _login_at_ip(client, "10.0.0.1") == 429
-            assert _login_at_ip(client, "10.0.0.2") == 401
+                await _login_at_ip(client, "10.0.0.1")
+            assert await _login_at_ip(client, "10.0.0.1") == 429
+            assert await _login_at_ip(client, "10.0.0.2") == 401
     finally:
         os.environ.pop("SACP_TRUST_PROXY", None)
 
@@ -116,9 +117,9 @@ async def test_login_rate_limit_emits_failed_audit_row(
     pool: asyncpg.Pool,
 ) -> None:
     """A 429 trip writes account_login_failed with rate_limit_exceeded reason."""
-    with TestClient(app_with_low_threshold) as client:
+    async with asgi_client(app_with_low_threshold) as client:
         for _ in range(4):
-            client.post(
+            await client.post(
                 "/tools/account/login",
                 json={"email": "rate@example.com", "password": "any-password-12"},
                 headers=_CSRF,

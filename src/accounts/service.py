@@ -222,16 +222,14 @@ class AccountService:
         rows, transport call. Transport failure does NOT roll back —
         operator recovers via the audit log per the spec edge case.
         """
-        await self._enforce_rate_limit(client_ip)
-        self._validate_email_syntax(email)
-        self._validate_password_length(password)
-        if await self._account_repo.is_email_grace_locked(email):
-            raise AccountServiceError(
-                error_code="registration_failed",
-                http_status=409,
-                message="email reserved by grace period",
-            )
-        account = await self._insert_account_row(email=email, password=password)
+        await self._enforce_create_preconditions(
+            email=email, password=password, client_ip=client_ip
+        )
+        email_hash = _hmac_email(email)
+        await self._reject_if_grace_locked(email_hash)
+        account = await self._insert_account_row(
+            email=email, email_hash=email_hash, password=password
+        )
         await self._emit_account_create_audit(
             account_id=account.id, email=email, client_ip=client_ip
         )
@@ -247,11 +245,32 @@ class AccountService:
             dev_plaintext_code=self._dev_plaintext_for(code),
         )
 
-    async def _insert_account_row(self, *, email: str, password: str):  # noqa: ANN202 — Account
+    async def _reject_if_grace_locked(self, email_hash: str) -> None:
+        """Raise registration_failed if a deleted row reserves this email."""
+        if await self._account_repo.is_email_grace_locked(email_hash):
+            raise AccountServiceError(
+                error_code="registration_failed",
+                http_status=409,
+                message="email reserved by grace period",
+            )
+
+    async def _enforce_create_preconditions(
+        self, *, email: str, password: str, client_ip: str
+    ) -> None:
+        """Rate-limit + email syntax + password length checks for create_account."""
+        await self._enforce_rate_limit(client_ip)
+        self._validate_email_syntax(email)
+        self._validate_password_length(password)
+
+    async def _insert_account_row(self, *, email: str, email_hash: str, password: str):  # noqa: ANN202 — Account
         """Hash password + INSERT row; translate uniqueness collisions."""
         password_hash = self._hasher.hash(password)
         try:
-            return await self._account_repo.create_account(email=email, password_hash=password_hash)
+            return await self._account_repo.create_account(
+                email=email,
+                email_hash=email_hash,
+                password_hash=password_hash,
+            )
         except Exception as exc:  # noqa: BLE001 — uniqueness collisions translate
             # asyncpg.UniqueViolationError surfaces as the partial
             # unique index trip; map to a generic registration_failed
@@ -526,7 +545,7 @@ class AccountService:
         self._threshold_emitted_today.add(account_id)
         log.warning(
             "spec 023 FR-008: account %s joined-session count %s exceeds "
-            "%s; cursor pagination is a backlog item",
+            "threshold %s; cursor pagination is a backlog item",
             account_id,
             count,
             _SESSION_COUNT_THRESHOLD,

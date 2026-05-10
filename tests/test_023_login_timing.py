@@ -30,8 +30,8 @@ import time
 from typing import Any
 
 import asyncpg
+import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from src.accounts.rate_limit import LoginRateLimiter
 from src.accounts.service import AccountService
@@ -40,6 +40,7 @@ from src.repositories.log_repo import LogRepository
 from src.web_ui.app import create_web_app
 from src.web_ui.security import CSRF_HEADER, CSRF_VALUE
 from src.web_ui.session_store import SessionStore
+from tests.conftest import asgi_client
 
 _CSRF = {CSRF_HEADER: CSRF_VALUE}
 
@@ -87,10 +88,10 @@ async def app_with_seeded_account(pool: asyncpg.Pool) -> Any:
     return app
 
 
-def _measure_login(client: TestClient, *, email: str, password: str) -> float:
+async def _measure_login(client: httpx.AsyncClient, *, email: str, password: str) -> float:
     """Issue one login call; return elapsed wall-clock seconds."""
     start = time.perf_counter()
-    response = client.post(
+    response = await client.post(
         "/tools/account/login",
         json={"email": email, "password": password},
         headers=_CSRF,
@@ -109,24 +110,24 @@ def _mean_ms(samples: list[float]) -> float:
     return 1000.0 * sum(trimmed) / len(trimmed)
 
 
-def _warm_up_both_branches(client: TestClient) -> None:
+async def _warm_up_both_branches(client: httpx.AsyncClient) -> None:
     """One call on each login branch so warmup doesn't bias the first measured."""
-    _measure_login(
+    await _measure_login(
         client,
         email="warmup-miss@example.com",
         password="any-password-12",  # noqa: S106 -- test fixture
     )
-    _measure_login(
+    await _measure_login(
         client,
         email="timing@example.com",
         password="wrong-password-99",  # noqa: S106 -- test fixture
     )
 
 
-def _sample_miss_branch(client: TestClient) -> list[float]:
+async def _sample_miss_branch(client: httpx.AsyncClient) -> list[float]:
     """Sample N email-miss-branch login calls."""
     return [
-        _measure_login(
+        await _measure_login(
             client,
             email=f"miss{i}@example.com",
             password="any-password-12",  # noqa: S106 -- test fixture
@@ -135,10 +136,10 @@ def _sample_miss_branch(client: TestClient) -> list[float]:
     ]
 
 
-def _sample_wrong_password_branch(client: TestClient) -> list[float]:
+async def _sample_wrong_password_branch(client: httpx.AsyncClient) -> list[float]:
     """Sample N wrong-password-branch login calls against the seeded account."""
     return [
-        _measure_login(
+        await _measure_login(
             client,
             email="timing@example.com",
             password="wrong-password-99",  # noqa: S106 -- test fixture
@@ -151,10 +152,10 @@ async def test_login_timing_uniform_across_failure_modes(
     app_with_seeded_account: Any,
 ) -> None:
     """SC-005: ±5ms between non-existent-email vs. wrong-password paths."""
-    with TestClient(app_with_seeded_account) as client:
-        _warm_up_both_branches(client)
-        miss_samples = _sample_miss_branch(client)
-        wrong_samples = _sample_wrong_password_branch(client)
+    async with asgi_client(app_with_seeded_account) as client:
+        await _warm_up_both_branches(client)
+        miss_samples = await _sample_miss_branch(client)
+        wrong_samples = await _sample_wrong_password_branch(client)
     miss_mean_ms = _mean_ms(miss_samples)
     wrong_mean_ms = _mean_ms(wrong_samples)
     delta = abs(miss_mean_ms - wrong_mean_ms)
@@ -180,14 +181,14 @@ async def test_login_timing_email_miss_runs_argon2(
     millisecond so a regression that drops the dummy-verify call is
     caught even before the ±5ms equality test.
     """
-    with TestClient(app_with_seeded_account) as client:
+    async with asgi_client(app_with_seeded_account) as client:
         # Warm-up.
-        _measure_login(
+        await _measure_login(
             client,
             email="warmup@example.com",
             password="any-password-12",  # noqa: S106 -- test fixture
         )
-        elapsed = _measure_login(
+        elapsed = await _measure_login(
             client,
             email="ghost@example.com",
             password="any-password-12",  # noqa: S106 -- test fixture

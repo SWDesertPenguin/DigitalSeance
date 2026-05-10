@@ -25,12 +25,16 @@ class Account:
 
     The ``email`` and ``password_hash`` fields are empty strings when
     ``status == 'deleted'`` per FR-012 + research §2 (the row stays
-    for audit linkage; credentials are zeroed). ``deleted_at`` and
-    ``email_grace_release_at`` are populated together at deletion time.
+    for audit linkage; credentials are zeroed). ``email_hash`` is the
+    HMAC of the original lowercased email and is preserved across
+    deletion so the grace-window lookup (FR-013) can still match the
+    deleted row. ``deleted_at`` and ``email_grace_release_at`` are
+    populated together at deletion time.
     """
 
     id: str
     email: str
+    email_hash: str
     password_hash: str
     status: AccountStatus
     created_at: datetime
@@ -51,6 +55,7 @@ class Account:
         return cls(
             id=str(record["id"]),
             email=record["email"],
+            email_hash=record["email_hash"],
             password_hash=record["password_hash"],
             status=record["status"],
             created_at=record["created_at"],

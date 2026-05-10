@@ -17,7 +17,6 @@ from typing import Any
 
 import asyncpg
 import pytest
-from fastapi.testclient import TestClient
 
 from src.accounts.service import AccountService
 from src.repositories.account_repo import AccountRepository
@@ -26,6 +25,7 @@ from src.web_ui.app import create_web_app
 from src.web_ui.auth import _make_cookie_value
 from src.web_ui.security import CSRF_HEADER, CSRF_VALUE
 from src.web_ui.session_store import SessionStore
+from tests.conftest import asgi_client
 
 _CSRF = {CSRF_HEADER: CSRF_VALUE}
 
@@ -81,8 +81,8 @@ async def test_account_delete_zeroes_credentials_and_writes_audit(
 ) -> None:
     """Email + hash zeroed; status='deleted'; grace fields populated."""
     account_id, sid = await _create_active_with_sid(app_with_service, email="del@example.com")
-    with TestClient(app_with_service) as client:
-        response = client.post(
+    async with asgi_client(app_with_service) as client:
+        response = await client.post(
             "/tools/account/delete",
             cookies=_cookie_for(sid),
             headers=_CSRF,
@@ -110,14 +110,14 @@ async def test_login_against_deleted_email_returns_generic_invalid(
 ) -> None:
     """No info leak: deleted-account login looks identical to wrong-pw."""
     _, sid = await _create_active_with_sid(app_with_service, email="del-login@example.com")
-    with TestClient(app_with_service) as client:
-        client.post(
+    async with asgi_client(app_with_service) as client:
+        await client.post(
             "/tools/account/delete",
             cookies=_cookie_for(sid),
             headers=_CSRF,
             json={"current_password": "long-enough-pw-1"},
         )
-        response = client.post(
+        response = await client.post(
             "/tools/account/login",
             json={"email": "del-login@example.com", "password": "long-enough-pw-1"},
             headers=_CSRF,

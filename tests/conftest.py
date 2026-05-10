@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
+import httpx
 import pytest
 from cryptography.fernet import Fernet
 
@@ -538,18 +539,22 @@ def _participant_register_override_ddl() -> str:
 
 
 def _accounts_ddl() -> str:
-    # Spec 023 alembic 015: persistent identity layer above per-session
+    # Spec 023 alembic 015 + 016: persistent identity layer above per-session
     # tokens. UUID id, lower-cased email (partial unique index covers
     # only pending_verification + active so a deleted-account row coexists
     # with a fresh registration after the grace period — research §2),
     # argon2id-encoded password_hash with empty-string sentinel on
     # deletion, CHECK-constrained status, four timestamp columns plus
     # email_grace_release_at populated at deletion time from
-    # SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS.
+    # SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS. email_hash (alembic 016)
+    # is the HMAC of the lowercased email under SACP_AUTH_LOOKUP_KEY;
+    # survives deletion so the grace-window lookup can match the deleted
+    # row after email is zeroed.
     return """
         CREATE TABLE accounts (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             email TEXT NOT NULL,
+            email_hash TEXT NOT NULL DEFAULT '',
             password_hash TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending_verification'
                 CHECK (status IN ('pending_verification', 'active', 'deleted')),
@@ -582,6 +587,10 @@ def _account_participants_ddl() -> str:
 
 
 def _index_ddls() -> list[str]:
+    return [*_core_index_ddls(), *_account_index_ddls()]
+
+
+def _core_index_ddls() -> list[str]:
     return [
         "CREATE INDEX idx_messages_recent ON messages (session_id, branch_id, turn_number DESC)",
         "CREATE INDEX idx_interrupt_pending"
@@ -600,12 +609,23 @@ def _index_ddls() -> list[str]:
         "ON admin_audit_log (session_id, timestamp DESC)",
         "CREATE INDEX participant_register_override_session_idx"
         " ON participant_register_override (session_id)",
+    ]
+
+
+def _account_index_ddls() -> list[str]:
+    return [
         # spec 023 §FR-002 / research §9 — alembic 015 mirror; covers the
         # /me/sessions JOIN's primary lookup (account_id WHERE).
         "CREATE UNIQUE INDEX accounts_email_active_uidx"
         " ON accounts (email)"
         " WHERE status IN ('pending_verification', 'active')",
         "CREATE INDEX account_participants_account_idx" " ON account_participants (account_id)",
+        # spec 023 FR-013 — alembic 016 mirror; grace-period lookup of
+        # deleted rows by HMAC of original email (the email column itself
+        # is zeroed at delete time per FR-012).
+        "CREATE INDEX accounts_email_hash_grace_idx"
+        " ON accounts (email_hash)"
+        " WHERE status = 'deleted' AND email_grace_release_at IS NOT NULL",
     ]
 
 
@@ -768,6 +788,22 @@ def web_app() -> object:
     from src.web_ui.app import create_web_app
 
     return create_web_app()
+
+
+def asgi_client(app: object) -> httpx.AsyncClient:
+    """Return an httpx.AsyncClient wired through ASGITransport for ``app``.
+
+    Tests that share an asyncpg pool between the test body and the FastAPI
+    handler MUST use this instead of starlette's TestClient. TestClient
+    runs the app on a separate event loop via BlockingPortal; an asyncpg
+    pool created on the test loop then errors with "another operation is
+    in progress" when the handler awaits acquire() on a foreign loop.
+    httpx.AsyncClient + ASGITransport runs the handler on the caller's
+    loop, so the pool stays single-loop.
+
+    Use as ``async with asgi_client(app) as client: ...``.
+    """
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
 
 # ---------------------------------------------------------------------------

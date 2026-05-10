@@ -24,7 +24,6 @@ from typing import Any
 
 import asyncpg
 import pytest
-from fastapi.testclient import TestClient
 
 from src.accounts.rate_limit import LoginRateLimiter
 from src.accounts.service import AccountService
@@ -33,6 +32,7 @@ from src.repositories.log_repo import LogRepository
 from src.web_ui.app import create_web_app
 from src.web_ui.security import CSRF_HEADER, CSRF_VALUE
 from src.web_ui.session_store import SessionStore
+from tests.conftest import asgi_client
 
 _CSRF = {CSRF_HEADER: CSRF_VALUE}
 
@@ -78,8 +78,8 @@ async def _drive_create_verify_login(app: Any, email: str) -> str:
     plaintext_code = create.dev_plaintext_code
     assert plaintext_code is not None
     await service.verify_account(account_id=create.account_id, code=plaintext_code)
-    with TestClient(app) as client:
-        client.post(
+    async with asgi_client(app) as client:
+        await client.post(
             "/tools/account/login",
             json={"email": email, "password": _PLAINTEXT_PASSWORD},
             headers=_CSRF,

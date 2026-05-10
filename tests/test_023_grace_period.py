@@ -19,7 +19,6 @@ from typing import Any
 
 import asyncpg
 import pytest
-from fastapi.testclient import TestClient
 
 from src.accounts.service import AccountService
 from src.repositories.account_repo import AccountRepository
@@ -28,6 +27,7 @@ from src.web_ui.app import create_web_app
 from src.web_ui.auth import _make_cookie_value
 from src.web_ui.security import CSRF_HEADER, CSRF_VALUE
 from src.web_ui.session_store import SessionStore
+from tests.conftest import asgi_client
 
 _CSRF = {CSRF_HEADER: CSRF_VALUE}
 
@@ -78,8 +78,8 @@ def _cookie_for(sid: str) -> dict[str, str]:
 
 async def _delete_account(app: Any, account_id: str) -> None:
     sid = await app.state.session_store.create(account_id=account_id)
-    with TestClient(app) as client:
-        response = client.post(
+    async with asgi_client(app) as client:
+        response = await client.post(
             "/tools/account/delete",
             cookies=_cookie_for(sid),
             headers=_CSRF,
@@ -104,8 +104,8 @@ async def test_re_registration_during_grace_window_is_rejected(
     email = "grace@example.com"
     account_id = await _create_active(app_with_service, email)
     await _delete_account(app_with_service, account_id)
-    with TestClient(app_with_service) as client:
-        response = client.post(
+    async with asgi_client(app_with_service) as client:
+        response = await client.post(
             "/tools/account/create",
             json={"email": email, "password": "long-enough-pw-2"},
             headers=_CSRF,
@@ -124,8 +124,8 @@ async def test_re_registration_after_grace_window_succeeds(
     await _delete_account(app_with_service, account_id)
     past = datetime.now(UTC) - timedelta(seconds=1)
     await _set_grace_release_at(pool, account_id, past)
-    with TestClient(app_with_service) as client:
-        response = client.post(
+    async with asgi_client(app_with_service) as client:
+        response = await client.post(
             "/tools/account/create",
             json={"email": email, "password": "long-enough-pw-2"},
             headers=_CSRF,
