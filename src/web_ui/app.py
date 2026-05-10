@@ -28,6 +28,11 @@ from pathlib import Path
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 
+from src.accounts import (
+    emit_accounts_email_transport_warning,
+    should_mount_account_router,
+)
+from src.web_ui.account_routes import router as account_router
 from src.web_ui.auth import router as auth_router
 from src.web_ui.proxy import router as proxy_router
 from src.web_ui.security import add_csrf_header_check, add_security_headers, add_strict_cors
@@ -76,8 +81,31 @@ def create_web_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(proxy_router)
     app.include_router(ws_router)
+    _maybe_mount_account_router(app)
     _mount_static(app)
     return app
+
+
+def _maybe_mount_account_router(app: FastAPI) -> None:
+    """Conditionally include the spec 023 account router (FR-018, T048).
+
+    Two gates apply (research §12 + FR-018):
+
+    - ``SACP_ACCOUNTS_ENABLED`` master switch must be ``'1'``.
+    - ``SACP_TOPOLOGY`` must NOT be ``'7'``.
+
+    When either gate fails the router is NEVER added to the app, so
+    every account endpoint resolves to 404 through normal route
+    resolution. The master-switch-off canary ``test_023_master_switch_off``
+    asserts this contract on every PR. The cross-validator WARN
+    (research §13) emits whenever ``SACP_ACCOUNTS_ENABLED=1`` and
+    ``SACP_EMAIL_TRANSPORT=noop`` so a production-unsafe combo is
+    visible at startup.
+    """
+    if not should_mount_account_router():
+        return
+    emit_accounts_email_transport_warning()
+    app.include_router(account_router)
 
 
 def _add_healthcheck(app: FastAPI) -> None:
