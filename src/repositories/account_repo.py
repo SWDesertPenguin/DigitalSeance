@@ -95,23 +95,30 @@ class AccountRepository(BaseRepository):
         *,
         email: str,
         password_hash: str,
+        email_hash: str = "",
     ) -> Account:
         """Insert a fresh ``pending_verification`` account row.
 
         ``email`` is lower-cased application-side per research §2 — the
         partial unique index covers ``status IN ('pending_verification',
         'active')``, so a uniqueness violation here means a live or
-        verifying account already owns the address.
+        verifying account already owns the address. ``email_hash`` is
+        the HMAC of the lowercased email computed by the caller (the
+        repo doesn't read SACP_AUTH_LOOKUP_KEY); it's preserved across
+        deletion so FR-013's grace lookup can match the deleted row.
+        Default empty string keeps the column NOT NULL clean for direct
+        repo tests that don't exercise the grace path.
         """
         new_id = uuid.uuid4()
         record = await self._fetch_one(
             """
-            INSERT INTO accounts (id, email, password_hash, status)
-            VALUES ($1, $2, $3, 'pending_verification')
+            INSERT INTO accounts (id, email, email_hash, password_hash, status)
+            VALUES ($1, $2, $3, $4, 'pending_verification')
             RETURNING *
             """,
             new_id,
             email.lower(),
+            email_hash,
             password_hash,
         )
         if record is None:
@@ -144,26 +151,30 @@ class AccountRepository(BaseRepository):
         )
         return Account.from_record(record) if record is not None else None
 
-    async def is_email_grace_locked(self, email: str) -> bool:
-        """Return True if a deleted-status row holds ``email`` past the grace window.
+    async def is_email_grace_locked(self, email_hash: str) -> bool:
+        """Return True if a deleted-status row reserves ``email_hash`` in grace.
 
         Implements FR-013: the deleted account row remains for audit
         linkage but reserves the email until ``email_grace_release_at``
-        elapses. Re-registration during that window is refused with the
-        generic ``registration_failed`` shape (no info leak about why).
+        elapses. The lookup is by HMAC because the ``email`` column is
+        zeroed at delete time per FR-012 — only ``email_hash`` survives.
+        Re-registration during the window is refused with the generic
+        ``registration_failed`` shape (no info leak about why).
         """
+        if not email_hash:
+            return False
         record = await self._fetch_one(
             """
             SELECT email_grace_release_at
             FROM accounts
-            WHERE email = $1
+            WHERE email_hash = $1
               AND status = 'deleted'
               AND email_grace_release_at IS NOT NULL
               AND email_grace_release_at > NOW()
             ORDER BY deleted_at DESC
             LIMIT 1
             """,
-            email.lower(),
+            email_hash,
         )
         return record is not None
 
