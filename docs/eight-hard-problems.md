@@ -1,12 +1,12 @@
 # Building a multi-LLM orchestrator: eight hard problems and how to solve them
 
-**A multi-LLM orchestrator that routes between Claude, GPT-4, and local models faces eight distinct engineering challenges — from system prompt portability to conversation branching.** Each challenge has emerging solutions in production frameworks like LangGraph, LiteLLM, and Strands, but no single framework solves all of them well. This report distills practical patterns, concrete model capabilities, and framework-specific implementation details for each problem area.
+No single framework solves all eight challenges well — LiteLLM handles provider abstraction, LangGraph handles state, Strands handles streaming architecture, and each leaves the others to you. This report documents the practical patterns, model capabilities, and framework tradeoffs for each problem area.
 
 ---
 
 ## 1. System prompts degrade before they hit token limits
 
-There is no separate "system prompt limit" — system prompts consume tokens from the total context window. Claude models offer **200K tokens** (1M in beta/GA as of early 2026), GPT-4o provides **128K**, and Llama 4 Scout reaches a staggering **10M tokens**. In theory, you could write an enormous system prompt for any of these. In practice, quality collapses long before you exhaust the window.
+There is no separate "system prompt limit" — system prompts consume tokens from the total context window. Claude models offer **200K tokens** (1M in beta/GA as of early 2026), GPT-4o provides **128K**, and Llama 4 Scout reaches **10M tokens**. In theory, you could write an enormous system prompt for any of these. In practice, quality collapses long before you exhaust the window.
 
 The research paper "Same Task, More Tokens" (Levy, Jacoby, Goldberg, 2024) found that **LLM reasoning performance starts degrading at roughly 3,000 tokens** — far below any model's technical maximum. A 2025 Chroma study testing 18 models, including GPT-4.1, Claude 4, and Gemini 2.5, found progressive accuracy decay at every context length increment, even on trivial tasks. The "lost in the middle" effect compounds this: models retrieve information best from the beginning or end of long inputs, with **20–30% performance drops** for information buried in the middle (Liu et al., 2023). The practical recommendation is to budget system prompts at **500–1,500 tokens**, placing critical instructions at the beginning and end.
 
@@ -138,7 +138,7 @@ The practical recommendation for a multi-LLM orchestrator: use **OAuth 2.1 with 
 
 ## 8. Conversation branching is LangGraph's killer feature, but few others support it
 
-**LangGraph is the only major framework with production-grade conversation branching and time travel.** Its checkpointing system saves complete graph state at every super-step boundary, storing snapshots in threads with pluggable backends (PostgreSQL, SQLite, Redis). Time travel lets you replay from any prior checkpoint — `get_state_history()` browses all checkpoints, and `update_state()` on a prior checkpoint creates a new branch while preserving the original execution history. This enables "what-if" exploration: take a conversation to any point, modify state, and fork into an alternate timeline.
+LangGraph is the only major framework with production-grade conversation branching and time travel. Its checkpointing system saves complete graph state at every super-step boundary, storing snapshots in threads with pluggable backends (PostgreSQL, SQLite, Redis). Time travel lets you replay from any prior checkpoint — `get_state_history()` browses all checkpoints, and `update_state()` on a prior checkpoint creates a new branch while preserving the original execution history. This enables "what-if" exploration: take a conversation to any point, modify state, and fork into an alternate timeline.
 
 Other frameworks lag significantly. **CrewAI** offers task-level replay (re-run specific tasks) but no fine-grained checkpointing or branching. **AutoGen** maintains ephemeral in-memory conversation history with no formal state persistence. **Strands Agents** has minimal state management infrastructure with no time-travel features. **OpenAI's Agents SDK** provides only basic retries with no rollback semantics.
 
@@ -150,10 +150,10 @@ For handling **irreversible side effects** (sent emails, API calls, database wri
 
 ---
 
-## Conclusion: the integration layer is the product
+## Conclusion
 
-The eight challenges above share a common thread — **no LLM provider or framework solves all of them, so the orchestrator itself becomes the critical integration layer**. LiteLLM handles provider abstraction for prompts, streaming, and errors but doesn't touch conversation branching. LangGraph excels at state management and branching but delegates provider normalization to LangChain's model abstractions. Strands nails streaming-first architecture but lacks time-travel features.
+No single framework covers all eight problems. LiteLLM handles provider abstraction for prompts, streaming, and errors but doesn't touch conversation branching. LangGraph handles state and branching but delegates provider normalization to LangChain's abstractions. Strands is streaming-first but has no time-travel features. The orchestrator is the integration point that fills the gaps between them.
 
-Three architectural decisions define the quality of a multi-LLM orchestrator. First, **maintain a per-model capability registry** tracking context window sizes, tool calling reliability scores (from BFCL), structured output support, and streaming format — and route dynamically based on task requirements. Second, **implement the split-stream accumulator pattern** at the core, normalizing all provider SSE formats into a unified event protocol while buffering complete responses for state management. Third, **use a tree-structured conversation store** with parent pointers from day one, even if branching isn't an initial feature — retrofitting linear conversation history into a tree is far harder than starting with the right data structure.
+Three decisions have outsized impact on the result. A per-model capability registry — tracking context window size, tool-calling reliability (BFCL), structured-output support, and streaming format — lets the orchestrator route by task requirements rather than convention. A split-stream accumulator at the core normalizes the three providers' SSE formats into a single event protocol while buffering complete responses for state management. And the message store should be tree-structured from day one: `id`, `parent_id`, `thread_id`, `role`, `content`, `serial`, plus a `branch_selections` table. Retrofitting a linear history into a tree later is painful; the schema is cheap to start with.
 
-The field is moving fast. Context windows tripled in 2025, MCP auth went from nonexistent to full OAuth 2.1 in twelve months, and function calling went from GPT-4-only to supported on 7B local models. Building the orchestrator as a thin, adaptable integration layer — rather than hardcoding assumptions about any single provider's capabilities — is the only architecture that survives this rate of change.
+Context windows tripled in 2025, MCP auth went from nonexistent to full OAuth 2.1 in twelve months, and function calling landed on 7B local models. Pinning architecture to what any single provider does today is how you inherit their limitations. Keep it as a thin translation layer.
