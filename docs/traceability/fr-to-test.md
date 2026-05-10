@@ -69,6 +69,11 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-027 | untested | Audit log filter controls (actor / action type / time range) + WS-mismatch badge; trigger: spec 029 UI implementation Phase F |
 | FR-028 | untested | Row expansion routes to spec 029 DiffRenderer for diffable values; trigger: spec 029 UI implementation Phase F |
 | FR-029 | untested | `[scrubbed]` placeholder + `[unregistered]` rendering + 2s WS-event apply window; trigger: spec 029 UI implementation Phase F |
+| FR-030 | untested | Spec 023 amendment: SPA auth-gate region (login + create-account when SACP_ACCOUNTS_ENABLED=1); trigger: Phase F Playwright with master switch on |
+| FR-031 | untested | Spec 023 amendment: post-login session-list region rendering /me/sessions segmented active+archived; trigger: Phase F Playwright |
+| FR-032 | untested | Spec 023 amendment: account-settings panel (email change / password change / delete); trigger: Phase F Playwright |
+| FR-033 | untested | Spec 023 amendment: uniform invalid_credentials display + 429 Retry-After countdown; trigger: Phase F Playwright |
+| FR-034 | untested | Spec 023 amendment: no new WS events; password-change invalidation surfaces via existing FR-014 401 handler; trigger: Phase F Playwright integration |
 | SR-001 | tests/test_web_ui_app.py, tests/test_011_testability.py | Security headers present; CSP report-uri; per-directive coverage (14 fragments) |
 | SR-001a | untested | WS frame cap (256KB); WS layer max_size not yet wired; trigger: Phase E ops |
 | SR-002 | tests/test_web_ui_app.py | Strict-Transport-Security header present |
@@ -318,3 +323,32 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-018 | tests/test_029_admin_endpoint_helpers.py, tests/e2e/test_029_audit_panel.py | Master switch: SACP_AUDIT_VIEWER_ENABLED=false -> route absent -> HTTP 404 |
 | FR-019 | tests/test_029_contract_freshness.py | Shared-module-contracts.md citations match disk; module paths exist; threshold constants match between contract and module |
 | FR-020 | tests/test_029_architectural.py | No module other than src/orchestrator/audit_labels.py / frontend/audit_labels.js declares an audit-action-to-label mapping |
+
+---
+
+## 023-user-accounts
+
+| FR | Test path(s) | Notes |
+|----|--------------|-------|
+| FR-001 | tests/test_023_migration_015.py | accounts table shape: id/email/password_hash/status/created_at/updated_at/last_login_at/deleted_at/email_grace_release_at; partial unique index on email for non-deleted statuses |
+| FR-002 | tests/test_023_migration_015.py, tests/test_023_me_sessions.py | account_participants join: UNIQUE(participant_id), FK ON DELETE CASCADE on participants, FK ON DELETE RESTRICT on accounts |
+| FR-003 | tests/test_023_argon2id_rehash.py | argon2id hashing via PasswordHasher; needs_rehash on parameter change; transparent re-hash on next login |
+| FR-004 | tests/test_023_account_create.py | 16-char base32 verification code; HMAC hash persisted in admin_audit_log; 24h TTL |
+| FR-005 | tests/test_023_account_create.py | POST /tools/account/create; 201 + status='pending_verification' |
+| FR-006 | tests/test_023_account_create.py | POST /tools/account/verify; flips status to 'active'; account_verification_consumed audit row |
+| FR-007 | tests/test_023_account_login.py | POST /tools/account/login two-trip flow: minimal body + cookie set; /me/sessions follows separately |
+| FR-008 | tests/test_023_me_sessions.py | GET /me/sessions segmented response, per-segment offset pagination, 10K threshold trip emits structured WARN + audit row |
+| FR-009 | tests/test_023_me_sessions.py | Cross-account isolation (SC-004) |
+| FR-010 | tests/test_023_email_change.py | Email change emits notify-old + verify-new audit rows; email column unchanged until confirm |
+| FR-011 | tests/test_023_password_change.py | Password change invalidates non-actor sids (clarify Q12); actor's current sid survives |
+| FR-012 | tests/test_023_account_delete.py | Account deletion zeroes credentials, populates deleted_at + email_grace_release_at, emits debug-export, drops all sids |
+| FR-013 | tests/test_023_grace_period.py | SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS reservation enforced via is_email_grace_locked |
+| FR-014 | tests/test_023_scrub_filter.py | ScrubFilter coverage: plaintext password, verification code, email body content not in log lines |
+| FR-015 | tests/test_023_login_rate_limit.py | Per-IP login rate limiter sliding-window; 429 + Retry-After; per-IP isolation |
+| FR-016 | tests/test_023_me_sessions.py, tests/test_023_password_change.py | SessionStore extension: account_id field + reverse index + rebind_account_session preserves single-sid invariant |
+| FR-017 | tests/test_023_validators.py | SACP_ACCOUNT_SESSION_TTL_HOURS validator |
+| FR-018 | tests/test_023_master_switch_off.py | SACP_ACCOUNTS_ENABLED master switch — 404 on every account endpoint when off |
+| FR-019 | tests/test_023_account_create.py, tests/test_023_account_login.py, tests/test_023_email_change.py, tests/test_023_password_change.py, tests/test_023_account_delete.py, tests/test_023_ownership_transfer.py | All account-modifying actions emit admin_audit_log rows; coverage spans every endpoint test |
+| FR-020 | tests/test_023_ownership_transfer.py | POST /tools/admin/account/transfer_participants gated by SACP_DEPLOYMENT_OWNER_KEY; 403 on missing/wrong header; account_ownership_transfer audit row |
+| FR-021 | tests/test_023_migration_015.py | Hash format pluggability: password_hash column accepts argon2id-encoded form (future OAuth slots in without schema change) |
+| FR-022 | tests/test_023_validators.py | Seven V16 env vars validated at startup; cross-condition WARN for SACP_ACCOUNTS_ENABLED=1 + SACP_EMAIL_TRANSPORT=noop |

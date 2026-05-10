@@ -22,10 +22,13 @@ from dataclasses import dataclass
 import asyncpg
 from fastapi import FastAPI
 
+from src.accounts import should_mount_account_router
+from src.accounts.service import AccountService
 from src.auth.service import AuthService
 from src.config import load_settings
 from src.database.connection import close_pool, create_pool
 from src.mcp_server.sse import ConnectionManager, get_connection_manager
+from src.repositories.account_repo import AccountRepository
 from src.repositories.interrupt_repo import InterruptRepository
 from src.repositories.log_repo import LogRepository
 from src.repositories.message_repo import MessageRepository
@@ -40,7 +43,15 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class SharedServices:
-    """Services attached to app.state on the Web UI app."""
+    """Services attached to app.state on the Web UI app.
+
+    Spec 023: ``account_service`` is populated only when the master
+    switch + topology gate (research §12, FR-018) permit mounting the
+    account router. Off-state leaves the field ``None`` so attaching
+    to ``app.state.account_service`` is a no-op and the route handlers'
+    503 fall-through stays out of reach behind the route-not-found
+    404.
+    """
 
     pool: asyncpg.Pool
     encryption_key: str
@@ -54,10 +65,15 @@ class SharedServices:
     log_repo: LogRepository
     register_repo: RegisterRepository
     session_store: SessionStore
+    account_service: AccountService | None = None
+    account_repo: AccountRepository | None = None
 
 
 def build_services(pool: asyncpg.Pool, encryption_key: str) -> SharedServices:
     """Construct a SharedServices record against an existing pool."""
+    log_repo = LogRepository(pool)
+    session_store = get_session_store()
+    account_repo = AccountRepository(pool) if should_mount_account_router() else None
     return SharedServices(
         pool=pool,
         encryption_key=encryption_key,
@@ -68,9 +84,13 @@ def build_services(pool: asyncpg.Pool, encryption_key: str) -> SharedServices:
         message_repo=MessageRepository(pool),
         interrupt_repo=InterruptRepository(pool),
         review_gate_repo=ReviewGateRepository(pool),
-        log_repo=LogRepository(pool),
+        log_repo=log_repo,
         register_repo=RegisterRepository(pool),
-        session_store=get_session_store(),
+        session_store=session_store,
+        account_repo=account_repo,
+        account_service=_maybe_build_account_service(
+            pool=pool, log_repo=log_repo, session_store=session_store, account_repo=account_repo
+        ),
     )
 
 
@@ -88,6 +108,8 @@ def attach_to_app(app: FastAPI, services: SharedServices) -> None:
     app.state.log_repo = services.log_repo
     app.state.register_repo = services.register_repo
     app.state.session_store = services.session_store
+    app.state.account_service = services.account_service
+    app.state.account_repo = services.account_repo
 
 
 async def build_standalone_services() -> SharedServices:
@@ -107,11 +129,16 @@ def prime_from_mcp_app(web_app: FastAPI, mcp_app: FastAPI) -> None:
 
     Used by ``src/run_apps.py`` after the MCP app's startup completes.
     """
+    pool = mcp_app.state.pool
+    log_repo = mcp_app.state.log_repo
+    session_store = get_session_store()
+    account_repo = AccountRepository(pool) if should_mount_account_router() else None
+    account_service = _maybe_build_account_service(
+        pool=pool, log_repo=log_repo, session_store=session_store, account_repo=account_repo
+    )
     services = SharedServices(
-        pool=mcp_app.state.pool,
-        encryption_key=mcp_app.state.encryption_key
-        if hasattr(mcp_app.state, "encryption_key")
-        else load_settings().encryption.key,
+        pool=pool,
+        encryption_key=_resolve_encryption_key(mcp_app),
         connection_manager=mcp_app.state.connection_manager,
         auth_service=mcp_app.state.auth_service,
         session_repo=mcp_app.state.session_repo,
@@ -119,8 +146,34 @@ def prime_from_mcp_app(web_app: FastAPI, mcp_app: FastAPI) -> None:
         message_repo=mcp_app.state.message_repo,
         interrupt_repo=mcp_app.state.interrupt_repo,
         review_gate_repo=mcp_app.state.review_gate_repo,
-        log_repo=mcp_app.state.log_repo,
+        log_repo=log_repo,
         register_repo=mcp_app.state.register_repo,
-        session_store=get_session_store(),
+        session_store=session_store,
+        account_repo=account_repo,
+        account_service=account_service,
     )
     attach_to_app(web_app, services)
+
+
+def _maybe_build_account_service(
+    *,
+    pool: asyncpg.Pool,  # noqa: ARG001 — kept for future signature stability
+    log_repo: LogRepository,
+    session_store: SessionStore,
+    account_repo: AccountRepository | None,
+) -> AccountService | None:
+    """Construct the AccountService only when the mount gate passes."""
+    if not should_mount_account_router() or account_repo is None:
+        return None
+    return AccountService(
+        account_repo=account_repo,
+        log_repo=log_repo,
+        session_store=session_store,
+    )
+
+
+def _resolve_encryption_key(mcp_app: FastAPI) -> str:
+    """Read the encryption key from the MCP app, falling back to settings."""
+    if hasattr(mcp_app.state, "encryption_key"):
+        return mcp_app.state.encryption_key
+    return load_settings().encryption.key

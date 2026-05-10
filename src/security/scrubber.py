@@ -18,6 +18,16 @@ _PATTERNS = [
     re.compile(r"eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+"),
     re.compile(r"gAAAAA[a-zA-Z0-9_-]{40,}"),
     re.compile(r"(?:api[_-]?key|token|secret)\s*[=:]\s*\S+", re.IGNORECASE),
+    # Spec 023 FR-014: scrub plaintext password / verification code /
+    # reset code attributes from any log line that names them as
+    # key=value or "key": "value". The bound argon2id-encoded hash
+    # form is intentionally left visible (it is one-way) so operators
+    # can correlate hash rows in audit logs.
+    re.compile(r"(?:password|current_password|new_password)\s*[=:]\s*\S+", re.IGNORECASE),
+    re.compile(r'"(?:password|current_password|new_password)"\s*:\s*"[^"]*"', re.IGNORECASE),
+    re.compile(
+        r"(?:verification_code|reset_code|email_change_code|code)\s*[=:]\s*\S+", re.IGNORECASE
+    ),
 ]
 
 REDACTED = "[REDACTED]"
