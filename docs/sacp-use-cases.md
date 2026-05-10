@@ -46,7 +46,7 @@ The session produces structured proposals for recommendations. The client's faci
 
 On export, the client gets a full transcript minus the consultant's system prompt content and detailed usage data. The data security policy ensures API keys are purged when the consultant disconnects.
 
-**Why SACP and not existing tools:** The sovereignty model is the entire point here. No existing tool lets two parties collaborate through their respective AIs without one party surrendering their credentials or data access to the other's infrastructure.
+**Why SACP and not existing tools:** No existing tool lets two parties collaborate through their respective AIs without one surrendering credentials or data access to the other's infrastructure.
 
 ---
 
@@ -86,7 +86,7 @@ The data scientist's AI evaluates algorithm options, discusses tradeoffs between
 
 Both humans review proposals asynchronously. The PM votes based on business viability. The data scientist votes based on technical feasibility. Disagreements surface as rejected proposals with comments, forcing the AIs to find alternatives.
 
-**Why SACP and not existing tools:** The routing modes make asymmetric participation a first-class feature rather than a hack. The PM isn't paying for 200 turns of algorithm discussion they don't care about. They pay only when their expertise is needed.
+**Why SACP and not existing tools:** The routing modes let the PM stay out of the loop until their input matters. They don't pay for 200 turns of algorithm discussion.
 
 ---
 
@@ -108,8 +108,8 @@ The tradeoff: no autonomous conversation. When both participants close their lap
 
 ## Common Properties
 
-Six of the seven cases share the properties that define SACP's core niche: multiple independent participants who control their own AI, model choice, and budget; persistent conversation that runs without human presence; asynchronous human drop-in when it matters; no requirement to surrender credentials or data to a central operator; and distributed cost where each participant pays for their own AI's participation.
+Six of the seven cases share the same core properties: each participant controls their own AI, model choice, and budget; the conversation runs without requiring human presence; humans can drop in asynchronously; nobody surrenders credentials or data to a central operator; and each participant pays only for their own AI.
 
-Use case 7 (cross-organization collaboration) trades persistent autonomous conversation for maximum sovereignty — the orchestrator never touches API keys at all. It demonstrates that SACP's shared state management, governance, and proposal workflow have value even without the autonomous conversation loop. The orchestrator serves as a governed message broker rather than a conversation driver.
+Use case 7 trades the autonomous conversation loop for maximum sovereignty — the orchestrator never touches provider APIs at all. The shared state management, governance, and proposal workflow have value on their own, even without autonomous AI turns.
 
-No existing tool — agent framework, shared-AI workspace, or federation protocol — provides all of these properties simultaneously. Each use case exercises a different subset of SACP's capabilities, validating that the architecture's modularity lets components activate or deactivate based on the topology and configuration chosen by the participants.
+No existing tool provides all of these properties simultaneously. Each use case exercises a different subset of SACP's design.

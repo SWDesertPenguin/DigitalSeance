@@ -26,10 +26,7 @@ It is correct as of its last revision; it goes stale when:
   topology 7 MCP-to-MCP shifts the trust boundary).
 - A dependency the model assumes safe-by-construction discloses a regression.
 
-A drift-without-review is the dangerous case: the architecture changes, the
-threat model does not, and the next incident hits a vector the model claims
-is mitigated. The review process exists to catch that drift early, not at
-incident time.
+A drift-without-review is the dangerous case: the architecture changes, the threat model does not, and the next incident hits a vector the model claims is mitigated.
 
 ---
 
@@ -162,10 +159,7 @@ When a review opens (Phase boundary or trigger), the reviewer walks this list:
 
 ## Out of scope for this review process
 
-- **Per-PR threat review**. Crushing weight; the per-PR security review covers
-  the immediate change, and the constitution + spec reviews catch architectural
-  drift. The threat-model review is a periodic / triggered backstop, not a
-  gate on every PR.
+- **Per-PR threat review**. Too much overhead; the per-PR security review covers the immediate change, and the constitution + spec reviews catch architectural drift. The threat-model review is a periodic / triggered backstop, not a gate on every PR.
 - **Annual cadence**. Misaligned with project pace; Phase boundaries and the
   four triggers above are the binding cadence.
 - **Threat model authorship** for new specs. The spec author is responsible
