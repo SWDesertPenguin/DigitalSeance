@@ -14,7 +14,11 @@ RUN apt-get update && \
 
 # Bootstrap uv only to expand uv.lock into a hash-pinned requirements file.
 # uv does not ship in the runtime image — pip is the actual installer.
-RUN pip install --no-cache-dir uv
+# pip >=26.1 closes CVE-2026-3219 (concatenated tar/ZIP confusion) and
+# CVE-2026-6357 (self-update timing), both flagged by Trivy on the base
+# image's stock pip.
+RUN pip install --no-cache-dir --upgrade 'pip>=26.1' && \
+    pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock ./
 
@@ -106,6 +110,7 @@ RUN rm -rf /usr/local/lib/python3.14/site-packages/setuptools \
            /usr/local/lib/python3.14/site-packages/setuptools-*.dist-info \
            /usr/local/lib/python3.14/site-packages/pkg_resources \
            /usr/local/lib/python3.14/site-packages/_distutils_hack && \
+    pip install --no-cache-dir --upgrade 'pip>=26.1' && \
     pip install --no-cache-dir 'setuptools>=78.1.1,<81' && \
     rm -rf /root/.cache/pip
 
