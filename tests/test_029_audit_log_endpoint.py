@@ -91,6 +91,12 @@ async def _insert_audit_row_at(
     retention-cap and ordering coverage.
     """
 
+    # admin_audit_log.timestamp is TIMESTAMP (tz-naive) per alembic 001 +
+    # conftest mirror; asyncpg refuses tz-aware binds against a tz-naive
+    # column. Normalize to UTC then strip tzinfo so the durable wall-clock
+    # value is preserved.
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.astimezone(UTC).replace(tzinfo=None)
     async with pool.acquire() as conn:
         await conn.execute(
             """
@@ -406,4 +412,4 @@ async def test_audit_event_id_is_stable_across_endpoint_and_broadcast(
     assert len(page.rows) == 1
     endpoint_id = page.rows[0].id
     assert captured_payloads, "spec 029 broadcast MUST fire"
-    assert captured_payloads[0]["id"] == entry.id == endpoint_id
+    assert captured_payloads[0]["id"] == str(entry.id) == str(endpoint_id)
