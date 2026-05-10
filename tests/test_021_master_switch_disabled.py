@@ -100,24 +100,29 @@ def test_master_switch_off_values_pass_validator(
 # ---------------------------------------------------------------------------
 
 
-def test_loop_module_does_not_import_shaping() -> None:
-    """No spec 021 shaping symbols are bound at loop-module load.
+def test_loop_imports_shaping_wiring_under_master_switch_guard() -> None:
+    """Post-T029: loop.py imports the shaping wiring helpers but the call is
+    guarded by ``response_shaping_enabled()`` so a master-switch-off run
+    returns ``(response, None)`` byte-equal to pre-feature.
 
-    Phase 3 (T029) will add the ``evaluate_and_maybe_retry`` call site,
-    guarded by a master-switch read. This canary asserts the pre-wiring
-    state: no shaping-module attribute is currently visible from
-    ``loop_module.__dict__``. When T029 lands, the assertion tightens to
-    "shaping symbols are imported but the call is guarded by the switch."
+    Two architectural assertions pin the SC-002 invariant:
+
+    1. ``shape_response`` and ``response_shaping_enabled`` are visible
+       at the loop-module level (the wiring landed). The pre-T029
+       canary asserted these were absent; this test inverts it.
+    2. ``response_shaping_enabled()`` returns ``False`` when the env var
+       is unset (the autouse fixture clears it). The wiring thus
+       short-circuits and no shaping retry can fire under the off
+       state, satisfying SC-002.
     """
-    leaked = [
-        name
-        for name in dir(loop_module)
-        if name.startswith(("compute_filler_score", "evaluate_and_maybe_retry"))
-    ]
-    assert not leaked, (
-        f"SC-002 leak: loop.py exposes shaping symbols pre-T029: {leaked}. "
-        "Wiring landed before the master-switch guard."
-    )
+    expected = ("response_shaping_enabled", "shape_response", "ShapingMetadata")
+    present = [name for name in expected if name in dir(loop_module)]
+    assert set(present) == set(
+        expected
+    ), f"T029 wiring incomplete: missing wiring symbols {set(expected) - set(present)}."
+    # Master-switch-off short-circuit: the runtime guard must return False
+    # under the autouse-fixture-cleared env var so the call site is dead.
+    assert loop_module.response_shaping_enabled() is False
 
 
 def test_loop_module_does_not_import_register_presets() -> None:
@@ -140,19 +145,27 @@ def test_loop_module_does_not_import_register_presets() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_log_routing_signature_excludes_shaping_columns() -> None:
+def test_log_routing_signature_includes_shaping_columns() -> None:
     """T031 plumbs the five new shaping columns through ``log_routing``.
 
-    Pre-T031: the function signature MUST NOT include any of the five
-    new column names as keyword parameters. If it does, US1 wiring landed
-    early and the master-switch guard hasn't been audited yet.
+    Post-T031: the function signature MUST include all five new column
+    names as keyword parameters AND each parameter MUST default to
+    ``None``. The default-to-``None`` invariant is the SC-002 byte-equal
+    guarantee at the persistence layer: every existing
+    ``log_routing(...)`` caller that omits the new kwargs writes NULL
+    into the five new columns, byte-equal to the pre-feature row shape.
+    Only the spec-021 loop wiring (T029) explicitly passes non-None
+    values, and it does so only when ``SACP_RESPONSE_SHAPING_ENABLED``
+    is on.
     """
     sig = inspect.signature(log_repo_module.LogRepository.log_routing)
-    params = set(sig.parameters)
-    leaked = [c for c in _NEW_ROUTING_LOG_COLUMNS if c in params]
-    assert not leaked, (
-        f"SC-002 leak: log_routing accepts shaping columns pre-T031: {leaked}. "
-        "Plumbing landed before the master-switch guard."
+    params = sig.parameters
+    missing = [c for c in _NEW_ROUTING_LOG_COLUMNS if c not in params]
+    assert not missing, f"T031 plumbing incomplete: log_routing missing shaping columns: {missing}."
+    bad_default = [c for c in _NEW_ROUTING_LOG_COLUMNS if params[c].default is not None]
+    assert not bad_default, (
+        "T031 plumbing regression: shaping kwargs must default to None so "
+        f"shaping-off callers write NULL (SC-002 byte-equal): {bad_default}."
     )
 
 
@@ -186,12 +199,19 @@ def test_convergence_module_has_no_shaping_wiring() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_shaping_module_only_exports_dataclasses_and_registry() -> None:
-    """Phase 2 deliverable shape: shaping.py exposes the BehavioralProfile
-    registry, FillerScore / ShapingDecision dataclasses, and the constant
-    SHAPING_RETRY_CAP. It does NOT yet expose ``compute_filler_score``,
-    ``evaluate_and_maybe_retry``, ``profile_for``, or ``threshold_for`` —
-    those land in Phase 3 (T026-T028).
+def test_shaping_module_exports_dataclasses_registry_and_orchestrator() -> None:
+    """Phase 3 (US1) deliverable shape (T023-T028 landed): shaping.py exposes
+    the BehavioralProfile registry, FillerScore / ShapingDecision dataclasses,
+    the SHAPING_RETRY_CAP constant, the aggregator + scorer entry point, the
+    per-family dispatch + threshold resolver, and the retry orchestrator.
+
+    The presence of ``compute_filler_score`` / ``evaluate_and_maybe_retry`` /
+    ``profile_for`` / ``threshold_for`` does NOT violate SC-002 on its own --
+    SC-002 is about the dispatch path firing them. The master-switch guard
+    lives at the call site (T029 in ``loop.py``); ``test_loop_module_does_not
+    _import_shaping`` below pins that guard's pre-wiring state until T029
+    lands and that canary tightens to "imports the module but the call is
+    short-circuited when the switch is off".
     """
     public = {n for n in dir(shaping_module) if not n.startswith("_")}
     assert "BehavioralProfile" in public
@@ -199,17 +219,16 @@ def test_shaping_module_only_exports_dataclasses_and_registry() -> None:
     assert "FillerScore" in public
     assert "ShapingDecision" in public
     assert "SHAPING_RETRY_CAP" in public
-    # Implementation symbols MUST be absent today.
-    for unimplemented in (
+    # Phase 3 (T026-T028) implementation symbols are now present.
+    for symbol in (
         "compute_filler_score",
         "evaluate_and_maybe_retry",
         "profile_for",
         "threshold_for",
     ):
-        assert unimplemented not in public, (
-            f"SC-002 leak: shaping.{unimplemented} landed before Phase 3 wiring; "
-            "the master-switch guard MUST be in place at the call site."
-        )
+        assert (
+            symbol in public
+        ), f"shaping.{symbol} expected after T026-T028 land; module shape regressed."
 
 
 def test_register_presets_module_shape() -> None:

@@ -19,6 +19,7 @@ from src.prompts.tiers import assemble_prompt
 from src.repositories.interrupt_repo import InterruptRepository
 from src.repositories.message_repo import MessageRepository
 from src.repositories.proposal_repo import ProposalRepository
+from src.repositories.register_repo import RegisterRepository
 from src.security.sanitizer import sanitize
 from src.security.spotlighting import should_spotlight, spotlight
 
@@ -56,6 +57,7 @@ class ContextAssembler:
         self._msg_repo = MessageRepository(pool)
         self._int_repo = InterruptRepository(pool)
         self._prop_repo = ProposalRepository(pool)
+        self._register_repo = RegisterRepository(pool)
 
     async def assemble(
         self,
@@ -73,7 +75,13 @@ class ContextAssembler:
         """
         budget = _available_budget(participant)
         context: list[ContextMessage] = []
-        used = _add_system_prompt(context, participant, phase=phase)
+        register_delta = await self._resolve_register_delta(session_id, participant.id)
+        used = _add_system_prompt(
+            context,
+            participant,
+            phase=phase,
+            register_delta_text=register_delta,
+        )
         roster = await self._fetch_roster(session_id)
         used = _add_participant_roster(context, roster, participant.id, used)
         used = await self._add_priorities(
@@ -86,6 +94,37 @@ class ContextAssembler:
             roster=roster,
         )
         return _reorder_chronologically(context)
+
+    async def _resolve_register_delta(
+        self,
+        session_id: str,
+        participant_id: str,
+    ) -> str | None:
+        """Resolve the participant's effective register-preset Tier 4 delta.
+
+        Spec 021 T042. Single resolver call per prompt assembly per
+        contracts/register-preset-interface.md "Prompt-assembly
+        integration". Returns ``None`` for slider 3 (Balanced) so the
+        assembler falls back to tier text alone (FR-007 / FR-013), and
+        ``None`` whenever resolver lookup raises (defense-in-depth: the
+        slider must never block prompt assembly).
+
+        Independent of ``SACP_RESPONSE_SHAPING_ENABLED`` per spec edge
+        case — slider deltas always emit regardless of the master switch.
+        """
+        try:
+            _, preset, _ = await self._register_repo.resolve_register(
+                participant_id=participant_id,
+                session_id=session_id,
+            )
+        except Exception:
+            log.exception(
+                "register resolver failed (session=%s participant=%s); falling back to no delta",
+                session_id,
+                participant_id,
+            )
+            return None
+        return preset.tier4_delta
 
     async def _fetch_roster(self, session_id: str) -> dict[str, dict[str, str]]:
         """Lightweight participant lookup: id → {display_name, provider}.
@@ -212,12 +251,17 @@ def _add_system_prompt(
     participant: Participant,
     *,
     phase: str = "running",
+    register_delta_text: str | None = None,
 ) -> int:
     """Add tiered system prompt as first context message.
 
     Spec 025 FR-008/FR-009: when ``phase='conclude'`` the prompt assembler
     receives the conclude delta as a Tier 4 additive fragment, appended
     after participant ``custom_prompt``.
+
+    Spec 021 T042: ``register_delta_text`` carries the per-session-slider
+    Tier 4 delta from ``RegisterRepository.resolve_register``. ``None``
+    skips injection (slider 3 / Balanced or resolver failure).
     """
     from src.prompts.conclude_delta import conclude_delta
 
@@ -226,6 +270,7 @@ def _add_system_prompt(
         prompt_tier=participant.prompt_tier,
         custom_prompt=participant.system_prompt,
         participant_id=participant.id,
+        register_delta_text=register_delta_text,
         conclude_delta=delta,
     )
     ctx = ContextMessage("system", prompt, None)

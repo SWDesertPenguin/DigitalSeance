@@ -33,6 +33,7 @@ from src.repositories.interrupt_repo import InterruptRepository
 from src.repositories.log_repo import LogRepository
 from src.repositories.message_repo import MessageRepository
 from src.repositories.participant_repo import ParticipantRepository
+from src.repositories.register_repo import RegisterRepository
 from src.repositories.review_gate_repo import ReviewGateRepository
 from src.repositories.session_repo import SessionRepository
 from src.web_ui.session_store import SessionStore, get_session_store
@@ -62,6 +63,7 @@ class SharedServices:
     interrupt_repo: InterruptRepository
     review_gate_repo: ReviewGateRepository
     log_repo: LogRepository
+    register_repo: RegisterRepository
     session_store: SessionStore
     account_service: AccountService | None = None
 
@@ -81,6 +83,7 @@ def build_services(pool: asyncpg.Pool, encryption_key: str) -> SharedServices:
         interrupt_repo=InterruptRepository(pool),
         review_gate_repo=ReviewGateRepository(pool),
         log_repo=log_repo,
+        register_repo=RegisterRepository(pool),
         session_store=session_store,
         account_service=_maybe_build_account_service(
             pool=pool, log_repo=log_repo, session_store=session_store
@@ -100,6 +103,7 @@ def attach_to_app(app: FastAPI, services: SharedServices) -> None:
     app.state.interrupt_repo = services.interrupt_repo
     app.state.review_gate_repo = services.review_gate_repo
     app.state.log_repo = services.log_repo
+    app.state.register_repo = services.register_repo
     app.state.session_store = services.session_store
     app.state.account_service = services.account_service
 
@@ -138,6 +142,7 @@ def prime_from_mcp_app(web_app: FastAPI, mcp_app: FastAPI) -> None:
         interrupt_repo=mcp_app.state.interrupt_repo,
         review_gate_repo=mcp_app.state.review_gate_repo,
         log_repo=log_repo,
+        register_repo=mcp_app.state.register_repo,
         session_store=session_store,
         account_service=account_service,
     )

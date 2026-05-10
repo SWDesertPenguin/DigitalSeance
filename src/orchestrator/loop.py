@@ -8,6 +8,7 @@ import json
 import logging
 import time
 from collections import Counter
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -42,6 +43,11 @@ from src.orchestrator.observer_downgrade import (
     suppressed_audit_payload,
 )
 from src.orchestrator.router import TurnRouter
+from src.orchestrator.shaping_wiring import (
+    ShapingMetadata,
+    response_shaping_enabled,
+    shape_response,
+)
 from src.orchestrator.summarizer import SummarizationManager
 from src.orchestrator.timing import (
     get_timings,
@@ -301,6 +307,7 @@ class ConversationLoop:
             batch_scheduler=self._batch_scheduler,
             batching_engaged=self._high_traffic_runtime.is_mechanism_engaged("batching"),
             phase=phase,
+            engine=self._convergence,
         )
         if result.skipped:
             return result
@@ -660,6 +667,7 @@ class ConversationLoop:
             target_id=decision.participant.id,
             previous_value=payload["previous_value"],
             new_value=payload["new_value"],
+            broadcast_session_id=session_id,
         )
 
     async def _write_downgrade_row(
@@ -673,6 +681,7 @@ class ConversationLoop:
             target_id=decision.participant.id,
             previous_value=payload["previous_value"],
             new_value=payload["new_value"],
+            broadcast_session_id=session_id,
         )
 
     def _update_sustained_window(
@@ -799,28 +808,52 @@ async def _dispatch_and_persist(
     batch_scheduler: BatchScheduler | None = None,
     batching_engaged: bool = True,
     phase: str = "running",
+    engine: ConvergenceDetector | None = None,
 ) -> tuple[TurnResult, str]:
     """Assemble context, dispatch to provider, persist result.
 
     Spec 014: ``batching_engaged`` is the DMA controller's per-session
-    activation flag (research §4). Default ``True`` so the spec-013
-    baseline holds when no controller runs (FR-015 additive contract).
+    activation flag (research §4). Spec 021 (T029): ``engine`` threads
+    the ``ConvergenceDetector`` through so post-dispatch shaping reads
+    the spec 004 recent-embeddings ring; the master-switch guard inside
+    ``_maybe_shape_response`` short-circuits to a no-op when
+    ``SACP_RESPONSE_SHAPING_ENABLED`` is off (SC-002 byte-equal).
     """
-    response, skip_reason = await _assemble_and_dispatch(
-        ctx,
-        assembler,
-        breaker,
-        speaker,
-        interjections,
-        phase=phase,
+    response, messages, skip_reason = await _assemble_and_dispatch(
+        ctx, assembler, breaker, speaker, interjections, phase=phase
     )
     if response is None:
         return _skip_result(ctx.session_id, speaker.id, skip_reason or "provider_error"), ""
+    response, shaping_metadata = await _maybe_shape_response(
+        ctx=ctx, speaker=speaker, response=response, messages=messages or [], engine=engine
+    )
+    return await _route_dispatched_response(
+        ctx=ctx,
+        speaker=speaker,
+        decision=decision,
+        response=response,
+        breaker=breaker,
+        batch_scheduler=batch_scheduler,
+        batching_engaged=batching_engaged,
+        shaping_metadata=shaping_metadata,
+    )
 
+
+async def _route_dispatched_response(
+    *,
+    ctx: _TurnContext,
+    speaker: object,
+    decision: object,
+    response: ProviderResponse,
+    breaker: CircuitBreaker,
+    batch_scheduler: BatchScheduler | None,
+    batching_engaged: bool,
+    shaping_metadata: ShapingMetadata | None,
+) -> tuple[TurnResult, str]:
+    """Route the (post-shaping) response through review-gate vs validate+persist."""
     if decision.action == "review_gated":
         result = await _stage_for_review(ctx, speaker, decision, response)
         return result, response.content
-
     result = await _validate_and_persist(
         ctx,
         speaker,
@@ -829,8 +862,73 @@ async def _dispatch_and_persist(
         breaker,
         batch_scheduler=batch_scheduler,
         batching_engaged=batching_engaged,
+        shaping_metadata=shaping_metadata,
     )
     return result, response.content
+
+
+async def _maybe_shape_response(
+    *,
+    ctx: _TurnContext,
+    speaker: object,
+    response: ProviderResponse,
+    messages: list[dict[str, str]],
+    engine: ConvergenceDetector | None,
+) -> tuple[ProviderResponse, ShapingMetadata | None]:
+    """Spec 021 T029 wiring: master-switch-guarded post-dispatch shaping.
+
+    Short-circuits to ``(response, None)`` when ``engine`` is ``None``
+    (test path) OR when the master switch is off (SC-002). Otherwise
+    builds a redispatch closure that re-runs the provider with the
+    tightened-Tier-4 delta appended to the system prompt and hands
+    everything to the wiring helper.
+    """
+    if engine is None or not response_shaping_enabled():
+        return response, None
+    redispatch = _build_redispatch(ctx=ctx, speaker=speaker, messages=messages)
+    return await shape_response(
+        speaker=speaker, response=response, engine=engine, redispatch=redispatch
+    )
+
+
+def _build_redispatch(
+    *,
+    ctx: _TurnContext,
+    speaker: object,
+    messages: list[dict[str, str]],
+) -> Callable[[str], Awaitable[ProviderResponse]]:
+    """Build the per-turn redispatch closure for shaping retries.
+
+    The closure copies the original ``messages`` list and appends the
+    tightened-delta text to the system message, then runs another
+    ``_dispatch_to_provider`` invocation. Original messages are not
+    mutated -- each retry sees a fresh patched copy.
+    """
+
+    async def _redispatch(delta_text: str) -> ProviderResponse:
+        patched = _patch_system_message(messages, delta_text)
+        return await _dispatch_to_provider(
+            speaker, patched, ctx.encryption_key, session_id=ctx.session_id
+        )
+
+    return _redispatch
+
+
+def _patch_system_message(messages: list[dict[str, str]], delta_text: str) -> list[dict[str, str]]:
+    """Return a fresh messages list with the tightened delta appended to system.
+
+    The first message is the system message per ``to_provider_messages``;
+    we append the delta text with a blank-line separator to mirror the
+    way ``assemble_prompt`` joins parts. When no system message exists
+    (defensive — should not happen on the dispatch path), we prepend a
+    new one carrying just the delta.
+    """
+    patched = [dict(m) for m in messages]
+    if patched and patched[0].get("role") == "system":
+        patched[0]["content"] = patched[0]["content"] + "\n\n" + delta_text
+    else:
+        patched.insert(0, {"role": "system", "content": delta_text})
+    return patched
 
 
 async def _assemble_and_dispatch(
@@ -841,13 +939,17 @@ async def _assemble_and_dispatch(
     interjections: list | None = None,
     *,
     phase: str = "running",
-) -> tuple[ProviderResponse | None, str | None]:
+) -> tuple[ProviderResponse | None, list[dict[str, str]] | None, str | None]:
     """Build context, call provider, handle errors.
 
-    Returns (response, skip_reason). Short-circuits with 'no_new_input'
-    when context ends with the current speaker's own turn — asking
-    Anthropic to "continue" its own message returns empty and would
-    otherwise trip the circuit breaker on a healthy participant.
+    Returns (response, messages, skip_reason). The ``messages`` list is
+    the post-``to_provider_messages`` snapshot and is plumbed back so
+    the spec 021 shaping retry closure (T029) can patch its system
+    message with the tightened-Tier-4 delta on retry. Short-circuits
+    with ``'no_new_input'`` when context ends with the current speaker's
+    own turn -- asking Anthropic to "continue" its own message returns
+    empty and would otherwise trip the circuit breaker on a healthy
+    participant.
 
     Spec 025 FR-008: ``phase`` plumbs through to the assembler so the
     conclude delta lands at Tier 4 only when the loop is in conclude
@@ -863,17 +965,18 @@ async def _assemble_and_dispatch(
     record_stage("assemble", int((time.monotonic() - assemble_start) * 1000))
     if not _has_new_input(context):
         log.info("Skipping %s: last message was same speaker", speaker.id)
-        return None, "no_new_input"
+        return None, None, "no_new_input"
     messages = to_provider_messages(context)
     try:
-        return await _dispatch_to_provider(
+        response = await _dispatch_to_provider(
             speaker, messages, ctx.encryption_key, session_id=ctx.session_id
-        ), None
+        )
+        return response, messages, None
     except _DISPATCH_FAILURE_TYPES as e:
         log.warning("%s for %s: %s", _DISPATCH_FAILURE_LABEL[type(e)], speaker.id, e)
         await _record_failure_and_announce(ctx, breaker, speaker)
         await _broadcast_provider_error(ctx.session_id, speaker, e)
-        return None, _DISPATCH_FAILURE_REASON[type(e)]
+        return None, None, _DISPATCH_FAILURE_REASON[type(e)]
 
 
 _DISPATCH_FAILURE_LABEL: dict[type, str] = {
@@ -1025,8 +1128,16 @@ async def _validate_and_persist(
     *,
     batch_scheduler: BatchScheduler | None = None,
     batching_engaged: bool = True,
+    shaping_metadata: ShapingMetadata | None = None,
 ) -> TurnResult:
-    """Run security pipeline then persist. Pipeline crashes fail closed without a breaker hit."""
+    """Run security pipeline then persist. Pipeline crashes fail closed without a breaker hit.
+
+    Spec 021 (T029): ``shaping_metadata`` carries the post-dispatch
+    shaping decision (filler score, retry timings, reason). ``None``
+    when shaping is off (SC-002 byte-equal — log_routing writes NULL
+    into the five new columns); the persistence path forwards it to
+    ``_persist_turn`` -> ``_log_routing`` unchanged otherwise.
+    """
     try:
         validation, cleaned, exfil_flags, validator_ms, exfil_ms = run_security_pipeline(
             response.content
@@ -1047,6 +1158,7 @@ async def _validate_and_persist(
         cleaned=cleaned,
         batch_scheduler=batch_scheduler,
         batching_engaged=batching_engaged,
+        shaping_metadata=shaping_metadata,
     )
 
 
@@ -1061,6 +1173,7 @@ async def _route_validated_response(
     cleaned: str,
     batch_scheduler: BatchScheduler | None,
     batching_engaged: bool,
+    shaping_metadata: ShapingMetadata | None = None,
 ) -> TurnResult:
     """Dispatch a validated security-pipeline result to its terminal handler."""
     if validation.blocked:
@@ -1079,6 +1192,7 @@ async def _route_validated_response(
         _with_cleaned_content(response, cleaned),
         batch_scheduler=batch_scheduler,
         batching_engaged=batching_engaged,
+        shaping_metadata=shaping_metadata,
     )
 
 
@@ -1139,11 +1253,22 @@ async def _persist_turn(
     *,
     batch_scheduler: BatchScheduler | None = None,
     batching_engaged: bool = True,
+    shaping_metadata: ShapingMetadata | None = None,
 ) -> TurnResult:
-    """Persist response as message and log routing + usage."""
+    """Persist response as message and log routing + usage.
+
+    Spec 021 (T029): when ``shaping_metadata`` is non-None the routing
+    log row carries the five shaping columns; ``None`` writes NULL into
+    each per the SC-002 byte-equal contract.
+    """
     msg = await _append_message_timed(ctx, speaker, decision, response)
     await _log_routing(
-        ctx.log_repo, ctx.session_id, decision, turn_number=msg.turn_number, timings=get_timings()
+        ctx.log_repo,
+        ctx.session_id,
+        decision,
+        turn_number=msg.turn_number,
+        timings=get_timings(),
+        shaping_metadata=shaping_metadata,
     )
     await _log_usage(ctx.log_repo, speaker, msg.turn_number, response)
     await _sync_current_turn(ctx.pool, ctx.session_id, msg.turn_number)
@@ -1501,9 +1626,20 @@ async def _log_routing(
     *,
     turn_number: int = -1,
     timings: dict[str, int] | None = None,
+    shaping_metadata: ShapingMetadata | None = None,
 ) -> None:
-    """Log the routing decision."""
+    """Log the routing decision.
+
+    Spec 021 (T029): five shaping columns populate from
+    ``shaping_metadata`` when non-None; default to NULL otherwise per
+    SC-002. Prefer the metadata's pre-captured timings (which the
+    wiring helper already pulled from ``get_timings()`` at the
+    decision-time snapshot) over re-reading the timings dict so the
+    routing-log row matches what the shaping pipeline actually
+    observed.
+    """
     timings = timings or {}
+    meta = shaping_metadata
     await log_repo.log_routing(
         session_id=session_id,
         turn_number=turn_number,
@@ -1518,6 +1654,11 @@ async def _log_routing(
         dispatch_ms=timings.get("dispatch"),
         persist_ms=timings.get("persist"),
         advisory_lock_wait_ms=timings.get("advisory_lock_wait"),
+        shaping_score_ms=meta.shaping_score_ms if meta else None,
+        shaping_retry_dispatch_ms=meta.shaping_retry_dispatch_ms if meta else None,
+        filler_score=meta.filler_score if meta else None,
+        shaping_retry_delta_text=meta.shaping_retry_delta_text if meta else None,
+        shaping_reason=meta.shaping_reason if meta else None,
     )
 
 

@@ -447,6 +447,7 @@ async def _audit_reset(
         target_id=target.id,
         previous_value=_key_tail(target.api_key_encrypted),
         new_value="rekeyed",
+        broadcast_session_id=caller.session_id,
     )
 
 
@@ -464,6 +465,7 @@ async def _audit_release(
         target_id=target.id,
         previous_value=target.status,
         new_value=reason or "reset",
+        broadcast_session_id=caller.session_id,
     )
 
 
@@ -742,6 +744,7 @@ async def _audit_bulk_routing(
             target_id=row["id"],
             previous_value=prior,
             new_value=new_pref,
+            broadcast_session_id=facilitator.session_id,
         )
 
 
@@ -818,6 +821,7 @@ async def _audit_and_broadcast_scope(
         target_id=participant.session_id,
         previous_value=previous,
         new_value=scope,
+        broadcast_session_id=participant.session_id,
     )
     await broadcast_to_session(
         participant.session_id,
@@ -1145,6 +1149,7 @@ async def _emit_cap_set_audit(
         target_id=participant.session_id,
         previous_value=json.dumps(old_cap_repr),
         new_value=json.dumps({**new_cap_repr, "interpretation": plan.interpretation}),
+        broadcast_session_id=participant.session_id,
     )
 
 
@@ -1206,6 +1211,7 @@ async def _audit_session_config(
         target_id=participant.session_id,
         previous_value=previous_value,
         new_value=new_value,
+        broadcast_session_id=participant.session_id,
     )
 
 
@@ -1239,6 +1245,7 @@ async def debug_set_timeouts(
         target_id=body.participant_id,
         previous_value=None,
         new_value=str(body.consecutive_timeouts),
+        broadcast_session_id=participant.session_id,
     )
     return {
         "status": "updated",
@@ -1349,6 +1356,7 @@ async def _audit_and_broadcast_budget(
         target_id=body.participant_id,
         previous_value=f"{target.budget_hourly}/{target.budget_daily}/{target.max_tokens_per_turn}",
         new_value=f"{body.budget_hourly}/{body.budget_daily}/{body.max_tokens_per_turn}",
+        broadcast_session_id=facilitator.session_id,
     )
     from src.web_ui.events import broadcast_participant_update
 
@@ -1635,6 +1643,7 @@ async def _log_gate_action(
         target_id=draft_id,
         previous_value=vals.get("previous"),
         new_value=vals.get("new"),
+        broadcast_session_id=participant.session_id,
     )
 
 
@@ -1647,3 +1656,187 @@ def _serialize_draft(draft: object) -> dict:
         "context_summary": draft.context_summary,
         "created_at": draft.created_at.isoformat() if draft.created_at else None,
     }
+
+
+# --- Spec 021 register-slider endpoints (T040 + T052) ---
+# FR-007 / FR-008: facilitator-controlled session slider and per-participant
+# override. Both endpoints emit register-change audit rows via
+# ``LogRepository.log_register_change``. Slider value validated 1-5; ID
+# validation is delegated to ``RegisterRepository`` (which trusts FK
+# constraints) and the participant existence check below.
+
+
+class _SetSessionRegisterBody(BaseModel):
+    """Request body for setting the session-level register slider."""
+
+    slider_value: int = Field(..., ge=1, le=5)
+
+
+class _SetParticipantOverrideBody(BaseModel):
+    """Request body for setting a per-participant register override."""
+
+    participant_id: str = Field(..., min_length=1)
+    slider_value: int = Field(..., ge=1, le=5)
+
+
+class _ClearParticipantOverrideBody(BaseModel):
+    """Request body for clearing a per-participant register override."""
+
+    participant_id: str = Field(..., min_length=1)
+
+
+def _register_payload(slider: int | None) -> dict:
+    """Render a slider value as the audit-row payload dict.
+
+    ``None`` slider -> ``None`` payload (used on first-time-set
+    ``previous_value``); 1-5 -> ``{slider_value, preset}``. Late-imports
+    ``preset_for_slider`` so the facilitator module's import graph stays
+    free of the prompts package at module-load time.
+    """
+    if slider is None:
+        return None  # type: ignore[return-value]
+    from src.prompts.register_presets import preset_for_slider
+
+    return {"slider_value": slider, "preset": preset_for_slider(slider).name}
+
+
+def _require_facilitator(participant: Participant) -> None:
+    """Raise 403 unless the caller is the session facilitator."""
+    if participant.role != "facilitator":
+        raise HTTPException(403, "facilitator_only")
+
+
+async def _resolve_target_participant(
+    request: Request,
+    caller: Participant,
+    target_id: str,
+) -> None:
+    """Raise 404 unless the target is in the caller's session."""
+    p_repo = request.app.state.participant_repo
+    target = await p_repo.get_participant(target_id)
+    if target is None or target.session_id != caller.session_id:
+        raise HTTPException(404, "participant_not_found")
+
+
+@router.post("/set_session_register")
+async def set_session_register(
+    request: Request,
+    body: _SetSessionRegisterBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Spec 021 FR-007 / FR-009: set the session-level register slider.
+
+    Idempotent: a no-op set (same value as the existing row) still
+    bumps ``last_changed_at`` and emits an audit row per FR-008's
+    "submit a slider value equal to the existing value" clarification.
+    """
+    _require_facilitator(participant)
+    register_repo = request.app.state.register_repo
+    new_row, previous = await register_repo.upsert_session_register(
+        session_id=participant.session_id,
+        slider_value=body.slider_value,
+        facilitator_id=participant.id,
+    )
+    await request.app.state.log_repo.log_register_change(
+        action="session_register_changed",
+        session_id=participant.session_id,
+        target_id=participant.session_id,
+        previous_value=_register_payload(previous.slider_value if previous else None),
+        new_value=_register_payload(new_row.slider_value),
+        facilitator_id=participant.id,
+    )
+    return {"status": "set", **_register_payload(new_row.slider_value)}
+
+
+@router.post("/set_participant_register_override")
+async def set_participant_register_override(
+    request: Request,
+    body: _SetParticipantOverrideBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Spec 021 FR-008: set a per-participant register override.
+
+    Override scope is one participant; other participants in the same
+    session are unaffected per FR-008 + SC-005. Audit row carries
+    ``session_slider_at_time`` so retroactive review can reconstruct
+    what the override was overriding at the moment of set.
+    """
+    _require_facilitator(participant)
+    await _resolve_target_participant(request, participant, body.participant_id)
+    register_repo = request.app.state.register_repo
+    new_row, previous = await register_repo.upsert_participant_override(
+        participant_id=body.participant_id,
+        session_id=participant.session_id,
+        slider_value=body.slider_value,
+        facilitator_id=participant.id,
+    )
+    await _emit_override_set_audit(
+        request,
+        caller=participant,
+        target_id=body.participant_id,
+        new_slider=new_row.slider_value,
+        previous_slider=previous.slider_value if previous else None,
+    )
+    return {
+        "status": "set",
+        "participant_id": body.participant_id,
+        **_register_payload(new_row.slider_value),
+    }
+
+
+async def _emit_override_set_audit(
+    request: Request,
+    *,
+    caller: Participant,
+    target_id: str,
+    new_slider: int,
+    previous_slider: int | None,
+) -> None:
+    """Write the participant_register_override_set audit row.
+
+    Reads the live session slider one extra time so the audit row's
+    ``session_slider_at_time`` reflects what the override is overriding
+    at the moment of set — useful for retroactive review per
+    contracts/audit-events.md.
+    """
+    register_repo = request.app.state.register_repo
+    session_row = await register_repo.get_session_register(caller.session_id)
+    new_payload = _register_payload(new_slider)
+    new_payload["session_slider_at_time"] = session_row.slider_value if session_row else None
+    await request.app.state.log_repo.log_register_change(
+        action="participant_register_override_set",
+        session_id=caller.session_id,
+        target_id=target_id,
+        previous_value=_register_payload(previous_slider),
+        new_value=new_payload,
+        facilitator_id=caller.id,
+    )
+
+
+@router.post("/clear_participant_register_override")
+async def clear_participant_register_override(
+    request: Request,
+    body: _ClearParticipantOverrideBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Spec 021 FR-008: explicitly clear a per-participant override.
+
+    Explicit clears emit a ``participant_register_override_cleared``
+    audit row; cascades do NOT (research.md §8). Calling on a
+    participant with no override is idempotent.
+    """
+    _require_facilitator(participant)
+    await _resolve_target_participant(request, participant, body.participant_id)
+    register_repo = request.app.state.register_repo
+    cleared = await register_repo.clear_participant_override(body.participant_id)
+    if cleared is None:
+        return {"status": "absent", "participant_id": body.participant_id}
+    await request.app.state.log_repo.log_register_change(
+        action="participant_register_override_cleared",
+        session_id=participant.session_id,
+        target_id=body.participant_id,
+        previous_value=_register_payload(cleared.slider_value),
+        new_value={"slider_value": None, "fallback_to": "session"},
+        facilitator_id=participant.id,
+    )
+    return {"status": "cleared", "participant_id": body.participant_id}

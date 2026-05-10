@@ -80,6 +80,7 @@ class AuthService:
             target_id=participant_id,
             previous_value="pending",
             new_value="participant",
+            broadcast_session_id=session_id,
         )
         return result
 
@@ -102,6 +103,7 @@ class AuthService:
             action="reject_participant",
             target_id=participant_id,
             new_value=reason,
+            broadcast_session_id=session_id,
         )
 
     async def rotate_token(
@@ -149,6 +151,7 @@ class AuthService:
             facilitator_id=facilitator_id,
             action="revoke_token",
             target_id=participant_id,
+            broadcast_session_id=session_id,
         )
 
     async def remove_participant(
@@ -170,6 +173,7 @@ class AuthService:
             action="remove_participant",
             target_id=participant_id,
             new_value=reason,
+            broadcast_session_id=session_id,
         )
 
     async def transfer_facilitator(
@@ -192,6 +196,7 @@ class AuthService:
             target_id=target_id,
             previous_value=facilitator_id,
             new_value=target_id,
+            broadcast_session_id=session_id,
         )
 
 

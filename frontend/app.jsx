@@ -239,6 +239,16 @@ function initialState() {
     // session_concluded or loop_status(running=false).
     concluding: false,
     concludingRemaining: null, // { turns: int|null, seconds: int|null }
+    // Spec 029 audit-log viewer (FR-001 / FR-010 / spec 011 FR-025..FR-029).
+    // `auditViewerEnabled` is the probe result for SACP_AUDIT_VIEWER_ENABLED:
+    //   null  -> not yet probed (or probe in flight)
+    //   true  -> button + route render
+    //   false -> master switch off, hide the button
+    auditViewerEnabled: null,
+    auditLogPanelOpen: false,    // FR-026: panel mounted state — drives drop/keep on WS push
+    auditLogRows: [],            // decorated rows (most recent first)
+    auditLogTotalCount: 0,
+    auditLogNextOffset: null,
   };
 }
 
@@ -400,6 +410,43 @@ function reducer(state, action) {
         ...state,
         auditEntries: [action.event.entry, ...state.auditEntries].slice(0, 100),
       };
+    case "audit_log_appended": {
+      // Spec 029 FR-010 / spec 011 FR-029. The decorated row ships in
+      // ``event.payload``. When the panel is closed we silently drop the
+      // event — FR-005 requires a panel re-fetch on open, so missed
+      // pushes are not data loss (the audit log is the durable source).
+      // When mounted, prepend with dedup against an id Set so an HTTP
+      // refetch racing with a WS push doesn't double-render.
+      if (!state.auditLogPanelOpen) return state;
+      const row = action.event.payload || {};
+      if (row.id == null) return state;
+      const seen = new Set(state.auditLogRows.map((r) => r.id));
+      if (seen.has(row.id)) return state;
+      return {
+        ...state,
+        auditLogRows: [row, ...state.auditLogRows],
+        auditLogTotalCount: state.auditLogTotalCount + 1,
+      };
+    }
+    case "audit_viewer_enabled":
+      // Probe result from the /tools/admin/audit_log master-switch HEAD.
+      return { ...state, auditViewerEnabled: !!action.value };
+    case "audit_log_panel_set_open":
+      return { ...state, auditLogPanelOpen: !!action.value };
+    case "audit_log_page_loaded": {
+      // FR-001 endpoint response. Replace rows on offset=0; append on
+      // offset>0 (paginate-forward via the next_offset cursor).
+      const rows = action.rows || [];
+      const merged = action.append
+        ? [...state.auditLogRows, ...rows]
+        : rows;
+      return {
+        ...state,
+        auditLogRows: merged,
+        auditLogTotalCount: action.totalCount || 0,
+        auditLogNextOffset: action.nextOffset == null ? null : action.nextOffset,
+      };
+    }
     case "turn_skipped": {
       // US10 T141: feed the health-badge tooltip.
       const { participant_id: pid, reason, turn_number } = action.event;
@@ -1837,7 +1884,7 @@ function ReviewGateEditor({ draft, onSave, onClose }) {
   );
 }
 
-function AdminPanel({ participants, session, auditEntries, onApprove, onReject, onInvite, onTransfer, onConfig, onCapSet }) {
+function AdminPanel({ participants, session, auditEntries, auditViewerEnabled, onApprove, onReject, onInvite, onTransfer, onConfig, onCapSet, onOpenAuditLog }) {
   // US6 T120–T125.
   const [open, setOpen] = useState(false);
   const [invite, setInvite] = useState(null);
@@ -1982,8 +2029,406 @@ function AdminPanel({ participants, session, auditEntries, onApprove, onReject, 
                 <code>{e.target_id}</code>
               </div>
             ))}
+            {auditViewerEnabled && (
+              <button
+                type="button"
+                className="full-width"
+                onClick={onOpenAuditLog}
+                title="Open the formatted audit-log viewer (spec 029)"
+              >
+                View audit log
+              </button>
+            )}
           </details>
         </>
+      )}
+    </section>
+  );
+}
+
+function DiffRenderer({ previousValue, newValue, format }) {
+  // Spec 029 FR-008 / US2 + spec 011 FR-028 / FR-029. Side-by-side diff
+  // for review_gate_edit and any audit row carrying previous_value /
+  // new_value. Threshold dispatch comes from frontend/diff_engine.js
+  // (the locked constants per shared-module-contracts.md §3 / §4); we
+  // never re-derive thresholds here.
+  //
+  // Behavior contract per shared-module-contracts.md:
+  //   - previousValue == null && newValue != null -> "first set" indicator
+  //   - either value === "[scrubbed]" -> render placeholders, no compute
+  //   - format === "auto" probes JSON.parse on both sides
+  //   - <=50KB main-thread sync; 50KB-500KB inline-blob Worker; >500KB raw
+  //   - per-row word-level toggle recomputes lazily on click
+  const [wordLevel, setWordLevel] = useState(false);
+  const [asyncChanges, setAsyncChanges] = useState(null);
+  const [asyncError, setAsyncError] = useState(null);
+  const engine = (typeof DiffEngine !== "undefined") ? DiffEngine : null;
+
+  // Compute size + mode once per render. The engine treats null inputs
+  // as zero-length so chooseDiffMode returns "main" for the first-set
+  // and scrub paths -- we still short-circuit those before invoking
+  // the engine because their UI is not a diff.
+  const byteSize = engine ? engine._maxByteSize(previousValue, newValue) : 0;
+  const mode = engine ? engine.chooseDiffMode(byteSize) : "main";
+  const scrubbed = previousValue === "[scrubbed]" || newValue === "[scrubbed]";
+  const firstSet = previousValue == null && newValue != null;
+
+  useEffect(() => {
+    // Reset async state when the inputs change so a row re-expand does
+    // not flash the previous diff under the new "computing" placeholder.
+    setAsyncChanges(null);
+    setAsyncError(null);
+    if (!engine || mode !== "worker" || scrubbed || firstSet) return;
+    let cancelled = false;
+    engine
+      .diffLinesViaWorker(previousValue, newValue, format || "auto")
+      .then((changes) => { if (!cancelled) setAsyncChanges(changes); })
+      .catch((err) => { if (!cancelled) setAsyncError(String(err && err.message || err)); });
+    return () => { cancelled = true; };
+  }, [previousValue, newValue, format, mode, scrubbed, firstSet, engine]);
+
+  if (scrubbed) {
+    // Spec 011 FR-029: never invoke the diff engine when either side is
+    // scrubbed; the SPA must render placeholders so a future renderer
+    // change cannot accidentally leak the raw values.
+    return (
+      <div className="diff-renderer diff-scrubbed">
+        <div className="diff-scrubbed-msg">[scrubbed] - sensitive value redacted</div>
+      </div>
+    );
+  }
+  if (firstSet) {
+    return (
+      <div className="diff-renderer diff-first-set">
+        <div className="dim">First set:</div>
+        <pre className="diff-block diff-added">{String(newValue)}</pre>
+      </div>
+    );
+  }
+  if (!engine) {
+    return <div className="diff-renderer diff-unavailable dim">Diff engine unavailable.</div>;
+  }
+  if (mode === "raw") {
+    return (
+      <div className="diff-renderer diff-raw">
+        <div className="dim">Value too large for diff (over {engine.WORKER_BYTE_THRESHOLD} chars). Showing raw values.</div>
+        <div className="diff-cols">
+          <pre className="diff-block diff-removed">{previousValue == null ? "" : String(previousValue)}</pre>
+          <pre className="diff-block diff-added">{newValue == null ? "" : String(newValue)}</pre>
+        </div>
+      </div>
+    );
+  }
+
+  let changes = null;
+  if (mode === "main") {
+    if (wordLevel) {
+      changes = engine.diffWordsSync(previousValue, newValue);
+    } else {
+      changes = engine.diffLinesSync(previousValue, newValue, format || "auto");
+    }
+  } else if (mode === "worker") {
+    if (asyncError) {
+      return <div className="diff-renderer diff-error dim">Diff failed: {asyncError}</div>;
+    }
+    if (asyncChanges == null) {
+      return <div className="diff-renderer diff-computing dim">Computing diff...</div>;
+    }
+    changes = wordLevel
+      ? engine.diffWordsSync(previousValue, newValue)
+      : asyncChanges;
+  }
+
+  return (
+    <div className="diff-renderer">
+      <div className="diff-controls">
+        <label className="diff-toggle">
+          <input type="checkbox" checked={wordLevel}
+            onChange={(e) => setWordLevel(e.target.checked)} />
+          {" Word-level diff"}
+        </label>
+      </div>
+      <div className="diff-changes">
+        {(changes || []).map((c, idx) => {
+          const cls = c.added ? "diff-added"
+            : c.removed ? "diff-removed"
+            : "diff-context";
+          return <pre key={idx} className={"diff-block " + cls}>{c.value}</pre>;
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AuditLogPanel({ rows, totalCount, nextOffset, participants, onLoadMore, onClose }) {
+  // Spec 029 FR-001 / FR-005 / FR-010 / FR-012 / FR-013 + spec 011 FR-026 / FR-029.
+  // Renders a formatted, paginated, reverse-chronological audit-log table
+  // for facilitators. The decorated payload from the server already carries
+  // human-readable action_label, actor_display_name, and target_display_name
+  // strings — we render them straight without re-deriving anything client-side.
+  // Live ``audit_log_appended`` WS pushes prepend rows via the reducer; the
+  // dedup-on-id check there prevents double-render against an in-flight HTTP
+  // refetch (FR-005). When the panel closes we drop in-flight pushes silently
+  // because the next open re-fetches the durable record.
+  //
+  // US3 filter controls (T039-T041) live inline in the panel header. The
+  // pure-logic helpers in frontend/audit_filters.js own the predicate so
+  // the rendered subset and the (N hidden) badge agree on what "match"
+  // means. Filter state is useState only - no localStorage per research §12.
+  const [expanded, setExpanded] = useState(() => new Set());
+  const emptyFilters = (typeof AuditFilters !== "undefined" && AuditFilters.EMPTY_FILTERS)
+    ? AuditFilters.EMPTY_FILTERS
+    : { actor: null, action: null, timePreset: "all" };
+  const [filters, setFilters] = useState(emptyFilters);
+  // FR-013: counter of WS-pushed events that arrived while a filter was
+  // active and didn't match. Resets on filter clear / filter change. The
+  // counter reflects events filtered OUT (not events shown) per spec.
+  const [hiddenCount, setHiddenCount] = useState(0);
+  // Snapshot of row ids at the moment the current filter was set; rows
+  // arriving after this point and failing the predicate increment
+  // hiddenCount. Updated whenever filters change.
+  const seenIdsRef = useRef(null);
+  const filtersRef = useRef(filters);
+
+  useEffect(() => {
+    filtersRef.current = filters;
+    seenIdsRef.current = new Set((rows || []).map((r) => r.id));
+    setHiddenCount(0);
+    // The lint here would normally complain about rows in deps; we
+    // INTENTIONALLY only re-snapshot when filters change. Tracking rows
+    // would defeat the purpose (every WS push would reset the counter).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
+
+  useEffect(() => {
+    if (!seenIdsRef.current) {
+      seenIdsRef.current = new Set((rows || []).map((r) => r.id));
+      return;
+    }
+    const currentFilters = filtersRef.current;
+    if (
+      typeof AuditFilters === "undefined" ||
+      !AuditFilters.isEmpty ||
+      AuditFilters.isEmpty(currentFilters)
+    ) {
+      // No active filter - keep the seen-set fresh so a future filter
+      // toggle starts counting from "now", not from old rows.
+      seenIdsRef.current = new Set((rows || []).map((r) => r.id));
+      return;
+    }
+    let added = 0;
+    const nextSeen = new Set(seenIdsRef.current);
+    for (const r of rows || []) {
+      if (nextSeen.has(r.id)) continue;
+      nextSeen.add(r.id);
+      if (!AuditFilters.matchesFilters(r, currentFilters)) {
+        added += 1;
+      }
+    }
+    if (added > 0) {
+      setHiddenCount((c) => c + added);
+    }
+    seenIdsRef.current = nextSeen;
+  }, [rows]);
+
+  const visibleRows = (typeof AuditFilters !== "undefined" && AuditFilters.applyFilters)
+    ? AuditFilters.applyFilters(rows || [], filters)
+    : (rows || []);
+  const filtersActive = (typeof AuditFilters !== "undefined" && AuditFilters.isEmpty)
+    ? !AuditFilters.isEmpty(filters)
+    : false;
+
+  // Sort actor options by display name; orchestrator sentinel always first
+  // when the option is available so operators don't hunt for it.
+  const actorOptions = [];
+  const orchestratorKey = (typeof AuditFilters !== "undefined" && AuditFilters.ORCHESTRATOR_ACTOR_KEY)
+    ? AuditFilters.ORCHESTRATOR_ACTOR_KEY
+    : "__orchestrator__";
+  actorOptions.push({ key: orchestratorKey, label: "Orchestrator" });
+  for (const p of (participants || [])) {
+    actorOptions.push({ key: p.id, label: p.display_name || p.id });
+  }
+
+  // Action options come from the registry so we never list an action
+  // that isn't recognised. Sorted by label for the dropdown.
+  const actionOptions = [];
+  if (typeof AuditLabels !== "undefined" && AuditLabels.LABELS) {
+    for (const key of Object.keys(AuditLabels.LABELS)) {
+      actionOptions.push({ key, label: AuditLabels.LABELS[key].label });
+    }
+    actionOptions.sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  const timePresets = (typeof AuditFilters !== "undefined" && AuditFilters.TIME_PRESETS)
+    ? AuditFilters.TIME_PRESETS
+    : [{ key: "all", label: "All time" }];
+
+  const updateFilter = (axis, value) => {
+    setFilters((prev) => ({ ...prev, [axis]: value }));
+  };
+  const clearFilters = () => setFilters(emptyFilters);
+  const formatLabel = (action) => {
+    if (typeof AuditLabels !== "undefined" && AuditLabels.formatLabel) {
+      return AuditLabels.formatLabel(action);
+    }
+    return String(action);
+  };
+  const formatTs = (ts) => {
+    if (!ts) return "";
+    if (typeof TimeFormat !== "undefined" && TimeFormat.formatLocale) {
+      try { return TimeFormat.formatLocale(ts); } catch (_e) { /* fall through */ }
+    }
+    return String(ts);
+  };
+  const toggleExpand = (id) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const hasDiffableValues = (r) => (
+    // Mount the diff renderer only when at least one side carries a value
+    // AND the row is not in the both-sides-scrubbed placeholder state.
+    (r.previous_value !== null && r.previous_value !== undefined) ||
+    (r.new_value !== null && r.new_value !== undefined)
+  );
+  return (
+    <section className="panel audit-log-panel">
+      <div className="panel-header">
+        <h2>Audit log ({totalCount})</h2>
+        <button type="button" className="ghost" onClick={onClose}>Close</button>
+      </div>
+      <div className="audit-log-filters">
+        <label>
+          <span className="dim">Actor</span>
+          <select
+            value={filters.actor || ""}
+            onChange={(e) => updateFilter("actor", e.target.value || null)}
+          >
+            <option value="">Any actor</option>
+            {actorOptions.map((opt) => (
+              <option key={opt.key} value={opt.key}>{opt.label}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="dim">Action</span>
+          <select
+            value={filters.action || ""}
+            onChange={(e) => updateFilter("action", e.target.value || null)}
+          >
+            <option value="">Any action</option>
+            {actionOptions.map((opt) => (
+              <option key={opt.key} value={opt.key}>{opt.label}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="dim">Time</span>
+          <select
+            value={filters.timePreset || "all"}
+            onChange={(e) => updateFilter("timePreset", e.target.value)}
+          >
+            {timePresets.map((p) => (
+              <option key={p.key} value={p.key}>{p.label}</option>
+            ))}
+          </select>
+        </label>
+        {filtersActive && (
+          <button type="button" className="ghost" onClick={clearFilters}>
+            Clear filters
+          </button>
+        )}
+        {hiddenCount > 0 && (
+          <span className="audit-hidden-badge dim" title="Audit events hidden by the active filter">
+            ({hiddenCount} hidden)
+          </span>
+        )}
+      </div>
+      {visibleRows.length === 0 ? (
+        <p className="dim">
+          {rows.length === 0
+            ? "No audit entries for this session yet."
+            : "No audit entries match the current filter."}
+        </p>
+      ) : (
+        <table className="audit-log-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Timestamp</th>
+              <th>Actor</th>
+              <th>Action</th>
+              <th>Target</th>
+              <th>Summary</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRows.map((r) => {
+              const isExpanded = expanded.has(r.id);
+              return (
+                <React.Fragment key={r.id}>
+                  <tr>
+                    <td>
+                      <button type="button" className="audit-expand-btn"
+                        aria-expanded={isExpanded}
+                        title={isExpanded ? "Collapse row" : "Expand row"}
+                        onClick={() => toggleExpand(r.id)}>
+                        {isExpanded ? "-" : "+"}
+                      </button>
+                    </td>
+                    <td className="dim">{formatTs(r.timestamp)}</td>
+                    <td>{r.actor_display_name || "?"}</td>
+                    <td>
+                      <span className="audit-action-label">{r.action_label || formatLabel(r.action)}</span>
+                      <code className="dim audit-action-raw"> {r.action}</code>
+                    </td>
+                    <td>{r.target_display_name || (r.target_id ? <code className="dim">{r.target_id}</code> : "")}</td>
+                    <td className="audit-summary">
+                      {r.summary || (
+                        (r.previous_value || r.new_value) && (
+                          <span className="dim">
+                            {r.previous_value != null && <code>{r.previous_value}</code>}
+                            {r.previous_value != null && r.new_value != null && " -> "}
+                            {r.new_value != null && <code>{r.new_value}</code>}
+                          </span>
+                        )
+                      )}
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="audit-row-expanded">
+                      <td></td>
+                      <td colSpan={5}>
+                        <div className="audit-row-meta dim">
+                          <span>id: <code>{r.id}</code></span>
+                          {r.actor_id && <span> · actor_id: <code>{r.actor_id}</code></span>}
+                          {r.target_id && <span> · target_id: <code>{r.target_id}</code></span>}
+                        </div>
+                        {hasDiffableValues(r) ? (
+                          <DiffRenderer
+                            previousValue={r.previous_value}
+                            newValue={r.new_value}
+                            format="auto"
+                          />
+                        ) : (
+                          <div className="dim">No previous_value / new_value on this action.</div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      {nextOffset != null && (
+        <button type="button" className="full-width" onClick={onLoadMore}>
+          Load more ({rows.length} of {totalCount})
+        </button>
       )}
     </section>
   );
@@ -3132,6 +3577,55 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
       .catch(() => { /* non-facilitator will 403; ignore */ });
   }, [isFacilitator, auth.session_id, state.auditEntries.length]);
 
+  // Spec 029 audit-viewer probe (FR-018 master switch / spec 011 FR-025).
+  // Hit the FR-001 endpoint with limit=1; a 200 means SACP_AUDIT_VIEWER_ENABLED
+  // is true on the server and the facilitator route is mounted, so the SPA
+  // renders the "View audit log" button. Any other status (404 most commonly,
+  // also 403 for non-facilitators) hides the button.
+  useEffect(() => {
+    if (!isFacilitator || !auth.session_id) return;
+    if (state.auditViewerEnabled !== null) return;
+    mcpCall(`/tools/admin/audit_log?session_id=${encodeURIComponent(auth.session_id)}&limit=1`)
+      .then(() => dispatch({ type: "audit_viewer_enabled", value: true }))
+      .catch(() => dispatch({ type: "audit_viewer_enabled", value: false }));
+  }, [isFacilitator, auth.session_id, state.auditViewerEnabled]);
+
+  // Spec 029 FR-001 page-load helper. Resets the panel state on offset=0;
+  // appends paginate-forward results when offset > 0. Errors surface as
+  // an alert — this is a facilitator-only surface and silent failure
+  // would obscure server-side configuration drift.
+  const fetchAuditLogPage = async (offset) => {
+    try {
+      const data = await mcpCall(
+        `/tools/admin/audit_log?session_id=${encodeURIComponent(auth.session_id)}&offset=${offset}`,
+      );
+      dispatch({
+        type: "audit_log_page_loaded",
+        rows: data?.rows || [],
+        totalCount: data?.total_count || 0,
+        nextOffset: data?.next_offset == null ? null : data.next_offset,
+        append: offset > 0,
+      });
+    } catch (e) {
+      alert(`Audit log fetch failed: ${e.message || e}`);
+    }
+  };
+
+  const openAuditLogPanel = async () => {
+    dispatch({ type: "audit_log_panel_set_open", value: true });
+    await fetchAuditLogPage(0);
+  };
+
+  const closeAuditLogPanel = () => {
+    dispatch({ type: "audit_log_panel_set_open", value: false });
+  };
+
+  const loadMoreAuditLog = async () => {
+    if (state.auditLogNextOffset != null) {
+      await fetchAuditLogPage(state.auditLogNextOffset);
+    }
+  };
+
   return (
     <div className="app-shell">
       <Header
@@ -3204,13 +3698,25 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                 participants={state.participants}
                 session={state.session}
                 auditEntries={state.auditEntries}
+                auditViewerEnabled={state.auditViewerEnabled === true}
                 onApprove={approveParticipant}
                 onReject={rejectParticipant}
                 onInvite={createInvite}
                 onTransfer={transferFacilitator}
                 onConfig={setSessionConfig}
                 onCapSet={setLengthCap}
+                onOpenAuditLog={openAuditLogPanel}
               />
+              {state.auditLogPanelOpen && (
+                <AuditLogPanel
+                  rows={state.auditLogRows}
+                  totalCount={state.auditLogTotalCount}
+                  nextOffset={state.auditLogNextOffset}
+                  participants={state.participants}
+                  onLoadMore={loadMoreAuditLog}
+                  onClose={closeAuditLogPanel}
+                />
+              )}
             </>
           ) : auth && (
             <button className="full-width" onClick={() => setShowAddDialog(true)}>
