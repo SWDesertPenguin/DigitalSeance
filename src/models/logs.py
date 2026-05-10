@@ -34,6 +34,16 @@ class RoutingLog:
     dispatch_ms: int | None = None
     persist_ms: int | None = None
     advisory_lock_wait_ms: int | None = None
+    # Spec 021 (T031): five new shaping-decision columns added by alembic
+    # 013. NULL on skip-path rows, on rows written when
+    # SACP_RESPONSE_SHAPING_ENABLED is off (SC-002 byte-equal), and on
+    # rows where the shaping pipeline's no-retry path persisted the
+    # original draft without recording a per-retry dispatch row.
+    shaping_score_ms: int | None = None
+    shaping_retry_dispatch_ms: int | None = None
+    filler_score: float | None = None
+    shaping_retry_delta_text: str | None = None
+    shaping_reason: str | None = None
 
     @classmethod
     def from_record(cls, record: Any) -> RoutingLog:

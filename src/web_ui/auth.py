@@ -24,6 +24,7 @@ CSRF header ``X-SACP-Request: 1`` on every mutation.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Annotated
 
@@ -42,6 +43,8 @@ from src.web_ui.session_store import SessionEntry, SessionStore, get_session_sto
 
 COOKIE_NAME = "sacp_ui_token"
 COOKIE_MAX_AGE_SECONDS = 60 * 60 * 8  # 8h session window; refresh on each login
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(tags=["web_ui_auth"])
@@ -305,17 +308,77 @@ UiParticipant = Annotated[Participant, Depends(get_current_ui_participant)]
 
 
 @router.get("/me")
-async def whoami(participant: UiParticipant) -> dict:
+async def whoami(request: Request, participant: UiParticipant) -> dict:
     """Restore session state on page refresh.
 
     Audit H-02: the bearer is no longer returned to JS. MCP tool calls
     now go through the same-origin proxy at `/api/mcp/<path>`, which
     attaches the server-side bearer from the session store. The SPA
     consequently never needs the bearer in JS memory.
+
+    Spec 021 T041 / FR-010: three additive top-level fields surface the
+    participant's effective register state — ``register_slider``
+    (1-5), ``register_preset`` (one of: direct, conversational,
+    balanced, technical, academic), and ``register_source`` (one of:
+    session, participant_override). ``register_source`` is the FR-010
+    two-value enum: when no ``session_register`` row exists or no
+    override applies, the env-default fallback is reported as
+    ``session``. Operators auditing whether the facilitator explicitly
+    set a value MUST consult the audit log for ``session_register_changed``
+    rather than relying on this field.
+
+    The fields are computed best-effort: a resolver failure logs and
+    falls through to the env-default reading rather than failing the
+    whole ``/me`` probe (the page must still load on a transient DB
+    hiccup so the SPA can recover).
     """
+    register_repo = getattr(request.app.state, "register_repo", None)
+    register_slider, register_preset, register_source = await _me_register_fields(
+        register_repo,
+        participant.id,
+        participant.session_id,
+    )
     return {
         "participant_id": participant.id,
         "session_id": participant.session_id,
         "role": participant.role,
         "expires_in": COOKIE_MAX_AGE_SECONDS,
+        "register_slider": register_slider,
+        "register_preset": register_preset,
+        "register_source": register_source,
     }
+
+
+async def _me_register_fields(
+    register_repo: object | None,
+    participant_id: str,
+    session_id: str,
+) -> tuple[int, str, str]:
+    """Resolve the three /me register fields, with env-default fallback.
+
+    When the register repo is wired and the resolver succeeds, returns
+    the live values per FR-010. When the repo is missing (test rigs that
+    never wired ``app.state.register_repo``) OR the resolver raises
+    (transient DB hiccup), falls back to the env default — /me must
+    keep returning a valid payload so the SPA can recover.
+    """
+    from src.prompts.register_presets import preset_for_slider
+    from src.repositories.register_repo import register_default_from_env
+
+    if register_repo is not None:
+        try:
+            slider, preset, source = await register_repo.resolve_register(
+                participant_id=participant_id,
+                session_id=session_id,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "register resolver failed for /me participant=%s session=%s; "
+                "falling back to env default",
+                participant_id,
+                session_id,
+            )
+        else:
+            return slider, preset.name, source
+    default = register_default_from_env()
+    return default, preset_for_slider(default).name, "session"

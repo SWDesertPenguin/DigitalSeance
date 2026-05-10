@@ -255,6 +255,7 @@ def _attach_auth_and_repos(
     from src.repositories.log_repo import LogRepository
     from src.repositories.message_repo import MessageRepository
     from src.repositories.participant_repo import ParticipantRepository
+    from src.repositories.register_repo import RegisterRepository
     from src.repositories.review_gate_repo import ReviewGateRepository
     from src.repositories.session_repo import SessionRepository
 
@@ -268,6 +269,7 @@ def _attach_auth_and_repos(
     app.state.invite_repo = InviteRepository(pool)
     app.state.review_gate_repo = ReviewGateRepository(pool)
     app.state.log_repo = LogRepository(pool)
+    app.state.register_repo = RegisterRepository(pool)
     app.state.rate_limiter = RateLimiter()
 
 

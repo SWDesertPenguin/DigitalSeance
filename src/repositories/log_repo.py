@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from src.models.logs import AdminAuditLog, ConvergenceLog, RoutingLog, SecurityEvent, UsageLog
 from src.repositories.base import BaseRepository
@@ -39,6 +39,11 @@ class LogRepository(BaseRepository):
         dispatch_ms: int | None = None,
         persist_ms: int | None = None,
         advisory_lock_wait_ms: int | None = None,
+        shaping_score_ms: int | None = None,
+        shaping_retry_dispatch_ms: int | None = None,
+        filler_score: float | None = None,
+        shaping_retry_delta_text: str | None = None,
+        shaping_reason: str | None = None,
     ) -> RoutingLog:
         """Append a routing decision log entry.
 
@@ -46,6 +51,17 @@ class LogRepository(BaseRepository):
         Constitution §12 V14 / 003 §FR-030 + §FR-032; populated by the
         turn-loop persist path (012 US6) and remain NULL on skip-path
         / pre-instrumentation rows.
+
+        Spec 021 (T031): the five shaping columns
+        (``shaping_score_ms``..``shaping_reason``) are NULL on every row
+        when ``SACP_RESPONSE_SHAPING_ENABLED`` is off (SC-002 byte-equal)
+        and on skip-path rows. When shaping is on, the loop wiring (T029)
+        populates ``shaping_score_ms`` + ``filler_score`` on every
+        evaluation, ``shaping_retry_dispatch_ms`` +
+        ``shaping_retry_delta_text`` on each per-retry row, and
+        ``shaping_reason`` per FR-011 (one of ``'filler_retry'`` /
+        ``'filler_retry_exhausted'`` /
+        ``'compound_retry_exhausted'`` / ``'shaping_pipeline_error'``).
         """
         record = await self._fetch_one(
             _INSERT_ROUTING_SQL,
@@ -62,6 +78,11 @@ class LogRepository(BaseRepository):
             dispatch_ms,
             persist_ms,
             advisory_lock_wait_ms,
+            shaping_score_ms,
+            shaping_retry_dispatch_ms,
+            filler_score,
+            shaping_retry_delta_text,
+            shaping_reason,
         )
         return RoutingLog.from_record(record)
 
@@ -297,6 +318,49 @@ class LogRepository(BaseRepository):
         rendered = offset + len(decorated)
         next_offset = rendered if rendered < total_count else None
         return AuditLogPage(rows=decorated, total_count=total_count, next_offset=next_offset)
+
+    # --- Spec 021 register-change audit-event helpers ---
+    # Three new ``action`` strings reuse the existing admin_audit_log table
+    # (no schema change). See specs/021-ai-response-shaping/contracts/
+    # audit-events.md for row-level field semantics.
+
+    async def log_register_change(
+        self,
+        *,
+        action: Literal[
+            "session_register_changed",
+            "participant_register_override_set",
+            "participant_register_override_cleared",
+        ],
+        session_id: str,
+        target_id: str,
+        previous_value: dict[str, Any] | None,
+        new_value: dict[str, Any],
+        facilitator_id: str,
+    ) -> AdminAuditLog:
+        """Append a register-change audit row.
+
+        Spec 021 T043. Wraps ``log_admin_action`` so callers in
+        ``src.mcp_server.tools.facilitator`` (T040 / T052) hand structured
+        dicts and the helper renders them as JSON for the audit row's
+        TEXT columns. ``previous_value`` is ``None`` on a first-time set
+        (no prior row existed) per the contract.
+
+        Cascade-induced clears (participant or session removed) MUST NOT
+        route through this helper — the parent delete event suffices per
+        FR-015 + research.md §8. Only explicit facilitator-action set /
+        update / clear paths emit a register-change audit row.
+        """
+        previous_payload = json.dumps(previous_value) if previous_value is not None else None
+        new_payload = json.dumps(new_value)
+        return await self.log_admin_action(
+            session_id=session_id,
+            facilitator_id=facilitator_id,
+            action=action,
+            target_id=target_id,
+            previous_value=previous_payload,
+            new_value=new_payload,
+        )
 
     # --- Spec 014 mode_* audit-event helpers (DMA controller) ---
     # Five new ``action`` strings reuse the existing admin_audit_log table
@@ -640,9 +704,12 @@ _INSERT_ROUTING_SQL = """
          actual_participant, routing_action,
          complexity_score, domain_match, reason,
          route_ms, assemble_ms, dispatch_ms, persist_ms,
-         advisory_lock_wait_ms)
+         advisory_lock_wait_ms,
+         shaping_score_ms, shaping_retry_dispatch_ms,
+         filler_score, shaping_retry_delta_text, shaping_reason)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-            $9, $10, $11, $12, $13)
+            $9, $10, $11, $12, $13,
+            $14, $15, $16, $17, $18)
     RETURNING *
 """
 
