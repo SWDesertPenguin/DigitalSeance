@@ -188,6 +188,23 @@ class SessionStore:
         async with self._lock:
             return set(self._by_account.get(account_id, set()))
 
+    async def delete_all_sids_for_account(self, account_id: str) -> int:
+        """Drop every sid for ``account_id`` (FR-012 account-deletion path).
+
+        The actor is deleting themselves, so unlike the password-change
+        path there is no carve-out for the actor's current sid. Returns
+        the count dropped.
+        """
+        dropped = 0
+        async with self._lock:
+            bucket = self._by_account.get(account_id, set()).copy()
+            for sid in bucket:
+                entry = self._entries.pop(sid, None)
+                if entry is not None:
+                    dropped += 1
+            self._by_account.pop(account_id, None)
+        return dropped
+
     async def delete_other_sids_for_account(
         self,
         account_id: str,

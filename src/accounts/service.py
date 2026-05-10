@@ -53,6 +53,7 @@ from typing import TYPE_CHECKING
 from src.accounts.codes import (
     AccountCode,
     hash_code,
+    make_email_change_code,
     make_verification_code,
 )
 from src.accounts.email_transport import EmailTransport, NoopEmailTransport
@@ -224,6 +225,12 @@ class AccountService:
         await self._enforce_rate_limit(client_ip)
         self._validate_email_syntax(email)
         self._validate_password_length(password)
+        if await self._account_repo.is_email_grace_locked(email):
+            raise AccountServiceError(
+                error_code="registration_failed",
+                http_status=409,
+                message="email reserved by grace period",
+            )
         account = await self._insert_account_row(email=email, password=password)
         await self._emit_account_create_audit(
             account_id=account.id, email=email, client_ip=client_ip
@@ -575,7 +582,7 @@ class AccountService:
         }
 
     # ------------------------------------------------------------------
-    # T049: change_password — SessionStore invalidation hook (US3 wiring)
+    # T064: change_password (US3) — invalidates non-actor sids + audit
     # ------------------------------------------------------------------
 
     async def change_password(
@@ -591,24 +598,12 @@ class AccountService:
         FR-011 / clarify Q12 — the actor's current sid SURVIVES; every
         other sid for the account is dropped from the SessionStore
         so other browsers force a re-login on the next request that
-        consults the store.
-
-        Returns the count of sids dropped. The full route surface
-        (contract validation, audit-row emission per
-        ``account_password_change``) lands in Phase 5 / US3 (T064);
-        this method is the wiring hook so the SessionStore semantics
-        are already in place when the endpoint mounts.
+        consults the store. Returns the count of sids dropped and
+        emits the ``account_password_change`` audit row.
         """
+        account = await self._require_active_account(account_id)
         self._validate_password_length(new_password)
-        account = await self._account_repo.get_account_by_id(account_id)
-        if account is None or account.status != "active":
-            raise AccountServiceError(
-                error_code="not_authenticated",
-                http_status=401,
-                message="account not active",
-            )
-        verify_ok = self._hasher.verify(account.password_hash, current_password)
-        if not verify_ok:
+        if not self._hasher.verify(account.password_hash, current_password):
             raise AccountServiceError(
                 error_code="invalid_credentials",
                 http_status=401,
@@ -619,10 +614,182 @@ class AccountService:
             account_id=account_id,
             new_password_hash=new_hash,
         )
-        return await self._session_store.delete_other_sids_for_account(
+        dropped = await self._session_store.delete_other_sids_for_account(
             account_id,
             except_sid=current_sid,
         )
+        await self._emit_password_change_audit(
+            account_id=account_id, other_sessions_invalidated=dropped
+        )
+        return dropped
+
+    # ------------------------------------------------------------------
+    # T063: email change — notify-old + verify-new (clarify Q11)
+    # ------------------------------------------------------------------
+
+    async def request_email_change(
+        self,
+        *,
+        account_id: str,
+        new_email: str,
+    ) -> dict:
+        """Emit verification to NEW + heads-up to OLD email (clarify Q11).
+
+        Persists the pending change in an ``account_email_change_emitted``
+        audit row whose payload carries the new_email; the actual
+        ``accounts.email`` UPDATE happens on confirm. Refuses if the new
+        email collides with an existing active or grace-window account
+        (registration_failed shape, generic).
+        """
+        account = await self._require_active_account(account_id)
+        self._validate_email_syntax(new_email)
+        await self._reject_if_email_taken(new_email)
+        code = make_email_change_code()
+        await self._emit_email_change_code_audit(
+            account_id=account_id, code=code, new_email=new_email
+        )
+        await self._send_email_change_emails(
+            account_id=account_id,
+            old_email=account.email,
+            new_email=new_email,
+            code=code,
+        )
+        await self._emit_email_change_old_notified_audit(
+            account_id=account_id, old_email=account.email
+        )
+        return {"verification_email_sent": True, "old_email_notified": True}
+
+    async def confirm_email_change(self, *, account_id: str, code: str) -> dict:
+        """Consume the email-change code and apply the new email."""
+        await self._require_active_account(account_id)
+        emit_row = await self._lookup_unconsumed_email_change_row(account_id=account_id, code=code)
+        if emit_row is None:
+            raise AccountServiceError(
+                error_code="invalid_or_expired_code",
+                http_status=400,
+                message="email change code missing or expired",
+            )
+        new_email = json.loads(emit_row["new_value"]).get("new_email")
+        await self._account_repo.update_account_email(
+            account_id=account_id,
+            new_email=new_email,
+        )
+        await self._emit_email_change_consumed_audit(
+            account_id=account_id, emit_row_id=str(emit_row["id"])
+        )
+        return {"email_changed": True, "new_email": new_email}
+
+    # ------------------------------------------------------------------
+    # T065: account deletion (FR-012, FR-013)
+    # ------------------------------------------------------------------
+
+    async def delete_account(self, *, account_id: str, current_password: str) -> dict:
+        """Zero credentials, reserve email per grace window, emit export."""
+        account = await self._require_active_account(account_id)
+        if not self._hasher.verify(account.password_hash, current_password):
+            raise AccountServiceError(
+                error_code="invalid_credentials",
+                http_status=401,
+                message="current password mismatch",
+            )
+        export_sent = await self._send_delete_export_email(
+            account_id=account_id, to_email=account.email
+        )
+        await self._account_repo.mark_account_deleted(account_id)
+        await self._session_store.delete_all_sids_for_account(account_id)
+        await self._emit_account_delete_audit(account_id=account_id, export_sent=export_sent)
+        post = await self._account_repo.get_account_by_id(account_id)
+        return {
+            "account_id": account_id,
+            "status": "deleted",
+            "export_email_sent": export_sent,
+            "email_grace_release_at": (
+                post.email_grace_release_at.isoformat()
+                if post is not None and post.email_grace_release_at is not None
+                else None
+            ),
+        }
+
+    async def _require_active_account(self, account_id: str):  # noqa: ANN202 — Account
+        """Resolve + status='active' check; raises ``not_authenticated`` 401."""
+        account = await self._account_repo.get_account_by_id(account_id)
+        if account is None or account.status != "active":
+            raise AccountServiceError(
+                error_code="not_authenticated",
+                http_status=401,
+                message="account not active",
+            )
+        return account
+
+    async def _reject_if_email_taken(self, new_email: str) -> None:
+        """Refuse if NEW email is taken by an active or grace-window account."""
+        existing = await self._account_repo.get_account_by_email_for_login(new_email)
+        if existing is not None:
+            raise AccountServiceError(
+                error_code="email_change_failed",
+                http_status=409,
+                message="new email already registered",
+            )
+
+    async def _send_email_change_emails(
+        self,
+        *,
+        account_id: str,
+        old_email: str,
+        new_email: str,
+        code: AccountCode,
+    ) -> None:
+        """Emit verification to NEW + informational notice to OLD."""
+        try:
+            await self._email_transport.send(
+                to=new_email,
+                subject="Confirm your new SACP email",
+                body=f"Your verification code: {code.plaintext}",
+                purpose="email_change_new",
+            )
+        except Exception:  # noqa: BLE001 — transport miss recoverable via audit log
+            log.warning("email_change new-email transport miss for %s", account_id)
+        try:
+            await self._email_transport.send(
+                to=old_email,
+                subject="Heads-up: someone is changing your SACP email",
+                body="Informational notice — no action required.",
+                purpose="email_change_old_notify",
+            )
+        except Exception:  # noqa: BLE001 — transport miss recoverable via audit log
+            log.warning("email_change old-email transport miss for %s", account_id)
+
+    async def _send_delete_export_email(
+        self,
+        *,
+        account_id: str,
+        to_email: str,
+    ) -> bool:
+        """Emit the spec 010 debug-export to the registered email."""
+        try:
+            await self._email_transport.send(
+                to=to_email,
+                subject="Your SACP account export",
+                body=f"Account {account_id} export (placeholder; spec 010 wire-up).",
+                purpose="account_delete_export",
+            )
+            return True
+        except Exception:  # noqa: BLE001 — deletion proceeds even on transport miss
+            log.warning("delete-export transport miss for %s", account_id, exc_info=True)
+            return False
+
+    async def _lookup_unconsumed_email_change_row(
+        self,
+        *,
+        account_id: str,
+        code: str,
+    ) -> dict | None:
+        rows = await self._account_repo._fetch_all(  # noqa: SLF001 — owned helper
+            _LOOKUP_EMAIL_CHANGE_SQL,
+            self._audit_session_id(account_id),
+            account_id,
+        )
+        return self._first_matching_emit_row(rows=rows, code_hash=hash_code(code))
 
     # ------------------------------------------------------------------
     # Validation helpers
@@ -760,6 +927,94 @@ class AccountService:
             new_value=json.dumps(payload),
         )
 
+    async def _emit_password_change_audit(
+        self,
+        *,
+        account_id: str,
+        other_sessions_invalidated: int,
+    ) -> None:
+        payload = {
+            "account_id": account_id,
+            "other_sessions_invalidated": other_sessions_invalidated,
+        }
+        await self._log_repo.log_admin_action(
+            session_id=self._audit_session_id(account_id),
+            facilitator_id=account_id,
+            action="account_password_change",
+            target_id=account_id,
+            new_value=json.dumps(payload),
+        )
+
+    async def _emit_email_change_code_audit(
+        self,
+        *,
+        account_id: str,
+        code: AccountCode,
+        new_email: str,
+    ) -> None:
+        payload = {
+            "account_id": account_id,
+            "code_hash": code.hash,
+            "new_email": new_email,
+            "expires_at": code.expires_at.isoformat(),
+        }
+        await self._log_repo.log_admin_action(
+            session_id=self._audit_session_id(account_id),
+            facilitator_id=account_id,
+            action="account_email_change_emitted",
+            target_id=account_id,
+            new_value=json.dumps(payload),
+        )
+
+    async def _emit_email_change_old_notified_audit(
+        self,
+        *,
+        account_id: str,
+        old_email: str,
+    ) -> None:
+        payload = {"account_id": account_id, "old_email_hash": _hmac_email(old_email)}
+        await self._log_repo.log_admin_action(
+            session_id=self._audit_session_id(account_id),
+            facilitator_id=account_id,
+            action="account_email_change_old_notified",
+            target_id=account_id,
+            new_value=json.dumps(payload),
+        )
+
+    async def _emit_email_change_consumed_audit(
+        self,
+        *,
+        account_id: str,
+        emit_row_id: str,
+    ) -> None:
+        payload = {
+            "account_id": account_id,
+            "emit_row_id": emit_row_id,
+            "consumed_at": datetime.now(UTC).isoformat(),
+        }
+        await self._log_repo.log_admin_action(
+            session_id=self._audit_session_id(account_id),
+            facilitator_id=account_id,
+            action="account_email_change_consumed",
+            target_id=account_id,
+            new_value=json.dumps(payload),
+        )
+
+    async def _emit_account_delete_audit(
+        self,
+        *,
+        account_id: str,
+        export_sent: bool,
+    ) -> None:
+        payload = {"account_id": account_id, "export_email_sent": export_sent}
+        await self._log_repo.log_admin_action(
+            session_id=self._audit_session_id(account_id),
+            facilitator_id=account_id,
+            action="account_delete",
+            target_id=account_id,
+            new_value=json.dumps(payload),
+        )
+
     async def _emit_login_failed_audit(
         self,
         *,
@@ -880,6 +1135,21 @@ class AccountService:
             )
             return False
 
+
+_LOOKUP_EMAIL_CHANGE_SQL = """
+    SELECT id, target_id, new_value, timestamp
+    FROM admin_audit_log
+    WHERE session_id = $1
+      AND action = 'account_email_change_emitted'
+      AND target_id = $2
+      AND NOT EXISTS (
+        SELECT 1 FROM admin_audit_log AS consumed
+        WHERE consumed.session_id = $1
+          AND consumed.action = 'account_email_change_consumed'
+          AND consumed.new_value LIKE '%' || admin_audit_log.id::text || '%'
+      )
+    ORDER BY timestamp DESC
+"""
 
 # SQL constant — joined on the synthetic per-account audit session_id so
 # we don't scan the entire audit table per request. The "unconsumed"

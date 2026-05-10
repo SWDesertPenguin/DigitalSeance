@@ -144,6 +144,29 @@ class AccountRepository(BaseRepository):
         )
         return Account.from_record(record) if record is not None else None
 
+    async def is_email_grace_locked(self, email: str) -> bool:
+        """Return True if a deleted-status row holds ``email`` past the grace window.
+
+        Implements FR-013: the deleted account row remains for audit
+        linkage but reserves the email until ``email_grace_release_at``
+        elapses. Re-registration during that window is refused with the
+        generic ``registration_failed`` shape (no info leak about why).
+        """
+        record = await self._fetch_one(
+            """
+            SELECT email_grace_release_at
+            FROM accounts
+            WHERE email = $1
+              AND status = 'deleted'
+              AND email_grace_release_at IS NOT NULL
+              AND email_grace_release_at > NOW()
+            ORDER BY deleted_at DESC
+            LIMIT 1
+            """,
+            email.lower(),
+        )
+        return record is not None
+
     async def update_account_email(
         self,
         *,

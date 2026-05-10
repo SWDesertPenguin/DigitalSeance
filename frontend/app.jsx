@@ -600,8 +600,12 @@ function useWebSocket(sessionId, onEvent, onAuthExpired) {
 // Components
 // ---------------------------------------------------------------------------
 
+// region: auth-gate (spec 023, FR-030..FR-034 amendment)
 function AuthGate({ banner, onLogin }) {
   // US11 guest landing — three paths: Sign in / Create / Request to join.
+  // Spec 023 amendment adds an account-create / account-login path that
+  // collapses bearer-token UX into login email + password; the token-paste
+  // landing stays available so master-switch-off deployments still work.
   // All three ultimately call onLogin(result) once we hold a live cookie.
   const [mode, setMode] = useState("choose");
   const goLogin = useCallback((result) => onLogin(result), [onLogin]);
@@ -614,6 +618,12 @@ function AuthGate({ banner, onLogin }) {
       {mode === "create" && <CreateSessionForm onLogin={goLogin} onBack={() => setMode("choose")} />}
       {mode === "join" && <RequestJoinForm onLogin={goLogin} onBack={() => setMode("choose")} />}
       {mode === "invite" && <RedeemInviteForm onLogin={goLogin} onBack={() => setMode("choose")} />}
+      {mode === "account-login" && (
+        <AccountLoginForm onLogin={goLogin} onBack={() => setMode("choose")} />
+      )}
+      {mode === "account-create" && (
+        <AccountCreateForm onBack={() => setMode("account-login")} />
+      )}
     </main>
   );
 }
@@ -622,6 +632,12 @@ function GuestChoose({ onPick }) {
   return (
     <div className="guest-choose">
       <p className="dim">Pick a path to get started.</p>
+      <button type="button" className="big-btn" onClick={() => onPick("account-login")}>
+        Log in to your account
+      </button>
+      <button type="button" className="big-btn" onClick={() => onPick("account-create")}>
+        Create an account
+      </button>
       <button type="button" className="big-btn" onClick={() => onPick("signin")}>
         Sign in with a token
       </button>
@@ -637,6 +653,7 @@ function GuestChoose({ onPick }) {
     </div>
   );
 }
+// endregion: auth-gate
 
 function RedeemInviteForm({ onLogin, onBack }) {
   const [token, setToken] = useState("");
@@ -678,6 +695,290 @@ function RedeemInviteForm({ onLogin, onBack }) {
 async function _loginWithToken(token) {
   return uiCall("/login", { method: "POST", body: { token } });
 }
+
+// region: login-logout (spec 023, FR-031)
+function AccountLoginForm({ onLogin, onBack }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (ev) => {
+    ev.preventDefault();
+    if (!email.trim() || !password) return;
+    setBusy(true); setError(null);
+    try {
+      await uiCall("/tools/account/login", {
+        method: "POST",
+        body: { email: email.trim(), password },
+      });
+      onLogin({ accountAuthenticated: true });
+    } catch (e) {
+      setError(e.message || "Login failed");
+    } finally { setBusy(false); }
+  };
+  return (
+    <form onSubmit={submit} className="auth-form">
+      <p className="dim">Log in to see the sessions you've joined.</p>
+      <input type="email" placeholder="email" value={email}
+        onChange={(ev) => setEmail(ev.target.value)} autoFocus />
+      <input type="password" placeholder="password" value={password}
+        onChange={(ev) => setPassword(ev.target.value)} />
+      <div className="auth-actions">
+        <button type="button" className="link-btn" onClick={onBack}>← back</button>
+        <button type="submit" className={busy ? "busy" : ""}
+          disabled={busy || !email.trim() || !password}>
+          {busy ? "Logging in" : "Log in"}
+        </button>
+      </div>
+      {error && <div className="error">{error}</div>}
+    </form>
+  );
+}
+
+function AccountCreateForm({ onBack }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [accountId, setAccountId] = useState(null);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const submitCreate = async (ev) => {
+    ev.preventDefault();
+    if (!email.trim() || password.length < 12) return;
+    setBusy(true); setError(null);
+    try {
+      const r = await uiCall("/tools/account/create", {
+        method: "POST",
+        body: { email: email.trim(), password },
+      });
+      setAccountId(r.account_id);
+    } catch (e) { setError(e.message || "Create failed"); }
+    finally { setBusy(false); }
+  };
+  const submitVerify = async (ev) => {
+    ev.preventDefault();
+    if (!code.trim()) return;
+    setBusy(true); setError(null);
+    try {
+      await uiCall("/tools/account/verify", {
+        method: "POST",
+        body: { account_id: accountId, code: code.trim() },
+      });
+      onBack();
+    } catch (e) { setError(e.message || "Verify failed"); }
+    finally { setBusy(false); }
+  };
+  if (accountId == null) {
+    return _renderCreateForm({ email, setEmail, password, setPassword, busy, error, submit: submitCreate, onBack });
+  }
+  return _renderVerifyForm({ code, setCode, busy, error, submit: submitVerify });
+}
+
+function _renderCreateForm({ email, setEmail, password, setPassword, busy, error, submit, onBack }) {
+  return (
+    <form onSubmit={submit} className="auth-form">
+      <p className="dim">Create an account. Password must be at least 12 characters.</p>
+      <input type="email" placeholder="email" value={email}
+        onChange={(ev) => setEmail(ev.target.value)} autoFocus />
+      <input type="password" placeholder="password (≥ 12 chars)" value={password}
+        onChange={(ev) => setPassword(ev.target.value)} />
+      <div className="auth-actions">
+        <button type="button" className="link-btn" onClick={onBack}>← back</button>
+        <button type="submit" className={busy ? "busy" : ""}
+          disabled={busy || !email.trim() || password.length < 12}>
+          {busy ? "Creating" : "Create account"}
+        </button>
+      </div>
+      {error && <div className="error">{error}</div>}
+    </form>
+  );
+}
+
+function _renderVerifyForm({ code, setCode, busy, error, submit }) {
+  return (
+    <form onSubmit={submit} className="auth-form">
+      <p className="dim">Enter the 16-character verification code sent to your email.</p>
+      <input type="text" placeholder="verification code" value={code}
+        onChange={(ev) => setCode(ev.target.value)} autoFocus maxLength={16} />
+      <div className="auth-actions">
+        <button type="submit" className={busy ? "busy" : ""} disabled={busy || !code.trim()}>
+          {busy ? "Verifying" : "Verify"}
+        </button>
+      </div>
+      {error && <div className="error">{error}</div>}
+    </form>
+  );
+}
+// endregion: login-logout
+
+// region: post-login-session-list (spec 023, FR-032)
+function MeSessionList({ onPickActive, onPickArchived }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    uiCall("/me/sessions")
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setError(e.message || "Load failed"); });
+    return () => { cancelled = true; };
+  }, []);
+  if (error) return <div className="error">{error}</div>;
+  if (data == null) return <div className="dim">Loading sessions…</div>;
+  return (
+    <div className="me-session-list">
+      <h2>Your sessions</h2>
+      <_SessionListSegment label="Active" rows={data.active_sessions} onClick={onPickActive} />
+      <_SessionListSegment label="Archived" rows={data.archived_sessions} onClick={onPickArchived} />
+    </div>
+  );
+}
+
+function _SessionListSegment({ label, rows, onClick }) {
+  if (!rows || rows.length === 0) {
+    return <div><h3>{label}</h3><p className="dim">none</p></div>;
+  }
+  return (
+    <div>
+      <h3>{label}</h3>
+      <ul>
+        {rows.map((row) => (
+          <li key={row.session_id}>
+            <button type="button" className="link-btn" onClick={() => onClick(row)}>
+              {row.name}
+            </button>
+            <span className="dim"> · {row.role}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+// endregion: post-login-session-list
+
+// region: account-settings (spec 023, FR-033)
+function AccountSettingsPanel({ onClose }) {
+  const [tab, setTab] = useState("email");
+  return (
+    <section className="account-settings">
+      <div className="tabs">
+        <button onClick={() => setTab("email")}>Change email</button>
+        <button onClick={() => setTab("password")}>Change password</button>
+        <button onClick={() => setTab("delete")}>Delete account</button>
+        <button type="button" className="link-btn" onClick={onClose}>Close</button>
+      </div>
+      {tab === "email" && <_EmailChangeTab />}
+      {tab === "password" && <_PasswordChangeTab />}
+      {tab === "delete" && <_DeleteAccountTab />}
+    </section>
+  );
+}
+
+function _EmailChangeTab() {
+  const [newEmail, setNewEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [stage, setStage] = useState("request");
+  const [msg, setMsg] = useState(null);
+  const [error, setError] = useState(null);
+  const request = async (ev) => {
+    ev.preventDefault(); setError(null);
+    try {
+      await uiCall("/tools/account/email/change", {
+        method: "POST", body: { new_email: newEmail.trim() },
+      });
+      setStage("verify");
+      setMsg("Check your new email for the verification code.");
+    } catch (e) { setError(e.message || "Email change failed"); }
+  };
+  const confirm = async (ev) => {
+    ev.preventDefault(); setError(null);
+    try {
+      await uiCall("/tools/account/email/verify", {
+        method: "POST", body: { code: code.trim() },
+      });
+      setMsg("Email changed.");
+    } catch (e) { setError(e.message || "Verify failed"); }
+  };
+  return _emailChangeForm({ stage, newEmail, setNewEmail, code, setCode, request, confirm, msg, error });
+}
+
+function _emailChangeForm({ stage, newEmail, setNewEmail, code, setCode, request, confirm, msg, error }) {
+  return (
+    <div className="email-change-tab">
+      {stage === "request" && (
+        <form onSubmit={request}>
+          <input type="email" placeholder="new email" value={newEmail}
+            onChange={(ev) => setNewEmail(ev.target.value)} />
+          <button type="submit" disabled={!newEmail.trim()}>Send code</button>
+        </form>
+      )}
+      {stage === "verify" && (
+        <form onSubmit={confirm}>
+          <input type="text" placeholder="code" value={code}
+            onChange={(ev) => setCode(ev.target.value)} maxLength={16} />
+          <button type="submit" disabled={!code.trim()}>Confirm</button>
+        </form>
+      )}
+      {msg && <div className="dim">{msg}</div>}
+      {error && <div className="error">{error}</div>}
+    </div>
+  );
+}
+
+function _PasswordChangeTab() {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [msg, setMsg] = useState(null);
+  const [error, setError] = useState(null);
+  const submit = async (ev) => {
+    ev.preventDefault(); setError(null);
+    try {
+      const r = await uiCall("/tools/account/password/change", {
+        method: "POST",
+        body: { current_password: current, new_password: next },
+      });
+      setMsg(`Password updated. ${r.other_sessions_invalidated} other sessions logged out.`);
+      setCurrent(""); setNext("");
+    } catch (e) { setError(e.message || "Change failed"); }
+  };
+  return (
+    <form onSubmit={submit}>
+      <input type="password" placeholder="current password" value={current}
+        onChange={(ev) => setCurrent(ev.target.value)} />
+      <input type="password" placeholder="new password (≥ 12)" value={next}
+        onChange={(ev) => setNext(ev.target.value)} />
+      <button type="submit" disabled={!current || next.length < 12}>Change password</button>
+      {msg && <div className="dim">{msg}</div>}
+      {error && <div className="error">{error}</div>}
+    </form>
+  );
+}
+
+function _DeleteAccountTab() {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState(null);
+  const submit = async (ev) => {
+    ev.preventDefault(); setError(null);
+    try {
+      await uiCall("/tools/account/delete", {
+        method: "POST", body: { current_password: password },
+      });
+      window.location.reload();
+    } catch (e) { setError(e.message || "Delete failed"); }
+  };
+  return (
+    <form onSubmit={submit}>
+      <p className="error">This permanently deletes the account. Type DELETE to confirm.</p>
+      <input type="password" placeholder="current password" value={password}
+        onChange={(ev) => setPassword(ev.target.value)} />
+      <input type="text" placeholder="type DELETE" value={confirm}
+        onChange={(ev) => setConfirm(ev.target.value)} />
+      <button type="submit" disabled={!password || confirm !== "DELETE"}>Delete</button>
+      {error && <div className="error">{error}</div>}
+    </form>
+  );
+}
+// endregion: account-settings
 
 function SignInForm({ onLogin, onBack }) {
   const [token, setToken] = useState("");

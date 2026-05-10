@@ -276,32 +276,106 @@ async def rebind_session_endpoint(
 
 
 # ---------------------------------------------------------------------------
-# US3 endpoints — 501 stubs until T063-T066 land in Phase 5
+# US3 endpoints — email change / password change / delete (T063-T066)
 # ---------------------------------------------------------------------------
 
 
-_US3_DETAIL = {"error": "not_implemented"}
+class _EmailChangeBody(BaseModel):
+    new_email: str = Field(..., min_length=3, max_length=320)
 
 
-@router.post("/tools/account/email/change", status_code=501)
-async def email_change_stub_endpoint() -> dict:
-    """US3 stub. Implementation lands in T063-T066 / Phase 5."""
-    raise HTTPException(status_code=501, detail=_US3_DETAIL)
+class _EmailVerifyBody(BaseModel):
+    code: str = Field(..., min_length=1, max_length=64)
 
 
-@router.post("/tools/account/email/verify", status_code=501)
-async def email_verify_stub_endpoint() -> dict:
-    """US3 stub. Implementation lands in T063-T066 / Phase 5."""
-    raise HTTPException(status_code=501, detail=_US3_DETAIL)
+class _PasswordChangeBody(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=4096)
+    new_password: str = Field(..., min_length=1, max_length=4096)
 
 
-@router.post("/tools/account/password/change", status_code=501)
-async def password_change_stub_endpoint() -> dict:
-    """US3 stub. Implementation lands in T064-T066 / Phase 5."""
-    raise HTTPException(status_code=501, detail=_US3_DETAIL)
+class _AccountDeleteBody(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=4096)
 
 
-@router.post("/tools/account/delete", status_code=501)
-async def account_delete_stub_endpoint() -> dict:
-    """US3 stub. Implementation lands in T065-T066 / Phase 5."""
-    raise HTTPException(status_code=501, detail=_US3_DETAIL)
+@router.post("/tools/account/email/change")
+async def email_change_endpoint(
+    body: _EmailChangeBody,
+    request: Request,
+    sacp_ui_token: Annotated[str | None, Cookie()] = None,
+) -> dict:
+    """Request an email change: notify-old + verify-new (FR-010, clarify Q11)."""
+    entry, _ = await _require_account_session(request, sacp_ui_token)
+    service = _resolve_account_service(request)
+    try:
+        return await service.request_email_change(
+            account_id=entry.account_id,
+            new_email=body.new_email,
+        )
+    except AccountServiceError as exc:
+        raise _to_http(exc) from exc
+
+
+@router.post("/tools/account/email/verify")
+async def email_verify_endpoint(
+    body: _EmailVerifyBody,
+    request: Request,
+    sacp_ui_token: Annotated[str | None, Cookie()] = None,
+) -> dict:
+    """Apply a previously-requested email change (FR-010 second leg)."""
+    entry, _ = await _require_account_session(request, sacp_ui_token)
+    service = _resolve_account_service(request)
+    try:
+        return await service.confirm_email_change(
+            account_id=entry.account_id,
+            code=body.code,
+        )
+    except AccountServiceError as exc:
+        raise _to_http(exc) from exc
+
+
+@router.post("/tools/account/password/change")
+async def password_change_endpoint(
+    body: _PasswordChangeBody,
+    request: Request,
+    sacp_ui_token: Annotated[str | None, Cookie()] = None,
+) -> dict:
+    """Change password; invalidate other sids; preserve actor's sid (FR-011)."""
+    entry, sid = await _require_account_session(request, sacp_ui_token)
+    service = _resolve_account_service(request)
+    try:
+        dropped = await service.change_password(
+            account_id=entry.account_id,
+            current_password=body.current_password,
+            new_password=body.new_password,
+            current_sid=sid,
+        )
+    except AccountServiceError as exc:
+        raise _to_http(exc) from exc
+    return {"password_changed": True, "other_sessions_invalidated": dropped}
+
+
+@router.post("/tools/account/delete")
+async def account_delete_endpoint(
+    body: _AccountDeleteBody,
+    request: Request,
+    response: Response,
+    sacp_ui_token: Annotated[str | None, Cookie()] = None,
+) -> dict:
+    """Zero credentials, reserve email, emit export, drop all sids (FR-012)."""
+    entry, _ = await _require_account_session(request, sacp_ui_token)
+    service = _resolve_account_service(request)
+    try:
+        result = await service.delete_account(
+            account_id=entry.account_id,
+            current_password=body.current_password,
+        )
+    except AccountServiceError as exc:
+        raise _to_http(exc) from exc
+    response.delete_cookie(
+        key=COOKIE_NAME,
+        path="/",
+        httponly=True,
+        secure=_secure_cookie_flag(request),
+        samesite="strict",
+    )
+    return result
