@@ -1183,6 +1183,33 @@ def validate_account_deletion_email_grace_days() -> ValidationFailure | None:
     return None
 
 
+def validate_deployment_owner_key() -> ValidationFailure | None:
+    """SACP_DEPLOYMENT_OWNER_KEY: optional admin shim for spec 023 FR-020.
+
+    When unset/empty, the ownership-transfer endpoint refuses every
+    request (no owner key configured → no admin path). When set, the
+    value MUST be at least 32 chars of high-entropy randomness — the
+    same hygiene as SACP_WEB_UI_COOKIE_KEY. Callers attach
+    ``X-Deployment-Owner-Key`` matching this value to authorize the
+    transfer.
+    """
+    val = os.environ.get("SACP_DEPLOYMENT_OWNER_KEY")
+    if val is None or val == "":
+        return None
+    placeholder = _contains_placeholder(val)
+    if placeholder:
+        return ValidationFailure(
+            "SACP_DEPLOYMENT_OWNER_KEY",
+            f"contains placeholder {placeholder!r} -- generate a real random secret",
+        )
+    if len(val) < 32:
+        return ValidationFailure(
+            "SACP_DEPLOYMENT_OWNER_KEY",
+            f"must be >= 32 chars of high-entropy randomness; got {len(val)} chars",
+        )
+    return None
+
+
 def validate_web_ui_cookie_key() -> ValidationFailure | None:
     """SACP_WEB_UI_COOKIE_KEY: required signing key for Web UI session cookies.
 
@@ -1263,6 +1290,7 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_account_rate_limit_per_ip_per_min,
     validate_email_transport,
     validate_account_deletion_email_grace_days,
+    validate_deployment_owner_key,
 )
 
 

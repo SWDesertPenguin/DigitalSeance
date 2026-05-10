@@ -582,6 +582,72 @@ class AccountService:
         }
 
     # ------------------------------------------------------------------
+    # US4 (FR-020): account ownership transfer (admin-only)
+    # ------------------------------------------------------------------
+
+    async def transfer_participants(
+        self,
+        *,
+        source_account_id: str,
+        target_account_id: str,
+        actor: str,
+    ) -> dict:
+        """Repoint participant ownership from source to target.
+
+        FR-020 + research §7 (revised in-v1): caller must already have
+        passed the deployment-owner admin gate at the route layer.
+        Both source and target must exist and be active. Returns the
+        repointed participant_id list and emits the
+        ``account_ownership_transfer`` audit row.
+        """
+        if source_account_id == target_account_id:
+            raise AccountServiceError(
+                error_code="invalid_transfer",
+                http_status=422,
+                message="source and target are the same account",
+            )
+        await self._require_active_account(source_account_id)
+        await self._require_active_account(target_account_id)
+        participants = await self._account_repo.transfer_participants(
+            source_account_id=source_account_id,
+            target_account_id=target_account_id,
+        )
+        await self._emit_ownership_transfer_audit(
+            source_account_id=source_account_id,
+            target_account_id=target_account_id,
+            participants=participants,
+            actor=actor,
+        )
+        return {
+            "source_account_id": source_account_id,
+            "target_account_id": target_account_id,
+            "participant_ids": participants,
+            "transferred": len(participants),
+        }
+
+    async def _emit_ownership_transfer_audit(
+        self,
+        *,
+        source_account_id: str,
+        target_account_id: str,
+        participants: list[str],
+        actor: str,
+    ) -> None:
+        payload = {
+            "source_account_id": source_account_id,
+            "target_account_id": target_account_id,
+            "participant_ids": participants,
+            "actor": actor,
+        }
+        await self._log_repo.log_admin_action(
+            session_id=self._audit_session_id(target_account_id),
+            facilitator_id=actor,
+            action="account_ownership_transfer",
+            target_id=target_account_id,
+            new_value=json.dumps(payload),
+        )
+
+    # ------------------------------------------------------------------
     # T064: change_password (US3) — invalidates non-actor sids + audit
     # ------------------------------------------------------------------
 

@@ -212,14 +212,17 @@ description: "Task list for spec 023 — User Accounts with Persistent Session H
 
 ---
 
-## Phase 6: User Story 4 — Account ownership transfer (Priority: P3) — DEFERRED per research §7
+## Phase 6: User Story 4 — Account ownership transfer (Priority: P3)
 
-Per [research.md §7](./research.md), FR-020 (account ownership transfer) is DEFERRED to a follow-up amendment. The deployment-owner authentication surface required by US4 does not exist as a coherent operator-facing API today; folding it into spec 023 expands scope beyond the user's stated brief ("deferred to Phase 4 federation if it complicates Phase 3"). The v1 schema (`account_participants` join with FK to `participants`) DOES support row-repointing without further migration, so the deferral is a transport-layer + auth-surface deferral, not a data-model deferral.
+Per [research.md §7](./research.md) revised at impl-time, FR-020 ships in v1 with a deployment-owner-keyed admin shim. The `SACP_DEPLOYMENT_OWNER_KEY` env var gates `POST /tools/admin/account/transfer_participants`; callers attach `X-Deployment-Owner-Key` matching the value to authorize.
 
-**No tasks emitted in this phase.** When the user schedules the follow-up, the new tasks will land:
-- A new endpoint `POST /tools/admin/account/transfer_participants` in [src/web_ui/admin_routes.py](./../../src/web_ui/admin_routes.py) (or equivalent admin-surface module).
-- A new `account_ownership_transfer` audit-log action (already RESERVED in [contracts/audit-log-events.md](./contracts/audit-log-events.md) per data-model.md).
-- A new test file `tests/test_023_ownership_transfer.py` covering acceptance scenarios 1-4 + SC-010 (regular-account 403).
+- [X] T100 [US4] `validate_deployment_owner_key` in [src/config/validators.py](./../../src/config/validators.py): empty (off) OR length `>= 32` chars + placeholder rejection. Registered in `VALIDATORS`.
+- [X] T101 [US4] `### SACP_DEPLOYMENT_OWNER_KEY` section in [docs/env-vars.md](./../../docs/env-vars.md) with the six standard fields.
+- [X] T102 [US4] `AccountRepository.transfer_participants(source, target)` repoints every join row from source to target via a single UPDATE, RETURNING the participant_ids that moved.
+- [X] T103 [US4] `AccountService.transfer_participants(...)` validates source/target are active (and distinct), invokes the repo method, emits `account_ownership_transfer` audit row.
+- [X] T104 [US4] `POST /tools/admin/account/transfer_participants` endpoint in [src/web_ui/account_routes.py](./../../src/web_ui/account_routes.py); `_require_deployment_owner` does constant-time `hmac.compare_digest` against `SACP_DEPLOYMENT_OWNER_KEY`; missing or wrong key → HTTP 403, no info leak.
+- [X] T105 [US4] Master-switch canary covers the new admin path: `_ACCOUNT_POST_PATHS` extended in [tests/test_023_master_switch_off.py](./../../tests/test_023_master_switch_off.py).
+- [X] T106 [US4] Acceptance + SC-010 + audit-row coverage in [tests/test_023_ownership_transfer.py](./../../tests/test_023_ownership_transfer.py).
 
 ---
 

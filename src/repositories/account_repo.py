@@ -356,6 +356,33 @@ class AccountRepository(BaseRepository):
             "role": record["role"],
         }
 
+    async def transfer_participants(
+        self,
+        *,
+        source_account_id: str,
+        target_account_id: str,
+    ) -> list[str]:
+        """Repoint every account_participants row from source to target.
+
+        Returns the participant_id list that moved. Implements the data
+        side of FR-020 ownership transfer; the admin-auth boundary is
+        enforced at the route layer. The schema's
+        ``UNIQUE(participant_id)`` is preserved (one participant still
+        belongs to at most one account); the operation is atomic at the
+        SQL UPDATE level.
+        """
+        records = await self._fetch_all(
+            """
+            UPDATE account_participants
+            SET account_id = $1
+            WHERE account_id = $2
+            RETURNING participant_id
+            """,
+            uuid.UUID(target_account_id),
+            uuid.UUID(source_account_id),
+        )
+        return [r["participant_id"] for r in records]
+
 
 def make_account_repository(pool: asyncpg.Pool) -> AccountRepository:
     """Factory used by the FastAPI app's lifespan to construct the repository."""

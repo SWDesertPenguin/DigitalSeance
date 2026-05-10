@@ -345,6 +345,16 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Source spec(s)**: 023 §FR-013 / FR-022 (email reservation window after account deletion)
 - **Note**: Read at deletion time to populate `accounts.email_grace_release_at = deleted_at + (value * interval '1 day')`. Re-registration with the same email is rejected during the grace window per FR-013; after `now() > email_grace_release_at` the email is releasable for fresh registration. Operators with stricter retention policies set this lower (or to `0` for immediate release); operators with longer retention windows set this higher up to one year.
 
+### `SACP_DEPLOYMENT_OWNER_KEY`
+
+- **Default**: empty (unset → ownership-transfer endpoint refuses every request)
+- **Type**: string (high-entropy random secret) or empty
+- **Valid range**: empty OR length `>= 32` chars; values containing placeholder fragments (`example`, `replace`, `change-me`, etc.) are rejected
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_deployment_owner_key`
+- **Source spec(s)**: 023 §FR-020 / research §7 (revised at impl-time to ship in v1)
+- **Note**: Gates `POST /tools/admin/account/transfer_participants` per spec 023 FR-020. When unset, the endpoint refuses every request — the admin-auth shim has no key to compare against. When set, callers attach the same value as the `X-Deployment-Owner-Key` header on the transfer request. The shim is intentionally minimal: a single static key. Future operator-auth specs (mTLS, OAuth M2M) replace the dependency without changing the endpoint contract.
+
 ## Reserved (documented but not yet wired)
 
 These vars appear in the debug-export config snapshot allowlist but are NOT consumed by application code. Operators setting them today will see the value in the debug snapshot but no behavioral effect. Validators land when application code starts consuming them — likely as part of a per-spec amendment cluster.

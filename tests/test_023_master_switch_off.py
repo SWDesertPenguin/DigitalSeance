@@ -68,6 +68,7 @@ _ACCOUNT_POST_PATHS = (
     "/tools/account/email/verify",
     "/tools/account/password/change",
     "/tools/account/delete",
+    "/tools/admin/account/transfer_participants",
 )
 
 # The two /me/sessions endpoints under the same master switch.

@@ -32,10 +32,12 @@ account_id (FR-016 + audit H-02).
 
 from __future__ import annotations
 
+import hmac
 import logging
+import os
 from typing import Annotated
 
-from fastapi import APIRouter, Cookie, HTTPException, Path, Query, Request, Response, status
+from fastapi import APIRouter, Cookie, Header, HTTPException, Path, Query, Request, Response, status
 from pydantic import BaseModel, Field
 
 from src.accounts.rate_limit import RateLimitExceeded
@@ -352,6 +354,67 @@ async def password_change_endpoint(
     except AccountServiceError as exc:
         raise _to_http(exc) from exc
     return {"password_changed": True, "other_sessions_invalidated": dropped}
+
+
+# ---------------------------------------------------------------------------
+# US4 (FR-020): admin ownership transfer
+# ---------------------------------------------------------------------------
+
+
+class _TransferBody(BaseModel):
+    source_account_id: str = Field(..., min_length=1, max_length=64)
+    target_account_id: str = Field(..., min_length=1, max_length=64)
+
+
+def _require_deployment_owner(provided: str | None) -> None:
+    """Constant-time check of the X-Deployment-Owner-Key header.
+
+    FR-020 + research §7 (revised in-v1) admin shim. When
+    ``SACP_DEPLOYMENT_OWNER_KEY`` is unset, the endpoint refuses every
+    request — no key configured means no admin path. ``hmac.compare_digest``
+    keeps the comparison timing-uniform between wrong-length and
+    correct-length-wrong-value cases.
+    """
+    expected = os.environ.get("SACP_DEPLOYMENT_OWNER_KEY", "")
+    if not expected:
+        raise HTTPException(403, detail={"error": "forbidden"})
+    if not provided or not hmac.compare_digest(expected, provided):
+        raise HTTPException(403, detail={"error": "forbidden"})
+
+
+@router.post("/tools/admin/account/transfer_participants")
+async def admin_transfer_participants_endpoint(
+    body: _TransferBody,
+    request: Request,
+    x_deployment_owner_key: Annotated[str | None, Header()] = None,
+) -> dict:
+    """Repoint participant ownership from source to target (FR-020)."""
+    _require_deployment_owner(x_deployment_owner_key)
+    service = _resolve_account_service(request)
+    actor = _hash_owner_key_for_audit(x_deployment_owner_key)
+    try:
+        return await service.transfer_participants(
+            source_account_id=body.source_account_id,
+            target_account_id=body.target_account_id,
+            actor=actor,
+        )
+    except AccountServiceError as exc:
+        raise _to_http(exc) from exc
+
+
+def _hash_owner_key_for_audit(key: str | None) -> str:
+    """Return a stable short fingerprint of the owner key for audit-row actor.
+
+    The plaintext key never reaches the audit log; the fingerprint is the
+    first 16 chars of the SHA-256 of the key, prefixed so operators can
+    correlate without storing the secret.
+    """
+    import hashlib
+
+    if not key:
+        return "_no_key"
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+    return f"_owner_{digest}"
 
 
 @router.post("/tools/account/delete")
