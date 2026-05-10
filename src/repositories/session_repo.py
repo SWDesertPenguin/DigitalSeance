@@ -465,6 +465,13 @@ _SESSION_TABLES = [
     "routing_log",
     "messages",
     "branches",
+    # participant_register_override + session_register: ON DELETE CASCADE is
+    # set on participant_id / session_id, but set_by_facilitator_id has no
+    # cascade. A bulk DELETE FROM participants processes the facilitator row
+    # before the cascade clears sibling override rows that still reference it,
+    # causing an FK violation. Clear these first.
+    "participant_register_override",
+    "session_register",
 ]
 
 
