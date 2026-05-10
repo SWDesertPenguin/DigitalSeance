@@ -404,7 +404,11 @@ async def test_whoami_response_omits_bearer() -> None:
         session_id="ses-7",
         role="facilitator",
     )
-    payload = await whoami(participant=fake_participant)
+    # Spec 021 T041 added a Request dependency so /me can read
+    # app.state.register_repo. The test's exfiltration assertion is the
+    # field-set check below — Request only feeds the register-repo lookup.
+    fake_request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    payload = await whoami(request=fake_request, participant=fake_participant)
 
     assert payload["participant_id"] == "pid-7"
     assert payload["session_id"] == "ses-7"

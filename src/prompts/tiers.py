@@ -86,6 +86,7 @@ def assemble_prompt(
     prompt_tier: str,
     custom_prompt: str = "",
     participant_id: str | None = None,
+    register_delta_text: str | None = None,
     conclude_delta: str = "",
     shaping_retry_delta_text: str | None = None,
 ) -> str:
@@ -101,18 +102,28 @@ def assemble_prompt(
     memoized per (participant_id, custom_prompt) per 008 §FR-012. Callers
     that don't have a participant_id (tests, ad-hoc scripts) skip the cache.
 
+    ``register_delta_text`` (spec 021 T042) is the per-session-slider
+    Tier 4 delta from the register-preset registry (FR-007 / FR-013).
+    ``None`` disables injection — slider 3 (Balanced) emits no delta per
+    FR-007. The slider is independent of ``SACP_RESPONSE_SHAPING_ENABLED``
+    per spec edge case ("slider deltas always emit regardless of the
+    master switch — the slider is a prompt composition concern, not a
+    shaping concern"); callers MUST resolve and pass the preset's text
+    on every assembly when a session_register row exists or an override
+    applies.
+
     ``conclude_delta`` (spec 025 FR-008/FR-009) is a Tier 4 additive
-    fragment appended after custom_prompt and after any future spec 021
-    register-slider delta. Empty string disables injection (default).
+    fragment appended after custom_prompt and after the register-slider
+    delta. Empty string disables injection (default).
 
     ``shaping_retry_delta_text`` (spec 021 T030) is the per-family
     tightened-Tier-4 delta inserted on a shaping retry, supplied by the
     retry orchestrator (``src.orchestrator.shaping.evaluate_and_maybe_retry``)
-    via the dispatch closure in ``loop.py``. Appended after
-    ``custom_prompt`` and (per US2 ordering note in
-    contracts/register-preset-interface.md) after any register-preset
-    delta. ``None`` disables injection (default — no retry in flight, or
-    the master switch is off).
+    via the dispatch closure in ``loop.py``. Appended last per
+    contracts/register-preset-interface.md "Prompt-assembly integration"
+    so the model sees the tightening directive at the most-recent
+    position. ``None`` disables injection (default — no retry in flight,
+    or the master switch is off).
     """
     parts = list(_tier_parts(prompt_tier))
     if custom_prompt:
@@ -120,6 +131,8 @@ def assemble_prompt(
             parts.append(_sanitize_for_participant(participant_id, custom_prompt))
         else:
             parts.append(sanitize(custom_prompt))
+    if register_delta_text:
+        parts.append(register_delta_text)
     if conclude_delta:
         parts.append(conclude_delta)
     if shaping_retry_delta_text:

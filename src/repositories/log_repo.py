@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from src.models.logs import AdminAuditLog, ConvergenceLog, RoutingLog, SecurityEvent, UsageLog
 from src.repositories.base import BaseRepository
@@ -298,6 +298,49 @@ class LogRepository(BaseRepository):
         rendered = offset + len(decorated)
         next_offset = rendered if rendered < total_count else None
         return AuditLogPage(rows=decorated, total_count=total_count, next_offset=next_offset)
+
+    # --- Spec 021 register-change audit-event helpers ---
+    # Three new ``action`` strings reuse the existing admin_audit_log table
+    # (no schema change). See specs/021-ai-response-shaping/contracts/
+    # audit-events.md for row-level field semantics.
+
+    async def log_register_change(
+        self,
+        *,
+        action: Literal[
+            "session_register_changed",
+            "participant_register_override_set",
+            "participant_register_override_cleared",
+        ],
+        session_id: str,
+        target_id: str,
+        previous_value: dict[str, Any] | None,
+        new_value: dict[str, Any],
+        facilitator_id: str,
+    ) -> AdminAuditLog:
+        """Append a register-change audit row.
+
+        Spec 021 T043. Wraps ``log_admin_action`` so callers in
+        ``src.mcp_server.tools.facilitator`` (T040 / T052) hand structured
+        dicts and the helper renders them as JSON for the audit row's
+        TEXT columns. ``previous_value`` is ``None`` on a first-time set
+        (no prior row existed) per the contract.
+
+        Cascade-induced clears (participant or session removed) MUST NOT
+        route through this helper — the parent delete event suffices per
+        FR-015 + research.md §8. Only explicit facilitator-action set /
+        update / clear paths emit a register-change audit row.
+        """
+        previous_payload = json.dumps(previous_value) if previous_value is not None else None
+        new_payload = json.dumps(new_value)
+        return await self.log_admin_action(
+            session_id=session_id,
+            facilitator_id=facilitator_id,
+            action=action,
+            target_id=target_id,
+            previous_value=previous_payload,
+            new_value=new_payload,
+        )
 
     # --- Spec 014 mode_* audit-event helpers (DMA controller) ---
     # Five new ``action`` strings reuse the existing admin_audit_log table

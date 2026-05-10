@@ -367,7 +367,14 @@ async def _restatement_signal(
     """
     if not draft_text:
         return 0.0
-    recent = engine.recent_embeddings(depth=3)
+    try:
+        recent = engine.recent_embeddings(depth=3)
+    except Exception:
+        log.warning(
+            "ConvergenceDetector.recent_embeddings raised; restatement signal degrades to 0.0",
+            exc_info=True,
+        )
+        return 0.0
     if not recent:
         return 0.0
     model = getattr(engine, "_model", None)
