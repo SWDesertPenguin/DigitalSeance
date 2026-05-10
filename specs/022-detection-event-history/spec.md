@@ -613,6 +613,19 @@ range, and fail-closed semantics documented in
   the panel's wiring into the React SPA and the WS event
   channel integration. A spec 011 amendment lands when 022's
   tasks are scheduled.
+- **Spec 029 (audit-log-viewer) §FR-019 / §FR-020** —
+  shared-component contract pinned in
+  [`specs/029-audit-log-viewer/contracts/shared-module-contracts.md`](../029-audit-log-viewer/contracts/shared-module-contracts.md).
+  When spec 022 reaches `/speckit.tasks`, its amendment FR(s)
+  MUST cite that contract document and:
+  reuse `format_label` / `formatLabel` from the action-label
+  registry for any audit-adjacent labels surfaced in the
+  detection-event panel; reuse `format_iso` / `formatIso` from
+  the time formatter for timestamp rendering; bind the
+  `audit_log_appended` WS handler pattern (role-filter,
+  decorated payload) when 022 introduces its own
+  `detection_event` broadcast. Spec 022 MUST NOT reimplement
+  these helpers inline (FR-020 architectural test enforces).
 - **Spec 014 (dynamic-mode-assignment)** — when 014 lands and
   emits `mode_recommendation` and `mode_change` events,
   spec 022's `mode_change` class surfaces them. Forward-

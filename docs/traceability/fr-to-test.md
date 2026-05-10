@@ -291,3 +291,30 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-013 | tests/test_013_regression_phase2.py | All three mechanisms independently disabled when their env vars are unset (HighTrafficSessionConfig is None) |
 | FR-014 | tests/test_013_regression_phase2.py | V16 deliverable gate: three validators wired into VALIDATORS tuple, three doc sections in docs/env-vars.md |
 | FR-015 | tests/test_013_regression_phase2.py | Additive when unset: SC-005 7-test regression file confirms no behavior change |
+
+---
+
+## 029-audit-log-viewer
+
+| FR | Test path(s) | Notes |
+|----|--------------|-------|
+| FR-001 | tests/test_029_audit_log_endpoint.py, tests/test_029_admin_endpoint_helpers.py, tests/test_029_audit_log_view.py | GET /tools/admin/audit_log endpoint contract: ordering, pagination metadata, retention cap, decorate_row shape |
+| FR-002 | tests/test_029_admin_endpoint_helpers.py | Facilitator-only auth via _authorize; non-facilitator participant gets 403 (helper-level coverage; full TestClient integration covered when Phase F lands) |
+| FR-003 | tests/test_029_admin_endpoint_helpers.py | Cross-session 403 — caller's participant.session_id must match query param |
+| FR-004 | tests/test_029_audit_log_endpoint.py | Read-only contract: get_audit_log_page issues SELECT only; verified by absence of write paths in repo method |
+| FR-005 | tests/test_029_audit_log_endpoint.py, tests/test_029_admin_endpoint_helpers.py | Pagination: offset-based, default 50, env max enforced; _resolve_limit rejects out-of-range |
+| FR-006 | tests/test_029_action_label_registry.py, scripts/check_audit_label_parity.py, tests/frontend/test_audit_labels.js | Action-label registry shape; backend/frontend parity gate; format_label fallback |
+| FR-007 | tests/test_029_audit_log_view.py, tests/test_029_audit_log_endpoint.py | API responses include action_label alongside raw action string |
+| FR-008 | tests/frontend/test_diff_engine.js, tests/frontend/test_diff_perf.js, tests/e2e/test_029_audit_panel.py | DiffRenderer module: chooseDiffMode thresholds, diffLinesSync/diffWordsSync, P95 ≤ 100ms perf budget on ≤50KB tier |
+| FR-009 | tests/test_029_time_format_parity.py, scripts/check_time_format_parity.py, tests/frontend/test_time_format.js | Backend/frontend time formatter parity; UTC ISO-8601 with Z marker; locale + relative-time helpers |
+| FR-010 | tests/test_029_audit_broadcast.py, tests/test_029_audit_log_endpoint.py | audit_log_appended WS event emission; broadcast within 2s; payload shape parity with FR-001 row |
+| FR-011 | tests/frontend/test_filter_logic.js, tests/e2e/test_029_audit_panel.py | Filter axes: actor, action type, time range; intersection logic; clear restores |
+| FR-012 | tests/frontend/test_filter_logic.js | Client-side filtering on the loaded page (v1 limitation — server-side pushdown deferred) |
+| FR-013 | tests/e2e/test_029_audit_panel.py | (N hidden) badge increments when WS-pushed event doesn't match active filter; counter resets on filter clear |
+| FR-014 | tests/test_029_audit_log_endpoint.py, tests/test_029_audit_broadcast.py, tests/test_029_audit_log_view.py | Server-side scrub for scrub_value=True actions: rotate_token at endpoint AND WS payload; spec 010 path returns raw (forensic invariant) |
+| FR-015 | tests/test_029_audit_log_endpoint.py, tests/test_029_action_label_registry.py | Unregistered action fallback "[unregistered: <raw>]" + WARN log emission |
+| FR-016 | tests/test_029_audit_log_endpoint.py, tests/test_029_admin_endpoint_helpers.py | Retention cap behavior: SACP_AUDIT_VIEWER_RETENTION_DAYS empty -> no WHERE clause; set -> rows older than N days excluded |
+| FR-017 | tests/test_029_validators.py | Three V16 env vars validated at startup: SACP_AUDIT_VIEWER_ENABLED (boolean), _PAGE_SIZE (10..500), _RETENTION_DAYS (empty / 1..36500) |
+| FR-018 | tests/test_029_admin_endpoint_helpers.py, tests/e2e/test_029_audit_panel.py | Master switch: SACP_AUDIT_VIEWER_ENABLED=false -> route absent -> HTTP 404 |
+| FR-019 | tests/test_029_contract_freshness.py | Shared-module-contracts.md citations match disk; module paths exist; threshold constants match between contract and module |
+| FR-020 | tests/test_029_architectural.py | No module other than src/orchestrator/audit_labels.py / frontend/audit_labels.js declares an audit-action-to-label mapping |

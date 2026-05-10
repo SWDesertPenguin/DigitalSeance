@@ -447,6 +447,7 @@ async def _audit_reset(
         target_id=target.id,
         previous_value=_key_tail(target.api_key_encrypted),
         new_value="rekeyed",
+        broadcast_session_id=caller.session_id,
     )
 
 
@@ -464,6 +465,7 @@ async def _audit_release(
         target_id=target.id,
         previous_value=target.status,
         new_value=reason or "reset",
+        broadcast_session_id=caller.session_id,
     )
 
 
@@ -742,6 +744,7 @@ async def _audit_bulk_routing(
             target_id=row["id"],
             previous_value=prior,
             new_value=new_pref,
+            broadcast_session_id=facilitator.session_id,
         )
 
 
@@ -818,6 +821,7 @@ async def _audit_and_broadcast_scope(
         target_id=participant.session_id,
         previous_value=previous,
         new_value=scope,
+        broadcast_session_id=participant.session_id,
     )
     await broadcast_to_session(
         participant.session_id,
@@ -1145,6 +1149,7 @@ async def _emit_cap_set_audit(
         target_id=participant.session_id,
         previous_value=json.dumps(old_cap_repr),
         new_value=json.dumps({**new_cap_repr, "interpretation": plan.interpretation}),
+        broadcast_session_id=participant.session_id,
     )
 
 
@@ -1206,6 +1211,7 @@ async def _audit_session_config(
         target_id=participant.session_id,
         previous_value=previous_value,
         new_value=new_value,
+        broadcast_session_id=participant.session_id,
     )
 
 
@@ -1239,6 +1245,7 @@ async def debug_set_timeouts(
         target_id=body.participant_id,
         previous_value=None,
         new_value=str(body.consecutive_timeouts),
+        broadcast_session_id=participant.session_id,
     )
     return {
         "status": "updated",
@@ -1349,6 +1356,7 @@ async def _audit_and_broadcast_budget(
         target_id=body.participant_id,
         previous_value=f"{target.budget_hourly}/{target.budget_daily}/{target.max_tokens_per_turn}",
         new_value=f"{body.budget_hourly}/{body.budget_daily}/{body.max_tokens_per_turn}",
+        broadcast_session_id=facilitator.session_id,
     )
     from src.web_ui.events import broadcast_participant_update
 
@@ -1635,6 +1643,7 @@ async def _log_gate_action(
         target_id=draft_id,
         previous_value=vals.get("previous"),
         new_value=vals.get("new"),
+        broadcast_session_id=participant.session_id,
     )
 
 

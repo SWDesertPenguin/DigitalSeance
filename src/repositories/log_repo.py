@@ -196,8 +196,21 @@ class LogRepository(BaseRepository):
         target_id: str,
         previous_value: str | None = None,
         new_value: str | None = None,
+        broadcast_session_id: str | None = None,
     ) -> AdminAuditLog:
-        """Append a facilitator action record and fan out a WS audit_entry."""
+        """Append a facilitator action record and fan out WS events.
+
+        Always pushes the legacy ``audit_entry`` event (spec 011 T252). When
+        ``broadcast_session_id`` is set, additionally pushes the spec 029
+        ``audit_log_appended`` event via :func:`broadcast_audit_log_appended`
+        — facilitator-only, server-side scrubbed per FR-014. Pass the same
+        value as ``session_id`` to opt into the new live-viewer push; leave
+        ``None`` to preserve pre-spec-029 behavior at quiet call sites.
+
+        Per ``contracts/ws-events.md`` and research.md §7 the broadcast helper
+        wraps every failure mode so a WS error here CANNOT abort the durable
+        INSERT — the audit row is authoritative; the live push is best-effort.
+        """
         record = await self._fetch_one(
             _INSERT_AUDIT_SQL,
             session_id,
@@ -209,6 +222,13 @@ class LogRepository(BaseRepository):
         )
         entry = AdminAuditLog.from_record(record)
         await _broadcast_audit_entry(entry)
+        if broadcast_session_id is not None:
+            name_by_id = await self._load_session_name_map(broadcast_session_id)
+            await broadcast_audit_log_appended(
+                session_id=broadcast_session_id,
+                entry=entry,
+                name_by_id=name_by_id,
+            )
         return entry
 
     async def get_audit_log(
@@ -319,6 +339,7 @@ class LogRepository(BaseRepository):
             target_id=session_id,
             previous_value=previous_value,
             new_value=new_value,
+            broadcast_session_id=session_id,
         )
 
     async def log_mode_transition(
@@ -360,6 +381,7 @@ class LogRepository(BaseRepository):
             target_id=session_id,
             previous_value=previous_value,
             new_value=new_value,
+            broadcast_session_id=session_id,
         )
 
     async def log_mode_transition_suppressed(
@@ -392,6 +414,7 @@ class LogRepository(BaseRepository):
             target_id=session_id,
             previous_value=previous_value,
             new_value=new_value,
+            broadcast_session_id=session_id,
         )
 
     async def log_decision_cycle_throttled(
@@ -425,6 +448,7 @@ class LogRepository(BaseRepository):
             target_id=session_id,
             previous_value=previous_value,
             new_value=new_value,
+            broadcast_session_id=session_id,
         )
 
     async def log_signal_source_unavailable(
@@ -458,6 +482,7 @@ class LogRepository(BaseRepository):
             target_id=session_id,
             previous_value=previous_value,
             new_value=new_value,
+            broadcast_session_id=session_id,
         )
 
     # --- Security Events ---

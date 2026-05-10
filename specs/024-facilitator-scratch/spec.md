@@ -839,6 +839,21 @@ this spec (per V16 deliverable gate).
   export payload. Spec 024 adds the UI renderer that
   consumes them. The scratch payload is a new partitioned
   section in the export shape (FR-023).
+- **Spec 029 (audit-log-viewer) §FR-008 / §FR-019 / §FR-020** —
+  shared-component contract pinned in
+  [`specs/029-audit-log-viewer/contracts/shared-module-contracts.md`](../029-audit-log-viewer/contracts/shared-module-contracts.md).
+  When spec 024 reaches `/speckit.tasks`, its amendment FR-014
+  (review-gate diff sub-panel) MUST cite that contract document
+  and: import the inline `DiffRenderer` component from
+  `frontend/app.jsx`; import the locked threshold constants
+  (`MAIN_THREAD_BYTE_THRESHOLD = 50_000`,
+  `WORKER_BYTE_THRESHOLD = 500_000`) from
+  `frontend/diff_engine.js` rather than redefining them; reuse
+  `format_label` / `formatLabel` for any audit-adjacent labels
+  surfaced in the scratch panel; reuse `format_iso` /
+  `formatIso` for timestamp rendering. Spec 024 MUST NOT
+  reimplement Myers-diff helpers (FR-020 architectural test
+  enforces).
 - **Spec 008 (prompts-security-wiring)** — the
   context-assembly pipeline that scratch notes MUST NEVER
   reach (FR-001). The architectural test enforcing this

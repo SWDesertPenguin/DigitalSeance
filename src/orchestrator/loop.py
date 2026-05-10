@@ -660,6 +660,7 @@ class ConversationLoop:
             target_id=decision.participant.id,
             previous_value=payload["previous_value"],
             new_value=payload["new_value"],
+            broadcast_session_id=session_id,
         )
 
     async def _write_downgrade_row(
@@ -673,6 +674,7 @@ class ConversationLoop:
             target_id=decision.participant.id,
             previous_value=payload["previous_value"],
             new_value=payload["new_value"],
+            broadcast_session_id=session_id,
         )
 
     def _update_sustained_window(

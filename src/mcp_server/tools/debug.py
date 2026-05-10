@@ -65,6 +65,7 @@ async def export_session(
         facilitator_id=participant.id,
         action="debug_export",
         target_id=session_id,
+        broadcast_session_id=session_id,
     )
     return await _build_dump(state, session, session_id, participant.id)
 
