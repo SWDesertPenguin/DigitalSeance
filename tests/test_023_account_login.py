@@ -19,7 +19,6 @@ from typing import Any
 
 import asyncpg
 import pytest
-from fastapi.testclient import TestClient
 
 from src.accounts.service import AccountService
 from src.repositories.account_repo import AccountRepository
@@ -28,6 +27,7 @@ from src.web_ui.app import create_web_app
 from src.web_ui.auth import COOKIE_NAME
 from src.web_ui.security import CSRF_HEADER, CSRF_VALUE
 from src.web_ui.session_store import SessionStore
+from tests.conftest import asgi_client
 
 _CSRF = {CSRF_HEADER: CSRF_VALUE}
 
@@ -86,8 +86,8 @@ async def test_login_success_returns_cookie_and_audit_row(
     app, service = app_and_service
     account_id = await _seed_active(service, "ok@example.com", "long-enough-pw-1")
 
-    with TestClient(app) as client:
-        response = client.post(
+    async with asgi_client(app) as client:
+        response = await client.post(
             "/tools/account/login",
             json={"email": "ok@example.com", "password": "long-enough-pw-1"},
             headers=_CSRF,
@@ -113,8 +113,8 @@ async def test_login_success_case_insensitive_email(
     app, service = app_and_service
     await _seed_active(service, "case@example.com", "long-enough-pw-1")
 
-    with TestClient(app) as client:
-        response = client.post(
+    async with asgi_client(app) as client:
+        response = await client.post(
             "/tools/account/login",
             json={"email": "CASE@Example.COM", "password": "long-enough-pw-1"},
             headers=_CSRF,
@@ -130,8 +130,8 @@ async def test_login_success_updates_last_login_at(
     app, service = app_and_service
     account_id = await _seed_active(service, "stamp@example.com", "long-enough-pw-1")
 
-    with TestClient(app) as client:
-        response = client.post(
+    async with asgi_client(app) as client:
+        response = await client.post(
             "/tools/account/login",
             json={"email": "stamp@example.com", "password": "long-enough-pw-1"},
             headers=_CSRF,
@@ -156,8 +156,8 @@ async def test_login_unknown_email_returns_generic_401(
 ) -> None:
     """Email never registered: 401 + invalid_credentials, no info leak."""
     app, _ = app_and_service
-    with TestClient(app) as client:
-        response = client.post(
+    async with asgi_client(app) as client:
+        response = await client.post(
             "/tools/account/login",
             json={"email": "ghost@example.com", "password": "long-enough-pw-1"},
             headers=_CSRF,
@@ -174,8 +174,8 @@ async def test_login_wrong_password_returns_generic_401(
     app, service = app_and_service
     await _seed_active(service, "wrong@example.com", "correct-password-12")
 
-    with TestClient(app) as client:
-        response = client.post(
+    async with asgi_client(app) as client:
+        response = await client.post(
             "/tools/account/login",
             json={"email": "wrong@example.com", "password": "wrong-password-99"},
             headers=_CSRF,
@@ -195,8 +195,8 @@ async def test_login_pending_verification_returns_generic_401(
         client_ip="127.0.0.1",
     )
     # Skip the verify; account stays pending_verification.
-    with TestClient(app) as client:
-        response = client.post(
+    async with asgi_client(app) as client:
+        response = await client.post(
             "/tools/account/login",
             json={"email": "pending@example.com", "password": "long-enough-pw-1"},
             headers=_CSRF,
@@ -215,8 +215,8 @@ async def test_login_deleted_account_returns_generic_401(
     repo = AccountRepository(pool)
     await repo.mark_account_deleted(account_id)
 
-    with TestClient(app) as client:
-        response = client.post(
+    async with asgi_client(app) as client:
+        response = await client.post(
             "/tools/account/login",
             json={
                 "email": "deleted-login@example.com",
@@ -234,8 +234,8 @@ async def test_login_failed_emits_audit_row(
 ) -> None:
     """Each failure path writes an account_login_failed audit row."""
     app, _ = app_and_service
-    with TestClient(app) as client:
-        client.post(
+    async with asgi_client(app) as client:
+        await client.post(
             "/tools/account/login",
             json={"email": "fail@example.com", "password": "long-enough-pw-1"},
             headers=_CSRF,
@@ -256,13 +256,13 @@ async def test_login_response_body_is_identical_across_failure_modes(
     """SC-005 contract — the body MUST NOT vary between failure modes."""
     app, service = app_and_service
     await _seed_active(service, "diff@example.com", "correct-password-12")
-    with TestClient(app) as client:
-        ghost = client.post(
+    async with asgi_client(app) as client:
+        ghost = await client.post(
             "/tools/account/login",
             json={"email": "ghost-x@example.com", "password": "any-pw-here-12"},
             headers=_CSRF,
         )
-        wrong = client.post(
+        wrong = await client.post(
             "/tools/account/login",
             json={"email": "diff@example.com", "password": "wrong-pw-here-99"},
             headers=_CSRF,

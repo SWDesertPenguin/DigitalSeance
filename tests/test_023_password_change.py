@@ -15,7 +15,6 @@ from typing import Any
 
 import asyncpg
 import pytest
-from fastapi.testclient import TestClient
 
 from src.accounts.service import AccountService
 from src.repositories.account_repo import AccountRepository
@@ -24,6 +23,7 @@ from src.web_ui.app import create_web_app
 from src.web_ui.auth import _make_cookie_value
 from src.web_ui.security import CSRF_HEADER, CSRF_VALUE
 from src.web_ui.session_store import SessionStore
+from tests.conftest import asgi_client
 
 _CSRF = {CSRF_HEADER: CSRF_VALUE}
 
@@ -81,8 +81,8 @@ async def test_password_change_invalidates_other_sids_only(
     actor_sid = await store.create(account_id=account_id)
     other_sid_1 = await store.create(account_id=account_id)
     other_sid_2 = await store.create(account_id=account_id)
-    with TestClient(app_with_service) as client:
-        response = client.post(
+    async with asgi_client(app_with_service) as client:
+        response = await client.post(
             "/tools/account/password/change",
             cookies=_cookie_for(actor_sid),
             headers=_CSRF,
@@ -105,8 +105,8 @@ async def test_password_change_rejects_incorrect_current_password(
     account_id = await _create_active(app_with_service, "pw-bad@example.com")
     store = app_with_service.state.session_store
     sid = await store.create(account_id=account_id)
-    with TestClient(app_with_service) as client:
-        response = client.post(
+    async with asgi_client(app_with_service) as client:
+        response = await client.post(
             "/tools/account/password/change",
             cookies=_cookie_for(sid),
             headers=_CSRF,
@@ -127,8 +127,8 @@ async def test_password_change_emits_audit_row(
     account_id = await _create_active(app_with_service, "pw-audit@example.com")
     store = app_with_service.state.session_store
     sid = await store.create(account_id=account_id)
-    with TestClient(app_with_service) as client:
-        client.post(
+    async with asgi_client(app_with_service) as client:
+        await client.post(
             "/tools/account/password/change",
             cookies=_cookie_for(sid),
             headers=_CSRF,

@@ -22,7 +22,6 @@ from typing import Any
 
 import asyncpg
 import pytest
-from fastapi.testclient import TestClient
 
 from src.accounts.service import AccountService
 from src.repositories.account_repo import AccountRepository
@@ -30,6 +29,7 @@ from src.repositories.log_repo import LogRepository
 from src.web_ui.app import create_web_app
 from src.web_ui.security import CSRF_HEADER, CSRF_VALUE
 from src.web_ui.session_store import SessionStore
+from tests.conftest import asgi_client
 
 _CSRF = {CSRF_HEADER: CSRF_VALUE}
 _OWNER_KEY = "x" * 40
@@ -119,8 +119,8 @@ async def test_transfer_repoints_account_participants(
     await _seed_session_with_participant(
         pool, account_id=src, session_id="ses_xfer", participant_id="par_xfer"
     )
-    with TestClient(app_with_service) as client:
-        response = client.post(
+    async with asgi_client(app_with_service) as client:
+        response = await client.post(
             _TRANSFER_PATH,
             headers={**_CSRF, "X-Deployment-Owner-Key": _OWNER_KEY},
             json={"source_account_id": src, "target_account_id": tgt},
@@ -139,8 +139,8 @@ async def test_transfer_repoints_account_participants(
 
 async def test_transfer_rejects_missing_owner_key(app_with_service: Any) -> None:
     """No X-Deployment-Owner-Key header → 403, no info leak (SC-010)."""
-    with TestClient(app_with_service) as client:
-        response = client.post(
+    async with asgi_client(app_with_service) as client:
+        response = await client.post(
             _TRANSFER_PATH,
             headers=_CSRF,
             json={"source_account_id": "x", "target_account_id": "y"},
@@ -150,8 +150,8 @@ async def test_transfer_rejects_missing_owner_key(app_with_service: Any) -> None
 
 async def test_transfer_rejects_wrong_owner_key(app_with_service: Any) -> None:
     """Wrong key → 403, identical shape to missing-key path."""
-    with TestClient(app_with_service) as client:
-        response = client.post(
+    async with asgi_client(app_with_service) as client:
+        response = await client.post(
             _TRANSFER_PATH,
             headers={**_CSRF, "X-Deployment-Owner-Key": "wrong"},
             json={"source_account_id": "x", "target_account_id": "y"},
@@ -169,8 +169,8 @@ async def test_transfer_emits_ownership_audit_row(
     await _seed_session_with_participant(
         pool, account_id=src, session_id="ses_aud", participant_id="par_aud"
     )
-    with TestClient(app_with_service) as client:
-        client.post(
+    async with asgi_client(app_with_service) as client:
+        await client.post(
             _TRANSFER_PATH,
             headers={**_CSRF, "X-Deployment-Owner-Key": _OWNER_KEY},
             json={"source_account_id": src, "target_account_id": tgt},

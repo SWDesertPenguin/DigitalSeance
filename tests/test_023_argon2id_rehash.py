@@ -24,7 +24,6 @@ from typing import Any
 
 import asyncpg
 import pytest
-from fastapi.testclient import TestClient
 
 from src.accounts.hashing import PasswordHasher
 from src.accounts.rate_limit import LoginRateLimiter
@@ -34,6 +33,7 @@ from src.repositories.log_repo import LogRepository
 from src.web_ui.app import create_web_app
 from src.web_ui.security import CSRF_HEADER, CSRF_VALUE
 from src.web_ui.session_store import SessionStore
+from tests.conftest import asgi_client
 
 _CSRF = {CSRF_HEADER: CSRF_VALUE}
 
@@ -88,9 +88,9 @@ async def _seed_low_param_account(
     return create.account_id, original_hash
 
 
-def _login_via_client(app: Any, email: str) -> int:
-    with TestClient(app) as client:
-        response = client.post(
+async def _login_via_client(app: Any, email: str) -> int:
+    async with asgi_client(app) as client:
+        response = await client.post(
             "/tools/account/login",
             json={"email": email, "password": "long-enough-pw-1"},
             headers=_CSRF,
@@ -128,7 +128,7 @@ async def test_login_rehashes_when_parameters_change(
     high_hasher = PasswordHasher()
     assert high_hasher.needs_rehash(original_hash)
     app_high = _build_app(pool, high_hasher)
-    assert _login_via_client(app_high, "rehash@example.com") == 200
+    assert await _login_via_client(app_high, "rehash@example.com") == 200
     post_hash, _ = await _fetch_hash_and_login_audit(pool, account_id)
     assert post_hash != original_hash, "transparent re-hash did not update the column"
     assert not high_hasher.needs_rehash(post_hash)
@@ -142,7 +142,7 @@ async def test_login_audit_row_records_rehash_performed(
     account_id, _ = await _seed_low_param_account(pool, monkeypatch, "audit-rehash@example.com")
     monkeypatch.setenv("SACP_PASSWORD_ARGON2_TIME_COST", "2")
     app_high = _build_app(pool, PasswordHasher())
-    assert _login_via_client(app_high, "audit-rehash@example.com") == 200
+    assert await _login_via_client(app_high, "audit-rehash@example.com") == 200
     _, payload = await _fetch_hash_and_login_audit(pool, account_id)
     assert payload.get("rehash_performed") is True
 
@@ -156,7 +156,7 @@ async def test_login_does_not_rehash_when_params_unchanged(
         pool, monkeypatch, "stable@example.com"
     )
     app = _build_app(pool, PasswordHasher())
-    assert _login_via_client(app, "stable@example.com") == 200
+    assert await _login_via_client(app, "stable@example.com") == 200
     post_hash, payload = await _fetch_hash_and_login_audit(pool, account_id)
     assert post_hash == original_hash
     assert payload.get("rehash_performed") is False

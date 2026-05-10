@@ -25,7 +25,6 @@ from typing import Any
 
 import asyncpg
 import pytest
-from fastapi.testclient import TestClient
 
 from src.accounts.codes import hash_code
 from src.accounts.service import AccountService
@@ -34,6 +33,7 @@ from src.repositories.log_repo import LogRepository
 from src.web_ui.app import create_web_app
 from src.web_ui.security import CSRF_HEADER, CSRF_VALUE
 from src.web_ui.session_store import SessionStore
+from tests.conftest import asgi_client
 
 _CSRF = {CSRF_HEADER: CSRF_VALUE}
 
@@ -78,8 +78,8 @@ async def test_create_account_persists_pending_verification(
     pool: asyncpg.Pool,
 ) -> None:
     """201 + status='pending_verification' + argon2id-hashed password."""
-    with TestClient(app_with_accounts) as client:
-        response = client.post(
+    async with asgi_client(app_with_accounts) as client:
+        response = await client.post(
             "/tools/account/create",
             json={"email": "user1@example.com", "password": "long-enough-pw-1"},
             headers=_CSRF,
@@ -104,8 +104,8 @@ async def test_create_account_persists_pending_verification(
 
 async def test_create_account_rejects_invalid_email(app_with_accounts: Any) -> None:
     """422 + email_invalid for a syntactically broken address."""
-    with TestClient(app_with_accounts) as client:
-        response = client.post(
+    async with asgi_client(app_with_accounts) as client:
+        response = await client.post(
             "/tools/account/create",
             json={"email": "not-an-email", "password": "long-enough-pw-1"},
             headers=_CSRF,
@@ -116,8 +116,8 @@ async def test_create_account_rejects_invalid_email(app_with_accounts: Any) -> N
 
 async def test_create_account_rejects_short_password(app_with_accounts: Any) -> None:
     """422 + password_too_short below the 12-char floor."""
-    with TestClient(app_with_accounts) as client:
-        response = client.post(
+    async with asgi_client(app_with_accounts) as client:
+        response = await client.post(
             "/tools/account/create",
             json={"email": "user2@example.com", "password": "short"},
             headers=_CSRF,
@@ -130,14 +130,14 @@ async def test_create_account_rejects_duplicate_active_email(
     app_with_accounts: Any,
 ) -> None:
     """409 + registration_failed on a colliding pending/active email."""
-    with TestClient(app_with_accounts) as client:
-        first = client.post(
+    async with asgi_client(app_with_accounts) as client:
+        first = await client.post(
             "/tools/account/create",
             json={"email": "dup@example.com", "password": "long-enough-pw-1"},
             headers=_CSRF,
         )
         assert first.status_code == 201
-        second = client.post(
+        second = await client.post(
             "/tools/account/create",
             json={"email": "dup@example.com", "password": "another-long-pw-2"},
             headers=_CSRF,
@@ -156,8 +156,8 @@ async def test_create_account_emits_verification_audit_row(
     pool: asyncpg.Pool,
 ) -> None:
     """A successful create writes account_create + account_verification_emitted."""
-    with TestClient(app_with_accounts) as client:
-        response = client.post(
+    async with asgi_client(app_with_accounts) as client:
+        response = await client.post(
             "/tools/account/create",
             json={"email": "audit@example.com", "password": "long-enough-pw-1"},
             headers=_CSRF,
@@ -212,8 +212,8 @@ async def test_verify_account_flips_status_to_active(
     )
     plaintext = create.dev_plaintext_code
     assert plaintext is not None, "noop transport must surface the plaintext"
-    with TestClient(app_with_accounts) as client:
-        response = client.post(
+    async with asgi_client(app_with_accounts) as client:
+        response = await client.post(
             "/tools/account/verify",
             json={"account_id": create.account_id, "code": plaintext},
             headers=_CSRF,
@@ -233,8 +233,8 @@ async def test_verify_account_rejects_wrong_code(
         password="long-enough-pw-1",  # noqa: S106 — test fixture
         client_ip="127.0.0.1",
     )
-    with TestClient(app_with_accounts) as client:
-        response = client.post(
+    async with asgi_client(app_with_accounts) as client:
+        response = await client.post(
             "/tools/account/verify",
             json={"account_id": create.account_id, "code": "AAAAAAAAAAAAAAAA"},
             headers=_CSRF,
@@ -253,8 +253,8 @@ async def test_verify_account_rejects_short_code(
         password="long-enough-pw-1",  # noqa: S106 — test fixture
         client_ip="127.0.0.1",
     )
-    with TestClient(app_with_accounts) as client:
-        response = client.post(
+    async with asgi_client(app_with_accounts) as client:
+        response = await client.post(
             "/tools/account/verify",
             json={"account_id": create.account_id, "code": "ABC"},
             headers=_CSRF,
@@ -275,14 +275,14 @@ async def test_verify_account_idempotent_not_replayable(
     )
     plaintext = create.dev_plaintext_code
     assert plaintext is not None
-    with TestClient(app_with_accounts) as client:
-        first = client.post(
+    async with asgi_client(app_with_accounts) as client:
+        first = await client.post(
             "/tools/account/verify",
             json={"account_id": create.account_id, "code": plaintext},
             headers=_CSRF,
         )
         assert first.status_code == 200
-        second = client.post(
+        second = await client.post(
             "/tools/account/verify",
             json={"account_id": create.account_id, "code": plaintext},
             headers=_CSRF,

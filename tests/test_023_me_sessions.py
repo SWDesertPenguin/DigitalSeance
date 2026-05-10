@@ -22,7 +22,6 @@ from typing import Any
 
 import asyncpg
 import pytest
-from fastapi.testclient import TestClient
 
 from src.accounts.service import AccountService
 from src.repositories.account_repo import AccountRepository
@@ -31,6 +30,7 @@ from src.web_ui.app import create_web_app
 from src.web_ui.auth import _make_cookie_value
 from src.web_ui.security import CSRF_HEADER, CSRF_VALUE
 from src.web_ui.session_store import SessionStore
+from tests.conftest import asgi_client
 
 _CSRF = {CSRF_HEADER: CSRF_VALUE}
 
@@ -199,8 +199,8 @@ async def test_me_sessions_returns_segmented_shape(
             ("ses_seg_archived", "par_seg_archived", "archived"),
         ],
     )
-    with TestClient(app_with_service) as client:
-        body = client.get("/me/sessions", cookies=_cookie_for(sid)).json()
+    async with asgi_client(app_with_service) as client:
+        body = (await client.get("/me/sessions", cookies=_cookie_for(sid))).json()
     assert {s["session_id"] for s in body["active_sessions"]} == {"ses_seg_active"}
     assert {s["session_id"] for s in body["archived_sessions"]} == {"ses_seg_archived"}
     assert body["active_sessions"][0]["role"] == "participant"
@@ -235,8 +235,8 @@ async def test_me_sessions_does_not_leak_other_accounts_sessions(
         participant_id="par_iso_b",
         status="active",
     )
-    with TestClient(app_with_service) as client:
-        response = client.get("/me/sessions", cookies=_cookie_for(sid_a))
+    async with asgi_client(app_with_service) as client:
+        response = await client.get("/me/sessions", cookies=_cookie_for(sid_a))
     body = response.json()
     ids = {s["session_id"] for s in body["active_sessions"]}
     assert "ses_iso_a" in ids
@@ -253,8 +253,8 @@ async def test_me_sessions_empty_account_returns_empty_arrays(
 ) -> None:
     """An account with zero joined sessions returns empty arrays, not 404."""
     _, sid = await _create_account_with_sid(app_with_service, email="empty@example.com")
-    with TestClient(app_with_service) as client:
-        response = client.get("/me/sessions", cookies=_cookie_for(sid))
+    async with asgi_client(app_with_service) as client:
+        response = await client.get("/me/sessions", cookies=_cookie_for(sid))
     assert response.status_code == 200
     body = response.json()
     assert body["active_sessions"] == []
@@ -283,13 +283,15 @@ async def test_me_sessions_paginates_per_segment(
             participant_id=f"par_page_active_{i:02d}",
             status="active",
         )
-    with TestClient(app_with_service) as client:
-        first = client.get("/me/sessions", cookies=_cookie_for(sid)).json()
+    async with asgi_client(app_with_service) as client:
+        first = (await client.get("/me/sessions", cookies=_cookie_for(sid))).json()
         assert len(first["active_sessions"]) == 50
         assert first["active_next_offset"] == 50
-        second = client.get(
-            "/me/sessions?active_offset=50",
-            cookies=_cookie_for(sid),
+        second = (
+            await client.get(
+                "/me/sessions?active_offset=50",
+                cookies=_cookie_for(sid),
+            )
         ).json()
     assert len(second["active_sessions"]) == 5
     assert second["active_next_offset"] is None
@@ -314,8 +316,8 @@ async def test_rebind_populates_session_entry_with_participant(
         participant_id="par_rebind",
         status="active",
     )
-    with TestClient(app_with_service) as client:
-        response = client.post(
+    async with asgi_client(app_with_service) as client:
+        response = await client.post(
             "/me/sessions/ses_rebind/rebind",
             cookies=_cookie_for(sid),
             headers=_CSRF,
@@ -339,8 +341,8 @@ async def test_rebind_404_when_account_does_not_own_participant(
     _, sid = await _create_account_with_sid(app_with_service, email="other@example.com")
     await _seed_session(pool, "ses_unowned", "active")
     await _seed_participant(pool, participant_id="par_unowned", session_id="ses_unowned")
-    with TestClient(app_with_service) as client:
-        response = client.post(
+    async with asgi_client(app_with_service) as client:
+        response = await client.post(
             "/me/sessions/ses_unowned/rebind",
             cookies=_cookie_for(sid),
             headers=_CSRF,
@@ -380,9 +382,9 @@ async def test_me_sessions_emits_threshold_audit_when_count_exceeds_10k(
     account_id, sid = await _create_account_with_sid(app_with_service, email="thresh@example.com")
     pairs = [(f"ses_thresh_{i}", f"par_thresh_{i}", "active") for i in range(2)]
     await _seed_owned_pair(app_with_service, pool, account_id=account_id, pairs=pairs)
-    with TestClient(app_with_service) as client:
-        client.get("/me/sessions", cookies=_cookie_for(sid))
-        client.get("/me/sessions", cookies=_cookie_for(sid))
+    async with asgi_client(app_with_service) as client:
+        await client.get("/me/sessions", cookies=_cookie_for(sid))
+        await client.get("/me/sessions", cookies=_cookie_for(sid))
     warns = [r for r in caplog.records if "threshold" in r.getMessage().lower()]
     assert len(warns) == 1, "FR-008 trip should be idempotent within process"
     assert await _count_threshold_audit_rows(pool, account_id) == 1

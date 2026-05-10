@@ -18,7 +18,6 @@ from typing import Any
 
 import asyncpg
 import pytest
-from fastapi.testclient import TestClient
 
 from src.accounts.service import AccountService
 from src.repositories.account_repo import AccountRepository
@@ -27,6 +26,7 @@ from src.web_ui.app import create_web_app
 from src.web_ui.auth import _make_cookie_value
 from src.web_ui.security import CSRF_HEADER, CSRF_VALUE
 from src.web_ui.session_store import SessionStore
+from tests.conftest import asgi_client
 
 _CSRF = {CSRF_HEADER: CSRF_VALUE}
 
@@ -94,8 +94,8 @@ async def test_email_change_emits_both_audit_rows_and_does_not_update_until_veri
 ) -> None:
     """Notify-old + verify-new: email column unchanged until verify."""
     account_id, sid = await _create_active_with_sid(app_with_service, email="ec-old@example.com")
-    with TestClient(app_with_service) as client:
-        response = client.post(
+    async with asgi_client(app_with_service) as client:
+        response = await client.post(
             "/tools/account/email/change",
             cookies=_cookie_for(sid),
             headers=_CSRF,

@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
+import httpx
 import pytest
 from cryptography.fernet import Fernet
 
@@ -768,6 +769,22 @@ def web_app() -> object:
     from src.web_ui.app import create_web_app
 
     return create_web_app()
+
+
+def asgi_client(app: object) -> httpx.AsyncClient:
+    """Return an httpx.AsyncClient wired through ASGITransport for ``app``.
+
+    Tests that share an asyncpg pool between the test body and the FastAPI
+    handler MUST use this instead of starlette's TestClient. TestClient
+    runs the app on a separate event loop via BlockingPortal; an asyncpg
+    pool created on the test loop then errors with "another operation is
+    in progress" when the handler awaits acquire() on a foreign loop.
+    httpx.AsyncClient + ASGITransport runs the handler on the caller's
+    loop, so the pool stays single-loop.
+
+    Use as ``async with asgi_client(app) as client: ...``.
+    """
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
 
 # ---------------------------------------------------------------------------
