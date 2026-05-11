@@ -6,7 +6,9 @@ description: "Task list for spec 022 — Detection Event History Surface"
 # Tasks: Detection Event History Surface
 
 **Input**: Design documents from `/specs/022-detection-event-history/`
-**Prerequisites**: plan.md (loaded), spec.md (3 user stories — US1 P1, US2 P2, US3 P3), research.md (17 sections), data-model.md, contracts/detection-events-endpoint.md, contracts/resurface-endpoint.md, contracts/ws-events.md, quickstart.md
+**Prerequisites**: plan.md (loaded), spec.md (3 user stories — US1 P1, US2 P2, US3 P3), research.md (17 sections; §§2-4 amended 2026-05-11), data-model.md (amended 2026-05-11), contracts/detection-events-endpoint.md, contracts/resurface-endpoint.md, contracts/ws-events.md (all three amended 2026-05-11), quickstart.md
+
+**Amendment 2026-05-11**: Session 2026-05-10 Clarifications §1 (read-side join over existing log tables) is REVERSED after the Sweep 1 T004 schema audit found that question/exit detections are broadcast-only (no persistence) and density-anomaly rows lack participant/snippet/timestamp attribution. The amendment introduces a NEW `detection_events` table that the four detector emit sites dual-write to, plus one alembic migration. Affected tasks below carry "(AMENDED 2026-05-11)" annotations.
 
 **Tests**: INCLUDED. The spec has 10 Success Criteria (SC-001..SC-010) framed as enforceable contracts; plan.md and research.md cite specific test files for FR coverage; spec 011 Phase F Playwright is the established e2e framework. Tests ship alongside implementation per the spec 029 precedent.
 
@@ -32,12 +34,12 @@ description: "Task list for spec 022 — Detection Event History Surface"
 
 **Purpose**: Env-var validators + docs/env-vars.md sections (V16 deliverable gate per FR-016) + source-table index verification.
 
-- [ ] T001 Add three sections to `docs/env-vars.md` for `SACP_DETECTION_HISTORY_ENABLED`, `SACP_DETECTION_HISTORY_MAX_EVENTS`, `SACP_DETECTION_HISTORY_RETENTION_DAYS` with the six standard fields each (purpose, type, default, valid range, fail-closed semantics, blast radius) per V16 contract and spec FR-016
-- [ ] T002 [P] Add three validators to `src/config/validators.py` (boolean parser for `_ENABLED`, integer-range parser for `_MAX_EVENTS` `[1, 100000]` or empty, integer-or-empty parser for `_RETENTION_DAYS` `[1, 36500]` or empty); register them in the `VALIDATORS` tuple
-- [ ] T003 [P] Add validator tests in `tests/test_022_validators.py` covering valid values, out-of-range, malformed, and the empty-default behavior for `_MAX_EVENTS` and `_RETENTION_DAYS`
-- [ ] T004 Audit source-table indexes per `research.md §3`. Verify `routing_log(session_id, timestamp DESC)`, `convergence_log(session_id, tier, timestamp DESC)`, `admin_audit_log(session_id, timestamp DESC)`, `admin_audit_log(target_event_id, timestamp DESC) WHERE action LIKE 'detection_event_%'` partial index. If any missing, add a single alembic migration `alembic/versions/NNNN_detection_events_indexes.py`; mirror in `tests/conftest.py` raw DDL per `feedback_test_schema_mirror`
+- [X] T001 Add three sections to `docs/env-vars.md` for `SACP_DETECTION_HISTORY_ENABLED`, `SACP_DETECTION_HISTORY_MAX_EVENTS`, `SACP_DETECTION_HISTORY_RETENTION_DAYS` with the six standard fields each (purpose, type, default, valid range, fail-closed semantics, blast radius) per V16 contract and spec FR-016
+- [X] T002 [P] Add three validators to `src/config/validators.py` (boolean parser for `_ENABLED`, integer-range parser for `_MAX_EVENTS` `[1, 100000]` or empty, integer-or-empty parser for `_RETENTION_DAYS` `[1, 36500]` or empty); register them in the `VALIDATORS` tuple
+- [X] T003 [P] Add validator tests in `tests/test_022_validators.py` covering valid values, out-of-range, malformed, and the empty-default behavior for `_MAX_EVENTS` and `_RETENTION_DAYS`
+- [ ] T004 (AMENDED 2026-05-11) Create `alembic/versions/017_detection_events.py` adding the new `detection_events` table per `research.md §3` + `data-model.md` with the three indexes (`(session_id, timestamp DESC)`, `(session_id, event_class)`, `(session_id, participant_id)`) and CHECK constraints on `event_class` and `disposition`. Mirror the schema in `tests/conftest.py` raw DDL per `feedback_test_schema_mirror`. The original T004 "audit existing indexes / read-side join" plan is obsolete — the existing source tables stay untouched.
 
-**Checkpoint**: Env vars valid at startup; source-table query plan supports the FR-001 endpoint's WHERE+ORDER+LIMIT.
+**Checkpoint**: Env vars valid at startup; `detection_events` table exists with indexes covering the FR-001 endpoint's WHERE+ORDER+LIMIT.
 
 ---
 
@@ -47,7 +49,7 @@ description: "Task list for spec 022 — Detection Event History Surface"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T005 [P] Create `src/web_ui/detection_events.py` with `EVENT_CLASSES: dict[str, dict[str, str]]` seeded from `research.md §5` (5 entries: `ai_question_opened`, `ai_exit_requested`, `density_anomaly`, `mode_recommendation`, `mode_change`); export `format_class_label(class_key) -> str` and `class_for_source_row(source_table, row) -> str` helpers
+- [ ] T005 [P] (AMENDED 2026-05-11) Create `src/web_ui/detection_events.py` with `EVENT_CLASSES: dict[str, dict[str, str]]` seeded from `research.md §5` (5 entries: `ai_question_opened`, `ai_exit_requested`, `density_anomaly`, `mode_recommendation`, `mode_change`); export `format_class_label(class_key) -> str` only. `class_for_source_row` is obsolete after the §1 reversal — `event_class` is written verbatim at INSERT time, not derived from source-row attributes.
 - [ ] T006 [P] Create `frontend/detection_event_taxonomy.js` (UMD) mirroring the backend `EVENT_CLASSES` keys + `label` strings (no `source`/`predicate` fields client-side); export `EVENT_CLASSES` and `formatClassLabel(classKey)` (returns `[unregistered: <key>]` fallback) — analogous to spec 029 `frontend/audit_labels.js` shape
 - [ ] T007 [P] Create `scripts/check_detection_taxonomy_parity.py` per `research.md §16`: import the Python module, parse the JS module's `EVENT_CLASSES = {...}` literal with a small state-machine parser (reuse pattern from spec 029's `check_audit_label_parity.py`), compare key-set + label-string parity, exit 1 with a structured error on drift
 - [ ] T008 Wire `scripts/check_detection_taxonomy_parity.py` into the CI workflow as a required-passing check (mirror spec 029's T011 pattern)
@@ -66,11 +68,11 @@ description: "Task list for spec 022 — Detection Event History Surface"
 
 **Purpose**: GET endpoint + log_repo query + WS live-update + DetectionHistoryPanel React component + admin-panel entry-point.
 
-- [ ] T015 [US1] Add `get_detection_events_page(session_id, max_events, since)` to `src/repositories/log_repo.py` per `research.md §2` — UNION-ALL over three source tables + disposition CTE + ORDER BY + LIMIT; return list of `DetectionEvent` projections
+- [ ] T015 [US1] (AMENDED 2026-05-11) Add `get_detection_events_page(session_id, max_events, since)` to `src/repositories/log_repo.py` per `research.md §2` — single-table `SELECT * FROM detection_events WHERE session_id = $1 [AND timestamp >= $2] ORDER BY timestamp DESC LIMIT $3` returning `DetectionEvent` rows. Also add `src/repositories/detection_event_repo.py` with `insert_detection_event(...)` + disposition-transition handler (UPDATE detection_events + INSERT admin_audit_log in one transaction).
 - [ ] T016 [US1] Add `GET /tools/admin/detection_events` endpoint to `src/web_ui/detection_events.py` per `contracts/detection-events-endpoint.md`: auth (facilitator-only, session-bound), master-switch gating (404 when `SACP_DETECTION_HISTORY_ENABLED=false`), call `get_detection_events_page`, return response shape
 - [ ] T017 [P] [US1] Mount the new endpoint router from `src/web_ui/app.py` under `/tools/admin/detection_events` (only when master switch enabled)
 - [ ] T018 [P] [US1] Add `emit_detection_event_appended(session_id, source_table, source_row_id)` to `src/web_ui/events.py` per `contracts/ws-events.md` — assembles the payload, calls `broadcast_session_event(session_id, payload, kind='appended')`
-- [ ] T019 [US1] Call-site sweep: invoke `emit_detection_event_appended` at every source-row INSERT location for the 5 event classes (3 in `routing_log` write paths per spec 003, 1 in `convergence_log` write paths per spec 004, 2 in `admin_audit_log` write paths per spec 014's mode_recommendation + mode_change emitters). Each call site immediately follows the existing INSERT
+- [ ] T019 [US1] (AMENDED 2026-05-11) Dual-write call-site sweep at the four detector emit sites per `data-model.md` "Dual-write contract": question/exit in [src/orchestrator/loop.py](../../src/orchestrator/loop.py) `_detect_signals` (~lines 1400-1424); density anomaly in [src/orchestrator/density.py](../../src/orchestrator/density.py); mode_recommendation + mode_change in spec 014's emit sites. Each site calls `insert_detection_event(...)` followed by the existing per-class WS broadcast AND by `emit_detection_event_appended`. INSERT failure logs a security-event but does NOT block the existing broadcast (fail-soft per FR-017).
 - [ ] T020 [P] [US1] Add `DetectionHistoryPanel` React component inline in `frontend/app.jsx`: subscribes to WS, fetches initial page via REST, renders event-list table with the columns from `data-model.md`, handles `detection_event_appended` WS events per `contracts/ws-events.md`
 - [ ] T021 [P] [US1] Add "View detection history" entry-point button to the facilitator's session header in `frontend/app.jsx` (spec 011 amendment FR), only rendered when the master switch is on (server-side feature-detect via initial config bootstrap)
 - [ ] T022 [P] [US1] Add empty-state UI ("No detection events for this session yet") to `DetectionHistoryPanel` per `research.md §13`

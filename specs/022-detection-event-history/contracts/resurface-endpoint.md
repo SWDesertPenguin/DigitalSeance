@@ -1,6 +1,6 @@
 # Contract: `POST /tools/admin/detection_events/<event_id>/resurface`
 
-**Branch**: `022-detection-event-history` | **Date**: 2026-05-10 | **Spec FR**: FR-006..FR-008, FR-016 | **Data model**: [data-model.md](../data-model.md) | **Research**: [research.md §1, §7, §10, §11](../research.md)
+**Branch**: `022-detection-event-history` | **Date**: 2026-05-10 (initial); **Amended 2026-05-11** (event_id is now an integer; admin_audit_log uses target_id/facilitator_id) | **Spec FR**: FR-006..FR-008, FR-016 | **Data model**: [data-model.md](../data-model.md) | **Research**: [research.md §1, §7, §10, §11](../research.md)
 
 ## Endpoint
 
@@ -16,7 +16,7 @@ When `SACP_DETECTION_HISTORY_ENABLED=false`, this endpoint MUST return HTTP 404.
 
 ## Path parameter
 
-`event_id` — synthesized identifier of the shape `<source_table>:<source_row_id>` per [data-model.md](../data-model.md). Examples: `routing_log:42`, `convergence_log:17`, `admin_audit_log:91`. Malformed identifiers return HTTP 400 `invalid_event_id`.
+`event_id` — integer primary key of the `detection_events` table per [data-model.md](../data-model.md). Example: `1037`. Non-integer values return HTTP 400 `invalid_event_id`.
 
 ## Request body
 
@@ -24,12 +24,12 @@ Empty (no body required). The action's actor is the authenticated facilitator fr
 
 ## Server-side flow
 
-1. Validate `event_id` shape (`<table>:<integer>` regex).
+1. Validate `event_id` is a positive integer.
 2. Authenticate facilitator + session-bind check (FR-007).
 3. Verify session is active (FR-008). If archived, return HTTP 409 `session_archived` with body explaining "re-surface requires an active session."
-4. Lookup the source row by `event_id` to verify it exists. If not found (e.g., source row purged per retention policy), return HTTP 404 `event_not_found`.
-5. Compose the banner payload from the source row.
-6. INSERT one row into `admin_audit_log` per [data-model.md](../data-model.md) "Re-surface action row" — action `detection_event_resurface`, actor_id, target_event_id, timestamp.
+4. SELECT the `detection_events` row by id. If not found (e.g., row purged per retention policy), return HTTP 404 `event_not_found`. If `session_id` mismatches the authenticated session, return HTTP 403 `cross_session_access`.
+5. Compose the banner payload from the row.
+6. INSERT one row into `admin_audit_log` per [data-model.md](../data-model.md) "Transition rows" — action `detection_event_resurface`, facilitator_id, target_id (= stringified `detection_events.id`), timestamp.
 7. Emit a WS broadcast on the facilitator's per-session channel with the payload — via `src/web_ui/cross_instance_broadcast.py::broadcast_session_event(session_id, payload, kind='resurfaced')`. The broadcast is role-filtered to facilitator subscribers; participant AIs are NOT addressees (per Clarifications §2).
 8. Return HTTP 200 with the broadcast envelope and the new audit-row id.
 
@@ -37,17 +37,18 @@ Empty (no body required). The action's actor is the authenticated facilitator fr
 
 ```json
 {
-  "event_id": "routing_log:42",
-  "audit_row_id": 1037,
+  "event_id": 1037,
+  "audit_row_id": 2491,
   "broadcast": {
     "kind": "resurfaced",
-    "event_id": "routing_log:42",
+    "event_id": 1037,
     "event_class": "ai_question_opened",
     "event_class_label": "AI question opened",
     "participant_id": "<participant>",
     "trigger_snippet": "...",
     "detector_score": 0.87,
-    "timestamp": "2026-05-10T14:32:01.234Z",
+    "turn_number": 14,
+    "timestamp": "2026-05-11T14:32:01.234Z",
     "disposition": "banner_dismissed"
   },
   "broadcast_path": "same_instance" | "cross_instance"
@@ -64,11 +65,11 @@ Empty (no body required). The action's actor is the authenticated facilitator fr
 
 | Status | Code | When |
 |---|---|---|
-| 400 | `invalid_event_id` | Path `event_id` doesn't match the `<source_table>:<source_row_id>` shape, or `source_table` is not one of `routing_log`/`convergence_log`/`admin_audit_log`. |
+| 400 | `invalid_event_id` | Path `event_id` is not a positive integer. |
 | 403 | `facilitator_only` | Caller is authenticated but not a facilitator. |
 | 403 | `cross_session_access` | Facilitator is authenticated for a different session than the event's. |
 | 404 | (no body) | Master switch off OR session does not exist. |
-| 404 | `event_not_found` | Event id is well-formed but the source row no longer exists (purged or never existed). |
+| 404 | `event_not_found` | Event id is well-formed but no matching `detection_events` row exists (purged or never existed). |
 | 409 | `session_archived` | Re-surface is disallowed on archived sessions (FR-008). |
 | 500 | `internal_error` | Audit INSERT failure or cross-instance broadcast failure (NOT a silent fallback to same-instance-only; failures fail-closed per V15). |
 

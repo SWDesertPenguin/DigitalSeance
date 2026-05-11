@@ -1,6 +1,6 @@
 # Contract: `GET /tools/admin/detection_events`
 
-**Branch**: `022-detection-event-history` | **Date**: 2026-05-10 | **Spec FR**: FR-001..FR-005, FR-011..FR-013, FR-015, FR-017 | **Data model**: [data-model.md](../data-model.md) | **Research**: [research.md §2, §4, §5, §8](../research.md)
+**Branch**: `022-detection-event-history` | **Date**: 2026-05-10 (initial); **Amended 2026-05-11** (§1 reversal — single-table SELECT, integer event_id) | **Spec FR**: FR-001..FR-005, FR-011..FR-013, FR-015, FR-017 | **Data model**: [data-model.md](../data-model.md) | **Research**: [research.md §2, §4, §5, §8](../research.md)
 
 ## Endpoint
 
@@ -31,21 +31,21 @@ Filter axes (type, participant, time-range, disposition) are client-side per FR-
   "session_id": "<session>",
   "events": [
     {
-      "event_id": "routing_log:42",
+      "event_id": 1037,
       "event_class": "ai_question_opened",
       "event_class_label": "AI question opened",
       "participant_id": "<participant>",
       "trigger_snippet": "...",
       "detector_score": 0.87,
-      "timestamp": "2026-05-10T14:32:01.234Z",
+      "turn_number": 14,
+      "timestamp": "2026-05-11T14:32:01.234Z",
       "disposition": "pending",
-      "source_table": "routing_log",
-      "source_row_id": 42
+      "last_disposition_change_at": null
     }
   ],
   "count": 1,
   "max_events_applied": false,
-  "as_of": "2026-05-10T14:35:00.000Z"
+  "as_of": "2026-05-11T14:35:00.000Z"
 }
 ```
 
@@ -68,8 +68,14 @@ Filter axes (type, participant, time-range, disposition) are client-side per FR-
 
 ## Read-only invariant
 
-The endpoint MUST NOT issue any INSERT, UPDATE, or DELETE against `routing_log`, `convergence_log`, `messages`, or any other source table. The only DB write spec 022 allows is the re-surface row at the FR-006 endpoint (separate contract). The architectural test `tests/test_022_architectural.py` enforces this by asserting the endpoint module imports no write-side helpers from `log_repo.py`.
+The GET endpoint MUST NOT issue any INSERT, UPDATE, or DELETE against `detection_events`, `routing_log`, `convergence_log`, `messages`, or any other source table. The two write paths spec 022 allows are:
+
+1. INSERT on `detection_events` at the four detector emit sites (FR-017 dual-write, NOT this endpoint).
+2. UPDATE on `detection_events.disposition` + INSERT on `admin_audit_log` from the disposition-transition handler (FR-010, NOT this endpoint).
+3. INSERT on `admin_audit_log` at the FR-006 re-surface endpoint (separate contract).
+
+The architectural test `tests/test_022_architectural.py` enforces this by asserting the endpoint module imports no write-side helpers.
 
 ## Performance budget (V14)
 
-P95 ≤ 500ms for sessions with up to 1,000 detection events. The query is a bounded UNION-ALL over three indexed source tables filtered by `session_id`. Index audit in [data-model.md](../data-model.md) under "Index audit". Instrumentation per [research.md §15](../research.md).
+P95 ≤ 500ms for sessions with up to 1,000 detection events. The query is a single-table `WHERE session_id = $1 ORDER BY timestamp DESC LIMIT $2` against the indexed `detection_events_session_timestamp_idx`. No JOINs (disposition is denormalized into the row). Instrumentation per [research.md §15](../research.md).

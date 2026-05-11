@@ -1,8 +1,8 @@
 # Research: Detection Event History Surface
 
-**Branch**: `022-detection-event-history` | **Date**: 2026-05-10 | **Spec**: [spec.md](./spec.md) | **Plan**: [plan.md](./plan.md)
+**Branch**: `022-detection-event-history` | **Date**: 2026-05-10 (initial); **Amended 2026-05-11** (post §1 reversal — dedicated `detection_events` table replaces read-side join) | **Spec**: [spec.md](./spec.md) | **Plan**: [plan.md](./plan.md)
 
-Phase 0 research for spec 022. The load-bearing decision is §1 (cross-instance WS broadcast mechanism, per Clarifications §6); §§2-16 settle the remaining design choices ahead of `/speckit.tasks`.
+Phase 0 research for spec 022. The load-bearing decision is §1 (cross-instance WS broadcast mechanism, per Clarifications §6); §§2-16 settle the remaining design choices ahead of `/speckit.tasks`. **Amendment 2026-05-11**: §§2-4 are rewritten in place to reflect the dedicated-table architecture. §§5-17 are unchanged in substance.
 
 ## §1 — Cross-instance WS broadcast mechanism (load-bearing)
 
@@ -36,87 +36,88 @@ Phase 0 research for spec 022. The load-bearing decision is §1 (cross-instance 
 
 **Rejected**: Option (c) introduces a stateful heartbeat protocol with cleanup edge cases that aren't worth the latency penalty; option (d) violates Clarifications §6.
 
-## §2 — Read-side UNION-ALL query shape
+## §2 — `detection_events` page query (single-table SELECT, amended 2026-05-11)
 
-**Context**: FR-001 requires a unified event stream over three source tables. The query MUST be bounded per-session, indexed, and complete within the panel-load P95 ≤ 500ms budget.
+**Context**: FR-001 requires a unified event stream. Per the Session 2026-05-11 amendment, all five event classes are persisted to a single dedicated table; the query collapses to one indexed SELECT.
 
 **Query shape**:
 
 ```sql
-WITH disposition_latest AS (
-    SELECT DISTINCT ON (target_event_id) target_event_id, action, timestamp
-    FROM admin_audit_log
-    WHERE session_id = $1 AND action LIKE 'detection_event_%'
-    ORDER BY target_event_id, timestamp DESC
-)
 SELECT
-    'routing_log' AS source_table, id AS source_row_id,
-    CASE detector_kind
-        WHEN 'question' THEN 'ai_question_opened'
-        WHEN 'exit' THEN 'ai_exit_requested'
-    END AS event_class,
-    participant_id, trigger_snippet, detector_score, timestamp,
-    COALESCE(dl.action, 'pending') AS disposition
-FROM routing_log
-LEFT JOIN disposition_latest dl ON dl.target_event_id = routing_log.id::text
-WHERE session_id = $1 AND detector_kind IN ('question', 'exit')
-
-UNION ALL
-
-SELECT
-    'convergence_log' AS source_table, id AS source_row_id,
-    'density_anomaly' AS event_class,
-    participant_id, trigger_snippet, anomaly_score AS detector_score, timestamp,
-    COALESCE(dl.action, 'pending') AS disposition
-FROM convergence_log
-LEFT JOIN disposition_latest dl ON dl.target_event_id = convergence_log.id::text
-WHERE session_id = $1 AND tier = 'density_anomaly'
-
-UNION ALL
-
-SELECT
-    'admin_audit_log' AS source_table, id AS source_row_id,
-    action AS event_class,  -- 'mode_recommendation' or 'mode_change' verbatim
-    actor_id AS participant_id, NULL AS trigger_snippet, NULL AS detector_score, timestamp,
-    'auto_resolved' AS disposition  -- mode events are observation-only
-FROM admin_audit_log
-WHERE session_id = $1 AND action IN ('mode_recommendation', 'mode_change')
-
-ORDER BY timestamp DESC, source_table, source_row_id
-LIMIT $2;
+    id, session_id, event_class, participant_id, trigger_snippet,
+    detector_score, turn_number, timestamp, disposition,
+    last_disposition_change_at
+FROM detection_events
+WHERE session_id = $1
+  AND ($2::timestamptz IS NULL OR timestamp >= $2)   -- since param (retention bound)
+ORDER BY timestamp DESC
+LIMIT $3;                                            -- max_events cap
 ```
 
-**Index strategy**: All three source tables MUST have `(session_id, timestamp DESC)` indexes (spec 029 verified one for `admin_audit_log`; routing_log + convergence_log to be verified during T001). The disposition CTE uses `(session_id, action, target_event_id, timestamp DESC)` — partial index on `action LIKE 'detection_event_%'` is appropriate.
+**Index strategy**: Primary index on `(session_id, timestamp DESC)` covers the page query. Secondary indexes on `(session_id, event_class)` and `(session_id, participant_id)` support server-side pushdown if filter-by-type or filter-by-participant ever move server-side (v1 keeps them client-side per FR-011).
 
-**Synthesized event id**: To support disposition tracking and re-surface, each event needs a stable id. Use `source_table || ':' || source_row_id` as the event-id contract (e.g., `routing_log:42`, `convergence_log:17`, `admin_audit_log:91`). Disposition rows write `target_event_id` in that shape. Re-surface POST validates the format before lookup.
+**Event id**: The `detection_events.id` (bigint primary key) is the event id. `admin_audit_log.target_id` carries the stringified id for re-surface tracking. The Session 2026-05-10 plan's synthesized `<source_table>:<source_row_id>` identifier is obsolete after the amendment.
 
-## §3 — Source-table schema audit
+**Disposition resolution**: The table denormalizes the latest disposition into the `disposition` column. UPDATEs on this column are the only write side-effect of disposition transition handling (the transition rows themselves still append to `admin_audit_log` per FR-010 for full audit trail). The page query never re-derives the latest disposition; it just reads the column.
 
-**Context**: The UNION-ALL relies on specific columns existing. Audit before writing the query.
+## §3 — `detection_events` table schema (amended 2026-05-11)
 
-- **`routing_log`** (spec 003 §FR-030): `id`, `session_id`, `participant_id`, `detector_kind` (enum: `question`, `exit`, ...), `trigger_snippet` (TEXT), `detector_score` (REAL nullable), `timestamp` (TIMESTAMPTZ). All present per spec 003 migration. Composite index on `(session_id, timestamp)` confirmed.
-- **`convergence_log`** (spec 004 §FR-020): `id`, `session_id`, `participant_id`, `tier` (enum: `density_anomaly`, `convergence_check`, ...), `trigger_snippet` (TEXT), `anomaly_score` (REAL nullable), `timestamp` (TIMESTAMPTZ). All present per spec 004 migration. Index audit needed: `(session_id, tier, timestamp)` partial index recommended.
-- **`admin_audit_log`** (spec 002 §FR-014, spec 014 PR #326): `id`, `session_id`, `actor_id`, `action` (TEXT), `target_event_id` (TEXT nullable, added in spec 029 PR #341 for `audit_log_appended` join support), `previous_value` (JSONB nullable), `new_value` (JSONB nullable), `timestamp` (TIMESTAMPTZ). Spec 014 writes `mode_recommendation` and `mode_change` rows here.
+**Context**: The dedicated table replaces the read-side join. One alembic migration adds the table + three indexes; `tests/conftest.py` raw DDL mirrors the migration per `feedback_test_schema_mirror`.
 
-**Action item**: T001 verifies the three indexes exist or adds an alembic migration adding `(session_id, tier, timestamp) WHERE tier IN ('density_anomaly')` to `convergence_log` if missing.
+**Migration shape** (`alembic/versions/017_detection_events.py`):
 
-## §4 — Disposition resolution logic
+```sql
+CREATE TABLE detection_events (
+    id BIGSERIAL PRIMARY KEY,
+    session_id TEXT NOT NULL,                          -- no FK per spec 007 pattern (survives session deletion)
+    event_class TEXT NOT NULL,                         -- one of: ai_question_opened, ai_exit_requested,
+                                                       --        density_anomaly, mode_recommendation, mode_change
+    participant_id TEXT NOT NULL,                      -- AI id for question/exit/density; facilitator id for mode events
+    trigger_snippet TEXT,                              -- nullable for mode events
+    detector_score REAL,                               -- nullable for binary detectors and mode events
+    turn_number INTEGER,                               -- nullable for mode events not tied to a turn
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    disposition TEXT NOT NULL DEFAULT 'pending',       -- one of: pending, banner_acknowledged, banner_dismissed, auto_resolved
+    last_disposition_change_at TIMESTAMPTZ,            -- NULL until first transition
+    CONSTRAINT detection_events_class_check CHECK (event_class IN
+        ('ai_question_opened', 'ai_exit_requested', 'density_anomaly',
+         'mode_recommendation', 'mode_change')),
+    CONSTRAINT detection_events_disposition_check CHECK (disposition IN
+        ('pending', 'banner_acknowledged', 'banner_dismissed', 'auto_resolved'))
+);
 
-**Context**: FR-010 requires the panel to surface the latest disposition for each event from the four-value enum. Disposition transitions write to `admin_audit_log` with action strings `detection_event_acknowledged`, `detection_event_dismissed`, `detection_event_auto_resolved`. Default disposition is `pending`.
+CREATE INDEX detection_events_session_timestamp_idx
+    ON detection_events (session_id, timestamp DESC);
+CREATE INDEX detection_events_session_class_idx
+    ON detection_events (session_id, event_class);
+CREATE INDEX detection_events_session_participant_idx
+    ON detection_events (session_id, participant_id);
+```
 
-**Mapping**:
+**No FK to sessions or participants** mirrors the spec 007 pattern for `admin_audit_log` — detection events outlive their referenced session for audit purposes.
 
-| `admin_audit_log.action` | Disposition value |
-|---|---|
-| `detection_event_acknowledged` | `banner_acknowledged` |
-| `detection_event_dismissed` | `banner_dismissed` |
-| `detection_event_auto_resolved` | `auto_resolved` |
-| (no row exists for the event id) | `pending` |
-| `detection_event_resurface` | (does NOT change disposition; preserved alongside the prior disposition row) |
+**Existing source-table schema audit** (informational, since the migration's call-site sweep dual-writes from the existing emit sites; the existing tables remain unchanged):
 
-The DISTINCT-ON-target_event_id CTE in §2 returns the latest disposition action. The class-mapping module maps action → disposition value.
+- **`routing_log`** (per alembic 001): `id`, `session_id`, `turn_number`, `intended_participant`, `actual_participant`, `routing_action`, `complexity_score`, `domain_match`, `reason`, `timestamp`. Used by the question/exit emit-site call sweep ONLY to derive turn_number + participant_id for the `detection_events` row INSERT — the routing_log row itself stays unchanged.
+- **`convergence_log`** (per alembic 010): `(turn_number, session_id, tier, density_value, baseline_value, embedding, similarity_score, divergence_prompted)`. Used by the density-anomaly emit-site call sweep ONLY to derive turn_number + density_value (becomes detection_score in detection_events) — the convergence_log row stays unchanged.
+- **`admin_audit_log`** (per alembic 001 + 014): `id`, `session_id`, `facilitator_id`, `action`, `target_id`, `previous_value`, `new_value`, `timestamp`. Used by the mode-event emit-site call sweep ONLY to derive facilitator_id + timestamp — the admin_audit_log row stays unchanged. Re-surface POST writes a NEW admin_audit_log row with `action='detection_event_resurface'` and `target_id=<detection_events.id>::text` per FR-006.
 
-**Disposition timeline** (FR-010): A click-to-expand view of an event's row queries `admin_audit_log` for ALL rows with `target_event_id=<id>` ordered ascending, showing the operator the full transition history (including re-surface entries). This is a second endpoint call, NOT a join in the page query — only fetched on click-expand to keep the page query bounded.
+## §4 — Disposition resolution logic (amended 2026-05-11)
+
+**Context**: FR-010 requires the panel to surface the latest disposition for each event from the four-value enum. With the dedicated table, the latest disposition is denormalized into `detection_events.disposition` (default `'pending'`). Disposition transitions update that column AND append a transition row to `admin_audit_log`.
+
+**Mapping** (`admin_audit_log.action` → effect on `detection_events.disposition`):
+
+| `admin_audit_log.action` | Effect | Notes |
+|---|---|---|
+| `detection_event_acknowledged` | UPDATE `disposition='banner_acknowledged'`, set `last_disposition_change_at=NOW()` | |
+| `detection_event_dismissed` | UPDATE `disposition='banner_dismissed'`, set `last_disposition_change_at=NOW()` | |
+| `detection_event_auto_resolved` | UPDATE `disposition='auto_resolved'`, set `last_disposition_change_at=NOW()` | written by auto-resolution sweep (spec 004 for density-anomaly threshold drop) |
+| `detection_event_resurface` | No UPDATE to `disposition` | preserved alongside the existing disposition; broadcast triggers banner reappearance |
+
+The dual-write is wrapped in a single transaction (UPDATE detection_events + INSERT admin_audit_log row); a failure rolls back both halves.
+
+**Disposition timeline** (FR-010): A click-to-expand view of an event's row queries `admin_audit_log` for ALL rows with `target_id=<detection_events.id>::text` AND `action LIKE 'detection_event_%'` ordered ascending, showing the operator the full transition history (including re-surface entries). This is a second endpoint call, NOT a join in the page query — only fetched on click-expand to keep the page query bounded.
 
 ## §5 — Five-class event-class registry
 
@@ -144,34 +145,39 @@ EVENT_CLASSES: dict[str, dict[str, str]] = {
 
 **Mapping**: Direct passthrough — `admin_audit_log.action` value IS the panel-class key for these two rows. The class-mapping registry §5 documents the identity mapping. No translation table needed; if spec 014 ever adds a third mode-event action string (e.g., `mode_change_reverted`), it requires a spec 022 amendment to add the new class to the registry (taxonomy is fixed per Clarifications §3).
 
-## §7 — Re-surface admin_audit_log row shape
+## §7 — Re-surface admin_audit_log row shape (amended 2026-05-11)
 
-**Context**: FR-006 requires the re-surface action to emit one `admin_audit_log` row.
+**Context**: FR-006 requires the re-surface action to emit one `admin_audit_log` row. The amendment aligns the column names with the existing `admin_audit_log` schema.
 
 **Row shape**:
 
 ```
-action          = 'detection_event_resurface'
-session_id      = <session>
-actor_id        = <facilitator_id>
-target_event_id = '<source_table>:<source_row_id>'   (the synthesized event-id from §2)
-previous_value  = NULL
-new_value       = NULL
-timestamp       = NOW()
+action         = 'detection_event_resurface'
+session_id     = <session>
+facilitator_id = <facilitator who clicked re-surface>
+target_id      = <detection_events.id>::text   (stringified bigint per the column's TEXT type)
+previous_value = NULL
+new_value      = NULL
+timestamp      = NOW()
 ```
 
-The disposition CTE in §2 already filters `action LIKE 'detection_event_%'` so re-surface rows are visible to the disposition lookup — but per §4's mapping table, `detection_event_resurface` does NOT change disposition. The disposition CTE returns the row matching the predicate `action IN ('detection_event_acknowledged', 'detection_event_dismissed', 'detection_event_auto_resolved')` rather than `LIKE 'detection_event_%'`; this excludes re-surface rows from the disposition lookup while still preserving them in the disposition timeline (§4 click-expand fetch).
+Per §4 amendment, `detection_event_resurface` does NOT update `detection_events.disposition` — the row stays at its existing disposition. The re-surface is a forensic-trail event AND a WS broadcast trigger only.
 
-**Refined disposition CTE**:
+**Disposition timeline lookup**:
 
 ```sql
-WITH disposition_latest AS (
-    SELECT DISTINCT ON (target_event_id) target_event_id, action, timestamp
-    FROM admin_audit_log
-    WHERE session_id = $1 AND action IN ('detection_event_acknowledged', 'detection_event_dismissed', 'detection_event_auto_resolved')
-    ORDER BY target_event_id, timestamp DESC
-)
+SELECT action, facilitator_id, timestamp
+FROM admin_audit_log
+WHERE session_id = $1
+  AND target_id = $2::text
+  AND action IN ('detection_event_acknowledged',
+                 'detection_event_dismissed',
+                 'detection_event_auto_resolved',
+                 'detection_event_resurface')
+ORDER BY timestamp ASC;
 ```
+
+This is the click-expand fetch; not joined into the page query.
 
 ## §8 — Filter implementation (client-side AND-compose)
 
