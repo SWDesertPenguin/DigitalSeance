@@ -30,8 +30,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
-from src.orchestrator.time_format import format_iso_or_none
+from src.orchestrator.time_format import format_iso, format_iso_or_none
+from src.repositories.detection_event_repo import apply_resurface
+from src.web_ui.cross_instance_broadcast import broadcast_session_event
 from src.web_ui.detection_events import format_class_label
+from src.web_ui.events import (
+    build_detection_event_payload,
+    detection_event_resurfaced_event,
+)
 
 router = APIRouter(prefix="/tools/admin", tags=["admin"])
 
@@ -132,6 +138,129 @@ def _resolved_since() -> datetime | None:
     if days <= 0:
         return None
     return datetime.now(UTC) - timedelta(days=days)
+
+
+@router.get("/detection_events/{event_id}/timeline")
+async def get_disposition_timeline(
+    event_id: int,
+    session_id: str,
+    request: Request,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Disposition transition history for one event (FR-010 click-expand)."""
+    _authorize(participant, session_id)
+    state = request.app.state
+    rows = await state.log_repo.get_disposition_timeline(session_id, event_id)
+    return {
+        "event_id": event_id,
+        "transitions": [
+            {
+                "audit_row_id": row["id"],
+                "action": row["action"],
+                "facilitator_id": row["facilitator_id"],
+                "timestamp": format_iso_or_none(row["timestamp"]),
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.post("/detection_events/{event_id}/resurface")
+async def post_resurface(
+    event_id: int,
+    session_id: str,
+    request: Request,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Re-surface a dispositioned detection event (FR-006)."""
+    _authorize(participant, session_id)
+    state = request.app.state
+    row = await _lookup_event_row(state, session_id, event_id)
+    await _verify_session_active(state, session_id)
+    audit_row_id, broadcast_path = await _emit_resurface(
+        state,
+        session_id,
+        event_id,
+        participant.id,
+        row,
+    )
+    return {
+        "event_id": event_id,
+        "audit_row_id": audit_row_id,
+        "broadcast": _build_resurface_envelope(row)["event"],
+        "broadcast_path": broadcast_path,
+    }
+
+
+async def _lookup_event_row(state, session_id: str, event_id: int) -> dict:
+    """Fetch the detection_events row by id+session; 404 if missing."""
+    rows = await state.log_repo.get_detection_events_page(
+        session_id,
+        max_events=None,
+        since=None,
+    )
+    for row in rows:
+        if row["id"] == event_id:
+            return row
+    raise HTTPException(
+        status_code=404,
+        detail={"error": "event_not_found", "message": "no matching detection event"},
+    )
+
+
+async def _verify_session_active(state, session_id: str) -> None:
+    """409 if the session is archived (FR-008)."""
+    session = await state.session_repo.get_session(session_id)
+    if session is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "session_not_found", "message": "session not found"},
+        )
+    if getattr(session, "status", None) == "archived":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "session_archived",
+                "message": "re-surface requires an active session",
+            },
+        )
+
+
+async def _emit_resurface(state, session_id, event_id, facilitator_id, row):
+    """Write the audit row and broadcast the resurface envelope."""
+    audit_row_id = await apply_resurface(
+        state.log_repo._pool,
+        session_id=session_id,
+        event_id=event_id,
+        facilitator_id=facilitator_id,
+    )
+    envelope = _build_resurface_envelope(row, audit_row_id=audit_row_id)
+    await broadcast_session_event(session_id, envelope, pool=state.log_repo._pool)
+    return audit_row_id, "same_instance"
+
+
+def _build_resurface_envelope(row: dict, *, audit_row_id: int | None = None) -> dict:
+    """Compose the detection_event_resurfaced envelope from a row."""
+    from src.web_ui.events import DetectionEventDraft
+
+    draft = DetectionEventDraft(
+        session_id=row.get("session_id", ""),
+        event_class=row["event_class"],
+        participant_id=row["participant_id"],
+        trigger_snippet=row.get("trigger_snippet"),
+        detector_score=row.get("detector_score"),
+        turn_number=row.get("turn_number"),
+    )
+    payload = build_detection_event_payload(
+        draft,
+        row["id"],
+        format_iso(row["timestamp"]),
+        disposition=row.get("disposition", "pending"),
+    )
+    return detection_event_resurfaced_event(
+        event=payload,
+        resurface_audit_row_id=audit_row_id or 0,
+    )
 
 
 def is_detection_history_enabled() -> bool:
