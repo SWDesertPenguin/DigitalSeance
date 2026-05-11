@@ -249,6 +249,13 @@ function initialState() {
     auditLogRows: [],            // decorated rows (most recent first)
     auditLogTotalCount: 0,
     auditLogNextOffset: null,
+    // Spec 022 detection-event history (FR-001 / FR-009 / spec 011 FR-035..FR-039).
+    // Same null/true/false probe pattern as auditViewerEnabled above.
+    detectionHistoryEnabled: null,
+    detectionHistoryPanelOpen: false,
+    detectionHistoryEvents: [],  // newest-first; FR-038 prepends on live push
+    detectionHistoryFilters: { type: "all", participant: "all", timeRange: "all", disposition: "all" },
+    detectionHistorySortOrder: "desc",  // research §12 default
   };
 }
 
@@ -431,6 +438,41 @@ function reducer(state, action) {
     case "audit_viewer_enabled":
       // Probe result from the /tools/admin/audit_log master-switch HEAD.
       return { ...state, auditViewerEnabled: !!action.value };
+    case "detection_history_enabled":
+      // Probe result from /tools/admin/detection_events master-switch HEAD.
+      return { ...state, detectionHistoryEnabled: !!action.value };
+    case "detection_history_panel_set_open":
+      return { ...state, detectionHistoryPanelOpen: !!action.value };
+    case "detection_history_page_loaded":
+      // GET /tools/admin/detection_events response (spec 022 FR-001).
+      return { ...state, detectionHistoryEvents: action.events || [] };
+    case "detection_history_filters_set":
+      return { ...state, detectionHistoryFilters: action.filters };
+    case "detection_history_sort_set":
+      return { ...state, detectionHistorySortOrder: action.order };
+    case "detection_event_appended": {
+      // Spec 022 FR-009 + spec 011 FR-038. Mirrors audit_log_appended: drop
+      // when the panel is closed; on open the panel refetches via REST so
+      // missed pushes are not data loss (detection_events is durable).
+      if (!state.detectionHistoryPanelOpen) return state;
+      const event = action.event && action.event.event ? action.event.event : null;
+      if (!event || event.event_id == null) return state;
+      const seen = new Set(state.detectionHistoryEvents.map((e) => e.event_id));
+      if (seen.has(event.event_id)) return state;
+      return {
+        ...state,
+        detectionHistoryEvents: [event, ...state.detectionHistoryEvents],
+      };
+    }
+    case "detection_event_resurfaced": {
+      // Spec 022 FR-006 + spec 011 FR-038. Re-broadcast banner; the
+      // panel row's disposition is unchanged so no state mutation here
+      // beyond surfacing the new banner via existing banner handlers.
+      // The disposition timeline (click-expand fetch) would update if
+      // currently rendered for this event id — wire-up via the timeline
+      // component lands in Sweep 3.
+      return state;
+    }
     case "audit_log_panel_set_open":
       return { ...state, auditLogPanelOpen: !!action.value };
     case "audit_log_page_loaded": {
@@ -2185,7 +2227,7 @@ function ReviewGateEditor({ draft, onSave, onClose }) {
   );
 }
 
-function AdminPanel({ participants, session, auditEntries, auditViewerEnabled, onApprove, onReject, onInvite, onTransfer, onConfig, onCapSet, onOpenAuditLog }) {
+function AdminPanel({ participants, session, auditEntries, auditViewerEnabled, detectionHistoryEnabled, onApprove, onReject, onInvite, onTransfer, onConfig, onCapSet, onOpenAuditLog, onOpenDetectionHistory }) {
   // US6 T120–T125.
   const [open, setOpen] = useState(false);
   const [invite, setInvite] = useState(null);
@@ -2338,6 +2380,16 @@ function AdminPanel({ participants, session, auditEntries, auditViewerEnabled, o
                 title="Open the formatted audit-log viewer (spec 029)"
               >
                 View audit log
+              </button>
+            )}
+            {detectionHistoryEnabled && (
+              <button
+                type="button"
+                className="full-width"
+                onClick={onOpenDetectionHistory}
+                title="Open the detection-event history panel (spec 022)"
+              >
+                View detection history
               </button>
             )}
           </details>
@@ -2732,6 +2784,108 @@ function AuditLogPanel({ rows, totalCount, nextOffset, participants, onLoadMore,
         </button>
       )}
     </section>
+  );
+}
+
+function DetectionHistoryPanel({ events, filters, sortOrder, onFiltersChange, onSortChange, onClose }) {
+  // Spec 022 history surface + spec 011 FR-036..FR-039 (Session 2026-05-11
+  // amendment). Pure-logic helpers (filter composition, hidden-events
+  // badges, sort, truncation) live in frontend/detection_history_filters.js
+  // so the SPA composes them rather than re-deriving in the component.
+  const filtersLib = (typeof window !== "undefined" && window.DetectionHistoryFilters) || null;
+  const taxonomyLib = (typeof window !== "undefined" && window.DetectionEventTaxonomy) || null;
+  const formatClassLabel = (key) => (taxonomyLib?.formatClassLabel
+    ? taxonomyLib.formatClassLabel(key)
+    : `[unregistered: ${key}]`);
+  const baseFilters = filters || (filtersLib?.defaultFilters() ?? {
+    type: "all", participant: "all", timeRange: "all", disposition: "all",
+  });
+  const visibleEvents = filtersLib
+    ? filtersLib.sortEvents(filtersLib.applyFilters(events, baseFilters), sortOrder || "desc")
+    : (events || []);
+  const hiddenCounts = filtersLib ? filtersLib.hiddenByAxis(events, baseFilters) : { type: 0, participant: 0, timeRange: 0, disposition: 0 };
+  const participantOptions = filtersLib ? filtersLib.distinctParticipants(events) : [];
+  const update = (axis, value) => onFiltersChange({ ...baseFilters, [axis]: value });
+  const reset = () => onFiltersChange(filtersLib?.defaultFilters() ?? { type: "all", participant: "all", timeRange: "all", disposition: "all" });
+  return (
+    <section className="detection-history-panel">
+      <header className="audit-log-header">
+        <h3>Detection event history</h3>
+        <button type="button" onClick={onClose} title="Close detection-history panel">Close</button>
+      </header>
+      <div className="filter-row">
+        <FilterDropdown label="Type" value={baseFilters.type} hidden={hiddenCounts.type}
+          options={[["all", "All types"], ["ai_question_opened", "AI question opened"],
+            ["ai_exit_requested", "AI exit requested"], ["density_anomaly", "Density anomaly"],
+            ["mode_recommendation", "Mode recommendation"], ["mode_change", "Mode change"]]}
+          onChange={(v) => update("type", v)} />
+        <FilterDropdown label="Participant" value={baseFilters.participant} hidden={hiddenCounts.participant}
+          options={[["all", "All participants"], ...participantOptions.map((p) => [p, p])]}
+          onChange={(v) => update("participant", v)} />
+        <FilterDropdown label="Time" value={typeof baseFilters.timeRange === "string" ? baseFilters.timeRange : "custom"}
+          hidden={hiddenCounts.timeRange}
+          options={[["all", "All time"], ["5m", "Last 5m"], ["15m", "Last 15m"], ["1h", "Last 1h"]]}
+          onChange={(v) => update("timeRange", v)} />
+        <FilterDropdown label="Disposition" value={baseFilters.disposition} hidden={hiddenCounts.disposition}
+          options={[["all", "All dispositions"], ["pending", "Pending"], ["banner_acknowledged", "Acknowledged"],
+            ["banner_dismissed", "Dismissed"], ["auto_resolved", "Auto-resolved"]]}
+          onChange={(v) => update("disposition", v)} />
+        <button type="button" onClick={() => onSortChange(sortOrder === "asc" ? "desc" : "asc")}
+          title="Toggle chronological order">
+          {sortOrder === "asc" ? "↑ Oldest first" : "↓ Newest first"}
+        </button>
+        <button type="button" onClick={reset} title="Clear all filters and reset sort">
+          Clear filters
+        </button>
+      </div>
+      {visibleEvents.length === 0 ? (
+        <p className="dim">{(events || []).length === 0
+          ? "No detection events for this session yet."
+          : "No events match the active filters."}</p>
+      ) : (
+        <ul className="detection-event-list">
+          {visibleEvents.map((ev) => (
+            <DetectionEventRow key={ev.event_id} event={ev} formatClassLabel={formatClassLabel} filtersLib={filtersLib} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function FilterDropdown({ label, value, hidden, options, onChange }) {
+  return (
+    <label className="filter-control">
+      <span>{label}{hidden > 0 ? ` (${hidden} hidden)` : ""}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function DetectionEventRow({ event, formatClassLabel, filtersLib }) {
+  const [expanded, setExpanded] = useState(false);
+  const snip = filtersLib
+    ? filtersLib.truncateSnippet(event.trigger_snippet)
+    : { display: event.trigger_snippet || "", full: event.trigger_snippet || "", truncated: false };
+  return (
+    <li className="detection-event-row">
+      <div className="dim">{event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : ""}</div>
+      <div><strong>{formatClassLabel(event.event_class)}</strong></div>
+      <div className="dim">Participant: <code>{event.participant_id}</code>
+        {event.detector_score != null ? ` · score ${event.detector_score.toFixed(2)}` : ""}
+        {event.turn_number != null ? ` · turn ${event.turn_number}` : ""}
+        {` · ${event.disposition}`}
+      </div>
+      {snip.truncated && !expanded ? (
+        <div className="snippet">{snip.display}…
+          <button type="button" className="expand-link" onClick={() => setExpanded(true)}>[expand]</button>
+        </div>
+      ) : snip.full ? (
+        <div className="snippet">{snip.full}</div>
+      ) : null}
+    </li>
   );
 }
 
@@ -3927,6 +4081,40 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     }
   };
 
+  // Spec 022 detection-history master-switch probe (spec 011 FR-035).
+  // Same shape as the spec 029 audit-viewer probe above. A 200 means the
+  // route mounted and the panel surface is enabled.
+  useEffect(() => {
+    if (!isFacilitator || !auth.session_id) return;
+    if (state.detectionHistoryEnabled !== null) return;
+    mcpCall(`/tools/admin/detection_events?session_id=${encodeURIComponent(auth.session_id)}`)
+      .then(() => dispatch({ type: "detection_history_enabled", value: true }))
+      .catch(() => dispatch({ type: "detection_history_enabled", value: false }));
+  }, [isFacilitator, auth.session_id, state.detectionHistoryEnabled]);
+
+  const fetchDetectionHistoryPage = async () => {
+    try {
+      const data = await mcpCall(
+        `/tools/admin/detection_events?session_id=${encodeURIComponent(auth.session_id)}`,
+      );
+      dispatch({
+        type: "detection_history_page_loaded",
+        events: data?.events || [],
+      });
+    } catch (e) {
+      alert(`Detection history fetch failed: ${e.message || e}`);
+    }
+  };
+
+  const openDetectionHistoryPanel = async () => {
+    dispatch({ type: "detection_history_panel_set_open", value: true });
+    await fetchDetectionHistoryPage();
+  };
+
+  const closeDetectionHistoryPanel = () => {
+    dispatch({ type: "detection_history_panel_set_open", value: false });
+  };
+
   return (
     <div className="app-shell">
       <Header
@@ -4000,6 +4188,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                 session={state.session}
                 auditEntries={state.auditEntries}
                 auditViewerEnabled={state.auditViewerEnabled === true}
+                detectionHistoryEnabled={state.detectionHistoryEnabled === true}
                 onApprove={approveParticipant}
                 onReject={rejectParticipant}
                 onInvite={createInvite}
@@ -4007,6 +4196,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                 onConfig={setSessionConfig}
                 onCapSet={setLengthCap}
                 onOpenAuditLog={openAuditLogPanel}
+                onOpenDetectionHistory={openDetectionHistoryPanel}
               />
               {state.auditLogPanelOpen && (
                 <AuditLogPanel
@@ -4016,6 +4206,16 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                   participants={state.participants}
                   onLoadMore={loadMoreAuditLog}
                   onClose={closeAuditLogPanel}
+                />
+              )}
+              {state.detectionHistoryPanelOpen && (
+                <DetectionHistoryPanel
+                  events={state.detectionHistoryEvents}
+                  filters={state.detectionHistoryFilters}
+                  sortOrder={state.detectionHistorySortOrder}
+                  onFiltersChange={(filters) => dispatch({ type: "detection_history_filters_set", filters })}
+                  onSortChange={(order) => dispatch({ type: "detection_history_sort_set", order })}
+                  onClose={closeDetectionHistoryPanel}
                 />
               )}
             </>
