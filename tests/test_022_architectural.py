@@ -71,6 +71,64 @@ def test_resurface_path_routes_through_cross_instance_broadcast() -> None:
         )
 
 
+def test_detection_event_emit_sites_reuse_shared_dual_write_helper() -> None:
+    """The four emit sites MUST delegate to persist_and_broadcast_detection_event.
+
+    Per FR-017 + data-model.md "Dual-write contract": each detector emit
+    site builds a DetectionEventDraft and hands off to the shared helper
+    in src/web_ui/events.py. A new emit site that calls
+    insert_detection_event directly (bypassing the broadcast half) would
+    silently break the live-update WS contract.
+    """
+    # Only the repo (definition) and the shared events helper should
+    # import insert_detection_event directly. All other emit sites must
+    # go through persist_and_broadcast_detection_event so the dual-write
+    # contract (INSERT + WS broadcast) stays atomic.
+    expected_callers = {
+        "src/repositories/detection_event_repo.py",  # definition
+        "src/web_ui/events.py",  # shared helper
+    }
+    actual_callers: set[str] = set()
+    for path in _python_sources_under(SRC):
+        text = path.read_text(encoding="utf-8")
+        if "insert_detection_event" in text:
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            actual_callers.add(rel)
+    extras = actual_callers - expected_callers
+    assert not extras, (
+        "Unexpected modules import insert_detection_event directly; "
+        "any new emit site MUST route through "
+        "src.web_ui.events.persist_and_broadcast_detection_event: "
+        f"unexpected callers = {extras}"
+    )
+
+
+def test_detection_event_envelope_builders_paired_with_cross_instance_broadcast() -> None:
+    """Modules that build detection_event_* envelopes MUST also import
+    broadcast_session_event from cross_instance_broadcast.
+
+    The cross_instance_broadcast layer handles same-instance + LISTEN/NOTIFY
+    fan-out per Clarifications §6. Any module emitting these envelopes
+    must use the cross-instance helper rather than the legacy
+    per-process broadcast_to_session helper that doesn't carry the
+    LISTEN/NOTIFY hop.
+    """
+    builders = ("detection_event_appended_event", "detection_event_resurfaced_event")
+    offenders: list[str] = []
+    for path in _python_sources_under(SRC):
+        text = path.read_text(encoding="utf-8")
+        builds_envelope = any(b in text for b in builders)
+        if not builds_envelope:
+            continue
+        if "broadcast_session_event" not in text:
+            offenders.append(path.relative_to(REPO_ROOT).as_posix())
+    assert not offenders, (
+        "Modules building detection_event_* envelopes must also import "
+        "cross_instance_broadcast.broadcast_session_event: "
+        f"offenders = {offenders}"
+    )
+
+
 def test_no_inline_iso_formatter_in_detection_events_paths() -> None:
     """Spec 029's format_iso must be reused, not reimplemented."""
     suspect_phrases = (
