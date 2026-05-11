@@ -319,6 +319,122 @@ def validate_openai_cache_retention() -> ValidationFailure | None:
     return None
 
 
+def validate_cache_openai_key_strategy() -> ValidationFailure | None:
+    """SACP_CACHE_OPENAI_KEY_STRATEGY: 'session_id' or 'participant_id', default 'session_id'.
+
+    Spec 026 FR-001 OpenAI prompt_cache_key routing strategy. session_id
+    keeps a session's per-participant fan-out on the same backend for
+    cache hit-rate; participant_id partitions per participant for
+    operators who explicitly want that.
+    """
+    val = os.environ.get("SACP_CACHE_OPENAI_KEY_STRATEGY")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("session_id", "participant_id"):
+        return ValidationFailure(
+            "SACP_CACHE_OPENAI_KEY_STRATEGY",
+            f"must be 'session_id' or 'participant_id'; got {val!r}",
+        )
+    return None
+
+
+def validate_compression_phase2_enabled() -> ValidationFailure | None:
+    """SACP_COMPRESSION_PHASE2_ENABLED: 'true' or 'false', default 'false'.
+
+    Spec 026 FR-008 Phase 2 master switch. When false (default), Phase 2
+    compressors raise NotImplementedError on dispatch. When true, the
+    dispatch path can route to LLMLingua2mBERTCompressor or
+    SelectiveContextCompressor.
+    """
+    val = os.environ.get("SACP_COMPRESSION_PHASE2_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_COMPRESSION_PHASE2_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_compression_threshold_tokens() -> ValidationFailure | None:
+    """SACP_COMPRESSION_THRESHOLD_TOKENS: int in [500, 100000], default 4000.
+
+    Spec 026 FR-016 hard-compression engagement threshold. Below 500
+    makes compression overhead dominate any savings; above 100000
+    effectively disables compression for all real workloads.
+    """
+    val = os.environ.get("SACP_COMPRESSION_THRESHOLD_TOKENS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_COMPRESSION_THRESHOLD_TOKENS",
+            f"must be an integer; got {val!r}",
+        )
+    if not 500 <= num <= 100000:
+        return ValidationFailure(
+            "SACP_COMPRESSION_THRESHOLD_TOKENS",
+            f"must be in [500, 100000]; got {num}",
+        )
+    return None
+
+
+_COMPRESSOR_IDS = frozenset({"noop", "llmlingua2_mbert", "selective_context", "provence", "layer6"})
+
+
+def validate_compression_default_compressor() -> ValidationFailure | None:
+    """SACP_COMPRESSION_DEFAULT_COMPRESSOR: registered compressor id, default 'noop'.
+
+    Spec 026 FR-006 / FR-007 default compressor selection. Phase 1
+    default is noop; Phase 2 cutover is a single env-var change to
+    llmlingua2_mbert. Out-of-set exits at startup with the list of
+    registered names per contracts/env-vars.md.
+    """
+    val = os.environ.get("SACP_COMPRESSION_DEFAULT_COMPRESSOR")
+    if val is None or val.strip() == "":
+        return None
+    if val not in _COMPRESSOR_IDS:
+        return ValidationFailure(
+            "SACP_COMPRESSION_DEFAULT_COMPRESSOR",
+            f"must be one of {sorted(_COMPRESSOR_IDS)}; got {val!r}",
+        )
+    return None
+
+
+def validate_compression_cross_var_interactions() -> ValidationFailure | None:
+    """Spec 026 cross-validator: phase-2 / default-compressor / topology coherence.
+
+    Three rules per contracts/env-vars.md "Cross-validator interaction":
+      - phase2=false AND default=llmlingua2_mbert -> ValidationFailure (impossible combo).
+      - SACP_TOPOLOGY=7 AND default != noop      -> ValidationFailure (topology gate).
+      - phase2=true AND default=noop             -> WARN (suspicious, not fatal).
+    """
+    default = os.environ.get("SACP_COMPRESSION_DEFAULT_COMPRESSOR", "noop") or "noop"
+    phase2 = os.environ.get("SACP_COMPRESSION_PHASE2_ENABLED", "false") or "false"
+    topology = os.environ.get("SACP_TOPOLOGY")
+    phase2_compressors = {"llmlingua2_mbert", "selective_context"}
+    if phase2 == "false" and default in phase2_compressors:
+        return ValidationFailure(
+            "SACP_COMPRESSION_DEFAULT_COMPRESSOR",
+            (
+                f"is {default!r} but SACP_COMPRESSION_PHASE2_ENABLED is 'false'; "
+                f"set SACP_COMPRESSION_PHASE2_ENABLED=true or pick a Phase 1 default"
+            ),
+        )
+    if topology == "7" and default != "noop":
+        return ValidationFailure(
+            "SACP_COMPRESSION_DEFAULT_COMPRESSOR",
+            (
+                f"is {default!r} but SACP_TOPOLOGY=7 supports Layer 1 caching only; "
+                f"set SACP_COMPRESSION_DEFAULT_COMPRESSOR=noop on topology 7"
+            ),
+        )
+    return None
+
+
 def validate_compound_retry_total_max_seconds() -> ValidationFailure | None:
     """SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS: int seconds > 0, default 600. 003 §FR-031."""
     val = os.environ.get("SACP_COMPOUND_RETRY_TOTAL_MAX_SECONDS")
@@ -1251,6 +1367,11 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_anthropic_cache_ttl,
     validate_caching_enabled,
     validate_density_anomaly_ratio,
+    validate_cache_openai_key_strategy,
+    validate_compression_phase2_enabled,
+    validate_compression_threshold_tokens,
+    validate_compression_default_compressor,
+    validate_compression_cross_var_interactions,
     validate_openai_cache_retention,
     validate_web_ui_cookie_key,
     validate_compound_retry_total_max_seconds,

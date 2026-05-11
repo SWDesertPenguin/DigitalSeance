@@ -24,6 +24,12 @@ allowed-values:
   # the key dynamically per-run; this allowlist entry is purely to keep
   # all-branches scans clean against the locked tag.
   - "nVEFAqlxNoXayhpZiK-KXwxeto-_y0HXdbtGSGBzSr8="
+  # Spec 026 env-var NAME (not a secret value) — 2MS flagged the literal
+  # string appearing in a tuple of var names in tests/test_026_validators.py
+  # as a "generic-api-key". The string is documented in
+  # specs/026-context-compression/contracts/env-vars.md and is the public
+  # operator-facing name of the Phase 2 master switch.
+  - "SACP_COMPRESSION_PHASE2_ENABLED"
 
 git:
   all-branches: true
