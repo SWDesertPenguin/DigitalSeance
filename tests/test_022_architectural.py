@@ -52,17 +52,18 @@ def test_event_classes_defined_only_in_detection_events_module() -> None:
 def test_resurface_path_routes_through_cross_instance_broadcast() -> None:
     """The endpoint module MUST route through cross_instance_broadcast.
 
-    Sweep 2 introduces the endpoint code. The check tolerates the absence
-    of the endpoint module today (Sweep 1) and only activates once the
-    endpoint imports a broadcast helper.
+    Sweep 3 introduces the POST .../resurface handler. The check only
+    activates once the endpoint module references broadcast helpers.
     """
-    endpoint_module = SRC / "web_ui" / "detection_events.py"
+    endpoint_module = SRC / "mcp_server" / "tools" / "detection_events.py"
+    if not endpoint_module.exists():
+        return
     text = endpoint_module.read_text(encoding="utf-8")
     if "POST" not in text and "broadcast_to_session" not in text:
-        return  # endpoint not yet implemented; skip
+        return
     if "broadcast_to_session(" in text and "broadcast_session_event" not in text:
         raise AssertionError(
-            "src/web_ui/detection_events.py must use "
+            "src/mcp_server/tools/detection_events.py must use "
             "cross_instance_broadcast.broadcast_session_event for "
             "detection_event_resurfaced / detection_event_appended payloads, "
             "not broadcast_to_session — the latter bypasses the cross-instance "
