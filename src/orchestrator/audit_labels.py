@@ -65,6 +65,11 @@ LABELS: dict[str, dict[str, Any]] = {
         "label": "Loop manually stopped during conclude phase",
     },
     "session_config_change": {"label": "Session config changed"},
+    # Spec 022 disposition-transition + re-surface actions (Session 2026-05-11).
+    "detection_event_acknowledged": {"label": "Detection event acknowledged"},
+    "detection_event_dismissed": {"label": "Detection event dismissed"},
+    "detection_event_auto_resolved": {"label": "Detection event auto-resolved"},
+    "detection_event_resurface": {"label": "Detection event re-surfaced"},
 }
 
 
