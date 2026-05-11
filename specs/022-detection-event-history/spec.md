@@ -482,14 +482,18 @@ all filters and verify the full event set returns.
   `src/web_ui/detection_events.py`. Spec 014's implementation
   is already landed (Implemented 2026-05-08), so this is a
   v1 wire-up, not a forward-compat carve-out.
-- **FR-016**: The two new env vars
-  (`SACP_DETECTION_HISTORY_MAX_EVENTS`,
+- **FR-016**: The three new env vars
+  (`SACP_DETECTION_HISTORY_ENABLED`,
+  `SACP_DETECTION_HISTORY_MAX_EVENTS`,
   `SACP_DETECTION_HISTORY_RETENTION_DAYS`) MUST have
   validator functions in `src/config/validators.py` registered
   in the `VALIDATORS` tuple, AND corresponding sections in
   `docs/env-vars.md` with the six standard fields, BEFORE
   `/speckit.tasks` is run for this spec (V16 deliverable
-  gate).
+  gate). When `SACP_DETECTION_HISTORY_ENABLED=false` (default),
+  both endpoints return HTTP 404 AND the SPA admin-panel
+  entry-point is hidden (fail-closed master switch, mirrors
+  spec 029 FR-018).
 - **FR-017**: The endpoint MUST NOT introduce a new
   persistence path for detection events. The five v1 event
   classes are already written by spec 003 / 004 / 014 to
@@ -654,10 +658,24 @@ This spec contributes three budgets:
 
 ## Configuration (V16) — New Env Vars
 
-Two new env vars are introduced. Each MUST have type, valid
+Three new env vars are introduced. Each MUST have type, valid
 range, and fail-closed semantics documented in
 `docs/env-vars.md` BEFORE `/speckit.tasks` is run for this spec
 (per V16 deliverable gate).
+
+### `SACP_DETECTION_HISTORY_ENABLED`
+
+- **Intended type**: boolean (`true` / `false`)
+- **Intended valid range**: `{true, false}`. Default: `false`.
+- **Fail-closed semantics**: when `false` (default), both
+  `GET /tools/admin/detection_events` and
+  `POST /tools/admin/detection_events/<event_id>/resurface`
+  return HTTP 404 AND the SPA admin-panel entry-point ("View
+  detection history") is hidden. Operators must explicitly
+  enable the panel surface; mirrors spec 029's
+  `SACP_AUDIT_VIEWER_ENABLED` master-switch pattern. Any value
+  outside `{true, false}` MUST cause startup exit with a clear
+  error.
 
 ### `SACP_DETECTION_HISTORY_MAX_EVENTS`
 
