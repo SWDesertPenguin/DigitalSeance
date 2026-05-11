@@ -2,7 +2,7 @@
 
 **Feature Branch**: `022-detection-event-history`
 **Created**: 2026-05-07
-**Status**: Draft (Phase 3 declared 2026-05-05; scaffold ships now, tasks + implementation deferred)
+**Status**: Clarified 2026-05-10 (Phase 3 declared 2026-05-05; scaffold + clarifications resolved; tasks + implementation pending)
 **Input**: User description: "Phase 3 detection event history surface. Spec 004's A2 question-tracker and A3 exit-detection signals (and density_anomaly) fire correctly during sessions but the live UI surfaces only the current banner — once dismissed an event is invisible. The audit log has the data; the operator-facing surface does not. Spec 022 adds a detection-event history panel that lists all ai_question_opened, ai_exit_requested, density_anomaly, and (when 014 lands) mode_change events for the active session, with the option to re-surface a previously dismissed banner for re-evaluation. Applies to topologies 1-6 (orchestrator-mediated event stream); incompatible with topology 7 per V12. Primary use cases: consulting (§3) where event review is part of the engagement deliverable, and technical review and audit (§5) where every routing decision must be reviewable."
 
 ## Overview
@@ -46,9 +46,10 @@ operator-facing surface that:
    demand. Re-surface is a logged action — it appears in
    `admin_audit_log` with actor, target event id, and timestamp.
 3. **Filters** by event type (question / exit / density-anomaly /
-   mode-change) so an operator can compute per-detector noise
+   mode-recommendation / mode-change), participant, time range,
+   and disposition so an operator can compute per-detector noise
    rates by counting dismissed-as-false-positive events of one
-   class.
+   class and slice the timeline by who/when/outcome.
 4. **Respects** the existing event-retention story (spec 010 already
    includes these events in the debug-export payload; spec 022 reads
    the same source rather than introducing a new persistence path).
@@ -59,13 +60,34 @@ re-surface action's audit trail, but cannot modify the original
 trigger snippet, score, or timestamp. Append-only is preserved per
 spec 001 §FR-008.
 
-This spec **scaffolds only**. Implementation begins when the
-facilitator schedules tasks per Constitution §14.1. The Phase 3
-declaration recorded 2026-05-05 satisfies the phase gate; this
-spec stays scaffold-only until tasks land and implementation
-reaches Implemented status.
+This spec is **Clarified** (Session 2026-05-10). Implementation
+begins when the facilitator schedules `/speckit.plan` and
+`/speckit.tasks` per Constitution §14.1. The Phase 3 declaration
+recorded 2026-05-05 satisfies the phase gate; this spec stays
+pre-implementation until tasks land and implementation reaches
+Implemented status.
 
 ## Clarifications
+
+### Session 2026-05-10 (Resolved)
+
+All eight initial-draft markers resolved. FR text is updated inline below; the original "Initial draft assumptions requiring confirmation" subsection is retained for historical reference.
+
+1. **Event source of truth**. Read-side join over existing log tables confirmed. The panel queries `convergence_log` (for `density_anomaly`), `routing_log` (for `ai_question_opened` and `ai_exit_requested`), and `admin_audit_log` (for disposition transitions and `mode_recommendation` / `mode_change` rows from spec 014). No new `detection_events` table. Rationale: append-only invariant on existing logs (spec 001 §FR-008) makes them the source of truth; a parallel table would require dual-write coordination and risk drift. The read-side join is a bounded per-session query — join cost is acceptable for v1's per-session diagnostic surface. Future high-volume cross-session analytics can introduce a materialized view as an optimization, not a source change. FR-017 stands as drafted.
+
+2. **Re-surface semantics**. Operator-only re-surface confirmed. Re-broadcast goes to the facilitator's WS as a banner; participant AIs do not see re-surfaced events. Re-surface is a human-side decision-review tool, not an AI-side context injection. Future participant-side notifications on re-surface (if needed) are a separate feature, not v1 scope. FR-006 stands as drafted with one tightening: the WS broadcast target is the facilitator's per-session channel, not the participant's WS channel. (The drafted "over the participant's WS channel" phrasing in §Overview and the original FR-006 wording is corrected — the participant channel was the wrong target; the facilitator channel is the correct one given operator-only scope.)
+
+3. **Event taxonomy completeness**. Fixed five-class v1 taxonomy confirmed (NOT extensible registry; NOT four-class). Per the §8 resolution below, `mode_recommendation` and `mode_change` ship as two distinct panel classes rather than merging into one. v1 ships with: `ai_question_opened`, `ai_exit_requested`, `density_anomaly`, `mode_recommendation`, `mode_change`. Future detectors (e.g., spec 021's filler-retry events, spec 015's circuit-breaker state transitions) join via a follow-up spec amendment, not via runtime registry. Rationale: extensible registry adds API + UI surface that must handle unknown classes gracefully and a parity gate beyond spec 029's existing audit-label parity; a fixed taxonomy keeps v1 predictable and the surface explicit. FR-005, FR-011, and `EventClassRegistry` are updated to the five-class set.
+
+4. **Filter granularity in P3**. Fuller filter axis set confirmed (NOT type-only). v1 ships filter-by-type + filter-by-participant + filter-by-time-range + filter-by-disposition. Rationale: the disposition filter is load-bearing for the noise-rate analysis use case (US3) — filtering to "dismissed density_anomaly events" without disposition filtering requires manual counting in the panel. Participant filtering serves the per-AI behavior-review case. Time-range filtering serves the "what happened around turn N" reconstruction case the spec explicitly motivates. FR-011 is updated from "type-only" to the four-axis filter set; SC-006's client-side O(1) update budget extends to all four axes.
+
+5. **Disposition vocabulary**. Four-value enum confirmed: `pending` (event fired, banner shown, no operator action yet), `banner_acknowledged` (operator clicked acknowledge), `banner_dismissed` (operator clicked dismiss without acknowledging), `auto_resolved` (underlying condition cleared without operator action — e.g., density-anomaly score dropped below threshold on the next turn). Two-value (`resolved` / `unresolved`) was rejected because it discards exactly the data the spec cites for false-positive identification (operator-engaged vs. operator-ignored vs. self-healed). FR-010 stands as drafted. The disposition filter introduced in §4 above accepts any of the four values plus `all`.
+
+6. **Multi-instance session affinity**. Design-for-multi-instance-from-the-start confirmed (NOT single-instance v1). v1 re-surface MUST work across orchestrator instances on day one, ahead of when spec 011's `SessionStore` Redis backend was originally planned to introduce a shared store. Rationale: re-surface is a low-frequency operator action; a process-router or pub/sub layer for re-surface broadcast is cheap to add and avoids a Phase 3+ rework once multi-instance traffic arrives. The architecture pattern is: re-surface POST resolves the facilitator's currently-bound orchestrator process via a small lookup (DB-backed session→instance binding OR a pub/sub channel scoped to the session id), then forwards the WS broadcast emission to that process. Specific mechanism (DB-backed routing table, Redis pub/sub, or the simpler same-process fast path with a process-binding lookup at re-surface time) is settled in `/speckit.plan` research. This adds a new dependency-surface decision item to research.md: which broadcast mechanism, and how it integrates with the existing single-process WS broadcast path in spec 011. The §Assumptions section is updated to remove the "v1 ships single-instance" carve-out; a new Performance Budget (V14) covers the cross-instance re-surface latency target.
+
+7. **Active-vs-archived sessions**. Active-only re-surface confirmed; read-only history on archived sessions. The archived-session panel shows the full event list but the re-surface button is disabled with an explanatory tooltip ("re-surface requires an active session"). FR-008 stands as drafted (re-surface on archived returns HTTP 409). The append-only invariant on `admin_audit_log` preserves re-surface history when an active session is later archived (US2 acceptance scenario 3 stands).
+
+8. **Mode-change event forward compatibility**. Two distinct panel classes confirmed (NOT one merged class). Spec 014's `mode_recommendation` (advisory mode) and `mode_change` (auto-apply mode) ship as separate event-class names in the v1 taxonomy rather than merging under one `mode_change` class with a `mode_action_kind` discriminator. Rationale: the two events represent different operator-facing semantics (an advisory suggestion the facilitator can act on vs. a system-applied state change the facilitator observes); merging them under one filter type forces operators to apply a sub-filter to separate them in the per-detector noise-rate analysis case. The taxonomy in §3 above bumps from four classes to five accordingly. FR-005 and FR-015 are updated; the §Edge Cases entry on spec 014 forward-compat is rewritten; the §Cross-References to spec 014 is updated to reflect the two-class mapping.
 
 ### Initial draft assumptions requiring confirmation
 
@@ -173,10 +195,10 @@ and a disposition.
    event, **When** the facilitator opens the history panel,
    **Then** the panel MUST list the event with type, participant,
    trigger snippet, detector score, timestamp, and disposition.
-2. **Given** a session with multiple events across the four
+2. **Given** a session with multiple events across the five
    tracked classes, **When** the panel opens, **Then** events
    MUST appear in chronological order (oldest first OR newest
-   first per `/speckit.clarify` decision; one ordering, not a
+   first per `/speckit.plan` decision; one ordering, not a
    mix).
 3. **Given** a session with no detection events yet,
    **When** the panel opens, **Then** an empty-state message
@@ -271,14 +293,20 @@ analysis cheap (no manual counting) but is not on the critical
 path for P1's diagnostic loop.
 
 **Independent Test**: Open the history panel for a session
-with mixed event types. Click the type filter and select
-one type. Verify only events of that type appear. Toggle
-to "all types" and verify all events return. Toggle to a
-different type and verify the displayed set updates.
+with mixed event types, participants, dispositions, and a
+timeline spanning at least one hour. Exercise each filter
+axis: (a) type — select one of five values, verify the
+displayed set narrows; (b) participant — select one of the
+session's participants, verify only their events appear;
+(c) time range — narrow to a sub-window, verify only events
+in that window appear; (d) disposition — select one of four
+values, verify only events with that current disposition
+appear. Combine two axes and verify AND semantics. Clear
+all filters and verify the full event set returns.
 
 **Acceptance Scenarios**:
 
-1. **Given** a session with events across all four tracked
+1. **Given** a session with events across all five tracked
    classes, **When** the facilitator selects a single type
    filter, **Then** the panel MUST display only events of
    that type.
@@ -294,6 +322,25 @@ different type and verify the displayed set updates.
 4. **Given** the operator clears the filter, **When** the
    "all types" option is selected, **Then** all events MUST
    return to the panel in the original chronological order.
+5. **Given** a session with events from multiple participants,
+   **When** the facilitator selects a participant filter,
+   **Then** the panel MUST display only events for the selected
+   participant; `all participants` MUST return the full set.
+6. **Given** an event timeline spanning at least one hour,
+   **When** the facilitator narrows the time-range filter,
+   **Then** the panel MUST display only events whose timestamps
+   fall within the range; the badge contract from scenario 3
+   MUST extend to time-range filtering.
+7. **Given** a mixed-disposition event set, **When** the
+   facilitator selects a single disposition value, **Then** the
+   panel MUST display only events with that current disposition;
+   the four-value enum from FR-010 plus `all` MUST be the only
+   accepted inputs.
+8. **Given** type, participant, time-range, and disposition
+   filters all active simultaneously, **When** the panel
+   renders, **Then** filters MUST compose with AND semantics
+   (event survives display only if it matches ALL active
+   filters).
 
 ---
 
@@ -307,10 +354,14 @@ different type and verify the displayed set updates.
   archive cleanup). Panel renders the row as last seen but
   the re-surface action is disabled with an explanatory
   tooltip ("source row purged after retention window").
-- **Spec 014 lands and emits `mode_recommendation` events.**
-  Per the Clarifications question, those events surface in the
-  panel's `mode_change` class with a `mode_action_kind=advisory`
-  attribute. Forward-compatible without a 022 amendment.
+- **Spec 014 mode-event mapping.** Spec 014 (Implemented
+  2026-05-08) emits `mode_recommendation` (advisory mode) and
+  `mode_change` (auto-apply mode) rows to `admin_audit_log`.
+  Per Clarifications §8, 022 surfaces them as TWO distinct
+  event classes in the v1 taxonomy with separate filter values
+  and labels. Adding new mode-event types in a future spec 014
+  amendment requires a corresponding 022 amendment (the
+  taxonomy is fixed per Clarifications §3).
 - **Re-surface called on an event whose original banner
   shape is incompatible with current UI state** (e.g., the UI
   was updated and the banner type was renamed). The
@@ -354,20 +405,25 @@ different type and verify the displayed set updates.
 - **FR-004**: The endpoint MUST be read-only — no INSERT,
   UPDATE, or DELETE on detection-event source rows occurs as
   a side effect (mirrors spec 010 §FR-6 / §SC-007).
-- **FR-005**: The endpoint MUST surface events from the four
+- **FR-005**: The endpoint MUST surface events from the five
   v1 classes: `ai_question_opened`, `ai_exit_requested`,
-  `density_anomaly`, and `mode_change`. The
-  `mode_change` class MUST include both spec 014's
-  `mode_recommendation` (advisory) and `mode_change`
-  (auto-apply) audit-log entries; the panel surfaces them
-  with a `mode_action_kind` discriminator.
+  `density_anomaly`, `mode_recommendation`, and `mode_change`.
+  `mode_recommendation` (advisory mode signal from spec 014)
+  and `mode_change` (auto-apply mode signal from spec 014) are
+  distinct classes with separate filter values and separate
+  panel labels — they are NOT merged under one class with a
+  discriminator (per Clarifications §8).
 - **FR-006**: A new HTTP endpoint MUST expose re-surface at
   `POST /tools/admin/detection_events/<event_id>/resurface`.
   Re-surface re-broadcasts the original banner shape over
-  the participant's WS channel AND emits an
-  `admin_audit_log` row with
+  the **facilitator's** per-session WS channel (participant AIs
+  do NOT see the re-surfaced event, per Clarifications §2) AND
+  emits an `admin_audit_log` row with
   `action='detection_event_resurface'`, `actor_id=<facilitator>`,
-  `target_event_id=<id>`, `timestamp=NOW()`.
+  `target_event_id=<id>`, `timestamp=NOW()`. The WS broadcast
+  MUST work across orchestrator instances (multi-instance from
+  v1, per Clarifications §6); the cross-instance routing
+  mechanism is settled in `/speckit.plan` research.
 - **FR-007**: Re-surface MUST be facilitator-only and
   session-bound (mirrors FR-002 + FR-003).
 - **FR-008**: Re-surface MUST be rejected for archived
@@ -377,17 +433,30 @@ different type and verify the displayed set updates.
   spec 011 WS event channel when a new detection event fires
   for the active session. No new WS channel is introduced;
   the existing per-session broadcast (spec 006 §FR-013, spec
-  011) carries the new event-list-item shape.
+  011) carries the new event-list-item shape. The broadcast
+  MUST work across orchestrator instances (multi-instance from
+  v1, per Clarifications §6); the cross-instance routing
+  mechanism is shared with re-surface (FR-006) and is settled
+  in `/speckit.plan` research.
 - **FR-010**: The disposition column MUST take one of four
   values: `pending`, `banner_acknowledged`, `banner_dismissed`,
   `auto_resolved`. Disposition transitions MUST be tracked as
   separate audit-log rows; the panel reads the latest row to
   determine current disposition AND can show the full
   disposition timeline on click-expand.
-- **FR-011**: Filter-by-type MUST accept one of the four v1
-  event-class names OR `all`. Other filter axes (participant,
-  time range, disposition) are deferred — implementing them
-  in v1 is out of scope.
+- **FR-011**: v1 ships four filter axes (per Clarifications §4):
+  (a) **type filter** — one of the five v1 event-class names
+  (`ai_question_opened`, `ai_exit_requested`, `density_anomaly`,
+  `mode_recommendation`, `mode_change`) OR `all`; (b)
+  **participant filter** — one of the session's participant ids
+  OR `all`; (c) **time-range filter** — a `{from, to}` pair
+  (either bound may be open); (d) **disposition filter** — one
+  of the four values (`pending`, `banner_acknowledged`,
+  `banner_dismissed`, `auto_resolved`) OR `all`. Filters compose
+  with AND semantics. All four axes apply client-side once the
+  per-session event set is loaded (no server-side filter
+  pushdown in v1; pushdown is a future enhancement gated on the
+  per-session set exceeding `SACP_DETECTION_HISTORY_MAX_EVENTS`).
 - **FR-012**: The panel MUST display the trigger snippet up
   to a documented display length cap (target: 200 characters
   visible, full snippet on click-expand). The cap is enforced
@@ -404,12 +473,15 @@ different type and verify the displayed set updates.
   cleanup job (operator-scheduled per spec 007's purge
   pattern). The endpoint MUST return events that remain;
   purged events are not re-fetched.
-- **FR-015**: Spec 014 forward-compat — when 014 lands and
-  emits `mode_recommendation` and `mode_change` events to
-  `admin_audit_log`, the 022 endpoint MUST surface them
-  without a spec 022 amendment. The mapping between
-  014's event names and 022's panel-class name (`mode_change`)
-  is hardcoded in `src/web_ui/detection_events.py`.
+- **FR-015**: Spec 014 mapping — when 014's emitters write
+  `mode_recommendation` and `mode_change` rows to
+  `admin_audit_log`, the 022 endpoint MUST surface them as
+  two distinct event classes (not one merged class — per
+  Clarifications §8). The mapping between 014's audit-log
+  action strings and 022's panel-class names is hardcoded in
+  `src/web_ui/detection_events.py`. Spec 014's implementation
+  is already landed (Implemented 2026-05-08), so this is a
+  v1 wire-up, not a forward-compat carve-out.
 - **FR-016**: The two new env vars
   (`SACP_DETECTION_HISTORY_MAX_EVENTS`,
   `SACP_DETECTION_HISTORY_RETENTION_DAYS`) MUST have
@@ -419,7 +491,7 @@ different type and verify the displayed set updates.
   `/speckit.tasks` is run for this spec (V16 deliverable
   gate).
 - **FR-017**: The endpoint MUST NOT introduce a new
-  persistence path for detection events. The four event
+  persistence path for detection events. The five v1 event
   classes are already written by spec 003 / 004 / 014 to
   `routing_log`, `convergence_log`, and `admin_audit_log`;
   spec 022 reads those tables. A read-side join in
@@ -427,7 +499,7 @@ different type and verify the displayed set updates.
   event stream (alternative considered: a `detection_events`
   table written in parallel by emitters; rejected because it
   duplicates the source of truth and breaks spec 001
-  §FR-008's append-only invariant — see Clarifications Q1).
+  §FR-008's append-only invariant — see Clarifications §1).
 
 ### Key Entities
 
@@ -446,11 +518,12 @@ different type and verify the displayed set updates.
   `target_event_id`, `timestamp`. Append-only per spec 001
   §FR-008.
 - **EventClassRegistry** (process-scope, hardcoded) — maps
-  source rows to one of the four v1 panel classes
+  source rows to one of the five v1 panel classes
   (`ai_question_opened`, `ai_exit_requested`,
-  `density_anomaly`, `mode_change`). Defined in
-  `src/web_ui/detection_events.py`. Adding a class requires a
-  spec amendment.
+  `density_anomaly`, `mode_recommendation`, `mode_change`).
+  Defined in `src/web_ui/detection_events.py`. Adding a class
+  requires a spec amendment (per Clarifications §3 — fixed
+  taxonomy, not extensible registry).
 
 ## Success Criteria *(mandatory)*
 
@@ -477,14 +550,18 @@ different type and verify the displayed set updates.
 - **SC-005**: Re-surface attempt on an archived session MUST
   return HTTP 409 with a clear error. Verified by a test
   that archives a session and drives the re-surface attempt.
-- **SC-006**: Filter-by-type MUST update the panel in O(1)
-  client-side time (no server round-trip). Verified by
-  inspecting the network panel during filter toggles.
-- **SC-007**: When 014 lands and emits its event types, the
-  panel MUST surface them without a 022-side change.
-  Verified post-014 by running a 014 session with auto-apply
-  enabled and asserting the recommendations and changes
-  appear in the panel as `mode_change` class entries.
+- **SC-006**: All four v1 filter axes (type, participant, time
+  range, disposition) MUST update the panel in O(1) client-side
+  time (no server round-trip; filtering applies over the
+  already-loaded per-session event set). Verified by inspecting
+  the network panel during filter toggles across all axes.
+- **SC-007**: Spec 014's `mode_recommendation` and `mode_change`
+  rows MUST surface in the panel as two distinct event classes
+  (per Clarifications §8). Verified by running a 014 session
+  with auto-apply enabled and asserting the recommendations
+  appear in the panel as `mode_recommendation` class entries
+  and the auto-apply changes appear as `mode_change` class
+  entries.
 - **SC-008**: With any of the two new env vars set to an
   invalid value, the orchestrator process MUST exit at
   startup with a clear error message naming the offending
@@ -496,6 +573,14 @@ different type and verify the displayed set updates.
   is the `admin_audit_log` row produced by re-surface,
   which is FR-006's explicit forensic write — not an event
   source-row mutation).
+- **SC-010**: Re-surface MUST succeed when the facilitator's
+  WS is bound to a different orchestrator process than the one
+  handling the POST (multi-instance contract per Clarifications
+  §6). Verified by a test that runs two orchestrator processes
+  against a shared DB, binds a facilitator's WS to process B,
+  drives the re-surface POST through process A, and asserts
+  the WS broadcast lands on process B's facilitator channel
+  within the cross-instance Performance Budget.
 
 ## Topology and Use Case Coverage (V12/V13)
 
@@ -552,10 +637,20 @@ This spec contributes three budgets:
   Budget enforcement: comparison against spec 011's existing
   WS push baseline; regression flagged if 022's wiring adds
   measurable latency.
-- **Re-surface action**: P95 ≤ 200ms from POST to WS broadcast
-  emission. One `admin_audit_log` INSERT plus one WS push
-  payload assembly. Budget enforcement: per-request timing
-  on the new endpoint.
+- **Re-surface action (same-instance fast path)**: P95 ≤ 200ms
+  from POST to WS broadcast emission when the facilitator's WS
+  is bound to the same orchestrator process that handled the
+  POST. One `admin_audit_log` INSERT plus one WS push payload
+  assembly. Budget enforcement: per-request timing on the new
+  endpoint.
+- **Re-surface action (cross-instance)**: P95 ≤ 500ms from POST
+  to WS broadcast emission when the facilitator's WS is bound
+  to a different orchestrator process than the one handling
+  the POST (multi-instance support per Clarifications §6).
+  Budget enforcement: per-request timing on the new endpoint
+  with the routing path instrumented. Cross-instance budget is
+  intentionally looser than same-instance to absorb the routing
+  mechanism's latency.
 
 ## Configuration (V16) — New Env Vars
 
@@ -626,10 +721,13 @@ range, and fail-closed semantics documented in
   decorated payload) when 022 introduces its own
   `detection_event` broadcast. Spec 022 MUST NOT reimplement
   these helpers inline (FR-020 architectural test enforces).
-- **Spec 014 (dynamic-mode-assignment)** — when 014 lands and
-  emits `mode_recommendation` and `mode_change` events,
-  spec 022's `mode_change` class surfaces them. Forward-
-  compatible per FR-015.
+- **Spec 014 (dynamic-mode-assignment)** (Implemented
+  2026-05-08) — emits `mode_recommendation` and `mode_change`
+  rows to `admin_audit_log`. Spec 022 surfaces them as TWO
+  distinct event classes in the v1 taxonomy (per Clarifications
+  §8); the mapping from 014's audit-log action strings to 022's
+  class names is hardcoded in `src/web_ui/detection_events.py`
+  per FR-015.
 - **Spec 001 (core-data-model) §FR-008, §FR-019** — append-only
   invariant on log tables; the `admin_audit_log` carve-out for
   the re-surface forensic record (FR-006).
@@ -640,8 +738,8 @@ range, and fail-closed semantics documented in
   is in-scope for Phase 3 by virtue of Phase-3 declaration
   recorded 2026-05-05 (see also §14.1).
 - **Constitution §14.1** — Feature work workflow. This spec
-  scaffolds via `/speckit.specify`; `/speckit.clarify`,
-  `/speckit.plan`, and `/speckit.tasks` are deferred.
+  scaffolds via `/speckit.specify`; clarifications resolved
+  2026-05-10; `/speckit.plan` and `/speckit.tasks` are pending.
 - **Constitution V12** — topology applicability. Spec 022
   applies to topologies 1-6; incompatible with topology 7.
 - **Constitution V13** — primary use cases consulting (§3) and
@@ -660,33 +758,37 @@ range, and fail-closed semantics documented in
   the source of truth and risk drift; the read-side join is
   the right cost trade-off given the bounded per-session
   query shape.
-- The four v1 event classes cover the operational diagnostic
-  surface for Phase 3. Adding new classes (e.g., spec 021's
-  filler-retry events, spec 015's circuit-breaker state
-  transitions) is a future amendment, not v1 scope.
+- The five v1 event classes (`ai_question_opened`,
+  `ai_exit_requested`, `density_anomaly`, `mode_recommendation`,
+  `mode_change`) cover the operational diagnostic surface for
+  Phase 3. Adding new classes (e.g., spec 021's filler-retry
+  events, spec 015's circuit-breaker state transitions) is a
+  future amendment, not v1 scope.
 - The re-surface action is operator-only — the participant's
   AI does not see re-surfaced events. Re-surface is a
   human-side decision-review tool, not an AI-side context
   injection. Future participant-side notifications on
   re-surface (if needed) is a separate feature.
-- Multi-instance Phase 3 deployments may have re-surface
-  routing constraints. v1 ships single-instance; multi-
-  instance re-surface lands when spec 011's `SessionStore`
-  Redis backend lands. The panel's READ surface works in
-  multi-instance from day one (DB-backed); re-surface WS
-  broadcast does not.
+- Multi-instance Phase 3 deployments are supported on day one
+  (per Clarifications §6 — design-for-multi-instance-from-the-
+  start). Both the panel's READ surface (DB-backed) and the
+  re-surface WS broadcast (cross-instance via a routing
+  mechanism settled in `/speckit.plan` research) work across
+  orchestrator instances in v1. Specific cross-instance
+  broadcast mechanism (DB-backed session→instance binding,
+  Redis pub/sub, or a hybrid) is a research item; the spec
+  commits only to the contract — re-surface MUST work
+  regardless of which instance the facilitator is bound to.
 - The display length cap on trigger snippets (200 chars,
   client-side) is informational. The server returns the full
   snippet; UI truncation is a presentation concern, not a
   privacy/security concern (the snippet is already in the
   audit-log payload and is exposed via debug-export).
-- Phase 3 declared 2026-05-05 satisfies the phase gate; this
-  spec stays scaffold-only until tasks are scheduled. No
-  implementation begins on this spec until the user invokes
-  `/speckit.clarify` and subsequent workflow steps.
-- Status remains Draft until clarifications resolve and the
-  user accepts the scaffolding. The "Phase 3 declared
-  2026-05-05" notation in the Status field is informational;
-  it does not itself flip the spec to Implemented (per
-  `feedback_dont_declare_phase_done.md`, the status flip is
-  the user's call).
+- Phase 3 declared 2026-05-05 satisfies the phase gate;
+  clarifications resolved 2026-05-10 (Session above). Spec
+  stays pre-implementation until `/speckit.plan` and
+  `/speckit.tasks` run.
+- The "Phase 3 declared 2026-05-05" notation in the Status
+  field is informational; it does not itself flip the spec
+  to Implemented (per `feedback_dont_declare_phase_done.md`,
+  the status flip is the user's call after tasks are saturated).
