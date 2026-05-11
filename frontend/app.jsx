@@ -2787,7 +2787,7 @@ function AuditLogPanel({ rows, totalCount, nextOffset, participants, onLoadMore,
   );
 }
 
-function DetectionHistoryPanel({ events, filters, sortOrder, onFiltersChange, onSortChange, onClose }) {
+function DetectionHistoryPanel({ events, filters, sortOrder, sessionArchived, onFiltersChange, onSortChange, onResurface, onFetchTimeline, onClose }) {
   // Spec 022 history surface + spec 011 FR-036..FR-039 (Session 2026-05-11
   // amendment). Pure-logic helpers (filter composition, hidden-events
   // badges, sort, truncation) live in frontend/detection_history_filters.js
@@ -2845,7 +2845,15 @@ function DetectionHistoryPanel({ events, filters, sortOrder, onFiltersChange, on
       ) : (
         <ul className="detection-event-list">
           {visibleEvents.map((ev) => (
-            <DetectionEventRow key={ev.event_id} event={ev} formatClassLabel={formatClassLabel} filtersLib={filtersLib} />
+            <DetectionEventRow
+              key={ev.event_id}
+              event={ev}
+              formatClassLabel={formatClassLabel}
+              filtersLib={filtersLib}
+              sessionArchived={sessionArchived}
+              onResurface={onResurface}
+              onFetchTimeline={onFetchTimeline}
+            />
           ))}
         </ul>
       )}
@@ -2864,11 +2872,20 @@ function FilterDropdown({ label, value, hidden, options, onChange }) {
   );
 }
 
-function DetectionEventRow({ event, formatClassLabel, filtersLib }) {
-  const [expanded, setExpanded] = useState(false);
+function DetectionEventRow({ event, formatClassLabel, filtersLib, sessionArchived, onResurface, onFetchTimeline }) {
+  const [snippetExpanded, setSnippetExpanded] = useState(false);
+  const [timeline, setTimeline] = useState(null);
   const snip = filtersLib
     ? filtersLib.truncateSnippet(event.trigger_snippet)
     : { display: event.trigger_snippet || "", full: event.trigger_snippet || "", truncated: false };
+  const dispositionResurfaceable = event.disposition === "banner_dismissed" || event.disposition === "banner_acknowledged";
+  const showTimeline = async () => {
+    if (timeline != null) {
+      setTimeline(null);
+      return;
+    }
+    if (onFetchTimeline) setTimeline(await onFetchTimeline(event.event_id));
+  };
   return (
     <li className="detection-event-row">
       <div className="dim">{event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : ""}</div>
@@ -2878,13 +2895,39 @@ function DetectionEventRow({ event, formatClassLabel, filtersLib }) {
         {event.turn_number != null ? ` · turn ${event.turn_number}` : ""}
         {` · ${event.disposition}`}
       </div>
-      {snip.truncated && !expanded ? (
+      {snip.truncated && !snippetExpanded ? (
         <div className="snippet">{snip.display}…
-          <button type="button" className="expand-link" onClick={() => setExpanded(true)}>[expand]</button>
+          <button type="button" className="expand-link" onClick={() => setSnippetExpanded(true)}>[expand]</button>
         </div>
       ) : snip.full ? (
         <div className="snippet">{snip.full}</div>
       ) : null}
+      <div className="row-actions">
+        <button type="button" onClick={showTimeline}>
+          {timeline == null ? "Show transitions" : "Hide transitions"}
+        </button>
+        {dispositionResurfaceable && (
+          <button
+            type="button"
+            disabled={sessionArchived}
+            title={sessionArchived ? "re-surface requires an active session" : "Re-broadcast this banner for re-evaluation"}
+            onClick={() => onResurface && onResurface(event.event_id)}
+          >
+            Re-surface
+          </button>
+        )}
+      </div>
+      {timeline != null && (
+        <ul className="disposition-timeline">
+          {timeline.length === 0 && <li className="dim">No transitions recorded.</li>}
+          {timeline.map((t) => (
+            <li key={t.audit_row_id}>
+              <span className="dim">{t.timestamp ? new Date(t.timestamp).toLocaleTimeString() : ""}</span>
+              {" "}<code>{t.action}</code>{" by "}<code>{t.facilitator_id}</code>
+            </li>
+          ))}
+        </ul>
+      )}
     </li>
   );
 }
@@ -4115,6 +4158,33 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     dispatch({ type: "detection_history_panel_set_open", value: false });
   };
 
+  // Spec 022 FR-006: POST resurface. Fail-soft alert on error so the
+  // operator sees the failure rather than silent no-op (the panel
+  // surface is facilitator-only and silent failure would mask drift).
+  const resurfaceDetectionEvent = async (eventId) => {
+    try {
+      await mcpCall(
+        `/tools/admin/detection_events/${encodeURIComponent(eventId)}/resurface?session_id=${encodeURIComponent(auth.session_id)}`,
+        { method: "POST" },
+      );
+    } catch (e) {
+      alert(`Re-surface failed: ${e.message || e}`);
+    }
+  };
+
+  // FR-010 click-expand: fetch the disposition timeline for one event.
+  const fetchDispositionTimeline = async (eventId) => {
+    try {
+      const data = await mcpCall(
+        `/tools/admin/detection_events/${encodeURIComponent(eventId)}/timeline?session_id=${encodeURIComponent(auth.session_id)}`,
+      );
+      return data?.transitions || [];
+    } catch (e) {
+      alert(`Timeline fetch failed: ${e.message || e}`);
+      return [];
+    }
+  };
+
   return (
     <div className="app-shell">
       <Header
@@ -4213,8 +4283,11 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                   events={state.detectionHistoryEvents}
                   filters={state.detectionHistoryFilters}
                   sortOrder={state.detectionHistorySortOrder}
+                  sessionArchived={state.session?.status === "archived"}
                   onFiltersChange={(filters) => dispatch({ type: "detection_history_filters_set", filters })}
                   onSortChange={(order) => dispatch({ type: "detection_history_sort_set", order })}
+                  onResurface={resurfaceDetectionEvent}
+                  onFetchTimeline={fetchDispositionTimeline}
                   onClose={closeDetectionHistoryPanel}
                 />
               )}
