@@ -319,6 +319,68 @@ class LogRepository(BaseRepository):
         next_offset = rendered if rendered < total_count else None
         return AuditLogPage(rows=decorated, total_count=total_count, next_offset=next_offset)
 
+    # --- Spec 022 detection-event history page ---
+    # Single-table SELECT against detection_events (alembic 017). The
+    # event class is denormalized so no JOIN is needed; disposition is
+    # also denormalized into the row.
+
+    async def get_detection_events_page(
+        self,
+        session_id: str,
+        *,
+        max_events: int | None = None,
+        since: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        """Page query for the FR-001 endpoint.
+
+        Returns rows ordered newest-first per research.md §12. The
+        ``since`` parameter bounds the lower edge of the time range
+        (used for retention-respecting fetches on archived sessions).
+        ``max_events`` corresponds to the SACP_DETECTION_HISTORY_MAX_EVENTS
+        cap; passing ``None`` means no LIMIT.
+        """
+        sql = (
+            "SELECT id, session_id, event_class, participant_id, "
+            "trigger_snippet, detector_score, turn_number, timestamp, "
+            "disposition, last_disposition_change_at "
+            "FROM detection_events "
+            "WHERE session_id = $1 "
+            "AND ($2::timestamptz IS NULL OR timestamp >= $2) "
+            "ORDER BY timestamp DESC"
+        )
+        params: list[Any] = [session_id, since]
+        if max_events is not None:
+            sql += " LIMIT $3"
+            params.append(max_events)
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(sql, *params)
+        return [dict(r) for r in rows]
+
+    async def get_disposition_timeline(
+        self,
+        session_id: str,
+        event_id: int,
+    ) -> list[dict[str, Any]]:
+        """Click-expand timeline for a specific event's transitions.
+
+        Returns rows ascending by timestamp from ``admin_audit_log``
+        where ``target_id = <event_id>::text`` and ``action LIKE
+        'detection_event_%'``. Mirrors research.md §7 amended-2026-05-11
+        lookup SQL.
+        """
+        sql = (
+            "SELECT id, action, facilitator_id, timestamp "
+            "FROM admin_audit_log "
+            "WHERE session_id = $1 AND target_id = $2 "
+            "AND action IN ('detection_event_acknowledged', "
+            "'detection_event_dismissed', 'detection_event_auto_resolved', "
+            "'detection_event_resurface') "
+            "ORDER BY timestamp ASC"
+        )
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(sql, session_id, str(event_id))
+        return [dict(r) for r in rows]
+
     # --- Spec 021 register-change audit-event helpers ---
     # Three new ``action`` strings reuse the existing admin_audit_log table
     # (no schema change). See specs/021-ai-response-shaping/contracts/
