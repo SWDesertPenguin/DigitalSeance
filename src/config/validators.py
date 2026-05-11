@@ -1133,6 +1133,77 @@ def validate_audit_viewer_retention_days() -> ValidationFailure | None:
     return None
 
 
+def validate_detection_history_enabled() -> ValidationFailure | None:
+    """SACP_DETECTION_HISTORY_ENABLED: bool, default false. 022 §FR-016.
+
+    Master switch for the detection event history panel surface. When unset or
+    'false', neither GET /tools/admin/detection_events nor POST .../resurface
+    are mounted and the detection_event_appended / detection_event_resurfaced
+    WS broadcasts remain dormant. Accepts 'true'/'false' (case-insensitive)
+    or '1'/'0' per the existing validator convention.
+    """
+    val = os.environ.get("SACP_DETECTION_HISTORY_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val.strip().lower() not in ("true", "false", "1", "0"):
+        return ValidationFailure(
+            "SACP_DETECTION_HISTORY_ENABLED",
+            f"must be 'true'/'false' (case-insensitive) or '1'/'0'; got {val!r}",
+        )
+    return None
+
+
+def validate_detection_history_max_events() -> ValidationFailure | None:
+    """SACP_DETECTION_HISTORY_MAX_EVENTS: empty OR int [1, 100000]. 022 §FR-013.
+
+    Caps the number of detection events returned by the page query. Empty
+    (default) means no LIMIT — the endpoint returns all events for the
+    session. When set, newest events are kept on cap-hit; older events drop.
+    """
+    val = os.environ.get("SACP_DETECTION_HISTORY_MAX_EVENTS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_DETECTION_HISTORY_MAX_EVENTS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 100000:
+        return ValidationFailure(
+            "SACP_DETECTION_HISTORY_MAX_EVENTS",
+            f"must be in [1, 100000]; got {num}",
+        )
+    return None
+
+
+def validate_detection_history_retention_days() -> ValidationFailure | None:
+    """SACP_DETECTION_HISTORY_RETENTION_DAYS: empty OR int [1, 36500]. 022 §FR-014.
+
+    Display-only retention cap for archived sessions. Empty (default) means
+    no WHERE clause — the endpoint renders every event regardless of age.
+    When set, the endpoint applies WHERE timestamp >= NOW() - INTERVAL 'N
+    days' to archived-session queries. Active-session events are unaffected.
+    """
+    val = os.environ.get("SACP_DETECTION_HISTORY_RETENTION_DAYS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_DETECTION_HISTORY_RETENTION_DAYS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 36500:
+        return ValidationFailure(
+            "SACP_DETECTION_HISTORY_RETENTION_DAYS",
+            f"must be in [1, 36500] (1 day to 100 years); got {num}",
+        )
+    return None
+
+
 def validate_accounts_enabled() -> ValidationFailure | None:
     """SACP_ACCOUNTS_ENABLED: '0' or '1', default '0'. 023 §FR-018 / FR-022.
 
@@ -1404,6 +1475,9 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_audit_viewer_enabled,
     validate_audit_viewer_page_size,
     validate_audit_viewer_retention_days,
+    validate_detection_history_enabled,
+    validate_detection_history_max_events,
+    validate_detection_history_retention_days,
     validate_accounts_enabled,
     validate_password_argon2_time_cost,
     validate_password_argon2_memory_cost_kb,
