@@ -166,6 +166,7 @@ def _get_schema_sql() -> list[str]:
         _participant_register_override_ddl(),
         _accounts_ddl(),
         _account_participants_ddl(),
+        _compression_log_ddl(),
         *_index_ddls(),
     ]
 
@@ -205,7 +206,10 @@ _SESSIONS_TABLE_DDL = """
         conclude_phase_started_at TIMESTAMPTZ,
         active_seconds_accumulator BIGINT
             CHECK (active_seconds_accumulator IS NULL OR active_seconds_accumulator >= 0),
-        active_phase_started_at TIMESTAMPTZ
+        active_phase_started_at TIMESTAMPTZ,
+        compression_mode TEXT NOT NULL DEFAULT 'auto'
+            CHECK (compression_mode IN ('auto', 'off', 'noop', 'llmlingua2_mbert',
+                                        'selective_context', 'provence', 'layer6'))
     )
 """
 
@@ -586,8 +590,45 @@ def _account_participants_ddl() -> str:
     """
 
 
+def _compression_log_ddl() -> str:
+    # Spec 026 alembic 018: append-only per-dispatch compression telemetry
+    # per Session 2026-05-11 §2 + FR-007 + SC-013. One row per
+    # CompressorService.compress() invocation including NoOp dispatches.
+    # CHECK constraints enforce compressor_id and trust_tier enums + the
+    # non-negative numeric invariants. Indexes target session-scoped reads
+    # (spec 016 metrics, spec 010 debug export) and layer group-by.
+    return """
+        CREATE TABLE compression_log (
+            id BIGSERIAL PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            participant_id TEXT NOT NULL,
+            source_tokens INTEGER NOT NULL CHECK (source_tokens >= 0),
+            output_tokens INTEGER NOT NULL CHECK (output_tokens >= 0),
+            compressor_id TEXT NOT NULL
+                CHECK (compressor_id IN ('noop', 'llmlingua2_mbert',
+                                          'selective_context', 'provence', 'layer6')),
+            compressor_version TEXT NOT NULL,
+            trust_tier TEXT NOT NULL
+                CHECK (trust_tier IN ('system', 'facilitator', 'participant_supplied')),
+            layer TEXT NOT NULL,
+            duration_ms REAL NOT NULL CHECK (duration_ms >= 0),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """
+
+
 def _index_ddls() -> list[str]:
-    return [*_core_index_ddls(), *_account_index_ddls()]
+    return [*_core_index_ddls(), *_account_index_ddls(), *_compression_log_index_ddls()]
+
+
+def _compression_log_index_ddls() -> list[str]:
+    return [
+        "CREATE INDEX compression_log_session_created_idx"
+        " ON compression_log (session_id, created_at DESC)",
+        "CREATE INDEX compression_log_compressor_created_idx"
+        " ON compression_log (compressor_id, created_at DESC)",
+    ]
 
 
 def _core_index_ddls() -> list[str]:
