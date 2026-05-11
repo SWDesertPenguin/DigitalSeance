@@ -18,6 +18,10 @@ dependencies = [
     # only installable 3.14-compatible release is 1.83.7. Upper bound is
     # explicit to keep Dependabot from re-bumping until upstream restores
     # 3.14 in 1.83.x or a 1.84+ line. Re-evaluate on every litellm release.
+    # GHSA-wxxx-gvqv-xp7p (custom-code guardrail sandbox escape, fixed
+    # 1.83.11) is risk-accepted: the vulnerable surface is the proxy
+    # server's /guardrails/test_custom_code endpoint, which SACP never
+    # starts — litellm is consumed as an SDK only from src/api_bridge/litellm/.
     "litellm>=1.83.0,<1.83.8",
     "sentence-transformers>=3.0.0",
     "numpy>=1.26.0",
