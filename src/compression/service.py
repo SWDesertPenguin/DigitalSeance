@@ -79,6 +79,17 @@ class CompressorService:
         """Mark the registry read-only. Called once at FastAPI startup."""
         self._frozen = True
 
+    def _reset_for_tests(self) -> None:
+        """Flip the registry back to mutable. Test-only hook.
+
+        Production lifespan calls `freeze()` exactly once; per-test
+        FastAPI fixtures (spec 012 US7) stand the app up fresh per case
+        and need to re-import the compressor modules to repopulate the
+        registry. This hook is the single permitted reset path — the
+        public API stays read-only after freeze.
+        """
+        self._frozen = False
+
     def registered_ids(self) -> frozenset[str]:
         return frozenset(self._registry.keys())
 
