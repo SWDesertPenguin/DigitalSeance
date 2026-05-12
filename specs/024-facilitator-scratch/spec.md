@@ -2,7 +2,7 @@
 
 **Feature Branch**: `024-facilitator-scratch`
 **Created**: 2026-05-07
-**Status**: Draft (Phase 3+ scaffold; depends on spec 023 user-accounts reaching Status: Implemented for the account-scoped path; session-scoped fallback works without 023)
+**Status**: Implemented 2026-05-12 (clarify + plan + tasks + phase 0-3 + SPA wiring shipped per spec 011 FR-042..FR-049 amendment; DB-gated integration + Playwright e2e schedule per tasks.md Phase F triggers)
 **Input**: User description: "Phase 3+ human-only side-channel scratch window. Facilitators want a private space to write questions / decisions / notes, browse older summaries, and review review-gate history with diffs — WITHOUT polluting AI context. AIs do not see scratch content unless the facilitator explicitly promotes a note into the main transcript. Subsumes the deeper version of backlog item #3 (Summary + Review Gate history panel); the surface-level summary viewer is already covered by spec 011 US9. Three sub-panels: Notes (facilitator-authored markdown, AIs never see), Summary archive (browse all spec-005 checkpoints), Review-gate history (side-by-side diff for every edited draft). Promote-to-transcript action lifts a note into the conversation as a human-injected message. Account-scoped when spec 023 is in place; session-scoped fallback otherwise. Applies to topologies 1-6 (orchestrator-mediated content store); incompatible with topology 7. Primary use cases: consulting (§3), technical review and audit (§5), decision-making under asymmetric expertise (§6)."
 
 ## Overview
@@ -82,8 +82,35 @@ path.
 
 ## Clarifications
 
-### Initial draft assumptions requiring confirmation
+### Session 2026-05-12 (Resolved)
 
+All eleven initial-draft markers resolved during full-pass clarify on 2026-05-12. FR text updated inline below; the original "Initial draft assumptions requiring confirmation" subsection is retained for historical reference. One additional clarification (shared-module reuse contract with spec 029) folded into FR-026 to make the dependency explicit.
+
+1. **Sub-panel arrangement**. Single slide-over panel with three tabs (Notes / Summaries / Review Gate) confirmed (drafted shape stands). Closing the panel returns to the live transcript. Routes-not-tabs alternative rejected — the slide-over preserves the live-transcript-context that operators need while scratch-thinking. Three-separate-slide-overs rejected for the same reason plus screen-real-estate cost. FR-024 below pins the entry-point + route.
+
+2. **Note format**. Markdown subset confirmed (headings, bold/italic, bullet lists, links, inline code, code blocks). Plain-text alternative rejected: facilitators paste prompt drafts that benefit from formatting. Rich-text editor rejected: the spec ships zero new persistence layers for formatting state and a WYSIWYG dependency would bloat the SPA bundle. Operators wanting tables / images paste the markdown source. FR-001 below pins the format.
+
+3. **Note permission model**. Single-owner-no-sharing confirmed in v1. Account binds notes to one account; session-scoped fallback binds notes to the session only (no per-tab user separation). Shared scratch across facilitators in the same session is a Phase 4+ feature — the per-facilitator design does not preclude it but does not support it. FR-015 pins the binding semantics.
+
+4. **Promote-to-transcript granularity**. One promote per click confirmed. Batch promote rejected — each promote is a high-privilege injection point and bundling them obscures the audit trail. Sequential promote-promote-promote remains supported. FR-006 pins one-at-a-time.
+
+5. **Promote modifies the original note**. Preserve-and-mark confirmed: `promoted_at` + `promoted_message_id` populate on success; the note row remains. Delete-after-promote rejected — destroys facilitator history. Lock-after-promote rejected — re-promotion (e.g., to re-inject during a later phase) is a legitimate operator action subject to its own audit row. FR-006 pins the preserve-and-mark semantic; the re-promote flow is covered by US2 acceptance scenario 6.
+
+6. **Review-gate diff algorithm**. Line-by-line Myers (jsdiff) confirmed as the default with a per-row word-level toggle inheriting spec 029's `DiffRenderer` component (no parallel implementation in spec 024 source). Character-level diff rejected — overwhelms on long edits. Spec 029 contracts/shared-module-contracts.md §3 + §4 are the binding contract. FR-014 below cites the contract directly.
+
+7. **Diff size handling**. 50KB main-thread + 50-500KB Worker + >500KB raw-display confirmed as the threshold trio. The constants are inherited from `frontend/diff_engine.js`'s locked `MAIN_THREAD_BYTE_THRESHOLD` (50_000) and `WORKER_BYTE_THRESHOLD` (500_000) per spec 029 contracts/shared-module-contracts.md §4 — spec 024 MUST NOT redefine. FR-014 below pins the inheritance.
+
+8. **Summary archive pagination**. 20 per page offset-based confirmed (smaller than spec 029's 50 because summary checkpoints render with expandable narrative previews and 50 simultaneously expanded would be unworkable). Cursor-based rejected — per-session bounded count makes offset sufficient. FR-012 pins the page size.
+
+9. **Account-vs-session-scoped detection**. Runtime detection confirmed. The panel reads `SACP_ACCOUNTS_ENABLED` AND the authenticated session's account binding at panel-load time. If both account-mode AND the facilitator is account-authenticated, scratch is account-scoped (FK to `accounts`); otherwise session-scoped (FK to `sessions` only). The active scope is rendered as a header chip in the panel UI so the facilitator is never surprised by ephemeral-on-archive notes. FR-015 + FR-016 + FR-017 pin the semantics; FR-025 below pins the UI scope indicator.
+
+10. **Notes encryption at rest**. Plaintext-with-disk-encryption-default confirmed. Notes are NOT API-key-class secrets; they are operator-private workspace content. Operators with at-rest-encryption requirements use full-disk encryption at the deployment level. ScrubFilter applies to audit-log payloads carrying note content (FR-020) so token-shaped substrings inside notes do not leak into log lines if the facilitator pastes a secret. FR-020 pins the ScrubFilter coverage.
+
+11. **Phase 1+2 shakedown reference paraphrase**. The Overview reference stands without exposing the specific test session ID (matches the project memory default of not exposing test artefacts in committed specs). No change to spec text.
+
+12. **Shared-module reuse contract with spec 029 (NEW during clarify pass 2026-05-12)**. Spec 024's review-gate diff sub-panel MUST import (a) the inline `DiffRenderer` React component from `frontend/app.jsx`, (b) the locked threshold constants `MAIN_THREAD_BYTE_THRESHOLD` + `WORKER_BYTE_THRESHOLD` from `frontend/diff_engine.js`, (c) `format_label` / `formatLabel` from `src/orchestrator/audit_labels.py` / `frontend/audit_labels.js` for any audit-adjacent labels (e.g., promote-action label in the panel's tool-tip text), and (d) `format_iso` / `formatIso` from `src/orchestrator/time_format.py` / `frontend/time_format.js` for timestamp rendering. Spec 024 MUST NOT redeclare any of these — the FR-020 architectural test enforces. FR-014 below carries the citation; the spec 011 amendment FR-046 binds the SPA-side import surface.
+
+### Initial draft assumptions requiring confirmation
 - **Sub-panel arrangement.** Drafted as: a single slide-over
   panel from the session header with three tabs (Notes /
   Summaries / Review Gate). Closing the panel returns the
@@ -585,11 +612,7 @@ US2 acceptance scenario.
   `admin_audit_log` (or the security_events / review_gate
   table per spec 007 §FR-005's storage decision in
   `/speckit.plan`).
-- **FR-014**: The diff renderer MUST handle diffs up to
-  50KB on the main thread without blocking; diffs above
-  50KB MUST compute in a Web Worker; diffs above 500KB
-  MUST display original + edited values without a
-  computed diff.
+- **FR-014**: The diff renderer for the review-gate sub-panel MUST reuse spec 029's inline `DiffRenderer` React component from `frontend/app.jsx` and the locked threshold constants from `frontend/diff_engine.js` (`MAIN_THREAD_BYTE_THRESHOLD = 50_000`, `WORKER_BYTE_THRESHOLD = 500_000`) per spec 029 contracts/shared-module-contracts.md §3 + §4. Spec 024 MUST NOT redeclare these constants and MUST NOT reimplement Myers-diff helpers; the spec 029 FR-020 architectural test enforces. The thresholds drive a three-mode contract: diffs ≤ 50KB render synchronously on the main thread; diffs in (50KB, 500KB] compute via the inline-blob Web Worker bootstrap; diffs > 500KB display the raw original + edited values without a computed diff plus an explanatory info bar.
 - **FR-015**: When spec 023 is in place AND
   `SACP_ACCOUNTS_ENABLED=true` AND the facilitator is
   authenticated via account auth, scratch content MUST be
@@ -633,6 +656,9 @@ US2 acceptance scenario.
   `scratch` section clearly partitioned from the
   AI-visible `messages` array. The export shape is
   defined in `/speckit.plan`.
+- **FR-024**: The scratch panel entry-point affordance MUST live as a button in the existing facilitator session header (next to the existing admin-panel toggle), gated by FR-021 facilitator-only role check AND by FR-019 master switch `SACP_SCRATCH_ENABLED=true`. The button opens the slide-over panel at the SPA route `/session/:id/scratch` with three tabs (Notes / Summaries / Review Gate). The panel preserves the live transcript view alongside (slide-over, not full-page route) so facilitators retain context while drafting.
+- **FR-025**: The scratch panel header MUST display a scope chip indicating whether the active scratch is `account-scoped` (durable across session archive) or `session-scoped` (deleted on archive). The chip MUST be visible at all times the panel is open. When session-scoped, the chip MUST include a tooltip explaining the ephemeral-on-archive semantic so the facilitator never loses notes by surprise (clarify Q9).
+- **FR-026**: Spec 024 MUST reuse the spec 029 shared-module contracts (`specs/029-audit-log-viewer/contracts/shared-module-contracts.md` §1, §2, §3, §4): import `format_label` / `formatLabel` for any audit-adjacent labels surfaced in the panel (e.g., the promote action's audit-row preview), import `format_iso` / `formatIso` for all timestamp rendering (note created_at / updated_at / promoted_at, summary checkpoint timestamps, review-gate event timestamps), import the inline `DiffRenderer` component from `frontend/app.jsx` and the locked threshold constants from `frontend/diff_engine.js`. Spec 024 MUST NOT redeclare any of these — the spec 029 FR-020 architectural test enforces.
 
 ### Key Entities
 

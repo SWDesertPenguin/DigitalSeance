@@ -32,6 +32,8 @@ from src.repositories.errors import (
     NotFacilitatorError,
     ParticipantNotInSessionError,
 )
+from src.scratch.router import is_scratch_enabled
+from src.scratch.router import router as scratch_router
 
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
 
@@ -238,6 +240,19 @@ def _include_routers(app: FastAPI) -> None:
     # of the route rather than a 200 with empty data.
     if is_detection_history_enabled():
         app.include_router(detection_events_router)
+    _maybe_include_scratch_router(app)
+
+
+def _maybe_include_scratch_router(app: FastAPI) -> None:
+    """Spec 024 FR-019: scratch surface gated by SACP_SCRATCH_ENABLED."""
+    if not is_scratch_enabled():
+        return
+    from src.scratch.promote import register_promote_route
+    from src.scratch.router import register_routes as register_scratch_routes
+
+    register_scratch_routes(scratch_router)
+    register_promote_route(scratch_router)
+    app.include_router(scratch_router)
 
 
 def _attach_services(
@@ -279,6 +294,20 @@ def _attach_auth_and_repos(
     app.state.log_repo = LogRepository(pool)
     app.state.register_repo = RegisterRepository(pool)
     app.state.rate_limiter = RateLimiter()
+    _attach_scratch_service(app, pool)
+
+
+def _attach_scratch_service(app: FastAPI, pool: object) -> None:
+    """Spec 024: ScratchService keyed to FacilitatorNotesRepository + log_repo."""
+    from src.scratch.repository import FacilitatorNotesRepository
+    from src.scratch.service import ScratchService
+
+    notes_repo = FacilitatorNotesRepository(pool)
+    app.state.scratch_service = ScratchService(
+        pool=pool,
+        notes_repo=notes_repo,
+        log_repo=app.state.log_repo,
+    )
 
 
 def _attach_orchestrator(

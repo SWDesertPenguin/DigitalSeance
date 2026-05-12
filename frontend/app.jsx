@@ -256,6 +256,12 @@ function initialState() {
     detectionHistoryEvents: [],  // newest-first; FR-038 prepends on live push
     detectionHistoryFilters: { type: "all", participant: "all", timeRange: "all", disposition: "all" },
     detectionHistorySortOrder: "desc",  // research §12 default
+    // Spec 024 facilitator-scratch (FR-019 / spec 011 FR-042..FR-049).
+    // `scratchEnabled` follows the same null/true/false probe shape as the
+    // audit-log and detection-history master switches.
+    scratchEnabled: null,
+    scratchPanelOpen: false,
+    scratchPayload: null,  // { scope, account_id, notes, summaries, review_gate_events }
   };
 }
 
@@ -475,6 +481,12 @@ function reducer(state, action) {
     }
     case "audit_log_panel_set_open":
       return { ...state, auditLogPanelOpen: !!action.value };
+    case "scratch_enabled":
+      return { ...state, scratchEnabled: !!action.value };
+    case "scratch_panel_set_open":
+      return { ...state, scratchPanelOpen: !!action.value };
+    case "scratch_payload_loaded":
+      return { ...state, scratchPayload: action.payload || null };
     case "audit_log_page_loaded": {
       // FR-001 endpoint response. Replace rows on offset=0; append on
       // offset>0 (paginate-forward via the next_offset cursor).
@@ -2227,7 +2239,7 @@ function ReviewGateEditor({ draft, onSave, onClose }) {
   );
 }
 
-function AdminPanel({ participants, session, auditEntries, auditViewerEnabled, detectionHistoryEnabled, onApprove, onReject, onInvite, onTransfer, onConfig, onCapSet, onOpenAuditLog, onOpenDetectionHistory }) {
+function AdminPanel({ participants, session, auditEntries, auditViewerEnabled, detectionHistoryEnabled, scratchEnabled, onApprove, onReject, onInvite, onTransfer, onConfig, onCapSet, onOpenAuditLog, onOpenDetectionHistory, onOpenScratch }) {
   // US6 T120–T125.
   const [open, setOpen] = useState(false);
   const [invite, setInvite] = useState(null);
@@ -2390,6 +2402,16 @@ function AdminPanel({ participants, session, auditEntries, auditViewerEnabled, d
                 title="Open the detection-event history panel (spec 022)"
               >
                 View detection history
+              </button>
+            )}
+            {scratchEnabled && (
+              <button
+                type="button"
+                className="full-width"
+                onClick={onOpenScratch}
+                title="Open the facilitator scratch panel (spec 024)"
+              >
+                Scratch
               </button>
             )}
           </details>
@@ -2929,6 +2951,349 @@ function DetectionEventRow({ event, formatClassLabel, filtersLib, sessionArchive
         </ul>
       )}
     </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Spec 024 facilitator-scratch SPA components (spec 011 FR-042..FR-049).
+//
+// ScratchPanel renders a slide-over with three tabs (Notes / Summaries /
+// Review Gate). Pure-logic helpers live in frontend/scratch_notes.js per
+// the frontend_polish_module_pattern memory. The Review Gate tab reuses
+// the inline DiffRenderer from this same file (spec 029 shared module
+// contract §3). The promote affordance opens a confirmation modal
+// showing the EXACT text per spec 024 FR-007 + spec 011 FR-045.
+// ---------------------------------------------------------------------------
+
+function ScratchPanel({ payload, sessionArchived, onCreate, onUpdate, onDelete, onPromote, onLoadSummariesPage, onRefresh, onClose }) {
+  const [tab, setTab] = useState("notes");
+  const helpers = (typeof ScratchNotes !== "undefined") ? ScratchNotes : null;
+  const scope = helpers ? helpers.describeScope(payload?.scope) : { chipText: "(unknown)", chipClass: "", explanation: "" };
+  return (
+    <section className="panel scratch-panel">
+      <div className="panel-header">
+        <h2>Scratch <span className={"scratch-scope-chip " + scope.chipClass}>{scope.chipText}</span></h2>
+        <button type="button" className="ghost" onClick={onClose}>Close</button>
+      </div>
+      <p className="dim scratch-scope-explanation">{scope.explanation}</p>
+      <div className="scratch-tabs">
+        <button type="button" className={tab === "notes" ? "active" : ""} onClick={() => setTab("notes")}>Notes ({(payload?.notes || []).length})</button>
+        <button type="button" className={tab === "summaries" ? "active" : ""} onClick={() => setTab("summaries")}>Summaries ({payload?.summaries?.total || 0})</button>
+        <button type="button" className={tab === "review_gate" ? "active" : ""} onClick={() => setTab("review_gate")}>Review Gate ({(payload?.review_gate_events || []).length})</button>
+      </div>
+      {tab === "notes" && (
+        <NotesTab notes={payload?.notes || []} sessionArchived={sessionArchived} helpers={helpers}
+          onCreate={onCreate} onUpdate={onUpdate} onDelete={onDelete} onPromote={onPromote} />
+      )}
+      {tab === "summaries" && (
+        <SummariesTab summaries={payload?.summaries || { items: [], total: 0, page: 0 }}
+          helpers={helpers} onLoadPage={onLoadSummariesPage} onCopyToNotes={(text) => onCreate(text).then(() => setTab("notes"))} />
+      )}
+      {tab === "review_gate" && (
+        <ReviewGateTab events={payload?.review_gate_events || []} helpers={helpers} />
+      )}
+      <div className="scratch-footer">
+        <button type="button" className="ghost" onClick={onRefresh}>Refresh</button>
+      </div>
+    </section>
+  );
+}
+
+function NotesTab({ notes, sessionArchived, helpers, onCreate, onUpdate, onDelete, onPromote }) {
+  const [draftContent, setDraftContent] = useState("");
+  const [promoteTarget, setPromoteTarget] = useState(null);
+  const submitNew = async () => {
+    const text = draftContent.trim();
+    if (text.length === 0) return;
+    try { await onCreate(text); setDraftContent(""); }
+    catch (e) { alert(`Create failed: ${e.message || e}`); }
+  };
+  return (
+    <div className="scratch-notes-tab">
+      <div className="scratch-note-new">
+        <textarea
+          value={draftContent}
+          onChange={(ev) => setDraftContent(ev.target.value)}
+          placeholder="New note (markdown subset supported)"
+          rows={3}
+        />
+        <button type="button" onClick={submitNew} disabled={draftContent.trim().length === 0}>Add note</button>
+      </div>
+      {notes.length === 0 && <p className="dim">No notes yet. Type above to get started.</p>}
+      {notes.map((note) => (
+        <NoteRow key={note.id} note={note} sessionArchived={sessionArchived} helpers={helpers}
+          onUpdate={onUpdate} onDelete={onDelete} onPromoteClick={() => setPromoteTarget(note)} />
+      ))}
+      {promoteTarget && (
+        <PromoteConfirmModal
+          note={promoteTarget}
+          onCancel={() => setPromoteTarget(null)}
+          onConfirm={async () => {
+            try { await onPromote(promoteTarget); setPromoteTarget(null); }
+            catch (e) { alert(`Promote failed: ${e.message || e}`); }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function NoteRow({ note, sessionArchived, helpers, onUpdate, onDelete, onPromoteClick }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(note.content);
+  const [saveStatus, setSaveStatus] = useState("idle");
+  const debounceRef = useRef(null);
+  const promoted = helpers ? helpers.formatPromotedMarker(note) : null;
+
+  useEffect(() => {
+    if (!editing || !helpers) return undefined;
+    const fn = async (content) => {
+      try {
+        setSaveStatus("saving");
+        await onUpdate(note, content);
+        setSaveStatus("saved");
+      } catch (e) {
+        setSaveStatus("failed");
+      }
+    };
+    debounceRef.current = helpers.debounceAutosave(fn, 2000);
+    return () => { debounceRef.current && debounceRef.current.cancel(); };
+  }, [editing, note.id, note.version]);
+
+  return (
+    <div className={"scratch-note-row" + (promoted ? " promoted" : "")}>
+      {!editing && (
+        <NoteRowView note={note} promoted={promoted}
+          onEdit={() => { setDraft(note.content); setEditing(true); setSaveStatus("idle"); }}
+          onDelete={() => onDelete(note)}
+          onPromote={onPromoteClick}
+          sessionArchived={sessionArchived} />
+      )}
+      {editing && (
+        <NoteRowEdit draft={draft} saveStatus={saveStatus}
+          onChange={(v) => { setDraft(v); if (debounceRef.current) debounceRef.current(v); }}
+          onClose={() => setEditing(false)} />
+      )}
+    </div>
+  );
+}
+
+function NoteRowView({ note, promoted, onEdit, onDelete, onPromote, sessionArchived }) {
+  const html = (typeof ScratchNotes !== "undefined") ? ScratchNotes.renderMarkdownSubset(note.content) : null;
+  const safeHtml = (html && typeof DOMPurify !== "undefined") ? DOMPurify.sanitize(html) : html;
+  return (
+    <>
+      {safeHtml ? (
+        <div className="scratch-note-rendered" dangerouslySetInnerHTML={{ __html: safeHtml }} />
+      ) : (
+        <pre className="scratch-note-raw">{note.content}</pre>
+      )}
+      {promoted && (
+        <div className="scratch-note-promoted-marker dim">
+          Promoted{promoted.turn != null ? ` at turn ${promoted.turn}` : ""} ({promoted.promotedAt})
+        </div>
+      )}
+      <div className="scratch-note-actions">
+        <button type="button" onClick={onEdit}>Edit</button>
+        <button type="button"
+          onClick={onPromote}
+          disabled={sessionArchived || note.content.trim().length === 0}
+          title={sessionArchived ? "promote requires an active session" : ""}>
+          Promote to transcript
+        </button>
+        <button type="button" className="danger" onClick={onDelete}>Delete</button>
+      </div>
+    </>
+  );
+}
+
+function NoteRowEdit({ draft, saveStatus, onChange, onClose }) {
+  return (
+    <div className="scratch-note-edit">
+      <textarea value={draft} onChange={(ev) => onChange(ev.target.value)} rows={5} />
+      <div className="scratch-note-edit-footer">
+        <span className={"scratch-save-status " + saveStatus}>
+          {saveStatus === "saving" && "saving..."}
+          {saveStatus === "saved" && "saved"}
+          {saveStatus === "failed" && "save failed - retry on next change"}
+        </span>
+        <button type="button" onClick={onClose}>Done</button>
+      </div>
+    </div>
+  );
+}
+
+function PromoteConfirmModal({ note, onCancel, onConfirm }) {
+  // Spec 024 FR-007 + spec 011 FR-045: modal shows EXACT text that will
+  // be injected. Confirm disabled when content is empty. Cancel emits
+  // no action and no audit row (FR-007).
+  const trimmed = (note.content || "").trim();
+  const confirmDisabled = trimmed.length === 0;
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="modal scratch-promote-modal">
+        <h3>Promote note to transcript?</h3>
+        <p className="dim">
+          The exact text below will be injected as a human turn. The orchestrator
+          will run it through the security pipeline; high-risk content routes through
+          the review gate the same as a typed message.
+        </p>
+        <pre className="scratch-promote-preview">{note.content}</pre>
+        <div className="modal-actions">
+          <button type="button" onClick={onCancel}>Cancel</button>
+          <button type="button" className="primary" disabled={confirmDisabled} onClick={onConfirm}>
+            Confirm promote
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SummariesTab({ summaries, helpers, onLoadPage, onCopyToNotes }) {
+  const [expandedId, setExpandedId] = useState(null);
+  const items = summaries.items || [];
+  const page = summaries.page || 0;
+  const totalPages = Math.max(1, Math.ceil((summaries.total || 0) / (summaries.page_size || 20)));
+  if (items.length === 0) {
+    return <p className="dim">No summary checkpoints in this session yet.</p>;
+  }
+  return (
+    <div className="scratch-summaries-tab">
+      {items.map((item, idx) => {
+        const prior = idx + 1 < items.length ? items[idx + 1] : null;
+        const range = helpers ? helpers.formatTurnRange(item, prior) : `turn ${item.turn_number || "?"}`;
+        const isExpanded = expandedId === item.id;
+        return (
+          <SummaryRow key={item.id || idx} item={item} range={range}
+            isExpanded={isExpanded} helpers={helpers}
+            onToggle={() => setExpandedId(isExpanded ? null : item.id)}
+            onCopyToNotes={onCopyToNotes} />
+        );
+      })}
+      <SummariesPager page={page} totalPages={totalPages} onLoadPage={onLoadPage} />
+    </div>
+  );
+}
+
+function SummaryRow({ item, range, isExpanded, helpers, onToggle, onCopyToNotes }) {
+  const parsed = helpers ? helpers.parseSummaryContent(item.content) : { narrative: item.content_preview || "" };
+  const copy = () => {
+    const text = parsed.narrative || item.content_preview || "";
+    if (text.length === 0) return;
+    onCopyToNotes(text);
+  };
+  return (
+    <div className={"scratch-summary-row" + (isExpanded ? " expanded" : "")}>
+      <div className="scratch-summary-header" onClick={onToggle}>
+        <span className="scratch-summary-range">{range}</span>
+        <span className="dim scratch-summary-preview">{item.content_preview}</span>
+      </div>
+      {isExpanded && (
+        <div className="scratch-summary-detail">
+          <SummarySection title="Narrative" body={parsed.narrative} />
+          <SummaryList title="Decisions" items={parsed.decisions || []} />
+          <SummaryList title="Open questions" items={parsed.open_questions || []} />
+          <SummaryList title="Key positions" items={parsed.key_positions || []} />
+          <button type="button" onClick={copy}>Copy to notes</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SummarySection({ title, body }) {
+  if (!body) return null;
+  return (
+    <div className="scratch-summary-section">
+      <h4>{title}</h4>
+      <p>{body}</p>
+    </div>
+  );
+}
+
+function SummaryList({ title, items }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="scratch-summary-section">
+      <h4>{title}</h4>
+      <ul>
+        {items.map((entry, idx) => (
+          <li key={idx}>{typeof entry === "string" ? entry : JSON.stringify(entry)}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SummariesPager({ page, totalPages, onLoadPage }) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="scratch-summaries-pager">
+      <button type="button" disabled={page <= 0} onClick={() => onLoadPage(page - 1)}>Previous page</button>
+      <span className="dim">Page {page + 1} of {totalPages}</span>
+      <button type="button" disabled={page + 1 >= totalPages} onClick={() => onLoadPage(page + 1)}>Next page</button>
+    </div>
+  );
+}
+
+function ReviewGateTab({ events, helpers }) {
+  const [expandedId, setExpandedId] = useState(null);
+  if (!events || events.length === 0) {
+    return <p className="dim">No review-gate events recorded in this session.</p>;
+  }
+  return (
+    <div className="scratch-review-gate-tab">
+      {events.map((ev) => {
+        const isExpanded = expandedId === ev.id;
+        const disposition = helpers ? helpers.reviewGateDisposition(ev.action) : ev.action;
+        return (
+          <ReviewGateRow key={ev.id} event={ev} disposition={disposition}
+            isExpanded={isExpanded}
+            onToggle={() => setExpandedId(isExpanded ? null : ev.id)} />
+        );
+      })}
+    </div>
+  );
+}
+
+function ReviewGateRow({ event, disposition, isExpanded, onToggle }) {
+  const ts = (typeof TimeFormat !== "undefined" && TimeFormat.formatLocale)
+    ? TimeFormat.formatLocale(event.timestamp) : event.timestamp;
+  return (
+    <div className={"scratch-review-gate-row" + (isExpanded ? " expanded" : "")}>
+      <div className="scratch-review-gate-header" onClick={onToggle}>
+        <span className="scratch-review-gate-disposition">{disposition}</span>
+        <span className="dim">{ts}</span>
+        <span className="dim"><code>{event.target_id}</code></span>
+      </div>
+      {isExpanded && (
+        <div className="scratch-review-gate-detail">
+          {event.action === "review_gate_edit" && (
+            <DiffRenderer
+              previousValue={event.previous_value}
+              newValue={event.new_value}
+              format="text"
+            />
+          )}
+          {event.action === "review_gate_approve" && (
+            <pre className="scratch-review-gate-draft">{event.previous_value || event.new_value || "(no draft retained)"}</pre>
+          )}
+          {event.action === "review_gate_reject" && (
+            <>
+              <h4>Rejected draft</h4>
+              <pre className="scratch-review-gate-draft">{event.previous_value || "(draft not retained)"}</pre>
+              {event.new_value && (
+                <>
+                  <h4>Rejection reason</h4>
+                  <p>{event.new_value}</p>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -4213,6 +4578,82 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     }
   };
 
+  // Spec 024 facilitator-scratch master-switch probe (spec 011 FR-042 /
+  // FR-049). Same null/true/false probe pattern as audit-log + detection-
+  // history. A 200 means SACP_SCRATCH_ENABLED=1 on the server.
+  useEffect(() => {
+    if (!isFacilitator || !auth.session_id) return;
+    if (state.scratchEnabled !== null) return;
+    mcpCall(`/tools/facilitator/scratch?session_id=${encodeURIComponent(auth.session_id)}`)
+      .then((payload) => {
+        dispatch({ type: "scratch_enabled", value: true });
+        dispatch({ type: "scratch_payload_loaded", payload });
+      })
+      .catch(() => dispatch({ type: "scratch_enabled", value: false }));
+  }, [isFacilitator, auth.session_id, state.scratchEnabled]);
+
+  const refreshScratch = async () => {
+    try {
+      const payload = await mcpCall(
+        `/tools/facilitator/scratch?session_id=${encodeURIComponent(auth.session_id)}`,
+      );
+      dispatch({ type: "scratch_payload_loaded", payload });
+    } catch (e) {
+      alert(`Scratch fetch failed: ${e.message || e}`);
+    }
+  };
+
+  const openScratchPanel = async () => {
+    dispatch({ type: "scratch_panel_set_open", value: true });
+    await refreshScratch();
+  };
+  const closeScratchPanel = () => dispatch({ type: "scratch_panel_set_open", value: false });
+
+  const scratchCreateNote = async (content) => {
+    const created = await mcpCall("/tools/facilitator/scratch/notes", {
+      method: "POST", body: { content },
+    });
+    if (created && created.id) await refreshScratch();
+    return created;
+  };
+
+  const scratchUpdateNote = async (note, content) => {
+    const result = await mcpCall(`/tools/facilitator/scratch/notes/${encodeURIComponent(note.id)}`, {
+      method: "PUT", body: { content, version: note.version },
+    });
+    await refreshScratch();
+    return result;
+  };
+
+  const scratchDeleteNote = async (note) => {
+    await mcpCall(`/tools/facilitator/scratch/notes/${encodeURIComponent(note.id)}`, {
+      method: "DELETE",
+    });
+    await refreshScratch();
+  };
+
+  const scratchPromoteNote = async (note) => {
+    const result = await mcpCall(`/tools/facilitator/scratch/notes/${encodeURIComponent(note.id)}/promote`, {
+      method: "POST",
+    });
+    await refreshScratch();
+    return result;
+  };
+
+  const loadScratchSummariesPage = async (page) => {
+    try {
+      const data = await mcpCall(
+        `/tools/facilitator/scratch/summaries?session_id=${encodeURIComponent(auth.session_id)}&page=${page}`,
+      );
+      dispatch({
+        type: "scratch_payload_loaded",
+        payload: { ...(state.scratchPayload || {}), summaries: data },
+      });
+    } catch (e) {
+      alert(`Summaries fetch failed: ${e.message || e}`);
+    }
+  };
+
   // FR-010 click-expand: fetch the disposition timeline for one event.
   const fetchDispositionTimeline = async (eventId) => {
     try {
@@ -4300,6 +4741,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                 auditEntries={state.auditEntries}
                 auditViewerEnabled={state.auditViewerEnabled === true}
                 detectionHistoryEnabled={state.detectionHistoryEnabled === true}
+                scratchEnabled={state.scratchEnabled === true}
                 onApprove={approveParticipant}
                 onReject={rejectParticipant}
                 onInvite={createInvite}
@@ -4308,6 +4750,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                 onCapSet={setLengthCap}
                 onOpenAuditLog={openAuditLogPanel}
                 onOpenDetectionHistory={openDetectionHistoryPanel}
+                onOpenScratch={openScratchPanel}
               />
               {state.auditLogPanelOpen && (
                 <AuditLogPanel
@@ -4330,6 +4773,19 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                   onResurface={resurfaceDetectionEvent}
                   onFetchTimeline={fetchDispositionTimeline}
                   onClose={closeDetectionHistoryPanel}
+                />
+              )}
+              {state.scratchPanelOpen && (
+                <ScratchPanel
+                  payload={state.scratchPayload}
+                  sessionArchived={state.session?.status === "archived"}
+                  onCreate={scratchCreateNote}
+                  onUpdate={scratchUpdateNote}
+                  onDelete={scratchDeleteNote}
+                  onPromote={scratchPromoteNote}
+                  onLoadSummariesPage={loadScratchSummariesPage}
+                  onRefresh={refreshScratch}
+                  onClose={closeScratchPanel}
                 />
               )}
             </>

@@ -425,6 +425,36 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Source spec(s)**: 023 §FR-020 / research §7 (revised at impl-time to ship in v1)
 - **Note**: Gates `POST /tools/admin/account/transfer_participants` per spec 023 FR-020. When unset, the endpoint refuses every request — the admin-auth shim has no key to compare against. When set, callers attach the same value as the `X-Deployment-Owner-Key` header on the transfer request. The shim is intentionally minimal: a single static key. Future operator-auth specs (mTLS, OAuth M2M) replace the dependency without changing the endpoint contract.
 
+
+### `SACP_SCRATCH_ENABLED`
+
+- **Default**: `0` (off — opt-in master switch ships disabled)
+- **Type**: boolean (`0` or `1`)
+- **Valid range**: exactly `0` or `1`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_scratch_enabled`
+- **Source spec(s)**: 024 §FR-019 / FR-022 (master switch for the facilitator scratch panel surface)
+- **Note**: When `0` (the default), every endpoint under `/tools/facilitator/scratch/` returns HTTP 404 and the SPA does NOT render the scratch panel entry-point button in the session header. When `1`, the scratch router mounts and the entry-point button surfaces (gated additionally by FR-021 facilitator-only role check). Notes data NEVER reaches AI context regardless of this switch — the surface is gated, not the FR-001 isolation guarantee.
+
+### `SACP_SCRATCH_NOTE_MAX_KB`
+
+- **Default**: `64`
+- **Type**: positive integer (kilobytes)
+- **Valid range**: `1 <= value <= 1024` (1 KiB to 1 MiB inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_scratch_note_max_kb`
+- **Source spec(s)**: 024 §FR-010 / FR-022 (per-note size cap)
+- **Note**: Per-note content size cap. Notes exceeding the cap are rejected with HTTP 413 from the `POST` and `PUT` scratch-notes endpoints. The cap protects against unbounded notes consuming DB space; raising past 1 MiB is unsupported in v1 (the underlying TEXT column accepts more bytes, but the SPA renderer + autosave-debounce envelope assume bounded inputs).
+
+### `SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE`
+
+- **Default**: unset (indefinite retention; no sweep applies)
+- **Type**: positive integer (days), or empty
+- **Valid range**: `1 <= value <= 36500` (1 day to 100 years) when set
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_scratch_retention_days_after_archive`
+- **Source spec(s)**: 024 §FR-018 / FR-022 (retention sweep for account-scoped notes)
+- **Note**: Retention applies to account-scoped notes only (session-scoped notes are deleted on archive regardless of this value per FR-017). The sweep is operator-scheduled via `scripts/scratch_retention_sweep.py`; the orchestrator does NOT auto-purge in-process. Each purged note emits one `admin_audit_log` row with `action=''facilitator_note_purged_retention''`.
 ## Reserved (documented but not yet wired)
 
 These vars appear in the debug-export config snapshot allowlist but are NOT consumed by application code. Operators setting them today will see the value in the debug snapshot but no behavioral effect. Validators land when application code starts consuming them — likely as part of a per-spec amendment cluster.

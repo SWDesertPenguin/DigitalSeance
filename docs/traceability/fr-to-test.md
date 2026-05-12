@@ -81,6 +81,14 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-039 | tests/frontend/test_detection_event_taxonomy.js, tests/e2e/test_022_detection_history_panel.py | Spec 022 amendment: registry fallback + empty-state + truncation toggle + Playwright class-label assertion |
 | FR-040 | tests/test_022_resurface_endpoint.py, tests/e2e/test_022_detection_history_panel.py | Spec 022 amendment: per-row resurface button + archived-session disabled + endpoint 409 |
 | FR-041 | tests/test_022_architectural.py | Spec 022 amendment: SPA refetch wiring (WS reconnect + visibility-return) pinned by architectural grep |
+| FR-042 | untested | Spec 024 amendment: Scratch button in session header gated by FR-009 + SACP_SCRATCH_ENABLED; trigger: spec 024 UI implementation Phase F |
+| FR-043 | untested | Spec 024 amendment: scratch slide-over panel at route /session/:id/scratch with three tabs; trigger: spec 024 UI implementation Phase F |
+| FR-044 | tests/frontend/test_scratch_notes.js | Spec 024 amendment: 2s autosave debounce + status indicator + OCC 409 handling; pure-logic helpers covered by Node test; UI wiring trigger: spec 024 UI implementation Phase F |
+| FR-045 | untested | Spec 024 amendment: promote-to-transcript confirmation modal with exact text; trigger: spec 024 UI implementation Phase F |
+| FR-046 | tests/test_029_architectural.py | Spec 024 amendment: shared-module reuse (DiffRenderer, threshold constants, format_label, format_iso); spec 029 architectural test enforces no parallel implementations |
+| FR-047 | untested | Spec 024 amendment: Summaries tab with 20-per-page offset pagination + copy-to-notes; trigger: spec 024 UI implementation Phase F |
+| FR-048 | untested | Spec 024 amendment: Review Gate tab with DiffRenderer expansion for review_gate_edit rows; trigger: spec 024 UI implementation Phase F |
+| FR-049 | untested | Spec 024 amendment: archived-session affordances (scope chip visible, promote button disabled with tooltip); trigger: spec 024 UI implementation Phase F |
 | SR-001 | tests/test_web_ui_app.py, tests/test_011_testability.py | Security headers present; CSP report-uri; per-directive coverage (14 fragments) |
 | SR-001a | untested | WS frame cap (256KB); WS layer max_size not yet wired; trigger: Phase E ops |
 | SR-002 | tests/test_web_ui_app.py | Strict-Transport-Security header present |
@@ -384,3 +392,36 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-015 | tests/test_022_filter_composition.py, tests/test_022_taxonomy_registry.py | Spec 014 mode_recommendation + mode_change surface as distinct registry classes |
 | FR-016 | tests/test_022_validators.py | Three env vars validated at startup; master-switch hides route + SPA button |
 | FR-017 | tests/test_022_architectural.py, tests/test_022_log_repo.py, tests/test_022_cross_instance_broadcast.py | Multi-faceted FR: architectural test pins the dual-write contract (emit sites route through persist_and_broadcast_detection_event); log_repo tests cover the append-only invariant + disposition denormalization on the `detection_events` table; cross_instance_broadcast tests cover the post-INSERT broadcast emission alongside the LISTEN/NOTIFY hop, including fail-soft when INSERT fails. |
+
+---
+
+## 024-facilitator-scratch
+
+| FR | Test path(s) | Notes |
+|----|--------------|-------|
+| FR-001 | tests/test_024_architectural.py | FR-001 architectural enforcement: no code path from src/orchestrator/, src/prompts/, src/api_bridge/, or src/operations/ imports src.scratch.* |
+| FR-002 | tests/test_024_master_switch_off.py | GET /tools/facilitator/scratch route presence + master-switch-off absence; DB-gated integration coverage trigger: Postgres test harness Phase F |
+| FR-003 | tests/test_024_master_switch_off.py | POST /tools/facilitator/scratch/notes route presence; full endpoint integration trigger: Postgres test harness Phase F |
+| FR-004 | tests/test_024_master_switch_off.py | PUT /tools/facilitator/scratch/notes/<id> route presence; OCC behavior in FacilitatorNotesRepository.update_note; DB integration trigger: Phase F |
+| FR-005 | tests/test_024_master_switch_off.py | DELETE /tools/facilitator/scratch/notes/<id> route presence; soft-delete behavior in FacilitatorNotesRepository.soft_delete_note; DB integration trigger: Phase F |
+| FR-006 | tests/test_024_master_switch_off.py | POST /tools/facilitator/scratch/notes/<id>/promote route presence; promote handler reuses inject_message path; DB integration trigger: Phase F |
+| FR-007 | tests/frontend/test_scratch_notes.js | PromoteConfirmModal in frontend/app.jsx shows the EXACT text from the note (no truncation) with Confirm disabled when content is empty; pure-logic helpers exercised in Node test; e2e trigger: Playwright Phase F |
+| FR-008 | tests/test_024_master_switch_off.py | Promote routes through _validate_and_persist via existing participant.py helpers; DB integration trigger: Phase F |
+| FR-009 | tests/frontend/test_scratch_notes.js | 2s autosave debounce covered by frontend Node test |
+| FR-010 | tests/test_024_validators.py | SACP_SCRATCH_NOTE_MAX_KB validator boundary conditions + HTTP 413 enforced in router._enforce_size |
+| FR-011 | tests/frontend/test_scratch_notes.js | SummariesTab in frontend/app.jsx reads summaries section of FR-002 payload; parseSummaryContent + formatTurnRange helpers covered by Node test |
+| FR-012 | tests/frontend/test_scratch_notes.js | 20-per-page offset pagination wired via /tools/facilitator/scratch/summaries endpoint + SummariesPager component; pure-logic helpers covered in Node test |
+| FR-013 | tests/frontend/test_scratch_notes.js | ReviewGateTab in frontend/app.jsx reads review_gate_events section of FR-002 payload; service.list_review_gate_events filters admin_audit_log by action LIKE 'review_gate_%'; reviewGateDisposition helper covered in Node test |
+| FR-014 | tests/test_029_architectural.py, tests/frontend/test_scratch_notes.js | Spec 029 architectural test extended for spec 024 (no parallel threshold constants); component reuse trigger: spec 024 UI implementation Phase F |
+| FR-015 | tests/test_024_master_switch_off.py | facilitator_notes account_id FK SET NULL behavior in alembic migration; runtime scope detection via ScratchService.resolve_account_id; DB integration trigger: Phase F |
+| FR-016 | tests/test_024_validators.py | Account-scoped notes survive archive via partial index on account_id IS NOT NULL AND deleted_at IS NULL; retention sweep gated by SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE |
+| FR-017 | tests/test_024_validators.py | Session-scoped notes deleted on session DELETE via CASCADE FK in alembic 019 |
+| FR-018 | tests/test_024_validators.py | SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE validator; retention sweep script trigger: T015 follow-up |
+| FR-019 | tests/test_024_master_switch_off.py | SACP_SCRATCH_ENABLED master switch — no scratch routes mount when off; routes appear when on |
+| FR-020 | tests/test_024_audit_labels.py | Five scratch actions registered in audit_labels.LABELS + frontend mirror; emit sites covered by ScratchService methods (integration: Phase F) |
+| FR-021 | tests/test_024_master_switch_off.py | Facilitator-only access via get_current_participant; non-facilitator HTTP 403 trigger: spec 024 integration Phase F |
+| FR-022 | tests/test_024_validators.py | Three SACP_SCRATCH_* env vars validated at startup; V16 fail-closed gate |
+| FR-023 | untested | Scratch section in spec 010 debug-export payload; trigger: spec 010 amendment Phase F |
+| FR-024 | tests/frontend/test_scratch_notes.js | "Scratch" entry-point button in AdminPanel gated by scratchEnabled probe; ScratchPanel slide-over rendered in frontend/app.jsx; e2e trigger: Playwright Phase F |
+| FR-025 | tests/frontend/test_scratch_notes.js | Scope chip in ScratchPanel header reading "Account-scoped" / "Session-scoped"; describeScope helper covered in Node test |
+| FR-026 | tests/test_029_architectural.py, tests/test_024_audit_labels.py | Spec 029 shared-module contract reuse enforced by parity gate + spec 029 architectural test extension |
