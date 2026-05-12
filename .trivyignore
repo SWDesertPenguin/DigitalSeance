@@ -1,0 +1,23 @@
+# Trivy ignore file. Each entry is one CVE/GHSA id followed by an
+# optional `exp:YYYY-MM-DD` expiry. Trivy treats the file as
+# authoritative; any id listed here is silently dropped from the
+# scan output. Document the rationale here so re-evaluation has the
+# context next time a maintainer reads it.
+#
+# Format reference: https://aquasecurity.github.io/trivy/latest/docs/configuration/filtering/#by-finding-ids
+#
+# ----------------------------------------------------------------------
+# CVE-2026-40217 — LiteLLM "Arbitrary Code Execution via bytecode
+# rewriting" (HIGH). Fixed in litellm 1.83.10.
+#
+# Rationale (mirrors the pyproject.toml comment on the litellm pin):
+# the vulnerable surface is the LiteLLM proxy server's authenticated
+# `/guardrails/test_custom_code` endpoint, per the x41-dsec advisory
+# at https://www.x41-dsec.de/lab/advisories/x41-2026-001-litellm/.
+# SACP consumes LiteLLM as an SDK only from `src/api_bridge/litellm/`
+# and never binds the proxy or any /guardrails/* endpoints. The
+# Python 3.14 pin (Constitution §6.8) prevents bumping to 1.83.10
+# because litellm dropped Python 3.14 support in 1.83.8. Re-evaluate
+# when (a) upstream issues a Python 3.14-compatible patch line, or
+# (b) Constitution §6.8 is amended to allow Python 3.13.
+CVE-2026-40217

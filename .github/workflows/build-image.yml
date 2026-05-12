@@ -76,6 +76,9 @@ jobs:
           severity: HIGH,CRITICAL
           vuln-type: os,library
           ignore-unfixed: true
+          # Risk-accepted CVEs live in .trivyignore at the repo root with
+          # per-id rationale. Re-evaluate on every upstream release.
+          trivyignores: .trivyignore
 
       # Release-readiness gate (audit M-09): assert the image's /app tree
       # has every required entrypoint and none of the forbidden trees
