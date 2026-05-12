@@ -47,10 +47,10 @@ Recipients are facilitator WS subscribers on the session's channel. Participant 
 
 ### Cross-instance contract
 
-Per [research.md §1](../research.md), the broadcast MUST reach the facilitator's WS regardless of which orchestrator process holds the connection:
+Per [research.md §1](../research.md), the broadcast targets the facilitator's WS regardless of which orchestrator process holds the connection. Cross-instance delivery is **best-effort** per spec 022 FR-009 (Session 2026-05-11 Pass 1 closeout clarification) — Postgres LISTEN/NOTIFY is fire-and-forget, and a dropped LISTEN connection on the receiving instance can silently lose a message. The SPA recovers via spec 011 FR-041 refetch on WS reconnect + window-focus-after-inactivity:
 
-- **Same-instance**: broadcast in-process directly. P95 ≤ 100ms server-to-client (matches V14 budget).
-- **Cross-instance**: emit `NOTIFY detection_events_{session_id}, '<payload>'`; the instance holding the facilitator's WS receives the NOTIFY via its LISTEN connection and rebroadcasts in-process. Cross-instance budget absorbed by V14 cross-instance Re-surface budget (P95 ≤ 500ms — same routing path used).
+- **Same-instance**: broadcast in-process directly. P95 ≤ 100ms server-to-client (matches V14 budget). At-least-once delivery within the process.
+- **Cross-instance**: emit `NOTIFY detection_events_{session_id}, '<payload>'`; the instance holding the facilitator's WS receives the NOTIFY via its LISTEN connection and rebroadcasts in-process. Happy-path P95 ≤ 500ms (same routing path as re-surface). LISTEN-dropped scenario is recovered via the FR-041 refetch path, not asserted as MUST-deliver.
 
 ## Event: `detection_event_resurfaced`
 
@@ -94,7 +94,7 @@ Same as `detection_event_appended`: facilitator subscribers only. Participant AI
 
 ### Cross-instance contract
 
-Same as `detection_event_appended` — Postgres LISTEN/NOTIFY for cross-instance, in-process for same-instance.
+Same as `detection_event_appended` — Postgres LISTEN/NOTIFY for cross-instance, in-process for same-instance, **best-effort delivery** with FR-041 refetch as the eventual-consistency recovery path.
 
 ## Client-side handling (frontend/app.jsx)
 

@@ -50,9 +50,14 @@ operator-facing surface that:
    and disposition so an operator can compute per-detector noise
    rates by counting dismissed-as-false-positive events of one
    class and slice the timeline by who/when/outcome.
-4. **Respects** the existing event-retention story (spec 010 already
-   includes these events in the debug-export payload; spec 022 reads
-   the same source rather than introducing a new persistence path).
+4. **Integrates** with the existing forensic-export surface. Per
+   the Session 2026-05-11 amendment, `detection_events` is a NEW
+   table — the pre-amendment claim that spec 010 "already includes
+   these events" no longer holds. Spec 010 ships an amendment
+   paired with spec 022 pass 2 to add a `detection_events` section
+   to its export payload so the live panel (spec 022) and the
+   forensic export (spec 010) stay consistent — operators using
+   either surface get the same answers.
 
 The panel is **read-only** for stored event content. The operator
 can mark an event's disposition (e.g., "false positive") via the
@@ -68,6 +73,12 @@ pre-implementation until tasks land and implementation reaches
 Implemented status.
 
 ## Clarifications
+
+### Session 2026-05-11 (Pass 1 closeout clarifications)
+
+- Q: What happens to a detection event when the dual-write INSERT fails but the WS broadcast already fired (FR-017's fail-soft path)? Is there a recovery or backfill story, or is the gap accepted? → A: Accept the gap. The security-event log is the only recovery surface. No automatic backfill, no retry queue, no synthetic placeholder. Operators correlate the security-event log to detect coverage gaps; the panel will show fewer events than fired during DB outages. FR-017 wording updated to make this explicit. Rationale: the banner UX already worked pre-022 (broadcast-only), so the gap is "missing from history panel," not "missed event"; backfill machinery is disproportionate to a rare DB-failure window.
+- Q: Should spec 010 debug-export include rows from the new `detection_events` table? The pre-amendment Assumptions claimed spec 010 "already includes these events" — but that was true under the read-side-join model and is now stale. → A: Yes, add `detection_events` to spec 010's payload. The Session 2026-05-11 amendment made `detection_events` the source-of-truth for the five-class taxonomy; spec 010 is the existing forensic surface; the two surfaces must stay consistent so operators using either get the same answers. Work is bounded (one query + one section in the export envelope). Spec 010 amendment lands paired with spec 022 pass 2 implementation. Spec 022 Assumptions item §4 updated to reflect the new state.
+- Q: Cross-instance broadcast uses Postgres LISTEN/NOTIFY which is fire-and-forget — if the receiving instance's LISTEN connection is dropped (asyncpg pool churn, network blip) at the moment a NOTIFY fires, the message is silently lost. What's the v1 contract? → A: Best-effort delivery with eventual consistency via REST refetch. Accept that LISTEN/NOTIFY can drop messages under instance-side connection churn; rely on the SPA's REST refetch path to recover missed pushes. FR-009 softened from "MUST be delivered" to "best-effort cross-instance push, with eventual consistency via the FR-001 endpoint refetch." A new requirement pins the SPA's refetch triggers: on WS reconnect AND on browser window-focus return after an inactivity threshold (concrete threshold settled in `/speckit.plan` pass 2). SC-010 stands as a happy-path cross-instance test (controlled LISTEN); the LISTEN-dropped scenario is documented in Edge Cases as recovered via refetch, not asserted as MUST-deliver. Rationale: a polling subsystem or persistent broker (Redis Streams) is disproportionate to the narrow "user inactive + LISTEN dropped + new event" window; the refetch path already exists in the SPA for page-open and survives the cost-benefit test.
 
 ### Session 2026-05-11 (Amendment — reverses Session 2026-05-10 §1)
 
@@ -408,6 +419,16 @@ all filters and verify the full event set returns.
   that just fires without a numeric score). The score column
   renders as "—" rather than "0.0" to distinguish absence
   from a low score.
+- **Cross-instance LISTEN dropped at the moment NOTIFY fires.**
+  The detection_event_appended or detection_event_resurfaced
+  message is silently lost (Postgres LISTEN/NOTIFY is fire-
+  and-forget). The SPA recovers via the FR-009 refetch
+  contract: on the next WS reconnect OR on browser
+  window-focus return after the inactivity threshold, the
+  panel refetches via the FR-001 endpoint and the missed event
+  appears. Best-effort cross-instance delivery is the v1
+  contract per Session 2026-05-11 Pass 1 closeout
+  clarification.
 
 ## Requirements *(mandatory)*
 
@@ -466,10 +487,19 @@ all filters and verify the full event set returns.
   amendment dual-write contract). No new WS channel is
   introduced; the existing per-session broadcast (spec 006
   §FR-013, spec 011) carries the new event-list-item shape.
-  The broadcast MUST work across orchestrator instances
-  (multi-instance from v1, per Clarifications §6); the
-  cross-instance routing mechanism is shared with re-surface
-  (FR-006) and is settled in `/speckit.plan` research.
+  Cross-instance delivery is **best-effort** (per Session
+  2026-05-11 Pass 1 closeout clarification): Postgres
+  LISTEN/NOTIFY is fire-and-forget, and a dropped LISTEN
+  connection on the receiving instance can silently lose a
+  message. The SPA MUST refetch the current page via the
+  FR-001 endpoint on (a) WS reconnect AND (b) browser
+  window-focus return after an inactivity threshold to
+  recover any missed pushes; the threshold value is settled
+  in `/speckit.plan` pass 2. Eventual consistency via REST
+  refetch substitutes for at-least-once cross-instance push.
+  The cross-instance routing mechanism (LISTEN/NOTIFY) is
+  shared with re-surface (FR-006) and is detailed in
+  `research.md §1`.
 - **FR-010**: The disposition column MUST take one of four
   values: `pending`, `banner_acknowledged`, `banner_dismissed`,
   `auto_resolved`. Disposition transitions MUST be tracked as
@@ -537,7 +567,12 @@ all filters and verify the full event set returns.
   DB unavailable), the WS broadcast still fires (backward
   compatibility for current banner UX) and the failure is
   logged as a security-event so the gap is observable but
-  not fatal. The append-only invariant on detection events
+  not fatal. **No automatic backfill, retry queue, or
+  synthetic placeholder row is attempted** (per Session
+  2026-05-11 Pass 1 closeout clarification): the panel will
+  show fewer events than fired during DB outages, and
+  operators correlate the security-event log to detect
+  coverage gaps. The append-only invariant on detection events
   is preserved by allowing UPDATE only on the `disposition`
   column (latest-state denormalization); transition history
   flows through `admin_audit_log` per FR-010.
@@ -620,11 +655,16 @@ all filters and verify the full event set returns.
 - **SC-010**: Re-surface MUST succeed when the facilitator's
   WS is bound to a different orchestrator process than the one
   handling the POST (multi-instance contract per Clarifications
-  §6). Verified by a test that runs two orchestrator processes
-  against a shared DB, binds a facilitator's WS to process B,
-  drives the re-surface POST through process A, and asserts
-  the WS broadcast lands on process B's facilitator channel
-  within the cross-instance Performance Budget.
+  §6) **on the happy path** (both instances' LISTEN connections
+  healthy). Verified by a test that runs two orchestrator
+  processes against a shared DB, binds a facilitator's WS to
+  process B, drives the re-surface POST through process A, and
+  asserts the WS broadcast lands on process B's facilitator
+  channel within the cross-instance Performance Budget. The
+  LISTEN-dropped scenario is **not** asserted as MUST-deliver
+  per the Session 2026-05-11 best-effort clarification — it is
+  recovered via the FR-009 SPA refetch contract and listed in
+  Edge Cases.
 
 ## Topology and Use Case Coverage (V12/V13)
 
@@ -757,9 +797,15 @@ range, and fail-closed semantics documented in
 - **Spec 010 (debug-export)** — facilitator-only access pattern
   (§FR-2), session-bound check (§FR-3), and read-only contract
   (§FR-6 / §SC-007) are mirrored in spec 022 FR-002, FR-003,
-  FR-004. The debug export already includes the same event
-  rows; spec 022 surfaces them in the live UI rather than
-  introducing a separate export.
+  FR-004. **Spec 010 amendment committed** (per Session 2026-05-11
+  Pass 1 closeout clarification, paired with spec 022 pass 2):
+  add a `detection_events` section to the debug-export payload
+  covering all rows for the session, so the live panel
+  (spec 022) and the forensic export (spec 010) surfaces stay
+  consistent. The pre-amendment claim that spec 010 "already
+  includes these events" was true under the read-side-join model
+  and is now stale post the dedicated-table amendment; the
+  paired spec 010 amendment closes the gap.
 - **Spec 011 (web-ui)** — the history panel is a new UI
   surface. Spec 022 defines the panel contract (endpoint
   shape, event-list shape, re-surface action); spec 011 owns
