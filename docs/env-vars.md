@@ -194,6 +194,15 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Source spec(s)**: 026 FR-016
 - **Note**: Hard-compression engagement threshold. When the outgoing window's projected token count (per the target provider's TokenizerAdapter) exceeds this value, the dispatch path invokes the configured compressor instead of NoOp. Default `4000` is the literature default for LLMLingua-2 mBERT on English prose. Below 500 makes compression overhead dominate any savings; above 100000 effectively disables compression for all real workloads.
 
+### `SACP_LLMLINGUA_MODEL`
+
+- **Status**: Reserved — no startup validator; defensive fall-back to default at load time
+- **Default**: `microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank`
+- **Type**: string (Hugging Face checkpoint identifier or local model path)
+- **Valid range**: any string accepted by the `llmlingua.PromptCompressor` model loader
+- **Source spec(s)**: 026 FR-008 (Phase 2 Layer 4)
+- **Note**: Override hook for operators on air-gapped stacks who mirror the LLMLingua-2 mBERT checkpoint locally OR want to point at a fine-tuned SafeTensors-only weights bundle. Reserved — not a master switch; the dispatch path's gating is `SACP_COMPRESSION_PHASE2_ENABLED` + the `compression-phase2` extra. Unset / empty value falls back to the published Microsoft checkpoint above. Lazy-loaded on first compress dispatch; per-process singleton.
+
 ### `SACP_COMPRESSION_DEFAULT_COMPRESSOR`
 
 - **Default**: `noop`
