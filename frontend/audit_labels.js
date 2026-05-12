@@ -56,6 +56,11 @@
     "facilitator_note_deleted": { label: "Facilitator deleted scratch note" },
     "facilitator_promoted_note": { label: "Facilitator promoted note to transcript" },
     "facilitator_note_purged_retention": { label: "Scratch note purged by retention sweep" },
+    "standby_entered": { label: "Participant entered standby" },
+    "standby_exited": { label: "Participant exited standby" },
+    "pivot_injected": { label: "Orchestrator injected pivot message" },
+    "standby_observer_marked": { label: "Participant marked long-term observer" },
+    "wait_mode_changed": { label: "Participant wait_mode changed" },
   };
 
   // Return the registered label for `action`, or the

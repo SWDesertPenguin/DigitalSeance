@@ -2,7 +2,8 @@
 
 **Feature Branch**: `027-participant-standby-modes`
 **Created**: 2026-05-07
-**Status**: Draft (Phase 3 declared 2026-05-05; scaffold ships now, tasks + implementation deferred)
+**Status**: Implemented 2026-05-12 (Phase 3 declared 2026-05-05; clarify + plan + tasks + implementation shipped in a single full pass; spec 011 amendments FR-052..FR-059 land alongside)
+**Spec Version**: 1.1.0 | **Last Amended**: 2026-05-12 | **Amended In**: Spec 027 full pass — clarify session 2026-05-12 + implementation
 **Input**: User description: "Phase 3 AI participant standby modes. When a turn is gated on human input (AI has asked a question awaiting facilitator answer; review-gate awaiting approval; proposal awaiting vote), AIs currently keep producing filler turns that burn tokens without advancing the conversation. Adds a third participant state alongside paused (manual, sticky) and circuit_open (failure, requires reset): standby — auto-managed by the orchestrator based on a participant-configured wait_mode. Two modes per AI: wait_for_human (default — orchestrator skips dispatch until gating condition clears) and always (AI keeps taking turns with a Tier 4 acknowledgment delta). Auto-pivot mechanism after N consecutive standby cycles injects a system-level pivot message offering to redirect the panel or self-mark observer. Applies to topologies 1-6 (orchestrator-mediated dispatch FSM); incompatible with topology 7. Primary use cases: research co-authorship (§2), decision-making under asymmetric expertise (§6), consulting (§3)."
 
 ## Overview
@@ -120,81 +121,27 @@ reaches Implemented status.
 
 ## Clarifications
 
-### Initial draft assumptions requiring confirmation
+### Session 2026-05-12 (full-pass resolution)
 
-- **Coordination with spec 013/014 observer-downgrade.** Spec
-  013 introduces an `observer_downgrade` mechanism that
-  transparently downgrades an active participant to observer
-  during high-traffic windows. Spec 027's standby is a
-  different state with a different trigger (gate-blocked vs.
-  traffic-shape). Drafted as: standby and observer-downgrade
-  are independent states; if both fire on the same participant,
-  standby wins (gate-blocked takes precedence over traffic-
-  shape) and the observer-downgrade evaluation skips
-  participants already in standby. [NEEDS CLARIFICATION:
-  confirm standby-wins precedence vs. observer-downgrade-wins
-  vs. compose-as-additive (participant could be standby AND
-  observer simultaneously).]
-- **Detection signal #4 vs. spec 014's off-rails detector.**
-  The user's brief notes the filler heuristic "overlaps with
-  backlog #8 / 014 signal additions." Drafted as: spec 027
-  consumes spec 014's off-rails signal as one of its inputs,
-  rather than re-implementing the filler heuristic
-  independently. The signal source-of-truth lives in 014;
-  spec 027 reads it and applies the wait_mode behavior.
-  [NEEDS CLARIFICATION: confirm signal-consumption vs.
-  independent-detection.]
-- **Standby exit semantics on review-gate clear.** A
-  participant is in standby because their review-gate event
-  is pending. The facilitator approves the gate. Drafted as:
-  the orchestrator polls the unresolved-gates set on every
-  round-robin tick; the moment the gate clears, the
-  participant exits standby and dispatches on the NEXT
-  eligible round-robin slot (not immediately mid-tick).
-  [NEEDS CLARIFICATION: confirm next-tick exit vs.
-  immediate-pre-empt.]
-- **Manual pause of a standby participant.** A facilitator
-  manually pauses a participant who is currently standby.
-  Drafted as: paused supersedes standby (paused is sticky;
-  standby is auto-managed). The participant exits standby
-  and enters paused; on manual resume, standby evaluation
-  re-runs and may transition the participant back to standby
-  if the gate is still active. [NEEDS CLARIFICATION:
-  confirm paused-supersedes vs. paused-and-standby-coexist.]
-- **`always` mode delta composition with spec 021 / spec 025
-  Tier 4 deltas.** The `always`-mode acknowledgment delta is
-  Tier 4. Drafted as: Tier 4 deltas compose additively in a
-  fixed order (spec 021 register slider first, spec 025
-  conclude delta second, spec 027 wait-acknowledgment third).
-  Each delta operates orthogonally on the same prompt
-  surface. [NEEDS CLARIFICATION: confirm fixed-additive-order
-  vs. operator-configurable-order.]
-- **Pivot rate-cap scope.** Drafted as: the rate cap is
-  per-session, not per-participant. A session with three
-  AIs all in standby produces at most
-  `SACP_STANDBY_PIVOT_RATE_CAP_PER_SESSION` pivots total
-  across the session lifetime. Per-participant rate-capping
-  is a future enhancement. [NEEDS CLARIFICATION: confirm
-  per-session vs. per-participant rate cap.]
-- **Pivot message envelope.** The pivot is an
-  orchestrator-emitted system message in the transcript.
-  Drafted as: the message persists with `speaker_type='system'`
-  AND a new `kind='orchestrator_pivot'` discriminator on the
-  message row (or in the message metadata) so spec 005's
-  summarizer and spec 011's UI can render pivot messages
-  distinctly. [NEEDS CLARIFICATION: confirm
-  speaker_type='system' + kind discriminator vs. dedicated
-  speaker_type='pivot'.]
-- **Detection signal #3 stance-similarity threshold.** Drafted
-  as: cosine similarity > 0.8 against the immediately prior
-  turn AND < 50 tokens of new content. Both conditions must
-  hold. The 0.8 threshold borrows spec 004 §FR-014 convergence
-  semantics; the 50-token threshold mirrors spec 004 §FR-016
-  short-output handling. [NEEDS CLARIFICATION: confirm the
-  two-condition AND vs. either-OR vs. operator-tunable.]
-- **Phase 1+2 shakedown reference.** The shakedown detail is
-  paraphrased without test session IDs. Confirm the paraphrase
-  is acceptable.
+All eight initial-draft markers resolved at the start of the full-pass clarify + plan + tasks + implement session. Resolutions below are now binding contract; downstream FR text and `/speckit.plan` artifacts encode them directly.
+
+- **Q1 — Spec 013/014 observer-downgrade precedence.** Resolution: **standby-wins**. When a participant is eligible for both standby (gate-blocked) and observer-downgrade (traffic-shape), the standby evaluator transitions the participant to `standby` and the observer-downgrade evaluator MUST skip participants already in `standby`. Encoded in FR-026. Rationale: gate-blocked is a harder operational constraint than traffic-shape (the human-input gate cannot be cleared by changing traffic shape), and compose-as-additive (standby AND observer simultaneously) would defeat the round-robin skip-set arithmetic (a participant in two skip states is no more skipped than a participant in one).
+- **Q2 — Detection signal #4 vs. spec 014/021 filler heuristic.** Resolution: **consume the signal source-of-truth that already shipped**. Spec 014's nearest "off-rails" surface in production is the `density_anomaly` signal of its DmaController. Spec 021 ships the canonical filler-scorer (`src/orchestrator/shaping.py:compute_filler_score`) consumed by the response-shaping retry pipeline. Spec 027 detection signal #4 reads **spec 021's filler-scorer aggregate output** (via `routing_log.filler_score` rows, which 021 writes per-turn). The "off-rails signal vocabulary" coordination with spec 014 (called out in the user's brief) is satisfied by: (a) re-using the same threshold env var family (`SACP_STANDBY_*` mirrors `SACP_DMA_*` shape), and (b) not double-firing when both DMA's density_anomaly AND 027's filler-stuck signal would trip on the same turn — 027's evaluator skips signal-#4 when a `density_anomaly` `routing_log` row exists for the current tick for the same participant. Encoded in FR-007.
+- **Q3 — Standby exit semantics on gate clear.** Resolution: **next-tick exit**. When the gating condition clears (human reply resolves the question event, facilitator approves the review gate, proposal vote arrives), the standby evaluator clears the standby flag on the NEXT round-robin tick. The participant dispatches on their next eligible round-robin slot, NOT immediately mid-tick. Encoded in FR-011. Rationale: immediate-pre-empt would invite race conditions with concurrent in-flight dispatches and complicate the loop's per-tick FSM contract; next-tick exit is bounded by the loop's existing tick cadence (sub-second in typical configurations).
+- **Q4 — Manual pause of a standby participant.** Resolution: **paused-supersedes**. A facilitator-issued pause on a standby participant transitions the participant from `status='standby'` to `status='paused'`. The standby evaluator MUST NOT re-transition a `paused` participant. On manual resume, the standby evaluator re-runs on the next tick and MAY transition the participant back to `standby` if a gate is still active. Encoded in FR-012. Rationale: facilitator authority is the higher-priority signal; the facilitator manually pausing is an explicit "do not dispatch this participant" decision that survives gate clearance.
+- **Q5 — Tier 4 delta composition order.** Resolution: **fixed-additive-order**: spec 021 register-slider delta first, spec 025 conclude delta second, spec 027 wait-acknowledgment delta third. The composition operates on the existing `assemble_prompt` Tier 4 surface (`src/prompts/tiers.py`). Encoded in FR-016. Rationale: operator-configurable order is a footgun (operators reordering deltas could land in tested-but-illegal compositions); fixed order is auditable, testable end-to-end, and mirrors the order each delta SHIPPED in (021 → 025 → 027).
+- **Q6 — Pivot rate-cap scope.** Resolution: **per-session, not per-participant**. A session with three AIs all in standby produces at most `SACP_STANDBY_PIVOT_RATE_CAP_PER_SESSION` pivots total across the session lifetime. Encoded in FR-019. Rationale: the pivot is a session-level rhetorical event ("the human is not coming back; pivot or self-mark observer") — capping per-participant would produce three near-identical pivot messages in a 3-AI session, which is noisier than a single session-level pivot. Per-participant rate-capping is a future amendment if operator experience reveals the per-session cap is too aggressive.
+- **Q7 — Pivot message envelope.** Resolution: **`speaker_type='system'` + `kind='orchestrator_pivot'` metadata key**. The discriminator lives in the existing `messages.metadata` JSONB column (spec 001) — no new column required. Spec 005's summarizer can filter by `metadata->>'kind' = 'orchestrator_pivot'`; spec 011's UI can render pivot messages distinctly via the same key. Encoded in FR-018. Rationale: a dedicated `speaker_type='pivot'` would propagate the discriminator through every check-site that switches on speaker_type (security pipeline, summarizer, UI) — high blast radius for a single message kind.
+- **Q8 — Detection signal #3 stance-similarity threshold.** Resolution: **two-condition AND** (cosine similarity > 0.8 AND new-token count < 50 against the immediately prior turn). The thresholds are not env-tunable in v1 — they are hardcoded in `src/orchestrator/standby.py` matching the values in spec 004 §FR-014 and §FR-016. Encoded in FR-006. Rationale: either-OR fires too aggressively (every short-but-novel turn would flag); operator-tunable adds an env-var surface for a behavior that should be uniform across sessions in v1. If operator experience reveals false positives, a Constitution §14.2 amendment exposes the values as env vars.
+- **Q9 — Phase 1+2 shakedown paraphrase.** Resolution: **paraphrase is acceptable as-drafted**. The Overview's paraphrased shakedown observation ("an AI asks the facilitator a question…subsequent turns repeat the same stance with minor variations") carries no test session IDs, no participant names, and no provider identifiers; the paraphrase is acceptable for publication per the user-described "minimize-AI-footprint" + "no-local-references" memory rules.
+
+### Session 2026-05-12 (consequential follow-on resolutions surfaced during plan/implement)
+
+- **Q10 — long-term-observer storage shape.** A participant transitions to a "long-term observer" sub-state after FR-020's pivot fires for a `wait_for_human` participant. Resolution: the sub-state is a boolean flag on `participants.wait_mode_metadata` JSONB (new column added by migration `021_participant_standby_modes.py`), specifically the key `long_term_observer=true`. The participant's primary `status` remains `standby` so the round-robin skip-set arithmetic is unchanged; the UI badge variant (spec 011 FR-058) reads the JSONB flag.
+- **Q11 — pivot-cycle accumulator durability.** Resolution: the consecutive-standby-cycles counter is durable per-participant per-session, persisted in `participants.standby_cycle_count` (new column). Volatile in-memory accumulator would reset on loop restart, which is exactly the case where the pivot is most valuable (the human IS absent across the restart window). Mirrors the spec-025 active-seconds durability decision.
+- **Q12 — env-var prefix conformance.** All four new env vars adopt the `SACP_STANDBY_*` prefix matching the spec name. Validator function names mirror the env-var names with `validate_` prefix per the audit-batch-5 catalog convention.
+
+
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -495,10 +442,21 @@ assert no second pivot is injected (rate cap).
   (cosine_similarity > 0.8 AND new_token_count < 50). The
   similarity computation reuses spec 004's
   sentence-transformers pipeline.
-- **FR-007**: Detection signal #4 MUST consume spec 014's
-  off-rails signal (the filler heuristic) rather than
-  reimplementing it. Signal-source-of-truth is in 014; spec
-  027 reads it.
+- **FR-007**: Detection signal #4 MUST consume spec 021's
+  filler-scorer aggregate output (`routing_log.filler_score`
+  per spec 021 FR-002/FR-004) as its signal source rather
+  than re-implementing the filler heuristic locally. The
+  evaluator reads the most recent N=2 `routing_log` rows for
+  the participant (matching FR-006 N=2) and trips signal #4
+  when both rows carry `filler_score >= SACP_FILLER_THRESHOLD`
+  (or the per-family default when the env var is unset). The
+  evaluator MUST skip signal #4 for the current tick when the
+  same participant has a `routing_log` row with `density_anomaly`
+  recorded for this tick (spec 014's nearest-neighbour
+  signal) — this is the off-rails-vocabulary coordination
+  with spec 014 per the user brief, preventing double-firing
+  on the same low-content pattern. Resolved per Session
+  2026-05-12 Q2.
 - **FR-008**: When any detection signal fires for a
   participant in `wait_mode='wait_for_human'`, the evaluator
   MUST transition the participant to `standby` AND emit
@@ -544,10 +502,11 @@ assert no second pivot is injected (rate cap).
   elapsed since the gating event opened.
 - **FR-018**: The pivot message MUST be persisted with
   `speaker_type='system'` AND a `kind='orchestrator_pivot'`
-  discriminator (column or metadata field, settled in
-  `/speckit.plan`). The discriminator distinguishes pivot
-  messages from other system messages for spec 005
-  summarizer + spec 011 UI.
+  discriminator stored in the existing `messages.metadata`
+  JSONB column (spec 001) — no new column. Spec 005's
+  summarizer filters via `metadata->>'kind' =
+  'orchestrator_pivot'`; spec 011's UI renders via the same
+  key. Resolved per Session 2026-05-12 Q7.
 - **FR-019**: Pivot rate MUST be capped per session via
   `SACP_STANDBY_PIVOT_RATE_CAP_PER_SESSION` (default 1).
   When the cap is reached, subsequent would-have-pivoted
@@ -556,9 +515,14 @@ assert no second pivot is injected (rate cap).
   the injection.
 - **FR-020**: After a pivot fires for a `wait_for_human`-mode
   participant, the orchestrator MUST transition them to a
-  long-term-observer sub-state (still standby, but with
-  `kind='long_term_observer'` flag). `admin_audit_log` MUST
-  record `action='standby_observer_marked'`.
+  long-term-observer sub-state. The participant's `status`
+  remains `standby` (round-robin skip-set arithmetic
+  unchanged); the sub-state is recorded as
+  `long_term_observer=true` in the new
+  `participants.wait_mode_metadata` JSONB column (migration
+  `021_participant_standby_modes.py`). `admin_audit_log` MUST
+  record `action='standby_observer_marked'`. Resolved per
+  Session 2026-05-12 Q10.
 - **FR-021**: A long-term-observer participant MUST exit
   cleanly back to `active` when their gating condition
   clears (no manual reset required).
@@ -590,7 +554,33 @@ assert no second pivot is injected (rate cap).
   spec 013/014 observer-downgrade evaluation: standby takes
   precedence (gate-blocked outranks traffic-shape).
   Observer-downgrade evaluator MUST skip participants
-  already in standby.
+  already in standby. Resolved per Session 2026-05-12 Q1.
+- **FR-027**: The consecutive-standby-cycles counter (FR-017
+  pivot trigger denominator) MUST be persisted in
+  `participants.standby_cycle_count` (new column added by
+  migration `021_participant_standby_modes.py`). The
+  counter increments on each round-robin tick where the
+  participant remained in `standby`; the counter resets to 0
+  on every standby-exit transition. Volatile in-memory
+  accumulation would lose state on loop restart, which is
+  the exact case where the pivot is most useful (human
+  absent across the restart window). Resolved per Session
+  2026-05-12 Q11.
+- **FR-028**: The four new env vars adopt the
+  `SACP_STANDBY_*` prefix matching the spec name. Validator
+  function names are `validate_standby_default_wait_mode`,
+  `validate_standby_filler_detection_turns`,
+  `validate_standby_pivot_timeout_seconds`,
+  `validate_standby_pivot_rate_cap_per_session`. Resolved
+  per Session 2026-05-12 Q12.
+- **FR-029**: Five new `admin_audit_log` action labels MUST
+  be registered in both `src/orchestrator/audit_labels.py`
+  AND `frontend/audit_labels.js` (the CI parity gate per
+  spec 029 enforces equality): `standby_entered`,
+  `standby_exited`, `pivot_injected`,
+  `standby_observer_marked`, `wait_mode_changed`. The
+  `wait_mode_changed` label backs FR-025's facilitator
+  endpoint audit row.
 
 ### Key Entities
 
@@ -840,6 +830,21 @@ spec (per V16 deliverable gate).
   contributes three budgets (Performance Budgets section).
 - **Constitution V16** — env-var validation at startup.
   Spec 027 introduces four new vars (Configuration section).
+
+## Spec 011 Amendment Coordination (Phase 3, FR-052..FR-059)
+
+Per the user's reminder memory (`reminder_spec_011_amendments_at_impl_time.md`), the spec 011 web-UI amendment is co-drafted with this spec's implementation rather than carried as a forward-ref. Reserved slots for this lane: `FR-052..FR-059` (8 FRs) in spec 011. Lane A (spec 024 facilitator scratch) consumes `FR-042..FR-049`; `FR-050..FR-051` are intentionally left as a gap-buffer per the user's parallel-lane coordination memo. The eight amendments (registered against spec 011 — see `specs/011-web-ui/spec.md`) cover:
+
+- `FR-052` — Participant card MUST render a `wait_mode` badge with two states (`wait_for_human` / `always`). The badge is gated by spec 011 FR-009 role check (facilitator-only); non-facilitators MUST NOT see the badge.
+- `FR-053` — Participant card MUST render a `standby` pill when the participant's `status='standby'`, distinct from the existing `paused-manual` / `paused-breaker` indicators (spec 011 FR-020). The pill consumes `participant_standby` / `participant_standby_exited` WS events. Pill copy: "Standby — awaiting <reason>" with reason from the WS payload (`awaiting_human` / `awaiting_gate` / `awaiting_vote`).
+- `FR-054` — Facilitator admin panel MUST expose a `wait_mode` toggle per participant, posting to the FR-025 endpoint. The control is gated by spec 011 FR-009 role check; non-facilitators MUST NOT see the toggle.
+- `FR-055` — Pivot messages (rendered from `messages.metadata->>'kind' = 'orchestrator_pivot'`) MUST render with distinct styling — a banner-style affordance distinguishing them from regular participant turns and from non-pivot system messages. The renderer reads the metadata key directly; no separate API call required.
+- `FR-056` — Long-term-observer participants (FR-020 sub-state, `wait_mode_metadata->>'long_term_observer' = 'true'`) MUST render a badge variant on their participant card distinct from the regular `standby` pill — copy: "Long-term observer — human absent". The badge is gated by spec 011 FR-009 role check.
+- `FR-057` — The participant card layout MUST tolerate the addition of the `wait_mode` badge + `standby` pill + long-term-observer badge variant without overflowing the card's bounded width on a standard 1280px-wide Phase 1+2 viewport. The renderer truncates any badge copy that exceeds 24 characters with an inline `[expand]` link.
+- `FR-058` — The `participant_update` WS event payload MUST include the participant's current `wait_mode` and `wait_mode_metadata` fields so the SPA can render the badges from a state-snapshot reconnect path AND from any mid-session update without a polling refetch. Cross-ref spec 002 §FR-016 participant-update broadcast.
+- `FR-059` — The five new audit-action labels from FR-029 (`standby_entered`, `standby_exited`, `pivot_injected`, `standby_observer_marked`, `wait_mode_changed`) MUST appear in the spec 029 audit-log viewer (when `SACP_AUDIT_VIEWER_ENABLED=true`) with the human-readable strings registered in `src/orchestrator/audit_labels.py` and mirrored in `frontend/audit_labels.js`. The CI parity gate enforces equality.
+
+These amendments land alongside the spec 027 implementation in the same PR; the spec 011 `## Implementation Phases` section gains a new subsection "Phase 3d — Standby UI (ships with spec 027)" capturing the same eight FRs.
 
 ## Assumptions
 

@@ -89,6 +89,14 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-047 | untested | Spec 024 amendment: Summaries tab with 20-per-page offset pagination + copy-to-notes; trigger: spec 024 UI implementation Phase F |
 | FR-048 | untested | Spec 024 amendment: Review Gate tab with DiffRenderer expansion for review_gate_edit rows; trigger: spec 024 UI implementation Phase F |
 | FR-049 | untested | Spec 024 amendment: archived-session affordances (scope chip visible, promote button disabled with tooltip); trigger: spec 024 UI implementation Phase F |
+| FR-052 | tests/frontend/test_standby_ui.js | Spec 027 amendment: facilitator-only wait_mode badge derivation verified Node-runnable; React-side gating + role check trigger: spec 027 UI implementation Phase F |
+| FR-053 | tests/frontend/test_standby_ui.js | Spec 027 amendment: standby-pill copy resolution from WS event reason verified Node-runnable; pill rendering + clear-on-exit trigger: spec 027 UI implementation Phase F |
+| FR-054 | tests/test_027_validators.py | Spec 027 amendment: facilitator wait_mode toggle posting to set_wait_mode endpoint; backend endpoint surface backstopped by validator + architectural tests; trigger: spec 027 UI implementation Phase F |
+| FR-055 | tests/frontend/test_standby_ui.js | Spec 027 amendment: pivot-message detection via metadata.kind verified Node-runnable; banner-style rendering trigger: spec 027 UI implementation Phase F |
+| FR-056 | tests/frontend/test_standby_ui.js | Spec 027 amendment: long-term-observer detection + badge copy verified Node-runnable; React-side rendering trigger: spec 027 UI implementation Phase F |
+| FR-057 | untested | Spec 027 amendment: layout tolerance for combined badge presence + 24-char truncation; trigger: spec 027 UI implementation Phase F Playwright |
+| FR-058 | tests/test_027_architectural.py | Spec 027 amendment: wait_mode + wait_mode_metadata extension on participant_update WS payload — backstopped by `_participant_payload` extension in `src/web_ui/events.py` and architectural test asserting the contract |
+| FR-059 | tests/test_027_architectural.py | Spec 027 amendment: five new audit-action labels registered in both audit_labels.py + frontend mirror; parity-gate enforced via architectural test |
 | SR-001 | tests/test_web_ui_app.py, tests/test_011_testability.py | Security headers present; CSP report-uri; per-directive coverage (14 fragments) |
 | SR-001a | untested | WS frame cap (256KB); WS layer max_size not yet wired; trigger: Phase E ops |
 | SR-002 | tests/test_web_ui_app.py | Strict-Transport-Security header present |
@@ -425,3 +433,39 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-024 | tests/frontend/test_scratch_notes.js | "Scratch" entry-point button in AdminPanel gated by scratchEnabled probe; ScratchPanel slide-over rendered in frontend/app.jsx; e2e trigger: Playwright Phase F |
 | FR-025 | tests/frontend/test_scratch_notes.js | Scope chip in ScratchPanel header reading "Account-scoped" / "Session-scoped"; describeScope helper covered in Node test |
 | FR-026 | tests/test_029_architectural.py, tests/test_024_audit_labels.py | Spec 029 shared-module contract reuse enforced by parity gate + spec 029 architectural test extension |
+
+---
+
+## 027-participant-standby-modes
+
+| FR | Test path(s) | Notes |
+|----|--------------|-------|
+| FR-001 | tests/test_027_architectural.py | participants.wait_mode column shipped via migration 021; CHECK constraint enum (`wait_for_human` / `always`); test substrate mirrored |
+| FR-002 | tests/test_027_architectural.py | participants.status enum extended to include `standby`; migration 021 drops + recreates the CHECK constraint |
+| FR-003 | tests/test_027_standby_evaluator.py | StandbyEvaluator hooked into the per-tick loop BEFORE router.next_speaker; constant-time per participant |
+| FR-004 | tests/test_027_standby_evaluator.py | Detection signal #1 — unresolved ai_question_opened from detection_events |
+| FR-005 | tests/test_027_standby_evaluator.py | Detection signal #2 — pending review_gate_staged from review_gate_drafts |
+| FR-006 | tests/test_027_standby_evaluator.py | Detection signal #3 — proposal awaiting vote + last-2-turns stuck (cos > 0.8 AND new_tokens < 50) |
+| FR-007 | tests/test_027_standby_evaluator.py | Detection signal #4 — spec 021 filler-scorer aggregate consumed via routing_log.filler_score; off-rails-coordination skip when density_anomaly fires same tick |
+| FR-008 | tests/test_027_standby_evaluator.py | wait_for_human + any signal -> status='standby' + admin_audit_log standby_entered |
+| FR-009 | tests/test_027_standby_evaluator.py | router.next_speaker filters status='active' — standby participants naturally skipped |
+| FR-010 | tests/test_027_standby_evaluator.py | participant_standby WS event payload — reason + since_turn fields |
+| FR-011 | tests/test_027_standby_evaluator.py | Next-tick exit when all signals clear; participant_standby_exited WS broadcast |
+| FR-012 | tests/test_027_standby_evaluator.py | paused supersedes standby — evaluator excludes status='paused' from candidate set |
+| FR-013 | tests/test_027_standby_evaluator.py | circuit_open precedence — evaluator excludes status='circuit_open' from candidate set |
+| FR-014 | tests/test_027_always_mode_delta.py, tests/test_027_standby_evaluator.py | always-mode participants not transitioned to standby regardless of signals; existing standby cleared on flip-to-always |
+| FR-015 | tests/test_027_always_mode_delta.py | Tier 4 acknowledgment delta in standby_ack_delta.py; pre-import validation; injection via assemble_prompt |
+| FR-016 | tests/test_027_always_mode_delta.py | Fixed-additive Tier 4 composition order — register first, conclude second, standby third (SC-007) |
+| FR-017 | tests/test_027_standby_evaluator.py | Auto-pivot triggers when cycle_count >= N AND elapsed >= timeout; eligible participant list computed via gate-age scan |
+| FR-018 | tests/test_027_standby_evaluator.py | Pivot message persisted with speaker_type='system' AND metadata->>'kind'='orchestrator_pivot' |
+| FR-019 | tests/test_027_standby_evaluator.py | pivot_rate_cap_per_session honored — second pivot prevented when cap exhausted |
+| FR-020 | tests/test_027_standby_evaluator.py | wait_mode_metadata.long_term_observer=true set on pivot targets in wait_for_human mode |
+| FR-021 | tests/test_027_standby_evaluator.py | Long-term-observer exits cleanly back to active when gate clears (apply_eval_result _transition_to_active path resets the JSONB flag) |
+| FR-022 | tests/test_027_always_mode_delta.py | Pivot text + ack delta text hardcoded; pre-validated through output_validator at module import |
+| FR-023 | tests/test_027_standby_evaluator.py | O(1) per participant per tick — fetch_evaluable_rows + per-signal lookups are constant-time |
+| FR-024 | tests/test_027_validators.py | Four new SACP_STANDBY_* env vars validated at startup; registered in VALIDATORS tuple; entries in docs/env-vars.md |
+| FR-025 | tests/test_027_validators.py | POST /tools/participant/set_wait_mode endpoint — backstopped by validator + architectural tests; integration via existing FR-009 / participant snapshot path |
+| FR-026 | tests/test_027_standby_evaluator.py | observer-downgrade evaluator skips participants with status='standby' (filter in src/orchestrator/observer_downgrade.py:evaluate_downgrade) |
+| FR-027 | tests/test_027_standby_evaluator.py | participants.standby_cycle_count durable column; increments on still-standby ticks; resets on exit transition |
+| FR-028 | tests/test_027_architectural.py | Four SACP_STANDBY_* validators registered in VALIDATORS tuple per spec naming convention |
+| FR-029 | tests/test_027_architectural.py | Five new audit-action labels registered in both audit_labels.py mirrors (parity gate enforced via architectural test + scripts/check_audit_label_parity.py) |

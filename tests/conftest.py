@@ -261,7 +261,10 @@ _PARTICIPANTS_TABLE_DDL = """
         invited_by TEXT REFERENCES participants(id),
         approved_at TIMESTAMP,
         token_expires_at TIMESTAMP,
-        bound_ip TEXT
+        bound_ip TEXT,
+        wait_mode TEXT NOT NULL DEFAULT 'wait_for_human',
+        standby_cycle_count INTEGER NOT NULL DEFAULT 0,
+        wait_mode_metadata TEXT NOT NULL DEFAULT '{}'
     )
 """
 
@@ -339,7 +342,10 @@ _ROUTING_LOG_TABLE_DDL = """
         shaping_retry_dispatch_ms INTEGER,
         filler_score NUMERIC(4,3),
         shaping_retry_delta_text TEXT,
-        shaping_reason TEXT
+        shaping_reason TEXT,
+        standby_eval_ms INTEGER,
+        pivot_inject_ms INTEGER,
+        standby_transition_ms INTEGER
     )
 """
 

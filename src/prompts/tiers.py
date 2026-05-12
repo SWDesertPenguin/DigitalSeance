@@ -88,6 +88,7 @@ def assemble_prompt(
     participant_id: str | None = None,
     register_delta_text: str | None = None,
     conclude_delta: str = "",
+    standby_ack_delta: str = "",
     shaping_retry_delta_text: str | None = None,
 ) -> str:
     """Assemble the full system prompt from tiers + custom content.
@@ -135,6 +136,8 @@ def assemble_prompt(
         parts.append(register_delta_text)
     if conclude_delta:
         parts.append(conclude_delta)
+    if standby_ack_delta:
+        parts.append(standby_ack_delta)
     if shaping_retry_delta_text:
         parts.append(shaping_retry_delta_text)
     return _embed_canaries(parts, _generate_canaries())

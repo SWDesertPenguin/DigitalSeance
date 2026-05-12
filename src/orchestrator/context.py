@@ -66,12 +66,17 @@ class ContextAssembler:
         participant: Participant,
         interjections: list | None = None,
         phase: str = "running",
+        always_mode_wait_active: bool = False,
     ) -> list[ContextMessage]:
         """Build context in 5-priority order within token budget.
 
         Spec 025 FR-008: when ``phase='conclude'`` the system prompt picks
         up the Tier 4 conclude delta. Default ``phase='running'`` preserves
         pre-feature behavior.
+
+        Spec 027 FR-015: when ``always_mode_wait_active=True`` the system
+        prompt picks up the Tier 4 wait-acknowledgment delta as the third
+        additive fragment (after register + conclude).
         """
         budget = _available_budget(participant)
         context: list[ContextMessage] = []
@@ -81,6 +86,7 @@ class ContextAssembler:
             participant,
             phase=phase,
             register_delta_text=register_delta,
+            always_mode_wait_active=always_mode_wait_active,
         )
         roster = await self._fetch_roster(session_id)
         used = _add_participant_roster(context, roster, participant.id, used)
@@ -252,6 +258,7 @@ def _add_system_prompt(
     *,
     phase: str = "running",
     register_delta_text: str | None = None,
+    always_mode_wait_active: bool = False,
 ) -> int:
     """Add tiered system prompt as first context message.
 
@@ -262,16 +269,22 @@ def _add_system_prompt(
     Spec 021 T042: ``register_delta_text`` carries the per-session-slider
     Tier 4 delta from ``RegisterRepository.resolve_register``. ``None``
     skips injection (slider 3 / Balanced or resolver failure).
+
+    Spec 027 FR-015: when ``always_mode_wait_active=True``, the
+    standby-ack delta appends LAST in the Tier 4 composition chain.
     """
     from src.prompts.conclude_delta import conclude_delta
+    from src.prompts.standby_ack_delta import standby_ack_delta
 
     delta = conclude_delta(active=(phase == "conclude"))
+    standby_delta = standby_ack_delta(active=always_mode_wait_active)
     prompt = assemble_prompt(
         prompt_tier=participant.prompt_tier,
         custom_prompt=participant.system_prompt,
         participant_id=participant.id,
         register_delta_text=register_delta_text,
         conclude_delta=delta,
+        standby_ack_delta=standby_delta,
     )
     ctx = ContextMessage("system", prompt, None)
     context.append(ctx)
