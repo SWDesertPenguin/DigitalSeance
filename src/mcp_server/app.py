@@ -21,6 +21,8 @@ from src.mcp_server.sse_router import router as sse_router
 from src.mcp_server.tools.admin import is_audit_viewer_enabled
 from src.mcp_server.tools.admin import router as admin_router
 from src.mcp_server.tools.debug import router as debug_router
+from src.mcp_server.tools.detection_events import is_detection_history_enabled
+from src.mcp_server.tools.detection_events import router as detection_events_router
 from src.mcp_server.tools.facilitator import router as facilitator_router
 from src.mcp_server.tools.participant import router as participant_router
 from src.mcp_server.tools.proposal import router as proposal_router
@@ -230,6 +232,12 @@ def _include_routers(app: FastAPI) -> None:
     # than a 200 with empty data.
     if is_audit_viewer_enabled():
         app.include_router(admin_router)
+    # Spec 022 FR-016 — master switch hides the detection-event history
+    # surface at the route layer when SACP_DETECTION_HISTORY_ENABLED is
+    # unset/false, so disabled deployments return HTTP 404 from absence
+    # of the route rather than a 200 with empty data.
+    if is_detection_history_enabled():
+        app.include_router(detection_events_router)
 
 
 def _attach_services(

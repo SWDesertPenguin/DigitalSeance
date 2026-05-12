@@ -2,7 +2,7 @@
 
 **Feature Branch**: `022-detection-event-history`
 **Created**: 2026-05-07
-**Status**: Clarified 2026-05-10 (Phase 3 declared 2026-05-05; scaffold + clarifications resolved; tasks + implementation pending)
+**Status**: Clarified 2026-05-10; Amended 2026-05-11 (§1 source-of-truth reversal — dedicated `detection_events` table replaces the read-side join after a schema-reality audit uncovered missing persistence; implementation in progress)
 **Input**: User description: "Phase 3 detection event history surface. Spec 004's A2 question-tracker and A3 exit-detection signals (and density_anomaly) fire correctly during sessions but the live UI surfaces only the current banner — once dismissed an event is invisible. The audit log has the data; the operator-facing surface does not. Spec 022 adds a detection-event history panel that lists all ai_question_opened, ai_exit_requested, density_anomaly, and (when 014 lands) mode_change events for the active session, with the option to re-surface a previously dismissed banner for re-evaluation. Applies to topologies 1-6 (orchestrator-mediated event stream); incompatible with topology 7 per V12. Primary use cases: consulting (§3) where event review is part of the engagement deliverable, and technical review and audit (§5) where every routing decision must be reviewable."
 
 ## Overview
@@ -68,6 +68,32 @@ pre-implementation until tasks land and implementation reaches
 Implemented status.
 
 ## Clarifications
+
+### Session 2026-05-11 (Amendment — reverses Session 2026-05-10 §1)
+
+Implementation-time schema audit during spec 022 Sweep 1 (T004 index audit) revealed that the read-side-join premise in the Session 2026-05-10 §1 resolution does not match the deployed schema:
+
+- `routing_log` has no `detector_kind`, `trigger_snippet`, or `detector_score` columns. Question (A2) and exit (A3) detection signals fire in [src/orchestrator/loop.py:1400-1424](../../src/orchestrator/loop.py#L1400-L1424) as WebSocket broadcasts only — they are not persisted to any table.
+- `convergence_log` density-anomaly rows (per alembic 010_density_signal) have `(turn_number, session_id, tier, density_value, baseline_value)` and no participant attribution, trigger snippet, or standalone timestamp column.
+- `admin_audit_log` uses `target_id` / `facilitator_id`, not the `target_event_id` / `actor_id` column names the §1 query plan referenced.
+
+The Session 2026-05-10 §1 resolution was made on an incorrect schema model. This amendment **reverses §1** and adopts the alternative that was considered and rejected then: a dedicated `detection_events` table that the four detector emitters write to in parallel with their existing WS broadcasts. Rationale:
+
+1. The original §1 rejection cited "duplicates the source of truth and breaks spec 001 §FR-008's append-only invariant." With actual persistence absent for two of the five event classes, there is no existing source of truth to duplicate — `detection_events` becomes the source of truth. The append-only invariant is preserved (no UPDATEs except the `disposition` column which tracks the latest transition; the audit trail of transitions still flows through `admin_audit_log`).
+2. Dual-write coordination cost is bounded (each emit-site adds one INSERT alongside the WS broadcast; failure of the INSERT must NOT block the broadcast for backward compatibility — see updated FR-017).
+3. The query surface collapses from a three-table UNION-ALL to a single `WHERE session_id = $1` lookup, simplifying both the page-load path and the cross-instance broadcast payload (the synthesized event-id from the old §1 plan becomes the table's primary key id).
+
+This amendment commits the spec to one alembic migration (new table + indexes) plus a call-site sweep at the four detector emit sites (question, exit, density anomaly, mode events). `tests/conftest.py` raw DDL gains the mirrored schema per `feedback_test_schema_mirror`.
+
+Downstream FRs and sections that change:
+
+- **FR-005** clarified: event classes derive from the persisted `detection_events.event_class` column (one of the five fixed values).
+- **FR-006** clarified: the synthesized event-id `<source_table>:<source_row_id>` is replaced by the integer primary key of `detection_events`. `admin_audit_log.target_id` (existing column) carries the stringified id for re-surface rows.
+- **FR-009** + **FR-017** rewritten: live-update WS broadcast happens after the `detection_events` INSERT commits; FR-017 mandates the new table and the dual-write contract.
+- **Key Entities — DetectionEvent** becomes a persisted entity (was: read-side projection).
+- **Performance Budgets** simplified: panel-load query is now a single indexed `SELECT` rather than a three-source UNION-ALL.
+
+The Session 2026-05-10 resolutions for §§2-8 (operator-only re-surface, fixed five-class taxonomy, four filter axes, four-value disposition, multi-instance-from-day-one, active-only re-surface, distinct mode-event classes) all stand unchanged.
 
 ### Session 2026-05-10 (Resolved)
 
@@ -414,30 +440,36 @@ all filters and verify the full event set returns.
   panel labels — they are NOT merged under one class with a
   discriminator (per Clarifications §8).
 - **FR-006**: A new HTTP endpoint MUST expose re-surface at
-  `POST /tools/admin/detection_events/<event_id>/resurface`.
-  Re-surface re-broadcasts the original banner shape over
-  the **facilitator's** per-session WS channel (participant AIs
-  do NOT see the re-surfaced event, per Clarifications §2) AND
-  emits an `admin_audit_log` row with
-  `action='detection_event_resurface'`, `actor_id=<facilitator>`,
-  `target_event_id=<id>`, `timestamp=NOW()`. The WS broadcast
-  MUST work across orchestrator instances (multi-instance from
-  v1, per Clarifications §6); the cross-instance routing
-  mechanism is settled in `/speckit.plan` research.
+  `POST /tools/admin/detection_events/<event_id>/resurface`
+  where `<event_id>` is the integer primary key of the
+  `detection_events` table row. Re-surface re-broadcasts the
+  original banner shape over the **facilitator's** per-session
+  WS channel (participant AIs do NOT see the re-surfaced event,
+  per Clarifications §2) AND emits an `admin_audit_log` row
+  with `action='detection_event_resurface'`,
+  `facilitator_id=<facilitator>`, `target_id=<event_id>`,
+  `timestamp=NOW()` (column names match the existing
+  `admin_audit_log` schema per the Session 2026-05-11
+  amendment). The WS broadcast MUST work across orchestrator
+  instances (multi-instance from v1, per Clarifications §6);
+  the cross-instance routing mechanism is settled in
+  `/speckit.plan` research.
 - **FR-007**: Re-surface MUST be facilitator-only and
   session-bound (mirrors FR-002 + FR-003).
 - **FR-008**: Re-surface MUST be rejected for archived
   sessions with HTTP 409 and a clear error explaining
   re-surface requires an active session.
 - **FR-009**: The history panel MUST update via the existing
-  spec 011 WS event channel when a new detection event fires
-  for the active session. No new WS channel is introduced;
-  the existing per-session broadcast (spec 006 §FR-013, spec
-  011) carries the new event-list-item shape. The broadcast
-  MUST work across orchestrator instances (multi-instance from
-  v1, per Clarifications §6); the cross-instance routing
-  mechanism is shared with re-surface (FR-006) and is settled
-  in `/speckit.plan` research.
+  spec 011 WS event channel when a new `detection_events` row
+  is INSERTed for the active session. The broadcast emission
+  happens after the INSERT commits (per Session 2026-05-11
+  amendment dual-write contract). No new WS channel is
+  introduced; the existing per-session broadcast (spec 006
+  §FR-013, spec 011) carries the new event-list-item shape.
+  The broadcast MUST work across orchestrator instances
+  (multi-instance from v1, per Clarifications §6); the
+  cross-instance routing mechanism is shared with re-surface
+  (FR-006) and is settled in `/speckit.plan` research.
 - **FR-010**: The disposition column MUST take one of four
   values: `pending`, `banner_acknowledged`, `banner_dismissed`,
   `auto_resolved`. Disposition transitions MUST be tracked as
@@ -494,33 +526,41 @@ all filters and verify the full event set returns.
   both endpoints return HTTP 404 AND the SPA admin-panel
   entry-point is hidden (fail-closed master switch, mirrors
   spec 029 FR-018).
-- **FR-017**: The endpoint MUST NOT introduce a new
-  persistence path for detection events. The five v1 event
-  classes are already written by spec 003 / 004 / 014 to
-  `routing_log`, `convergence_log`, and `admin_audit_log`;
-  spec 022 reads those tables. A read-side join in
-  `src/web_ui/detection_events.py` produces the unified
-  event stream (alternative considered: a `detection_events`
-  table written in parallel by emitters; rejected because it
-  duplicates the source of truth and breaks spec 001
-  §FR-008's append-only invariant — see Clarifications §1).
+- **FR-017** (REVISED per Session 2026-05-11 amendment): A
+  new `detection_events` table MUST persist every detection
+  event of the five v1 classes. The four detector emit sites
+  (question/exit in [src/orchestrator/loop.py](../../src/orchestrator/loop.py),
+  density anomaly in [src/orchestrator/density.py](../../src/orchestrator/density.py),
+  mode events in spec 014's emit sites) each INSERT one row
+  into `detection_events` before issuing the existing WS
+  broadcast. Dual-write contract: if the INSERT fails (e.g.,
+  DB unavailable), the WS broadcast still fires (backward
+  compatibility for current banner UX) and the failure is
+  logged as a security-event so the gap is observable but
+  not fatal. The append-only invariant on detection events
+  is preserved by allowing UPDATE only on the `disposition`
+  column (latest-state denormalization); transition history
+  flows through `admin_audit_log` per FR-010.
 
 ### Key Entities
 
-- **DetectionEvent** (read-side projection, not a persisted
-  entity) — the unified shape returned by the FR-001 endpoint:
-  event id (synthesized from source-row id + event class),
-  event type, participant id, trigger snippet, detector score,
-  timestamp, disposition. Computed via a read-side join over
-  `routing_log`, `convergence_log`, and `admin_audit_log`.
+- **DetectionEvent** (persisted entity in the new
+  `detection_events` table per Session 2026-05-11 amendment)
+  — the shape returned by the FR-001 endpoint: `id` (bigint
+  primary key), `session_id`, `event_class` (one of five
+  fixed values), `participant_id`, `trigger_snippet`,
+  `detector_score`, `turn_number` (nullable for mode events),
+  `timestamp`, `disposition` (latest-state denormalization),
+  `last_disposition_change_at`. Source-of-truth table for
+  the five-class taxonomy; emit-sites dual-write per FR-017.
 - **EventDisposition** — `pending` | `banner_acknowledged` |
   `banner_dismissed` | `auto_resolved`. Sourced from the latest
   disposition-transition row in `admin_audit_log` for the
   event id.
 - **ResurfaceAction** — `admin_audit_log` row with
-  `action='detection_event_resurface'`, `actor_id`,
-  `target_event_id`, `timestamp`. Append-only per spec 001
-  §FR-008.
+  `action='detection_event_resurface'`, `facilitator_id`,
+  `target_id` (stringified `detection_events.id`),
+  `timestamp`. Append-only per spec 001 §FR-008.
 - **EventClassRegistry** (process-scope, hardcoded) — maps
   source rows to one of the five v1 panel classes
   (`ai_question_opened`, `ai_exit_requested`,
@@ -769,13 +809,16 @@ range, and fail-closed semantics documented in
 
 ## Assumptions
 
-- The detection event source-of-truth lives in existing log
-  tables (`routing_log`, `convergence_log`, `admin_audit_log`).
-  Spec 022 is a READ-side aggregation, not a parallel write
-  path. Adding a new `detection_events` table would duplicate
-  the source of truth and risk drift; the read-side join is
-  the right cost trade-off given the bounded per-session
-  query shape.
+- The detection event source-of-truth lives in the NEW
+  `detection_events` table per the Session 2026-05-11
+  amendment (reverses the original §1 read-side-join
+  decision). The implementation-time schema audit found that
+  question/exit detections were never persisted (broadcast-
+  only) and density-anomaly rows lacked participant
+  attribution + trigger snippets, so there was no existing
+  source of truth to read from. The new table consolidates
+  the five-class taxonomy under one indexed surface; emit
+  sites dual-write per FR-017.
 - The five v1 event classes (`ai_question_opened`,
   `ai_exit_requested`, `density_anomaly`, `mode_recommendation`,
   `mode_change`) cover the operational diagnostic surface for

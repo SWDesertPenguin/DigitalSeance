@@ -1,16 +1,16 @@
 # Contract: WebSocket events — `detection_event_appended` and `detection_event_resurfaced`
 
-**Branch**: `022-detection-event-history` | **Date**: 2026-05-10 | **Spec FR**: FR-006, FR-009 | **Data model**: [data-model.md](../data-model.md) | **Research**: [research.md §1, §10, §11](../research.md)
+**Branch**: `022-detection-event-history` | **Date**: 2026-05-10 (initial); **Amended 2026-05-11** (event_id is now integer; emission gated on detection_events INSERT commit) | **Spec FR**: FR-006, FR-009 | **Data model**: [data-model.md](../data-model.md) | **Research**: [research.md §1, §10, §11](../research.md)
 
 Spec 022 introduces two new WebSocket events on the existing spec 011 per-session WS channel. Both events are role-filtered to facilitator subscribers via `broadcast_to_session_roles(session_id, ['facilitator'], payload)` (the pattern established in spec 029 for `audit_log_appended`).
 
 ## Event: `detection_event_appended`
 
-Emitted when a new detection event fires for an active session — i.e., when a source row is INSERTed into `routing_log` (question/exit detector), `convergence_log` (density-anomaly), or `admin_audit_log` (mode events).
+Emitted when a new `detection_events` row is INSERTed for an active session — i.e., after one of the four detector emit sites successfully dual-writes per FR-017.
 
 ### Emission point
 
-The emitter sits in `src/web_ui/events.py::emit_detection_event_appended(session_id, source_table, source_row_id)`. Called immediately after the source-row INSERT commits (call-site sweep covers each emitter location).
+The emitter sits in `src/web_ui/events.py::emit_detection_event_appended(session_id, detection_event_id)`. Called immediately after the `detection_events` INSERT commits (the call-site sweep covers the four emit sites: question/exit in loop.py, density-anomaly in density.py, mode events in the spec 014 emit sites). If the INSERT fails, this emitter is NOT called — the existing per-class WS broadcast (e.g., `ai_question_opened`) still fires per the FR-017 dual-write fail-soft contract.
 
 ### Payload
 
@@ -19,14 +19,15 @@ The emitter sits in `src/web_ui/events.py::emit_detection_event_appended(session
   "type": "detection_event_appended",
   "session_id": "<session>",
   "event": {
-    "event_id": "<source_table>:<source_row_id>",
+    "event_id": 1037,
     "event_class": "ai_question_opened",
     "event_class_label": "AI question opened",
     "participant_id": "<participant>",
     "trigger_snippet": "...",
     "trigger_snippet_truncated": false,
     "detector_score": 0.87,
-    "timestamp": "2026-05-10T14:32:01.234Z",
+    "turn_number": 14,
+    "timestamp": "2026-05-11T14:32:01.234Z",
     "disposition": "pending"
   }
 }
@@ -66,17 +67,18 @@ The emitter is `cross_instance_broadcast.broadcast_session_event(session_id, pay
   "type": "detection_event_resurfaced",
   "session_id": "<session>",
   "event": {
-    "event_id": "routing_log:42",
+    "event_id": 1037,
     "event_class": "ai_question_opened",
     "event_class_label": "AI question opened",
     "participant_id": "<participant>",
     "trigger_snippet": "...",
     "trigger_snippet_truncated": false,
     "detector_score": 0.87,
-    "timestamp": "2026-05-10T14:32:01.234Z",
+    "turn_number": 14,
+    "timestamp": "2026-05-11T14:32:01.234Z",
     "disposition": "banner_dismissed"
   },
-  "resurface_audit_row_id": 1037
+  "resurface_audit_row_id": 2491
 }
 ```
 

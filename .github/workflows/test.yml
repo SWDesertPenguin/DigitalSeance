@@ -109,6 +109,13 @@ jobs:
         # JS formatter ahead of any timestamp display divergence.
         run: python scripts/check_time_format_parity.py
 
+      - name: Detection-event taxonomy parity gate (spec 022 research.md §16)
+        # Backend src/web_ui/detection_events.EVENT_CLASSES vs frontend
+        # mirror frontend/detection_event_taxonomy.js. Drift on either
+        # side fails CI before the panel renders [unregistered: ...]
+        # rows in production.
+        run: python scripts/check_detection_taxonomy_parity.py
+
       - name: Run unit tests (fast tier)
         run: pytest -v --tb=short -m "not integration"
 

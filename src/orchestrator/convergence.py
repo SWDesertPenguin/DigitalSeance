@@ -114,6 +114,7 @@ class ConvergenceDetector:
         turn_number: int,
         session_id: str,
         content: str,
+        speaker_id: str | None = None,
     ) -> tuple[float, bool]:
         """Compute embedding, log, and return (similarity, should_inject_divergence).
 
@@ -121,6 +122,11 @@ class ConvergenceDetector:
         still computed for cadence, but no logging and no divergence signal.
         The divergence flag is marked consumed here so callers cannot
         double-fire; they are responsible for actually enqueuing the prompt.
+
+        ``speaker_id`` enables the spec 022 FR-017 dual-write on density-
+        anomaly events (participant attribution for the detection_events
+        row). Optional for backward compatibility; when omitted, the
+        dual-write is skipped.
         """
         if self._model is None:
             return 0.0, False
@@ -130,7 +136,7 @@ class ConvergenceDetector:
             return similarity, False
         diverge = self.should_diverge(similarity)
         await self._log_result(turn_number, session_id, embedding, similarity, diverge)
-        await self._maybe_log_density(turn_number, session_id, content, embedding)
+        await self._maybe_log_density(turn_number, session_id, content, embedding, speaker_id)
         if diverge:
             self.mark_divergence_prompted()
         return similarity, diverge
@@ -141,6 +147,7 @@ class ConvergenceDetector:
         session_id: str,
         content: str,
         embedding_bytes: bytes,
+        speaker_id: str | None = None,
     ) -> None:
         """Compute density signal, log anomaly if any, update baseline.
 
@@ -168,9 +175,37 @@ class ConvergenceDetector:
             from src.orchestrator.dma_observation import record_density_anomaly
 
             record_density_anomaly(session_id)
+            if speaker_id is not None:
+                await self._dual_write_detection_event(
+                    turn_number, session_id, speaker_id, content, density
+                )
         await self._session_repo.replace_density_baseline(
             session_id, update_baseline(baseline, density)
         )
+
+    async def _dual_write_detection_event(
+        self,
+        turn_number: int,
+        session_id: str,
+        speaker_id: str,
+        content: str,
+        density_value: float,
+    ) -> None:
+        """Spec 022 FR-017 dual-write for density anomalies (fail-soft)."""
+        from src.web_ui.events import (
+            DetectionEventDraft,
+            persist_and_broadcast_detection_event,
+        )
+
+        draft = DetectionEventDraft(
+            session_id=session_id,
+            event_class="density_anomaly",
+            participant_id=speaker_id,
+            trigger_snippet=content[:1000] if content else None,
+            detector_score=float(density_value),
+            turn_number=turn_number,
+        )
+        await persist_and_broadcast_detection_event(self._log_repo._pool, draft)
 
     def is_converging(self, similarity: float) -> bool:
         """Check if similarity exceeds convergence threshold."""

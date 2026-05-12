@@ -167,6 +167,7 @@ def _get_schema_sql() -> list[str]:
         _accounts_ddl(),
         _account_participants_ddl(),
         _compression_log_ddl(),
+        _detection_events_ddl(),
         *_index_ddls(),
     ]
 
@@ -618,8 +619,44 @@ def _compression_log_ddl() -> str:
     """
 
 
+_DETECTION_EVENTS_CLASS_LIST = (
+    "'ai_question_opened', 'ai_exit_requested', 'density_anomaly',"
+    " 'mode_recommendation', 'mode_change'"
+)
+_DETECTION_EVENTS_DISPOSITION_LIST = (
+    "'pending', 'banner_acknowledged', 'banner_dismissed', 'auto_resolved'"
+)
+
+
+def _detection_events_ddl() -> str:
+    """spec 022 — alembic 017 mirror; detection event history persistence."""
+    return f"""
+        CREATE TABLE detection_events (
+            id BIGSERIAL PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            event_class TEXT NOT NULL,
+            participant_id TEXT NOT NULL,
+            trigger_snippet TEXT,
+            detector_score REAL,
+            turn_number INTEGER,
+            timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            disposition TEXT NOT NULL DEFAULT 'pending',
+            last_disposition_change_at TIMESTAMPTZ,
+            CONSTRAINT detection_events_class_check
+                CHECK (event_class IN ({_DETECTION_EVENTS_CLASS_LIST})),
+            CONSTRAINT detection_events_disposition_check
+                CHECK (disposition IN ({_DETECTION_EVENTS_DISPOSITION_LIST}))
+        )
+    """
+
+
 def _index_ddls() -> list[str]:
-    return [*_core_index_ddls(), *_account_index_ddls(), *_compression_log_index_ddls()]
+    return [
+        *_core_index_ddls(),
+        *_account_index_ddls(),
+        *_compression_log_index_ddls(),
+        *_detection_events_index_ddls(),
+    ]
 
 
 def _compression_log_index_ddls() -> list[str]:
@@ -628,6 +665,18 @@ def _compression_log_index_ddls() -> list[str]:
         " ON compression_log (session_id, created_at DESC)",
         "CREATE INDEX compression_log_compressor_created_idx"
         " ON compression_log (compressor_id, created_at DESC)",
+    ]
+
+
+def _detection_events_index_ddls() -> list[str]:
+    """spec 022 — alembic 017 mirror; three indexes covering the FR-001 query plan."""
+    return [
+        "CREATE INDEX detection_events_session_timestamp_idx"
+        " ON detection_events (session_id, timestamp DESC)",
+        "CREATE INDEX detection_events_session_class_idx"
+        " ON detection_events (session_id, event_class)",
+        "CREATE INDEX detection_events_session_participant_idx"
+        " ON detection_events (session_id, participant_id)",
     ]
 
 
@@ -686,7 +735,7 @@ async def _truncate_all(pool: asyncpg.Pool) -> None:
             "TRUNCATE votes, proposals, invites,"
             " review_gate_drafts, interrupt_queue,"
             " admin_audit_log, convergence_log,"
-            " usage_log, routing_log,"
+            " usage_log, routing_log, detection_events,"
             " session_register, participant_register_override,"
             " account_participants, accounts,"
             " messages, branches"

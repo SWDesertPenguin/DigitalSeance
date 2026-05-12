@@ -592,6 +592,13 @@ class ModeEmitter:
             ],
             dwell_floor_at=outcome.dwell_floor_at,
         )
+        await _dual_write_mode_detection(
+            self._log_repo._pool,
+            session_id=self._session_id,
+            facilitator_id=self._facilitator_id,
+            event_class="mode_recommendation",
+            triggers=outcome.triggers,
+        )
 
     async def emit_transition(
         self,
@@ -618,6 +625,13 @@ class ModeEmitter:
             engaged_mechanisms=engaged_mechanisms,
             skipped_mechanisms=skipped_mechanisms,
             dwell_floor_at=outcome.dwell_floor_at,
+        )
+        await _dual_write_mode_detection(
+            self._log_repo._pool,
+            session_id=self._session_id,
+            facilitator_id=self._facilitator_id,
+            event_class="mode_change",
+            triggers=outcome.triggers,
         )
 
     async def emit_transition_suppressed(
@@ -765,3 +779,29 @@ async def _maybe_emit_unavailability(
             rate_limited_until=rate_limited_until,
         )
         controller.state.unavailability_emitted_in_dwell.add(signal_name)
+
+
+async def _dual_write_mode_detection(
+    pool: object,
+    *,
+    session_id: str,
+    facilitator_id: str,
+    event_class: str,
+    triggers: list,
+) -> None:
+    """Spec 022 FR-017 dual-write for mode events; delegates to events helper."""
+    from src.web_ui.events import (
+        DetectionEventDraft,
+        persist_and_broadcast_detection_event,
+    )
+
+    snippet = ", ".join(str(t) for t in (triggers or []))[:1000] if triggers else None
+    draft = DetectionEventDraft(
+        session_id=session_id,
+        event_class=event_class,
+        participant_id=facilitator_id,
+        trigger_snippet=snippet,
+        detector_score=None,
+        turn_number=None,
+    )
+    await persist_and_broadcast_detection_event(pool, draft)

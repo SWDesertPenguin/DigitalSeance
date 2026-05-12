@@ -316,6 +316,7 @@ class ConversationLoop:
             result.turn_number,
             content,
             phase=phase,
+            speaker_id=speaker.id,
         )
         await self._maybe_summarize(ctx.session_id, result.turn_number)
         return _with_delay(result, delay)
@@ -475,6 +476,7 @@ class ConversationLoop:
         content: str,
         *,
         phase: str = "running",
+        speaker_id: str | None = None,
     ) -> float:
         """Compute post-turn delay via convergence + cadence.
 
@@ -491,6 +493,7 @@ class ConversationLoop:
             turn_number=turn_number,
             session_id=session_id,
             content=content,
+            speaker_id=speaker_id,
         )
         await _emit_convergence(session_id, turn_number, similarity, diverge)
         if diverge:
@@ -1391,37 +1394,95 @@ async def _emit_ai_signals(
 ) -> None:
     """Detect open questions / exit-intent in AI output and broadcast WS events.
 
-    Heuristic detectors live in src.orchestrator.signals. False positives
-    are intentionally cheap — both events are advisory: the question
-    panel surfaces them for humans to resolve, and the exit badge waits
-    for the facilitator to click "honor" (flip to observer). Nothing
-    auto-mutes the AI based on detection alone.
+    Spec 022 FR-017 dual-write: also persist each signal to
+    ``detection_events`` and emit ``detection_event_appended`` (fail-soft
+    if the INSERT errors).
     """
     from src.orchestrator.signals import detect_exit_intent, extract_questions
-    from src.web_ui.events import ai_exit_requested_event, ai_question_opened_event
-    from src.web_ui.websocket import broadcast_to_session
 
     roster = await _fetch_signal_roster(ctx.pool, ctx.session_id)
     questions = extract_questions(msg.content, roster)
     exit_phrase = detect_exit_intent(msg.content)
     if questions:
-        await broadcast_to_session(
-            ctx.session_id,
-            ai_question_opened_event(
-                participant_id=speaker.id,
-                turn_number=msg.turn_number,
-                questions=questions,
-            ),
-        )
+        await _emit_question_signal(ctx, speaker, msg, questions)
     if exit_phrase:
-        await broadcast_to_session(
-            ctx.session_id,
-            ai_exit_requested_event(
-                participant_id=speaker.id,
-                turn_number=msg.turn_number,
-                phrase=exit_phrase,
-            ),
-        )
+        await _emit_exit_signal(ctx, speaker, msg, exit_phrase)
+
+
+async def _emit_question_signal(
+    ctx: _TurnContext, speaker: object, msg: object, questions: list[str]
+) -> None:
+    """Broadcast ai_question_opened + dual-write the detection_events row."""
+    from src.web_ui.events import ai_question_opened_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    await broadcast_to_session(
+        ctx.session_id,
+        ai_question_opened_event(
+            participant_id=speaker.id,
+            turn_number=msg.turn_number,
+            questions=questions,
+        ),
+    )
+    await _persist_and_broadcast_detection_event(
+        ctx,
+        event_class="ai_question_opened",
+        participant_id=speaker.id,
+        trigger_snippet=" | ".join(questions),
+        detector_score=None,
+        turn_number=msg.turn_number,
+    )
+
+
+async def _emit_exit_signal(
+    ctx: _TurnContext, speaker: object, msg: object, exit_phrase: str
+) -> None:
+    """Broadcast ai_exit_requested + dual-write the detection_events row."""
+    from src.web_ui.events import ai_exit_requested_event
+    from src.web_ui.websocket import broadcast_to_session
+
+    await broadcast_to_session(
+        ctx.session_id,
+        ai_exit_requested_event(
+            participant_id=speaker.id,
+            turn_number=msg.turn_number,
+            phrase=exit_phrase,
+        ),
+    )
+    await _persist_and_broadcast_detection_event(
+        ctx,
+        event_class="ai_exit_requested",
+        participant_id=speaker.id,
+        trigger_snippet=exit_phrase,
+        detector_score=None,
+        turn_number=msg.turn_number,
+    )
+
+
+async def _persist_and_broadcast_detection_event(
+    ctx: _TurnContext,
+    *,
+    event_class: str,
+    participant_id: str,
+    trigger_snippet: str | None,
+    detector_score: float | None,
+    turn_number: int | None,
+) -> None:
+    """Dual-write helper for spec 022 FR-017; delegates to events helper."""
+    from src.web_ui.events import (
+        DetectionEventDraft,
+        persist_and_broadcast_detection_event,
+    )
+
+    draft = DetectionEventDraft(
+        session_id=ctx.session_id,
+        event_class=event_class,
+        participant_id=participant_id,
+        trigger_snippet=trigger_snippet,
+        detector_score=detector_score,
+        turn_number=turn_number,
+    )
+    await persist_and_broadcast_detection_event(ctx.pool, draft)
 
 
 async def _fetch_signal_roster(

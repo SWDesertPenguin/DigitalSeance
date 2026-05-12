@@ -11,6 +11,7 @@ will call them (orchestrator loop, review-gate repo, summarizer, etc.).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -173,6 +174,130 @@ def audit_log_appended_event(payload: dict[str, Any]) -> dict[str, Any]:
     formatter, and the SPA's ``AuditLogPanel`` consumes this event by name.
     """
     return _envelope("audit_log_appended", payload=payload)
+
+
+@dataclass
+class DetectionEventDraft:
+    """Inputs for the spec 022 dual-write helper.
+
+    Shared across the three emit sites (loop.py, convergence.py,
+    dma_controller.py) so each call site can hand off one value and the
+    helper signature stays under the 5-arg cap.
+    """
+
+    session_id: str
+    event_class: str
+    participant_id: str
+    trigger_snippet: str | None
+    detector_score: float | None
+    turn_number: int | None
+
+
+def build_detection_event_payload(
+    draft: DetectionEventDraft,
+    event_id: int,
+    timestamp_iso: str,
+    disposition: str = "pending",
+) -> dict[str, Any]:
+    """Compose the ``event`` payload shared by appended/resurfaced envelopes."""
+    from src.web_ui.detection_events import format_class_label
+
+    return {
+        "event_id": event_id,
+        "event_class": draft.event_class,
+        "event_class_label": format_class_label(draft.event_class),
+        "participant_id": draft.participant_id,
+        "trigger_snippet": draft.trigger_snippet,
+        "trigger_snippet_truncated": False,
+        "detector_score": draft.detector_score,
+        "turn_number": draft.turn_number,
+        "timestamp": timestamp_iso,
+        "disposition": disposition,
+    }
+
+
+async def persist_and_broadcast_detection_event(
+    pool: Any,
+    draft: DetectionEventDraft,
+) -> None:
+    """Spec 022 FR-017 dual-write: INSERT + WS broadcast, fail-soft."""
+    import logging
+
+    log = logging.getLogger("src.web_ui.events")
+    try:
+        event_id = await _dual_write_insert(pool, draft)
+        await _dual_write_emit(pool, draft, event_id)
+    except Exception:
+        log.warning(
+            "detection_events.dual_write_failed",
+            extra={
+                "session_id": draft.session_id,
+                "event_class": draft.event_class,
+            },
+            exc_info=True,
+        )
+
+
+async def _dual_write_insert(pool: Any, draft: DetectionEventDraft) -> int:
+    """INSERT the detection_events row; raises on DB error (caller logs)."""
+    from typing import cast
+
+    from src.repositories.detection_event_repo import (
+        EventClass,
+        insert_detection_event,
+    )
+
+    return await insert_detection_event(
+        pool,
+        session_id=draft.session_id,
+        event_class=cast(EventClass, draft.event_class),
+        participant_id=draft.participant_id,
+        trigger_snippet=draft.trigger_snippet,
+        detector_score=draft.detector_score,
+        turn_number=draft.turn_number,
+    )
+
+
+async def _dual_write_emit(pool: Any, draft: DetectionEventDraft, event_id: int) -> None:
+    """Emit the detection_event_appended envelope to facilitator subscribers."""
+    from src.orchestrator.time_format import format_iso
+    from src.web_ui.cross_instance_broadcast import broadcast_session_event
+
+    event = build_detection_event_payload(draft, event_id, format_iso(datetime.now(tz=UTC)))
+    envelope = detection_event_appended_event(event=event)
+    await broadcast_session_event(draft.session_id, envelope, pool=pool)
+
+
+def detection_event_appended_event(*, event: dict[str, Any]) -> dict[str, Any]:
+    """A new ``detection_events`` row was INSERTed (spec 022 FR-009).
+
+    Emitted after a successful dual-write at the four detector emit
+    sites. The payload mirrors the FR-001 endpoint's per-row shape
+    plus the ``trigger_snippet_truncated`` field per
+    ``contracts/ws-events.md``. Role-filter is applied at broadcast
+    time via ``cross_instance_broadcast.broadcast_session_event``;
+    only facilitator subscribers receive the event.
+    """
+    return _envelope("detection_event_appended", event=event)
+
+
+def detection_event_resurfaced_event(
+    *,
+    event: dict[str, Any],
+    resurface_audit_row_id: int,
+) -> dict[str, Any]:
+    """An operator clicked re-surface on a previously-dispositioned event.
+
+    The original banner re-broadcasts in this payload (per Clarifications
+    §2, facilitator-only); the disposition stays unchanged. The audit-row
+    id from the FR-006 forensic write is included for SPA cross-reference
+    with the disposition-timeline view.
+    """
+    return _envelope(
+        "detection_event_resurfaced",
+        event=event,
+        resurface_audit_row_id=resurface_audit_row_id,
+    )
 
 
 def ai_question_opened_event(

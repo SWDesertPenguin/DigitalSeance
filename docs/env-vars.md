@@ -285,6 +285,36 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Source spec(s)**: 029 §FR-016 / FR-017 (display-only retention cap for the audit log viewer)
 - **Note**: When set, the endpoint applies `WHERE timestamp >= NOW() - INTERVAL 'N days'` to both the rows and `total_count` queries. Retention applies to viewer DISPLAY only — the underlying `admin_audit_log` table is untouched (durable indefinitely per spec 001 §FR-019) and remains queryable via spec 010 debug-export.
 
+### `SACP_DETECTION_HISTORY_ENABLED`
+
+- **Default**: `false`
+- **Type**: boolean (string `"true"`/`"false"`, case-insensitive; `"1"`/`"0"` accepted)
+- **Valid range**: exactly `true` or `false` (after case-folding) — equivalently `1` or `0`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_detection_history_enabled`
+- **Source spec(s)**: 022 §FR-016 (master switch for the detection event history panel surface)
+- **Note**: When `false` (the default), neither `GET /tools/admin/detection_events` nor `POST /tools/admin/detection_events/<event_id>/resurface` are mounted and ALL callers receive `HTTP 404`. The `detection_event_appended` and `detection_event_resurfaced` WebSocket broadcasts also remain dormant. Setting to `true` mounts both routes, enables the live broadcast helper, and reveals the "View detection history" entry-point in the facilitator SPA. The underlying detection rows in `routing_log` / `convergence_log` / `admin_audit_log` are written regardless of this switch — the surface is gated, not the durable records.
+
+### `SACP_DETECTION_HISTORY_MAX_EVENTS`
+
+- **Default**: unset (no `LIMIT` on the page query; the endpoint returns all detection events for the session)
+- **Type**: positive integer (events), or empty
+- **Valid range**: `1 <= value <= 100000` (inclusive) when set
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_detection_history_max_events`
+- **Source spec(s)**: 022 §FR-013 (event-count cap on the detection-events endpoint)
+- **Note**: Caps the number of rows returned by the page query (newest events kept on cap-hit). Protects against runaway-detector scenarios consuming unbounded UI memory. Operators raising this value should monitor panel-load latency against the V14 budget (P95 ≤ 500ms). Filter axes operate over the loaded set; per-session pushdown is a future enhancement gated on this cap being insufficient for the diagnostic workflow.
+
+### `SACP_DETECTION_HISTORY_RETENTION_DAYS`
+
+- **Default**: unset (no retention WHERE clause; the endpoint renders every event for archived sessions regardless of age)
+- **Type**: integer (days), or empty
+- **Valid range**: `1 <= value <= 36500` (1 day to 100 years) when set
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_detection_history_retention_days`
+- **Source spec(s)**: 022 §FR-014 (display-only retention cap for the detection-events endpoint on archived sessions)
+- **Note**: When set, the endpoint applies `WHERE timestamp >= NOW() - INTERVAL 'N days'` to archived-session queries. Active sessions are unaffected (their events are always rendered regardless of this value). Retention applies to viewer DISPLAY only — the underlying `routing_log`, `convergence_log`, and `admin_audit_log` rows are durable indefinitely per spec 001 §FR-019 and remain queryable via spec 010 debug-export.
+
 ### `SACP_FILLER_THRESHOLD`
 
 - **Default**: unset (per-family default from the `BehavioralProfile` dict in `src/orchestrator/shaping.py` applies — anthropic/openai default `0.60`; gemini/groq/ollama/vllm default `0.55`)
