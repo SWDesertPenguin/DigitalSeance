@@ -129,6 +129,36 @@ def test_detection_event_envelope_builders_paired_with_cross_instance_broadcast(
     )
 
 
+def test_spa_refetches_detection_history_on_reconnect_and_window_focus() -> None:
+    """T054: the SPA MUST refetch the page on WS reconnect AND visibility return.
+
+    FR-009 (best-effort cross-instance push) substitutes at-least-once
+    delivery with eventual consistency via REST refetch. The SPA hooks
+    on two triggers: (a) wsState transition non-open → open, and
+    (b) document.visibilitychange after the inactivity threshold. The
+    test greps frontend/app.jsx for the wiring rather than spinning up
+    a JS runtime — if the hooks regress, the assertion fires.
+    """
+    spa_path = REPO_ROOT / "frontend" / "app.jsx"
+    text = spa_path.read_text(encoding="utf-8")
+    # WS reconnect refetch: prevWsStateRef + transition guard + fetch.
+    assert (
+        "prevWsStateRef" in text
+    ), "frontend/app.jsx MUST track previous wsState to detect reconnect transitions"
+    assert (
+        'prev !== "open" && wsState === "open"' in text
+        or "prev !== 'open' && wsState === 'open'" in text
+    ), "frontend/app.jsx MUST refetch the detection-history panel on WS reconnect"
+    # Visibility-change refetch: visibilitychange listener with inactivity gate.
+    assert "visibilitychange" in text, (
+        "frontend/app.jsx MUST wire a visibilitychange listener for the "
+        "detection-history refetch trigger"
+    )
+    assert (
+        "DETECTION_HISTORY_INACTIVITY_REFETCH_MS" in text
+    ), "frontend/app.jsx MUST define an inactivity threshold for refetch"
+
+
 def test_no_inline_iso_formatter_in_detection_events_paths() -> None:
     """Spec 029's format_iso must be reused, not reimplemented."""
     suspect_phrases = (
