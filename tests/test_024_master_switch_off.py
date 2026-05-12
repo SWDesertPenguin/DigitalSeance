@@ -63,5 +63,5 @@ def test_scratch_routes_mounted_when_switch_on(
     paths = {getattr(route, "path", "") for route in app.routes}
     scratch_paths = {p for p in paths if p.startswith(_SCRATCH_PREFIX)}
     assert (
-        len(scratch_paths) >= 4
+        len(scratch_paths) >= 5
     ), f"FR-019 mount-on leak: expected scratch routes, got {scratch_paths}"

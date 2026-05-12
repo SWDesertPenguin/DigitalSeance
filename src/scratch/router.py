@@ -22,11 +22,13 @@ from pydantic import BaseModel, Field
 
 from src.models.facilitator_note import FacilitatorNote
 from src.models.participant import Participant
+from src.orchestrator.audit_labels import format_label
 from src.orchestrator.time_format import format_iso_or_none
 
 router = APIRouter(prefix="/tools/facilitator/scratch", tags=["scratch"])
 
 _DEFAULT_NOTE_MAX_KB = 64
+_SUMMARY_PREVIEW_CHARS = 200
 
 
 def is_scratch_enabled() -> bool:
@@ -98,6 +100,43 @@ def _note_to_dict(note: FacilitatorNote) -> dict:
     }
 
 
+def _summary_content_preview(content: str | None) -> str:
+    """Truncate summary narrative for the panel preview (FR-011)."""
+    if content is None:
+        return ""
+    if len(content) <= _SUMMARY_PREVIEW_CHARS:
+        return content
+    return content[:_SUMMARY_PREVIEW_CHARS]
+
+
+def _summary_to_dict(message: object) -> dict:
+    """Project a summary-message row into the panel wire shape."""
+    return {
+        "id": str(getattr(message, "id", "")),
+        "turn_number": getattr(message, "turn_number", None),
+        "summary_epoch": getattr(message, "summary_epoch", None),
+        "content_preview": _summary_content_preview(getattr(message, "content", "")),
+        "content": getattr(message, "content", ""),
+        "created_at": format_iso_or_none(getattr(message, "created_at", None)),
+    }
+
+
+def _review_gate_to_dict(row: dict) -> dict:
+    """Project a review-gate admin_audit_log row into the panel wire shape."""
+    action = str(row.get("action", ""))
+    timestamp = row.get("timestamp")
+    return {
+        "id": str(row.get("id")),
+        "action": action,
+        "action_label": format_label(action),
+        "actor_participant_id": row.get("facilitator_id"),
+        "target_id": row.get("target_id"),
+        "previous_value": row.get("previous_value"),
+        "new_value": row.get("new_value"),
+        "timestamp": format_iso_or_none(timestamp),
+    }
+
+
 class _CreateNoteBody(BaseModel):
     """POST body for creating a note."""
 
@@ -118,12 +157,36 @@ async def _list_scratch(request: Request, session_id: str, facilitator_id: str) 
         facilitator_id=facilitator_id,
     )
     scope = "account" if account_id is not None else "session"
+    summaries_items, summaries_total = await _load_summaries_page(request, session_id, page=0)
+    review_gate_rows = await service.list_review_gate_events(session_id=session_id)
     return {
         "scope": scope,
         "account_id": account_id,
         "session_id": session_id,
         "notes": [_note_to_dict(n) for n in notes],
+        "summaries": {
+            "items": summaries_items,
+            "page": 0,
+            "page_size": 20,
+            "total": summaries_total,
+        },
+        "review_gate_events": [_review_gate_to_dict(r) for r in review_gate_rows],
     }
+
+
+async def _load_summaries_page(request: Request, session_id: str, *, page: int) -> tuple[list, int]:
+    """Load one page of summaries and project to wire shape."""
+    from src.orchestrator.branch import get_main_branch_id
+
+    service = request.app.state.scratch_service
+    branch_id = await get_main_branch_id(request.app.state.pool, session_id)
+    items, total = await service.list_summaries(
+        session_id=session_id,
+        branch_id=branch_id,
+        page=page,
+        page_size=20,
+    )
+    return [_summary_to_dict(m) for m in items], total
 
 
 async def _create_one(request: Request, participant: Participant, content: str) -> dict:
@@ -233,6 +296,26 @@ def _register_delete_route(target_router: APIRouter, participant_dep) -> None:
         await _delete_one(request, participant, note_id)
 
 
+def _register_summaries_route(target_router: APIRouter, participant_dep) -> None:
+    """Per contract §6: paginated summary archive endpoint."""
+
+    @target_router.get("/summaries")
+    async def get_summaries_page(
+        request: Request,
+        session_id: str,
+        page: int = 0,
+        participant: Participant = participant_dep,
+    ) -> dict:
+        _authorize(participant, session_id)
+        if page < 0:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "invalid_params", "message": "page must be >= 0"},
+            )
+        items, total = await _load_summaries_page(request, session_id, page=page)
+        return {"items": items, "page": page, "page_size": 20, "total": total}
+
+
 def register_routes(target_router: APIRouter) -> None:
     """Attach all CRUD routes; called from mcp_server.app to avoid circular import."""
     participant_dep = Depends(_get_current_participant())
@@ -240,3 +323,4 @@ def register_routes(target_router: APIRouter) -> None:
     _register_create_route(target_router, participant_dep)
     _register_update_route(target_router, participant_dep)
     _register_delete_route(target_router, participant_dep)
+    _register_summaries_route(target_router, participant_dep)

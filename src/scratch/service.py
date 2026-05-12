@@ -26,6 +26,21 @@ _ACCOUNT_LOOKUP_SQL = (
     "SELECT account_id::text AS account_id FROM account_participants" " WHERE participant_id = $1"
 )
 
+# Per spec 024 FR-013 + contracts/scratch-endpoints.md §1: the review-gate
+# section of the FR-002 payload reads admin_audit_log filtered by the
+# review-gate action set. The query mirrors the spec 029 audit-log page
+# shape (newest-first, bounded LIMIT) but is scoped by action.
+_REVIEW_GATE_EVENTS_SQL = (
+    "SELECT id, action, facilitator_id, target_id, previous_value, new_value, timestamp "
+    "FROM admin_audit_log "
+    "WHERE session_id = $1 "
+    "AND action LIKE 'review_gate_%' "
+    "ORDER BY timestamp DESC "
+    "LIMIT 50"
+)
+
+_SUMMARY_PAGE_SIZE = 20
+
 
 def _new_note_id() -> str:
     """Mint an opaque note id; URL-safe token bounded at 22 chars."""
@@ -155,3 +170,42 @@ class ScratchService:
             account_id=account_id,
         )
         return notes, account_id
+
+    async def list_summaries(
+        self,
+        *,
+        session_id: str,
+        branch_id: str,
+        page: int = 0,
+        page_size: int = _SUMMARY_PAGE_SIZE,
+    ) -> tuple[list, int]:
+        """Read summary-checkpoint messages for the FR-011 / FR-012 panel.
+
+        Returns ``(items, total)`` where ``items`` is a slice of the
+        chronologically-ordered summary messages bounded by the page
+        offset. The summary archive is per-session bounded so the
+        total query is cheap.
+        """
+        from src.repositories.message_repo import MessageRepository
+
+        msg_repo = MessageRepository(self._pool)
+        summaries = await msg_repo.get_summaries(session_id, branch_id)
+        total = len(summaries)
+        start = max(0, page) * page_size
+        end = start + page_size
+        return summaries[start:end], total
+
+    async def list_review_gate_events(
+        self,
+        *,
+        session_id: str,
+    ) -> list[dict]:
+        """Read review-gate audit rows for the FR-013 panel.
+
+        Bounded LIMIT 50 per the contract; newest-first. Returns raw
+        rows for the router to project into the wire shape (the
+        action-label registry lookup happens at projection time).
+        """
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(_REVIEW_GATE_EVENTS_SQL, session_id)
+        return [dict(r) for r in rows]

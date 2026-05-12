@@ -378,13 +378,13 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-004 | tests/test_024_master_switch_off.py | PUT /tools/facilitator/scratch/notes/<id> route presence; OCC behavior in FacilitatorNotesRepository.update_note; DB integration trigger: Phase F |
 | FR-005 | tests/test_024_master_switch_off.py | DELETE /tools/facilitator/scratch/notes/<id> route presence; soft-delete behavior in FacilitatorNotesRepository.soft_delete_note; DB integration trigger: Phase F |
 | FR-006 | tests/test_024_master_switch_off.py | POST /tools/facilitator/scratch/notes/<id>/promote route presence; promote handler reuses inject_message path; DB integration trigger: Phase F |
-| FR-007 | untested | Confirmation modal showing EXACT text in frontend/app.jsx ScratchPanel; trigger: spec 024 UI implementation Phase F or Playwright e2e |
+| FR-007 | tests/frontend/test_scratch_notes.js | PromoteConfirmModal in frontend/app.jsx shows the EXACT text from the note (no truncation) with Confirm disabled when content is empty; pure-logic helpers exercised in Node test; e2e trigger: Playwright Phase F |
 | FR-008 | tests/test_024_master_switch_off.py | Promote routes through _validate_and_persist via existing participant.py helpers; DB integration trigger: Phase F |
 | FR-009 | tests/frontend/test_scratch_notes.js | 2s autosave debounce covered by frontend Node test |
 | FR-010 | tests/test_024_validators.py | SACP_SCRATCH_NOTE_MAX_KB validator boundary conditions + HTTP 413 enforced in router._enforce_size |
-| FR-011 | untested | Summary archive sub-panel reads existing messages table; trigger: spec 024 UI implementation Phase F |
-| FR-012 | untested | 20-per-page offset pagination on summary archive; trigger: spec 024 UI implementation Phase F |
-| FR-013 | untested | Review-gate history sub-panel reads admin_audit_log filtered by review_gate_* actions; trigger: spec 024 UI implementation Phase F |
+| FR-011 | tests/frontend/test_scratch_notes.js | SummariesTab in frontend/app.jsx reads summaries section of FR-002 payload; parseSummaryContent + formatTurnRange helpers covered by Node test |
+| FR-012 | tests/frontend/test_scratch_notes.js | 20-per-page offset pagination wired via /tools/facilitator/scratch/summaries endpoint + SummariesPager component; pure-logic helpers covered in Node test |
+| FR-013 | tests/frontend/test_scratch_notes.js | ReviewGateTab in frontend/app.jsx reads review_gate_events section of FR-002 payload; service.list_review_gate_events filters admin_audit_log by action LIKE 'review_gate_%'; reviewGateDisposition helper covered in Node test |
 | FR-014 | tests/test_029_architectural.py, tests/frontend/test_scratch_notes.js | Spec 029 architectural test extended for spec 024 (no parallel threshold constants); component reuse trigger: spec 024 UI implementation Phase F |
 | FR-015 | tests/test_024_master_switch_off.py | facilitator_notes account_id FK SET NULL behavior in alembic migration; runtime scope detection via ScratchService.resolve_account_id; DB integration trigger: Phase F |
 | FR-016 | tests/test_024_validators.py | Account-scoped notes survive archive via partial index on account_id IS NOT NULL AND deleted_at IS NULL; retention sweep gated by SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE |
@@ -395,6 +395,6 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-021 | tests/test_024_master_switch_off.py | Facilitator-only access via get_current_participant; non-facilitator HTTP 403 trigger: spec 024 integration Phase F |
 | FR-022 | tests/test_024_validators.py | Three SACP_SCRATCH_* env vars validated at startup; V16 fail-closed gate |
 | FR-023 | untested | Scratch section in spec 010 debug-export payload; trigger: spec 010 amendment Phase F |
-| FR-024 | untested | Entry-point button + slide-over route /session/:id/scratch; rendered by ScratchPanel React component; trigger: spec 024 UI implementation Phase F |
-| FR-025 | untested | Scope chip in panel header reading "account" or "session"; rendered by ScratchPanel React component; trigger: spec 024 UI implementation Phase F |
+| FR-024 | tests/frontend/test_scratch_notes.js | "Scratch" entry-point button in AdminPanel gated by scratchEnabled probe; ScratchPanel slide-over rendered in frontend/app.jsx; e2e trigger: Playwright Phase F |
+| FR-025 | tests/frontend/test_scratch_notes.js | Scope chip in ScratchPanel header reading "Account-scoped" / "Session-scoped"; describeScope helper covered in Node test |
 | FR-026 | tests/test_029_architectural.py, tests/test_024_audit_labels.py | Spec 029 shared-module contract reuse enforced by parity gate + spec 029 architectural test extension |

@@ -4,8 +4,16 @@
 
 const path = require("path");
 const assert = require("assert");
-const { debounceAutosave, serializeNoteUpdate, renderMarkdownSubset } =
-  require(path.join(__dirname, "..", "..", "frontend", "scratch_notes.js"));
+const {
+  debounceAutosave,
+  serializeNoteUpdate,
+  renderMarkdownSubset,
+  describeScope,
+  formatPromotedMarker,
+  parseSummaryContent,
+  formatTurnRange,
+  reviewGateDisposition,
+} = require(path.join(__dirname, "..", "..", "frontend", "scratch_notes.js"));
 
 let passed = 0;
 let failed = 0;
@@ -123,6 +131,98 @@ test("renderMarkdownSubset renders links only for http(s) URLs", function () {
 test("renderMarkdownSubset returns empty string for non-string input", function () {
   assert.strictEqual(renderMarkdownSubset(null), "");
   assert.strictEqual(renderMarkdownSubset(undefined), "");
+});
+
+// ---- describeScope ----------------------------------------------------------
+
+test("describeScope returns account chip + explanation for account scope", function () {
+  const out = describeScope("account");
+  assert.strictEqual(out.chipText, "Account-scoped");
+  assert.ok(out.chipClass.includes("account"));
+  assert.ok(out.explanation.toLowerCase().includes("survive"));
+});
+
+test("describeScope returns session chip + warning for session scope", function () {
+  const out = describeScope("session");
+  assert.strictEqual(out.chipText, "Session-scoped");
+  assert.ok(out.chipClass.includes("session"));
+  assert.ok(out.explanation.toLowerCase().includes("deleted"));
+});
+
+test("describeScope defaults to session for missing/unknown values", function () {
+  assert.strictEqual(describeScope(null).chipText, "Session-scoped");
+  assert.strictEqual(describeScope(undefined).chipText, "Session-scoped");
+  assert.strictEqual(describeScope("garbage").chipText, "Session-scoped");
+});
+
+// ---- formatPromotedMarker ---------------------------------------------------
+
+test("formatPromotedMarker returns null for un-promoted notes", function () {
+  assert.strictEqual(formatPromotedMarker({ promoted_at: null }), null);
+  assert.strictEqual(formatPromotedMarker({}), null);
+  assert.strictEqual(formatPromotedMarker(null), null);
+});
+
+test("formatPromotedMarker captures turn + timestamp for promoted notes", function () {
+  const out = formatPromotedMarker({
+    promoted_at: "2026-05-12T10:00:00Z",
+    promoted_message_turn: 47,
+  });
+  assert.strictEqual(out.promoted, true);
+  assert.strictEqual(out.turn, 47);
+  assert.strictEqual(out.promotedAt, "2026-05-12T10:00:00Z");
+});
+
+// ---- parseSummaryContent ----------------------------------------------------
+
+test("parseSummaryContent extracts four structured sections from valid JSON", function () {
+  const raw = JSON.stringify({
+    narrative: "We discussed X.",
+    decisions: ["d1", "d2"],
+    open_questions: ["q1"],
+    key_positions: [{ participant: "Alice", position: "yes" }],
+  });
+  const out = parseSummaryContent(raw);
+  assert.strictEqual(out.narrative, "We discussed X.");
+  assert.deepStrictEqual(out.decisions, ["d1", "d2"]);
+  assert.deepStrictEqual(out.open_questions, ["q1"]);
+  assert.strictEqual(out.key_positions.length, 1);
+});
+
+test("parseSummaryContent falls back to raw narrative on parse failure", function () {
+  const out = parseSummaryContent("not valid json {{{");
+  assert.strictEqual(out.narrative, "not valid json {{{");
+  assert.deepStrictEqual(out.decisions, []);
+});
+
+test("parseSummaryContent returns empty shape for null / empty input", function () {
+  const out = parseSummaryContent(null);
+  assert.strictEqual(out.narrative, "");
+  assert.deepStrictEqual(out.decisions, []);
+});
+
+// ---- formatTurnRange --------------------------------------------------------
+
+test("formatTurnRange returns single turn when only one summary", function () {
+  assert.strictEqual(formatTurnRange({ turn_number: 5 }, null), "turn 1-5");
+});
+
+test("formatTurnRange returns inclusive range between summaries", function () {
+  assert.strictEqual(formatTurnRange({ turn_number: 96 }, { turn_number: 46 }), "turn 47-96");
+});
+
+test("formatTurnRange handles missing turn_number gracefully", function () {
+  assert.strictEqual(formatTurnRange(null, null), "");
+  assert.strictEqual(formatTurnRange({}, null), "");
+});
+
+// ---- reviewGateDisposition --------------------------------------------------
+
+test("reviewGateDisposition maps action keys to friendly labels", function () {
+  assert.strictEqual(reviewGateDisposition("review_gate_approve"), "Approved (verbatim)");
+  assert.strictEqual(reviewGateDisposition("review_gate_edit"), "Approved (edited)");
+  assert.strictEqual(reviewGateDisposition("review_gate_reject"), "Rejected");
+  assert.strictEqual(reviewGateDisposition("unknown_action"), "unknown_action");
 });
 
 // ---- summary ----------------------------------------------------------------

@@ -139,9 +139,103 @@
     return out.join("\n");
   }
 
+  // -------------------------------------------------------------------
+  // Scope detection per spec 024 FR-015 + spec 011 FR-049. The FR-002
+  // response carries `scope` and `account_id`; the SPA renders a chip
+  // showing "Account-scoped" vs "Session-scoped" so the facilitator
+  // knows whether their notes survive archive.
+  // -------------------------------------------------------------------
+
+  function describeScope(scope) {
+    if (scope === "account") {
+      return {
+        chipText: "Account-scoped",
+        chipClass: "scratch-scope-account",
+        explanation: "Notes survive session archive.",
+      };
+    }
+    return {
+      chipText: "Session-scoped",
+      chipClass: "scratch-scope-session",
+      explanation: "Notes are deleted when the session is archived.",
+    };
+  }
+
+  // -------------------------------------------------------------------
+  // Promoted marker per spec 011 FR-045 — note rows with promoted_at
+  // gain a visual indicator linking to the resulting transcript turn.
+  // -------------------------------------------------------------------
+
+  function formatPromotedMarker(note) {
+    if (!note || note.promoted_at == null) return null;
+    const turn = note.promoted_message_turn;
+    const at = note.promoted_at;
+    return {
+      promoted: true,
+      turn: typeof turn === "number" ? turn : null,
+      promotedAt: at,
+    };
+  }
+
+  // -------------------------------------------------------------------
+  // Summary preview per spec 005 §FR-005 structured shape. The FR-002
+  // payload ships a `content` JSON string and a server-side
+  // `content_preview` truncated to 200 chars. The pure-logic helpers
+  // here extract the four structured sections for the expanded view.
+  // -------------------------------------------------------------------
+
+  function parseSummaryContent(rawContent) {
+    if (typeof rawContent !== "string" || rawContent.length === 0) {
+      return { narrative: "", decisions: [], open_questions: [], key_positions: [] };
+    }
+    try {
+      const parsed = JSON.parse(rawContent);
+      if (parsed === null || typeof parsed !== "object") {
+        return { narrative: String(rawContent), decisions: [], open_questions: [], key_positions: [] };
+      }
+      return {
+        narrative: typeof parsed.narrative === "string" ? parsed.narrative : "",
+        decisions: Array.isArray(parsed.decisions) ? parsed.decisions : [],
+        open_questions: Array.isArray(parsed.open_questions) ? parsed.open_questions : [],
+        key_positions: Array.isArray(parsed.key_positions) ? parsed.key_positions : [],
+      };
+    } catch (_e) {
+      return { narrative: rawContent, decisions: [], open_questions: [], key_positions: [] };
+    }
+  }
+
+  function formatTurnRange(summary, prior) {
+    // Spec 011 FR-047 — summary row displays turn range (first..last).
+    // Prior summary's turn_number is the lower bound; first summary
+    // starts at turn 1.
+    const last = summary && typeof summary.turn_number === "number" ? summary.turn_number : null;
+    const first = prior && typeof prior.turn_number === "number" ? prior.turn_number + 1 : 1;
+    if (last == null) return "";
+    if (first > last) return `turn ${last}`;
+    return `turn ${first}-${last}`;
+  }
+
+  // -------------------------------------------------------------------
+  // Review-gate disposition labels per spec 011 FR-048 + spec 029 audit
+  // labels. The action key uses underscore form; we surface a friendly
+  // disposition string for the row header.
+  // -------------------------------------------------------------------
+
+  function reviewGateDisposition(action) {
+    if (action === "review_gate_approve") return "Approved (verbatim)";
+    if (action === "review_gate_edit") return "Approved (edited)";
+    if (action === "review_gate_reject") return "Rejected";
+    return action || "(unknown)";
+  }
+
   return {
     debounceAutosave: debounceAutosave,
     serializeNoteUpdate: serializeNoteUpdate,
     renderMarkdownSubset: renderMarkdownSubset,
+    describeScope: describeScope,
+    formatPromotedMarker: formatPromotedMarker,
+    parseSummaryContent: parseSummaryContent,
+    formatTurnRange: formatTurnRange,
+    reviewGateDisposition: reviewGateDisposition,
   };
 });
