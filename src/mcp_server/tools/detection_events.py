@@ -30,6 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
+from src.observability.instrumentation import instrument_stage
 from src.orchestrator.time_format import format_iso, format_iso_or_none
 from src.repositories.detection_event_repo import apply_resurface
 from src.web_ui.cross_instance_broadcast import broadcast_session_event
@@ -58,11 +59,16 @@ async def get_detection_events(
     max_events = _resolved_max_events()
     since = _resolved_since()
     state = request.app.state
-    rows = await state.log_repo.get_detection_events_page(
-        session_id,
-        max_events=max_events,
-        since=since,
-    )
+    async with instrument_stage(
+        "detection_events.page_load",
+        session_id=session_id,
+    ) as stage:
+        rows = await state.log_repo.get_detection_events_page(
+            session_id,
+            max_events=max_events,
+            since=since,
+        )
+        stage["row_count"] = len(rows)
     events = [_decorate_event(row) for row in rows]
     as_of = format_iso_or_none(datetime.now(UTC))
     return {
@@ -175,15 +181,20 @@ async def post_resurface(
     """Re-surface a dispositioned detection event (FR-006)."""
     _authorize(participant, session_id)
     state = request.app.state
-    row = await _lookup_event_row(state, session_id, event_id)
-    await _verify_session_active(state, session_id)
-    audit_row_id, broadcast_path = await _emit_resurface(
-        state,
-        session_id,
-        event_id,
-        participant.id,
-        row,
-    )
+    async with instrument_stage(
+        "detection_events.resurface_same_instance",
+        session_id=session_id,
+        event_id=event_id,
+    ):
+        row = await _lookup_event_row(state, session_id, event_id)
+        await _verify_session_active(state, session_id)
+        audit_row_id, broadcast_path = await _emit_resurface(
+            state,
+            session_id,
+            event_id,
+            participant.id,
+            row,
+        )
     return {
         "event_id": event_id,
         "audit_row_id": audit_row_id,

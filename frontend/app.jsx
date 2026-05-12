@@ -4158,6 +4158,47 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     dispatch({ type: "detection_history_panel_set_open", value: false });
   };
 
+  // Spec 022 T054 + FR-009 + spec 011 FR-041 — best-effort recovery.
+  //   Postgres LISTEN/NOTIFY can drop a cross-instance message when the
+  //   receiving instance's LISTEN connection blips. The SPA reconciles via
+  //   REST refetch on (a) WS reconnect transition (open→reconnecting→open)
+  //   AND (b) window-focus return after an inactivity threshold. Together
+  //   these substitute for at-least-once cross-instance delivery per the
+  //   Session 2026-05-11 best-effort clarification. The reducer's
+  //   detection_event_appended action already dedupes by event_id so a
+  //   refetch racing with a WS push doesn't double-render.
+  const detectionHistoryPanelOpen = state.detectionHistoryPanelOpen;
+  const prevWsStateRef = useRef(wsState);
+  useEffect(() => {
+    const prev = prevWsStateRef.current;
+    prevWsStateRef.current = wsState;
+    if (!detectionHistoryPanelOpen) return;
+    if (prev !== "open" && wsState === "open") {
+      // Transitioned back to open after a reconnect — refetch to catch
+      // any NOTIFY payloads that landed while we were disconnected.
+      fetchDetectionHistoryPage();
+    }
+  }, [wsState, detectionHistoryPanelOpen]);
+
+  const DETECTION_HISTORY_INACTIVITY_REFETCH_MS = 30_000;
+  const lastVisibleAtRef = useRef(Date.now());
+  useEffect(() => {
+    if (!detectionHistoryPanelOpen) return undefined;
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") {
+        lastVisibleAtRef.current = Date.now();
+        return;
+      }
+      const idleMs = Date.now() - lastVisibleAtRef.current;
+      lastVisibleAtRef.current = Date.now();
+      if (idleMs >= DETECTION_HISTORY_INACTIVITY_REFETCH_MS) {
+        fetchDetectionHistoryPage();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [detectionHistoryPanelOpen]);
+
   // Spec 022 FR-006: POST resurface. Fail-soft alert on error so the
   // operator sees the failure rather than silent no-op (the panel
   // surface is facilitator-only and silent failure would mask drift).
