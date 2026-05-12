@@ -30,7 +30,7 @@ file must be rebased to point down_revision='017'. Coordination per
 Constitution §6 + 001 §FR-017 (downgrade is a no-op).
 
 Revision ID: 018
-Revises: 016
+Revises: 017
 Create Date: 2026-05-11
 """
 
@@ -39,7 +39,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "018"
-down_revision = "016"
+down_revision = "017"
 branch_labels = None
 depends_on = None
 
