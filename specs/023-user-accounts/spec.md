@@ -2,7 +2,7 @@
 
 **Feature Branch**: `023-user-accounts`
 **Created**: 2026-05-07
-**Status**: Clarified 2026-05-09 (Phase 3+ scaffold; later than 013/014 — NOT a Phase 3 prerequisite, but a prerequisite for spec 024 facilitator scratch)
+**Status**: Implemented 2026-05-12 (seven implementation phases shipped via PR #345 + follow-up PR #347; unblocks spec 024 facilitator scratch account-scoped path)
 **Input**: User description: "Phase 3+ user accounts. Current participant identity is token-scoped (spec 002); closing the browser tab loses access. This adds a login-based identity layer ABOVE the existing token-based participant model — same tokens still gate per-session participant lifecycle, but accounts persist across browser sessions and remember which active and archived sessions a person joined. Email + password auth with argon2id; OAuth migration coordinated with the Phase 3 OAuth roadmap. Pre-authentication rate limiting per audit follow-through. Single-tenant-per-deployment per spec 011's Phase D privacy stance — accounts see only sessions they joined, no cross-tenant browsing. Applies to topologies 1-6 (orchestrator-mediated identity); incompatible with topology 7 per V12. Primary use cases: research co-authorship (§2), consulting (§3), decision-making under asymmetric expertise (§6)."
 
 ## Overview
