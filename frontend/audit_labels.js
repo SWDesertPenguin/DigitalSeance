@@ -51,6 +51,11 @@
     "detection_event_dismissed": { label: "Detection event dismissed" },
     "detection_event_auto_resolved": { label: "Detection event auto-resolved" },
     "detection_event_resurface": { label: "Detection event re-surfaced" },
+    "facilitator_note_created": { label: "Facilitator created scratch note" },
+    "facilitator_note_updated": { label: "Facilitator updated scratch note" },
+    "facilitator_note_deleted": { label: "Facilitator deleted scratch note" },
+    "facilitator_promoted_note": { label: "Facilitator promoted note to transcript" },
+    "facilitator_note_purged_retention": { label: "Scratch note purged by retention sweep" },
   };
 
   // Return the registered label for `action`, or the

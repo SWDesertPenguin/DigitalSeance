@@ -168,6 +168,7 @@ def _get_schema_sql() -> list[str]:
         _account_participants_ddl(),
         _compression_log_ddl(),
         _detection_events_ddl(),
+        _facilitator_notes_ddl(),
         *_index_ddls(),
     ]
 
@@ -656,6 +657,7 @@ def _index_ddls() -> list[str]:
         *_account_index_ddls(),
         *_compression_log_index_ddls(),
         *_detection_events_index_ddls(),
+        *_facilitator_notes_index_ddls(),
     ]
 
 
@@ -677,6 +679,47 @@ def _detection_events_index_ddls() -> list[str]:
         " ON detection_events (session_id, event_class)",
         "CREATE INDEX detection_events_session_participant_idx"
         " ON detection_events (session_id, participant_id)",
+    ]
+
+
+def _facilitator_notes_ddl() -> str:
+    """spec 024 — alembic 019 mirror; facilitator scratch notes table.
+
+    Operator-private workspace state per FR-001 (NEVER assembled into
+    AI context — `tests/test_024_architectural.py` enforces). Three
+    partial indexes target the deleted_at IS NULL hot path.
+    """
+    return """
+        CREATE TABLE facilitator_notes (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL
+                REFERENCES sessions(id) ON DELETE CASCADE,
+            account_id UUID
+                REFERENCES accounts(id) ON DELETE SET NULL,
+            actor_participant_id TEXT NOT NULL
+                REFERENCES participants(id) ON DELETE CASCADE,
+            content TEXT NOT NULL CHECK (char_length(content) >= 1),
+            version INTEGER NOT NULL DEFAULT 1
+                CHECK (version >= 1),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            deleted_at TIMESTAMPTZ,
+            promoted_at TIMESTAMPTZ,
+            promoted_message_turn INTEGER
+        )
+    """
+
+
+def _facilitator_notes_index_ddls() -> list[str]:
+    """spec 024 — alembic 019 mirror; three partial indexes covering the FR-002 query plan."""
+    return [
+        "CREATE INDEX facilitator_notes_session_idx"
+        " ON facilitator_notes (session_id) WHERE deleted_at IS NULL",
+        "CREATE INDEX facilitator_notes_account_idx"
+        " ON facilitator_notes (account_id)"
+        " WHERE account_id IS NOT NULL AND deleted_at IS NULL",
+        "CREATE INDEX facilitator_notes_session_account_idx"
+        " ON facilitator_notes (session_id, account_id) WHERE deleted_at IS NULL",
     ]
 
 

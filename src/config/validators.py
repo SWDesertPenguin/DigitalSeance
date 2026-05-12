@@ -1421,6 +1421,69 @@ def validate_web_ui_cookie_key() -> ValidationFailure | None:
     return None
 
 
+def validate_scratch_enabled() -> ValidationFailure | None:
+    """SACP_SCRATCH_ENABLED: '0' or '1', default '0'. 024 §FR-019 / FR-022.
+
+    Master switch for the entire facilitator-scratch surface. When '0'
+    (default), all six scratch endpoints return HTTP 404 and the SPA
+    falls back to the legacy session view without a scratch panel
+    entry-point button. When '1', the scratch router mounts.
+    """
+    return _validate_bool_enum("SACP_SCRATCH_ENABLED")
+
+
+def validate_scratch_note_max_kb() -> ValidationFailure | None:
+    """SACP_SCRATCH_NOTE_MAX_KB: int in [1, 1024], default 64. 024 §FR-010 / FR-022.
+
+    Per-note content size cap in kilobytes. Notes exceeding the cap are
+    rejected with HTTP 413 from the POST + PUT scratch endpoints. The
+    cap protects against unbounded notes consuming DB space; raising
+    past 1 MiB is unsupported in v1.
+    """
+    val = os.environ.get("SACP_SCRATCH_NOTE_MAX_KB")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_SCRATCH_NOTE_MAX_KB",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 1024:
+        return ValidationFailure(
+            "SACP_SCRATCH_NOTE_MAX_KB",
+            f"must be in [1, 1024] (1 KiB to 1 MiB); got {num}",
+        )
+    return None
+
+
+def validate_scratch_retention_days_after_archive() -> ValidationFailure | None:
+    """SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE: empty OR int in [1, 36500]. 024 §FR-018 / FR-022.
+
+    Retention window for account-scoped scratch notes after the parent
+    session is archived. Empty (default) means indefinite. The retention
+    sweep script (`scripts/scratch_retention_sweep.py`) consumes this
+    value; the orchestrator does NOT auto-purge in-process.
+    """
+    val = os.environ.get("SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 36500:
+        return ValidationFailure(
+            "SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE",
+            f"must be in [1, 36500] (1 day to 100 years); got {num}",
+        )
+    return None
+
+
 VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_database_url,
     validate_encryption_key,
@@ -1486,6 +1549,9 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_email_transport,
     validate_account_deletion_email_grace_days,
     validate_deployment_owner_key,
+    validate_scratch_enabled,
+    validate_scratch_note_max_kb,
+    validate_scratch_retention_days_after_archive,
 )
 
 
