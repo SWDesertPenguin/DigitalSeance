@@ -74,6 +74,12 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-032 | untested | Spec 023 amendment: account-settings panel (email change / password change / delete); trigger: Phase F Playwright |
 | FR-033 | untested | Spec 023 amendment: uniform invalid_credentials display + 429 Retry-After countdown; trigger: Phase F Playwright |
 | FR-034 | untested | Spec 023 amendment: no new WS events; password-change invalidation surfaces via existing FR-014 401 handler; trigger: Phase F Playwright integration |
+| FR-035 | untested | Spec 022 amendment: "View detection history" button in facilitator admin panel gated by FR-009 + `SACP_DETECTION_HISTORY_ENABLED`; trigger: spec 022 UI implementation Phase F |
+| FR-036 | untested | Spec 022 amendment: detection-event panel route + columns + newest-first sort toggle; trigger: spec 022 UI implementation Phase F |
+| FR-037 | tests/frontend/test_detection_history_filters.js | Spec 022 amendment: four-axis filter AND composition + default pass-through verified Node-runnable; control wiring + per-axis hidden-events badges + clear-filters trigger: spec 022 UI implementation Phase F |
+| FR-038 | untested | Spec 022 amendment: `detection_event_appended` + `detection_event_resurfaced` 2s apply window + filter-interaction render; WS payload shape backstopped by `tests/test_022_ws_events.py`; trigger: spec 022 UI implementation Phase F |
+| FR-039 | tests/frontend/test_detection_event_taxonomy.js | Spec 022 amendment: `[unregistered: <class>]` fallback verified Node-runnable; empty state + 200-char truncation `[expand]` trigger: spec 022 UI implementation Phase F |
+| FR-040 | untested | Spec 022 amendment: per-row re-surface button + archived-session disabled tooltip + 409 inline error; endpoint side backstopped by `tests/test_022_resurface_endpoint.py`; trigger: spec 022 UI implementation Phase F |
 | SR-001 | tests/test_web_ui_app.py, tests/test_011_testability.py | Security headers present; CSP report-uri; per-directive coverage (14 fragments) |
 | SR-001a | untested | WS frame cap (256KB); WS layer max_size not yet wired; trigger: Phase E ops |
 | SR-002 | tests/test_web_ui_app.py | Strict-Transport-Security header present |
