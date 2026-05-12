@@ -47,7 +47,6 @@
     "auto_pause_on_cap": { label: "Loop auto-paused (length cap reached)" },
     "manual_stop_during_conclude": { label: "Loop manually stopped during conclude phase" },
     "session_config_change": { label: "Session config changed" },
-    // Spec 022 disposition-transition + re-surface actions (Session 2026-05-11).
     "detection_event_acknowledged": { label: "Detection event acknowledged" },
     "detection_event_dismissed": { label: "Detection event dismissed" },
     "detection_event_auto_resolved": { label: "Detection event auto-resolved" },
