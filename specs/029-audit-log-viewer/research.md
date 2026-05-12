@@ -29,7 +29,7 @@ The `DiffRenderer` React component lives inline in `frontend/app.jsx` (the singl
 
 ## §2 — Diff library selection
 
-**Decision**: `diff@5.x` (jsdiff) loaded via CDN with SRI integrity attribute, mirroring the spec 011 SR-001 pattern. The library exposes `diffLines()`, `diffWords()`, `diffJson()`, and `structuredPatch()` from a single UMD bundle. License: BSD-3-Clause. Bundle size: ~30KB minified.
+**Decision**: `diff@5.2.0` (jsdiff), point-pinned with sha384 SRI integrity, loaded via CDN — mirroring the spec 011 SR-001 pattern. The library exposes `diffLines()`, `diffWords()`, `diffJson()`, and `structuredPatch()` from a single UMD bundle. License: BSD-3-Clause. Bundle size: ~30KB minified. The implementation point-pin lives in `frontend/index.html` and is also referenced in the inline Worker bootstrap in `frontend/diff_engine.js`. The wider `5.x` framing earlier in this section was the v0 selection criterion; the final pin landed at 5.2.0 during implementation. The `scripts/` parallel install was separately bumped to 5.2.2 to clear the jsdiff DoS advisory (PR #346); the SPA-side CDN pin stays at 5.2.0 until a coordinated upgrade refreshes the SRI hash.
 
 **Rationale**: jsdiff is the de-facto JS Myers diff library (used by VSCode's git integration, GitHub's web review surface, Prettier). It supports the three modes the spec needs: line, word, and JSON-aware diff (`diffJson`). UMD-compatible — loads cleanly via `<script src="https://cdn.jsdelivr.net/npm/diff@5/dist/diff.min.js" integrity="sha384-..." crossorigin="anonymous">`. The library exposes a stable surface that the `frontend/diff_engine.js` module wraps with size-threshold dispatch (main thread / Web Worker / raw).
 
