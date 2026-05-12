@@ -182,7 +182,7 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Valid range**: `"true"` or `"false"`
 - **Validation rule**: `validators.validate_compression_phase2_enabled`
 - **Source spec(s)**: 026 FR-008
-- **Note**: Phase 2 master switch. When `false` (default), Phase 2 compressors (`llmlingua2_mbert`, `selective_context`) raise `NotImplementedError` on dispatch. When `true`, the dispatch path can route to them per `SACP_COMPRESSION_DEFAULT_COMPRESSOR` or `sessions.compression_mode`. Flipping to `true` requires `transformers` + `accelerate` installed; absence is a startup error.
+- **Note**: Phase 2 master switch. When `false` (default), Phase 2 compressors (`llmlingua2_mbert`, `selective_context`) raise `NotImplementedError` on dispatch. When `true`, the dispatch path can route to them per `SACP_COMPRESSION_DEFAULT_COMPRESSOR` or `sessions.compression_mode`. Flipping to `true` requires the optional `compression-phase2` extra installed (`uv pip install -e .[compression-phase2]`); absence raises `NotImplementedError` at first dispatch and the CompressorService fails soft to un-compressed payload per FR-020.
 - **Cross-validator interaction**: with `SACP_COMPRESSION_DEFAULT_COMPRESSOR` set to a Phase 2 compressor (`llmlingua2_mbert` or `selective_context`), this MUST be `true` or startup exits with a ValidationFailure naming both vars.
 
 ### `SACP_COMPRESSION_THRESHOLD_TOKENS`

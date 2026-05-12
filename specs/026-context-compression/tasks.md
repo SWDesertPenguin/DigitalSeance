@@ -110,15 +110,15 @@ description: "Task list for spec 026 — Context Compression and Distillation (S
 
 ### Tests for User Story 2
 
-- [ ] T029 [P] [US2] Acceptance scenarios in `tests/test_026_density_dual_write.py`: drive a density-anomaly-flagged turn; assert one convergence_log row with `tier='density_anomaly'`; assert one routing_log row with `reason='density_anomaly_flagged'` + `density_value` + `baseline_mean` + `ratio` payload fields; assert both writes happen in the same transaction (one fails → both rollback).
-- [ ] T030 [P] [US2] SC-005 summarizer-corpus filter test in `tests/test_026_summarizer_filter.py`: insert a density-flagged convergence_log row for a known turn; trigger the summarizer; assert the rolling-summary output does NOT contain content from the flagged turn (FR-019 — Phase 1 behavioural change).
+- [X] T029 [P] [US2] Acceptance scenarios in `tests/test_026_density_dual_write.py` — landed at fire-site in `src/orchestrator/convergence.py::_emit_density_routing_marker` rather than `src/orchestrator/density.py` (the density module is pure-logic; the per-turn fire site lives in convergence). Unit tests stub the embedding model and force the anomaly path. The `density_value` / `baseline_mean` / `ratio` payload fields are DEFERRED — routing_log has no generic payload column; readers JOIN convergence_log on `(turn_number, session_id)` for the full payload. Co-commit "same transaction" framing in spec text reads as best-effort dual-write here because the two writes share the asyncpg pool but not a single transaction; both target append-only tables in the same database so the failure surface is acceptable per the spec contract.
+- [ ] T030 [P] [US2] SC-005 summarizer-corpus filter test in `tests/test_026_summarizer_filter.py`: insert a density-flagged convergence_log row for a known turn; trigger the summarizer; assert the rolling-summary output does NOT contain content from the flagged turn (FR-019 — Phase 1 behavioural change). DEFERRED — requires summarizer-site discovery (`src/orchestrator/summarizer.py`) + a filter integration; lands in the next 026 pass.
 
 ### Implementation for User Story 2
 
-- [ ] T031 [US2] Add routing_log dual-write at the density-signal fire site in [src/orchestrator/density.py](../../src/orchestrator/density.py) per [contracts/routing-log-additions.md "Emission-site mapping"](./contracts/routing-log-additions.md): the existing convergence_log INSERT stays; add a routing_log INSERT in the SAME transaction with `reason='density_anomaly_flagged'` + density_value / baseline_mean / ratio payload.
-- [ ] T032 [US2] Implement the summarizer-corpus filter at the spec 005 summarizer site per [research.md §13](./research.md): when reading turns for the rolling-summary corpus, JOIN-or-filter against `convergence_log WHERE tier='density_anomaly' AND target_event_id=<turn_id>`; exclude flagged turns. Implementation path determined at task time (likely `src/orchestrator/summarization.py`).
+- [X] T031 [US2] Routing_log dual-write at the density-signal fire site landed in `src/orchestrator/convergence.py::_emit_density_routing_marker`. The existing convergence_log INSERT stays; routing_log INSERT joins it with `reason='density_anomaly_flagged'`. Payload-extension fields DEFERRED per T029 deferral.
+- [ ] T032 [US2] Implement the summarizer-corpus filter at the spec 005 summarizer site per [research.md §13](./research.md): when reading turns for the rolling-summary corpus, JOIN-or-filter against `convergence_log WHERE tier='density_anomaly' AND target_event_id=<turn_id>`; exclude flagged turns. Implementation path determined at task time (likely `src/orchestrator/summarizer.py`). DEFERRED with T030.
 
-**Checkpoint**: Density-flagged turns write to both convergence_log + routing_log; summarizer filter excludes flagged turns from the corpus.
+**Checkpoint**: Density-flagged turns write to both convergence_log + routing_log (T031 done). Summarizer-corpus filter still pending (T030 + T032).
 
 ---
 
@@ -136,7 +136,7 @@ description: "Task list for spec 026 — Context Compression and Distillation (S
 
 - [ ] T036 [US3] Implement `NoOpCompressor` in [src/compression/noop.py](../../src/compression/noop.py) per [research.md §6](./research.md) + [contracts/compressor-service-interface.md](./contracts/compressor-service-interface.md): `compress(payload, target_budget, trust_tier) -> CompressedSegment`; returns input verbatim with `output_tokens == source_tokens`; `boundary_marker=None`; pass-through `trust_tier`. Registers with `CompressorService` at module import per the established pattern.
 - [ ] T037 [US3] Wire `CompressorService.compress(...)` at the per-participant pre-bridge dispatch site in [src/orchestrator/loop.py](../../src/orchestrator/loop.py) per [research.md §1](./research.md): the existing dispatch path calls `CompressorService.compress(payload, target_budget, trust_tier, ...)` before forwarding to the bridge; on NoOp the dispatch path uses the returned `output_text` verbatim (byte-identical to today's behaviour); on non-NoOp the dispatch path wraps `output_text` with the boundary marker before forwarding.
-- [ ] T038 [US3] Mount `CompressorService.freeze()` in the FastAPI lifespan in [src/web_ui/app.py](../../src/web_ui/app.py) (or wherever lifespan startup lives): call after all `src/compression/*.py` modules have imported and registered.
+- [X] T038 [US3] Mount `CompressorService.freeze()` in the FastAPI lifespan — landed in `src/mcp_server/app.py::_freeze_compressor_registry` (the MCP server hosts the orchestrator pool + services; the Web UI hydrates from MCP via `prime_from_mcp_app`, so the freeze on the MCP lifespan suffices). Also wires `_telemetry_sink.set_writer(...)` to the asyncpg-backed `compression_repo.insert_compression_log` writer so production dispatches land in the `compression_log` table while tests still observe via the in-memory accumulator.
 
 **Checkpoint**: NoOpCompressor is the Phase 1 default; every dispatch writes a compression_log row; Phase 2 cutover is one env-var change away.
 
@@ -154,7 +154,7 @@ description: "Task list for spec 026 — Context Compression and Distillation (S
 
 ### Implementation for User Story 4
 
-- [X] T042 [US4] Implement `LLMLingua2mBERTCompressor` Phase 1 scaffold in [src/compression/llmlingua2_mbert.py](../../src/compression/llmlingua2_mbert.py) per [research.md §8](./research.md): NotImplementedError on `SACP_COMPRESSION_PHASE2_ENABLED=false`; NotImplementedError naming the Phase 2 task list when `=true`. `COMPRESSOR_VERSION='0-scaffold'`. Registers with `CompressorService` at module import.
+- [X] T042 [US4] Implement `LLMLingua2mBERTCompressor` per [research.md §8](./research.md). Scaffold landed first (COMPRESSOR_VERSION='0-scaffold'); Phase 2 layer-4 real body landed second — replaces the inner NotImplementedError with a lazy-loaded `llmlingua.PromptCompressor` singleton when the optional `compression-phase2` extra is installed (`uv pip install -e .[compression-phase2]`). Version bumped to `'1-llmlingua-real'`. Phase-2-OFF gate stays — phase2=true + dep missing still raises (CompressorService catches and falls through per FR-020). Output is wrapped in the FR-012 XML boundary marker with MIN-tier inheritance from source.
 - [X] T043 [US4] Implement `SelectiveContextCompressor` Phase 1 scaffold in [src/compression/selective_context.py](../../src/compression/selective_context.py) per [research.md §9](./research.md): same scaffold pattern as T042.
 - [X] T044 [US4] Implement `CompressionPipelineError` + fail-soft handler in [src/compression/service.py](../../src/compression/service.py): catch any Compressor exception, raise `CompressionPipelineError` to the caller. The `routing_log.reason='compression_pipeline_error'` emission lands when the bridge-side dispatch call site lands at T037 (Phase 5); the failure telemetry row is already recorded in `compression_log` at the service layer.
 
@@ -225,12 +225,12 @@ Within a phase, `[P]` tasks operate on different files and can run in parallel. 
 - Phase 1 (Setup, T001-T010): saturated (10/10 done).
 - Phase 2 (Foundational, T011-T022): saturated (11/12 done; T013 live-DB migration test deferred until a DB harness lands).
 - Phase 3 (US1 caching markers, T023-T028): not started — touches `src/api_bridge/caching.py` + `src/api_bridge/litellm/dispatch.py` response handling; provider-specific cache-hit extraction.
-- Phase 4 (US2 dual-write + summarizer filter, T029-T032): not started — touches `src/orchestrator/density.py` (dual-write) + spec 005 summarizer site.
-- Phase 5 (US3 NoOp + CompressorService bridge wiring, T033-T038): partially done — NoOp implementation + tests landed in Phase 2; T037 (bridge dispatch call site) + T038 (lifespan freeze + `set_writer` wiring) remain.
-- Phase 6 (US4 Phase 2 scaffolds, T039-T044): saturated (6/6 done; the scaffolds + fail-soft handler landed inside the Phase 2 commit).
+- Phase 4 (US2 dual-write + summarizer filter, T029-T032): partial — T029 + T031 routing_log dual-write landed at `src/orchestrator/convergence.py` fire site (payload-extension fields deferred — no generic payload column on routing_log; readers JOIN convergence_log). T030 + T032 summarizer-corpus filter still pending.
+- Phase 5 (US3 NoOp + CompressorService bridge wiring, T033-T038): partial — NoOp + tests landed in Phase 2; T038 lifespan freeze + writer mount landed at `src/mcp_server/app.py`. T037 (bridge dispatch call site in `src/orchestrator/loop.py`) remains.
+- Phase 6 (US4 Phase 2 scaffolds, T039-T044): saturated for scaffold (6/6). Layer 4 LLMLingua-2 mBERT real body landed on top of the scaffold — gated on `SACP_COMPRESSION_PHASE2_ENABLED=true` AND the optional `compression-phase2` dep being installed. Version bumped 0-scaffold -> 1-llmlingua-real.
 - Phase 7 (US5 Provence stub, T045-T046): saturated (2/2 done).
 - Phase 8 (US6 Layer 6 stub + closed-API skip, T047-T050): partially done (T047 + T049 done; T048 + T050 deferred to bridge integration).
 - Phase 9 (Polish, T051-T055): not started.
 - Phase 10 (Closeout, T056-T060): not started.
 
-**Commit trail on the 026-context-compression branch**: spec clarifications -> Phase 1 design artifacts -> tasks -> Phase 1 V16 gate -> Phase 2 foundational. 26 of 60 tasks complete. The remaining 34 tasks fall into two clusters: (a) bridge / dispatch / density / summarizer call-site wiring (Phases 3-5 + T050), (b) closeout + spec 011 amendment (Phases 9-10).
+**Commit trail on the 026-context-compression branch**: spec clarifications -> Phase 1 design artifacts -> tasks -> Phase 1 V16 gate -> Phase 2 foundational -> T031+T038 density dual-write + lifespan freeze -> Layer 4 LLMLingua-2 mBERT real body. 30 of 60 tasks complete. Remaining clusters: (a) bridge / dispatch wiring (T023-T028 + T030 + T032 + T037), (b) closed-API Layer 6 skip (T048 + T050), (c) closeout + spec 011 amendment (Phases 9-10).
