@@ -94,6 +94,32 @@ def summary_created_event(summary: dict[str, Any]) -> dict[str, Any]:
     return _envelope("summary_created", summary=summary)
 
 
+def participant_standby_event(
+    participant_id: str,
+    reason: str,
+    since_turn: int,
+) -> dict[str, Any]:
+    """Spec 027 FR-010: participant entered standby."""
+    return _envelope(
+        "participant_standby",
+        participant_id=participant_id,
+        reason=reason,
+        since_turn=since_turn,
+    )
+
+
+def participant_standby_exited_event(
+    participant_id: str,
+    cleared_at_turn: int,
+) -> dict[str, Any]:
+    """Spec 027 FR-011: participant exited standby on the next tick."""
+    return _envelope(
+        "participant_standby_exited",
+        participant_id=participant_id,
+        cleared_at_turn=cleared_at_turn,
+    )
+
+
 def session_status_changed_event(status: str) -> dict[str, Any]:
     """Session lifecycle transition (active/paused/archived)."""
     return _envelope("session_status_changed", status=status)
@@ -471,4 +497,8 @@ def _participant_payload(
         "spend_daily": spend_daily,
         "spend_hourly": spend_hourly,
         "invited_by": p.invited_by,
+        # Spec 027 FR-058 amendment (spec 011): SPA reads wait_mode +
+        # wait_mode_metadata from participant_update payloads, no polling.
+        "wait_mode": getattr(p, "wait_mode", "wait_for_human"),
+        "wait_mode_metadata": getattr(p, "wait_mode_metadata", None) or {},
     }

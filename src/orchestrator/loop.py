@@ -48,6 +48,7 @@ from src.orchestrator.shaping_wiring import (
     response_shaping_enabled,
     shape_response,
 )
+from src.orchestrator.standby import StandbyConfig, apply_eval_result, evaluate_tick
 from src.orchestrator.summarizer import SummarizationManager
 from src.orchestrator.timing import (
     get_timings,
@@ -195,6 +196,7 @@ class ConversationLoop:
         """Execute a single turn iteration."""
         start_turn()
         await self._gate_active_or_capped(session_id)
+        await self._maybe_evaluate_standby(session_id)
         await self._maybe_evaluate_observer_downgrade(session_id)
         speaker = await self._router.next_speaker(session_id)
         if speaker is None:
@@ -230,6 +232,10 @@ class ConversationLoop:
         Spec 025: ``phase`` flows from `execute_turn` (which reads it from
         the session row) so the assembler injects the conclude delta and
         the cadence floors the delay during conclude phase.
+
+        Spec 027 FR-015: when an ``always``-mode speaker has an active
+        gating signal (any of the four detection signals would fire in
+        wait_for_human mode), the wait-ack delta is added to Tier 4.
         """
         interjections = await self._int_repo.get_pending(session_id)
         log.debug("Fetched %d interjections for %s", len(interjections), session_id)
@@ -240,11 +246,27 @@ class ConversationLoop:
             return early
         self._last_skip.pop(session_id, None)
         ctx = self._build_turn_context(session_id)
-        # Interjections are persisted as messages above, so pass [] here
-        # to avoid duplicating them as priority context.
-        result = await self._dispatch_with_delay(ctx, speaker, decision, [], phase=phase)
+        always_active = await self._always_mode_wait_active(speaker)
+        result = await self._dispatch_with_delay(
+            ctx, speaker, decision, [], phase=phase, always_mode_wait_active=always_active
+        )
         await _mark_delivered(self._int_repo, interjections)
         return result
+
+    async def _always_mode_wait_active(self, speaker: object) -> bool:
+        """FR-015 detector: is this always-mode speaker gated by any signal?
+
+        Returns False for wait_for_human-mode speakers (the gate is the
+        standby state, not the delta). Returns True iff the speaker is
+        in always mode AND any of the spec 027 detection signals is
+        currently active.
+        """
+        if getattr(speaker, "wait_mode", "wait_for_human") != "always":
+            return False
+        from src.orchestrator.standby import _detect_signal
+
+        reason = await _detect_signal(self._pool, speaker.id, current_turn=0)
+        return reason is not None
 
     @with_stage_timing("route")
     async def _check_route(
@@ -290,12 +312,17 @@ class ConversationLoop:
         interjections: list,
         *,
         phase: str = "running",
+        always_mode_wait_active: bool = False,
     ) -> TurnResult:
         """Dispatch turn then compute cadence delay.
 
         Spec 025: ``phase`` flows into the assembler (FR-008 conclude delta)
         and the cadence (FR-010 floor delay during conclude). Default
         ``'running'`` preserves pre-feature behavior.
+
+        Spec 027 FR-015: ``always_mode_wait_active`` flows into the
+        assembler so the wait-ack delta lands at Tier 4 when the speaker
+        is in always mode and gated.
         """
         result, content = await _dispatch_and_persist(
             ctx,
@@ -307,6 +334,7 @@ class ConversationLoop:
             batch_scheduler=self._batch_scheduler,
             batching_engaged=self._high_traffic_runtime.is_mechanism_engaged("batching"),
             phase=phase,
+            always_mode_wait_active=always_mode_wait_active,
             engine=self._convergence,
         )
         if result.skipped:
@@ -618,6 +646,37 @@ class ConversationLoop:
 
         return count_recent_density_anomalies(session_id, window_seconds=60)
 
+    async def _maybe_evaluate_standby(self, session_id: str) -> None:
+        """Spec 027 §FR-003 / FR-008-FR-011 standby evaluator hook.
+
+        Runs BEFORE observer-downgrade per FR-026 precedence
+        (gate-blocked outranks traffic-shape). The observer_downgrade
+        evaluator's _list_active_participants helper naturally excludes
+        ``standby`` participants because the lookup filters on
+        ``status='active'`` — transitions written here therefore remove
+        a participant from observer-downgrade's consideration on this
+        same tick.
+
+        Failure-mode: any evaluator exception is logged and swallowed;
+        the loop continues per Constitution §V6 graceful-degradation.
+        """
+        try:
+            config = StandbyConfig.from_env()
+            current_turn = await _read_next_turn_number(self._pool, session_id)
+            result = await evaluate_tick(self._pool, session_id, current_turn, config)
+            if (
+                result.entered
+                or result.exited
+                or result.observer_marked
+                or result.pivot_text is not None
+                or result.cycle_increments
+            ):
+                await apply_eval_result(
+                    self._pool, session_id, current_turn, result, self._log_repo
+                )
+        except Exception as exc:  # noqa: BLE001 - V6 graceful degradation
+            log.warning("standby_evaluator_error session=%s err=%s", session_id, exc)
+
     async def _maybe_evaluate_observer_downgrade(self, session_id: str) -> None:
         """013 §FR-008-§FR-012: turn-prep observer-downgrade + restore evaluator.
 
@@ -786,6 +845,22 @@ async def _session_is_active(pool: asyncpg.Pool, session_id: str) -> bool:
     return status == "active"
 
 
+async def _read_next_turn_number(pool: asyncpg.Pool, session_id: str) -> int:
+    """Return MAX(turn_number)+1 for the session, or 1 when empty.
+
+    Used by the spec 027 standby evaluator to time-stamp WS events and
+    audit rows; the real turn number is assigned per the canonical
+    sequence in ``_dispatch_and_persist``, so this is a best-effort
+    snapshot intended for telemetry only.
+    """
+    async with pool.acquire() as conn:
+        maximum = await conn.fetchval(
+            "SELECT COALESCE(MAX(turn_number), 0) FROM messages WHERE session_id = $1",
+            session_id,
+        )
+    return int(maximum or 0) + 1
+
+
 async def _check_skip_conditions(
     budget: BudgetEnforcer,
     breaker: CircuitBreaker,
@@ -812,6 +887,7 @@ async def _dispatch_and_persist(
     batching_engaged: bool = True,
     phase: str = "running",
     engine: ConvergenceDetector | None = None,
+    always_mode_wait_active: bool = False,
 ) -> tuple[TurnResult, str]:
     """Assemble context, dispatch to provider, persist result.
 
@@ -823,7 +899,13 @@ async def _dispatch_and_persist(
     ``SACP_RESPONSE_SHAPING_ENABLED`` is off (SC-002 byte-equal).
     """
     response, messages, skip_reason = await _assemble_and_dispatch(
-        ctx, assembler, breaker, speaker, interjections, phase=phase
+        ctx,
+        assembler,
+        breaker,
+        speaker,
+        interjections,
+        phase=phase,
+        always_mode_wait_active=always_mode_wait_active,
     )
     if response is None:
         return _skip_result(ctx.session_id, speaker.id, skip_reason or "provider_error"), ""
@@ -942,6 +1024,7 @@ async def _assemble_and_dispatch(
     interjections: list | None = None,
     *,
     phase: str = "running",
+    always_mode_wait_active: bool = False,
 ) -> tuple[ProviderResponse | None, list[dict[str, str]] | None, str | None]:
     """Build context, call provider, handle errors.
 
@@ -964,6 +1047,7 @@ async def _assemble_and_dispatch(
         participant=speaker,
         interjections=interjections,
         phase=phase,
+        always_mode_wait_active=always_mode_wait_active,
     )
     record_stage("assemble", int((time.monotonic() - assemble_start) * 1000))
     if not _has_new_input(context):
