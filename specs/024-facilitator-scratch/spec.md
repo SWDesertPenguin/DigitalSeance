@@ -2,7 +2,7 @@
 
 **Feature Branch**: `024-facilitator-scratch`
 **Created**: 2026-05-07
-**Status**: Implementation in progress (Clarified 2026-05-12; spec 023 Implemented 2026-05-12 unblocks the account-scoped path)
+**Status**: Implemented 2026-05-12 (clarify + plan + tasks + phase 0-3 shipped; SPA wiring deferred per spec 011 FR-042..FR-049 amendment; UI implementation + DB-gated integration + e2e schedule per tasks.md Phase F triggers)
 **Input**: User description: "Phase 3+ human-only side-channel scratch window. Facilitators want a private space to write questions / decisions / notes, browse older summaries, and review review-gate history with diffs — WITHOUT polluting AI context. AIs do not see scratch content unless the facilitator explicitly promotes a note into the main transcript. Subsumes the deeper version of backlog item #3 (Summary + Review Gate history panel); the surface-level summary viewer is already covered by spec 011 US9. Three sub-panels: Notes (facilitator-authored markdown, AIs never see), Summary archive (browse all spec-005 checkpoints), Review-gate history (side-by-side diff for every edited draft). Promote-to-transcript action lifts a note into the conversation as a human-injected message. Account-scoped when spec 023 is in place; session-scoped fallback otherwise. Applies to topologies 1-6 (orchestrator-mediated content store); incompatible with topology 7. Primary use cases: consulting (§3), technical review and audit (§5), decision-making under asymmetric expertise (§6)."
 
 ## Overview
