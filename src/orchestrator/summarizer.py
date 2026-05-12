@@ -165,7 +165,12 @@ async def _fetch_turns_since(
     """Fetch turns since the last checkpoint as context messages.
 
     Excludes prior summary rows so the summarizer never feeds its own
-    output back in as new content (Test06-Web06).
+    output back in as new content (Test06-Web06). Spec 026 FR-019 adds
+    a second exclusion: any turn whose ``convergence_log`` row carries
+    ``tier='density_anomaly'`` is filtered out of the corpus so the
+    rolling summary never accumulates content-free verbosity. The
+    filter is observational-positive — flagged turns SHOULD have been
+    excluded.
     """
     bid = await get_main_branch_id(pool, session_id)
     messages = await msg_repo.get_range(
@@ -175,6 +180,9 @@ async def _fetch_turns_since(
         end_turn=last_summary_turn + 1000,
         exclude_speaker_types=["summary"],
     )
+    flagged = await _fetch_density_flagged_turns(
+        pool, session_id, last_summary_turn + 1, last_summary_turn + 1000
+    )
     return [
         ContextMessage(
             role="user",
@@ -182,7 +190,35 @@ async def _fetch_turns_since(
             source_turn=m.turn_number,
         )
         for m in messages
+        if m.turn_number not in flagged
     ]
+
+
+async def _fetch_density_flagged_turns(
+    pool: asyncpg.Pool,
+    session_id: str,
+    start_turn: int,
+    end_turn: int,
+) -> frozenset[int]:
+    """Return turn numbers within [start_turn, end_turn] flagged as density anomalies.
+
+    Spec 026 FR-019 + research.md §13: density-flagged turns drop out of
+    the summarizer corpus. The query targets the existing
+    ``convergence_log`` shape (no schema change) by filtering on the
+    ``tier='density_anomaly'`` discriminator added by alembic 010 for
+    spec 004 §FR-020.
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT turn_number FROM convergence_log "
+            "WHERE session_id = $1 "
+            "AND tier = 'density_anomaly' "
+            "AND turn_number BETWEEN $2 AND $3",
+            session_id,
+            start_turn,
+            end_turn,
+        )
+    return frozenset(int(r["turn_number"]) for r in rows)
 
 
 async def _generate_summary(

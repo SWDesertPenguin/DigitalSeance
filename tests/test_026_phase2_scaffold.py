@@ -31,10 +31,35 @@ def test_llmlingua_phase2_off_raises_on_dispatch() -> None:
         compressor.compress("x", target_budget=1, trust_tier="participant_supplied")
 
 
-def test_llmlingua_phase2_on_still_scaffolded(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llmlingua_phase2_on_requires_optional_dep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Phase2=true + llmlingua not installed -> NotImplementedError naming the extra.
+
+    The real body engages only when the optional ``compression-phase2``
+    dependency landed (`uv pip install -e .[compression-phase2]`). In a
+    default test environment the dep is absent; the compressor raises
+    `NotImplementedError` pointing at the install command, and the
+    CompressorService catches and falls through per FR-020.
+    """
     monkeypatch.setenv("SACP_COMPRESSION_PHASE2_ENABLED", "true")
+    # Defensive: drop any cached model so the import path runs.
+    from src.compression import llmlingua2_mbert
+
+    llmlingua2_mbert._reset_model_for_tests()
     compressor = LLMLingua2mBERTCompressor()
-    with pytest.raises(NotImplementedError, match="Phase 2 task list"):
+    try:
+        import llmlingua  # noqa: F401
+
+        # If the package IS installed (Phase 2 extra landed locally), the
+        # next line MUST NOT raise NotImplementedError — but the dep is
+        # heavy and pulls a real model load, so we don't drive a real
+        # compression in this test. The presence of the import is enough
+        # to assert the contract switches.
+        pytest.skip("llmlingua installed; covered by dedicated integration test")
+    except ImportError:
+        pass
+    with pytest.raises(NotImplementedError, match="compression-phase2"):
         compressor.compress("x", target_budget=1, trust_tier="participant_supplied")
 
 
@@ -48,8 +73,14 @@ def test_llmlingua_refuses_tier_one() -> None:
 
 
 def test_llmlingua_metadata() -> None:
+    """Real-path version landed: scaffold "0-scaffold" -> "1-llmlingua-real".
+
+    The bump signals the compressor body has switched from raise-only
+    scaffold to the LLMLingua-2 mBERT integration. Cache-key (FR-004)
+    and compression_log rows now reflect the active version.
+    """
     assert LLMLingua2mBERTCompressor.COMPRESSOR_ID == "llmlingua2_mbert"
-    assert LLMLingua2mBERTCompressor.COMPRESSOR_VERSION == "0-scaffold"
+    assert LLMLingua2mBERTCompressor.COMPRESSOR_VERSION == "1-llmlingua-real"
 
 
 # ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
+from dataclasses import dataclass
 from functools import partial
 
 import numpy as np
@@ -27,6 +28,18 @@ DIVERGENCE_PROMPT = (
     "and argue against it. If you genuinely cannot find a flaw, "
     "say so explicitly and explain why."
 )
+
+
+@dataclass(frozen=True)
+class _DensityAnomalyEvent:
+    """Per-turn density-anomaly emission payload — bundle to keep arg count sane."""
+
+    turn_number: int
+    session_id: str
+    content: str
+    density: float
+    baseline: list[float]
+    speaker_id: str | None
 
 
 class ConvergenceDetector:
@@ -163,24 +176,69 @@ class ConvergenceDetector:
         density = compute_density(content, embedding)
         baseline = await self._session_repo.get_density_baseline(session_id)
         if is_anomaly(density, baseline):
-            mean = float(np.mean(baseline)) if baseline else 0.0
-            await self._log_repo.log_density_anomaly(
+            event = _DensityAnomalyEvent(
                 turn_number=turn_number,
                 session_id=session_id,
-                density_value=density,
-                baseline_value=mean,
+                content=content,
+                density=density,
+                baseline=baseline,
+                speaker_id=speaker_id,
             )
-            # Spec 014: feed the in-memory observer so the DMA controller's
-            # density-anomaly signal source can sample without a DB round-trip.
-            from src.orchestrator.dma_observation import record_density_anomaly
-
-            record_density_anomaly(session_id)
-            if speaker_id is not None:
-                await self._dual_write_detection_event(
-                    turn_number, session_id, speaker_id, content, density
-                )
+            await self._fire_density_anomaly(event)
         await self._session_repo.replace_density_baseline(
             session_id, update_baseline(baseline, density)
+        )
+
+    async def _fire_density_anomaly(self, event: _DensityAnomalyEvent) -> None:
+        """Drive the density-anomaly emission fan-out (4 sinks)."""
+        mean = float(np.mean(event.baseline)) if event.baseline else 0.0
+        await self._log_repo.log_density_anomaly(
+            turn_number=event.turn_number,
+            session_id=event.session_id,
+            density_value=event.density,
+            baseline_value=mean,
+        )
+        await self._emit_density_routing_marker(
+            event.turn_number, event.session_id, event.speaker_id
+        )
+        # Spec 014: feed the in-memory observer so the DMA controller's
+        # density-anomaly signal source can sample without a DB round-trip.
+        from src.orchestrator.dma_observation import record_density_anomaly
+
+        record_density_anomaly(event.session_id)
+        if event.speaker_id is not None:
+            await self._dual_write_detection_event(
+                event.turn_number,
+                event.session_id,
+                event.speaker_id,
+                event.content,
+                event.density,
+            )
+
+    async def _emit_density_routing_marker(
+        self,
+        turn_number: int,
+        session_id: str,
+        speaker_id: str | None,
+    ) -> None:
+        """Spec 026 FR-018 + Session 2026-05-11 §4 dual-write marker.
+
+        Payload-extension fields (`density_value` / `baseline_mean` /
+        `ratio`) drafted in
+        specs/026-context-compression/contracts/routing-log-additions.md
+        are NOT carried — routing_log has no generic payload column;
+        readers JOIN convergence_log on (turn_number, session_id).
+        """
+        attributee = speaker_id or session_id
+        await self._log_repo.log_routing(
+            session_id=session_id,
+            turn_number=turn_number,
+            intended=attributee,
+            actual=attributee,
+            action="quality_signal",
+            complexity="n/a",
+            domain_match=False,
+            reason="density_anomaly_flagged",
         )
 
     async def _dual_write_detection_event(

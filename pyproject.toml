@@ -54,6 +54,19 @@ dev = [
 e2e = [
     "pytest-playwright>=0.7.2",
 ]
+# Spec 026 Phase 2 — Layer 4 hard compression. Optional because the
+# bundle pulls ~2 GB of transitive deps (`transformers` + `accelerate`
+# + `nltk` + `torch`). Operators opt in only when activating Layer 4
+# via SACP_COMPRESSION_PHASE2_ENABLED=true +
+# SACP_COMPRESSION_DEFAULT_COMPRESSOR=llmlingua2_mbert.
+#
+# Pinned per Constitution §6.3 — `llmlingua` 0.2.x is the stable line
+# carrying the LLMLingua-2 mBERT integration; upper bound prevents an
+# automatic bump into 0.3.x where the `compress_prompt` API contract
+# may break. Re-evaluate the bound when 0.3 lines stabilise.
+compression-phase2 = [
+    "llmlingua>=0.2.2,<0.3",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

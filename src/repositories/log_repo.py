@@ -52,6 +52,24 @@ class LogRepository(BaseRepository):
         turn-loop persist path (012 US6) and remain NULL on skip-path
         / pre-instrumentation rows.
 
+        Spec 026 (FR-003 / FR-018 / FR-020) adds five new application-
+        level ``reason`` values on top of the existing routing-decision
+        and skip-path strings. ``reason`` stays a TEXT column (no
+        migration) — readers must tolerate unknown values per
+        ``contracts/routing-log-additions.md``. The new values are:
+
+        - ``'cache_hit'`` — provider-side cache marker surfaced after
+          dispatch (emitted by ``loop._emit_cache_marker``).
+        - ``'cache_miss'`` — provider-side cache marker reports zero
+          cached-prefix tokens.
+        - ``'compression_applied'`` — non-NoOp ``CompressorService``
+          dispatch succeeded.
+        - ``'compression_pipeline_error'`` — a compressor raised; the
+          bridge fell through to un-compressed dispatch per FR-020.
+        - ``'density_anomaly_flagged'`` — Session 2026-05-11 §4
+          dual-write companion to the existing
+          ``convergence_log`` row.
+
         Spec 021 (T031): the five shaping columns
         (``shaping_score_ms``..``shaping_reason``) are NULL on every row
         when ``SACP_RESPONSE_SHAPING_ENABLED`` is off (SC-002 byte-equal)

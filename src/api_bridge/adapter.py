@@ -150,6 +150,15 @@ class ProviderResponse:
     cost_usd: float
     model: str
     latency_ms: int
+    # Spec 026 US1 — provider-side cache-hit signal. Populated by the
+    # adapter when the dispatched provider returns a cache-hit indicator
+    # (Anthropic ``usage.cache_read_input_tokens``, OpenAI
+    # ``usage.prompt_tokens_details.cached_tokens``). ``None`` on
+    # providers that do not surface a cache-hit marker; ``0`` on a
+    # cache-miss; positive integer on a cache hit. The loop's
+    # ``routing_log`` emission consumes this to record the FR-003
+    # ``cache_hit`` / ``cache_miss`` marker.
+    cached_prefix_tokens: int | None = None
 
 
 # ---------------------------------------------------------------------------

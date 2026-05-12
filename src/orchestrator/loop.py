@@ -1229,7 +1229,19 @@ async def _dispatch_to_provider(
     *,
     session_id: str,
 ) -> ProviderResponse:
-    """Dispatch context to the speaker's AI provider."""
+    """Dispatch context to the speaker's AI provider.
+
+    Spec 026 T037: the bridge dispatch site invokes
+    ``CompressorService.compress(...)`` over the assembled outgoing
+    window before forwarding. Phase 1 default is NoOp, which returns
+    the input verbatim — the dispatched ``messages`` list is
+    byte-identical to the un-compressor-mediated baseline (SC-006).
+    The pass-through still writes a ``compression_log`` row per FR-007
+    + SC-013 so Phase 1 has the per-turn telemetry the Phase 2 cutover
+    needs. Phase 2 swaps the compressor body via env var; the bridge
+    wiring is unchanged.
+    """
+    _invoke_compressor_pass(speaker, messages, session_id=session_id)
     directives = build_session_cache_directives(
         session_id=session_id,
         model=speaker.model,
@@ -1246,6 +1258,67 @@ async def _dispatch_to_provider(
             cache_directives=directives,
         )
     )
+
+
+def _invoke_compressor_pass(
+    speaker: object,
+    messages: list[dict[str, str]],
+    *,
+    session_id: str,
+) -> None:
+    """Per-dispatch CompressorService.compress invocation (T037 surface).
+
+    Pulls the participant's outgoing window into a single string payload
+    and dispatches via the process-scope CompressorService. Phase 1
+    NoOp returns input verbatim AND writes the compression_log
+    telemetry row, so the dispatched ``messages`` stay unchanged. A
+    pipeline error logs a warning and falls through to un-compressed
+    dispatch per FR-020. Failures MUST NOT abort the loop.
+    """
+    from src.compression import registry as compressor_registry
+    from src.compression.service import CompressionPipelineError
+
+    payload = _stringify_messages(messages)
+    try:
+        compressor_registry.compress(
+            payload,
+            target_budget=0,
+            trust_tier="participant_supplied",
+            session_id=session_id,
+            participant_id=speaker.id,
+            turn_id=session_id,
+        )
+    except CompressionPipelineError as exc:
+        log.warning(
+            "CompressorService pipeline error for %s; falling through: %s",
+            speaker.id,
+            exc,
+        )
+    except Exception:  # noqa: BLE001 — telemetry MUST NOT abort dispatch
+        log.exception("CompressorService unexpected error for %s", speaker.id)
+
+
+def _stringify_messages(messages: list[dict[str, str]]) -> str:
+    """Concatenate role-tagged message contents into a single payload string.
+
+    The Phase 1 NoOp does not consume the payload; it returns the input
+    verbatim and writes a telemetry row whose ``source_tokens`` count
+    is a coarse ``len // 4`` approximation. Phase 2 compressors swap
+    in a real tokenizer-aware payload assembly when their env-var gate
+    opens; the byte-identical contract holds because Phase 1 default
+    is NoOp.
+    """
+    parts: list[str] = []
+    for msg in messages:
+        role = str(msg.get("role", ""))
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(
+                str(block.get("text", "")) if isinstance(block, dict) else str(block)
+                for block in content
+            )
+        parts.append(f"{role}: {content}")
+    return "\n".join(parts)
 
 
 async def _persist_turn(
@@ -1273,6 +1346,7 @@ async def _persist_turn(
         timings=get_timings(),
         shaping_metadata=shaping_metadata,
     )
+    await _emit_cache_marker(ctx.log_repo, ctx.session_id, msg.turn_number, speaker, response)
     await _log_usage(ctx.log_repo, speaker, msg.turn_number, response)
     await _sync_current_turn(ctx.pool, ctx.session_id, msg.turn_number)
     await _emit_persist_signals(
@@ -1740,6 +1814,25 @@ async def _log_skip_entry(
         domain_match=False,
         reason=reason,
     )
+
+
+async def _emit_cache_marker(
+    log_repo: LogRepository,
+    session_id: str,
+    turn_number: int,
+    speaker: object,
+    response: ProviderResponse,
+) -> None:
+    """Spec 026 FR-003: delegate to the standalone bridge helper.
+
+    Kept as a thin wrapper at the loop's call site so the loop module's
+    persist path reads top-to-bottom; the implementation lives in
+    ``src.api_bridge.cache_markers`` so unit tests can import it without
+    pulling the orchestrator module graph.
+    """
+    from src.api_bridge.cache_markers import emit_cache_marker
+
+    await emit_cache_marker(log_repo, session_id, turn_number, speaker, response)
 
 
 async def _sync_current_turn(
