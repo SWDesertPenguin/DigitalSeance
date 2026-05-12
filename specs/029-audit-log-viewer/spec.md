@@ -2,7 +2,7 @@
 
 **Feature Branch**: `029-audit-log-viewer`
 **Created**: 2026-05-07
-**Status**: Draft (Phase 3 declared 2026-05-05; scaffold ships now, tasks + implementation deferred)
+**Status**: Implementation pass 1 saturated 2026-05-11 (shared-module foundation — `src/orchestrator/audit_labels.py` + `frontend/audit_labels.js` + `frontend/diff_engine.js` + `src/orchestrator/time_format.py` + `frontend/time_format.js` — shipped to unblock spec 022; viewer endpoint + SPA panel US1/US2/US3 deferred to pass 2; tasks.md 53/55 reflects the shared-module subset). Full Implemented flip awaits pass 2 + viewer-panel shakedown.
 **Input**: User description: "Phase 3 human-readable audit log viewer. The admin_audit_log table records every facilitator action, every review-gate edit, every participant lifecycle event, every session-config change. Phase 1 ships the data; Phase 2's Web UI surfaces a summary. Operators currently run debug-export (spec 010) and parse JSON to understand what happened. Adds a live audit-log surface in the Web UI with formatted action labels, side-by-side diffs for review-gate edits, and filtering. Architectural commitment: action-label registry, diff renderer, and time formatter ship as standalone modules that specs 022 (detection event history) and 024 (facilitator scratch) consume rather than reimplement. Without that commitment, three audit-adjacent surfaces drift. With it, 029 ships first and 022/024 inherit the shared components. Applies to topologies 1-6 (orchestrator owns the audit log); incompatible with topology 7. Primary use cases: technical review and audit (§5), consulting (§3)."
 
 ## Overview
@@ -124,10 +124,13 @@ shared components exist before downstream specs need them.
   ("3 minutes ago"). No env-var tuning. Forensic-default by
   intent: audit data is stored UTC, displayed UTC, with locale
   as a convenience overlay rather than primary.
-- **Action-label localization.** Drafted as: English-only in v1.
-  i18n is a future enhancement. The label format ("Facilitator
-  removed Haiku") is a single English string per action.
-  [NEEDS CLARIFICATION: confirm English-only v1.]
+- **Action-label localization.** Resolved 2026-05-11 (Session
+  below): confirmed English-only v1. The label format
+  ("Facilitator removed Haiku") is a single English string per
+  action. i18n is a future enhancement that would need a
+  per-action label-set + locale-resolution layer; introducing
+  it requires a separate spec amendment triggered by a
+  localization use case.
 - **Sensitive-value scrubbing in the panel.** Resolved 2026-05-07
   (Session below): per-action boolean flag. The backend label
   registry's entry MAY include `scrub_value: bool`; when true,
@@ -158,6 +161,11 @@ shared components exist before downstream specs need them.
 - **Phase 1+2 shakedown reference.** Paraphrased without test
   session IDs per the established pattern. Confirm the
   paraphrase is acceptable.
+
+### Session 2026-05-11
+
+- Q: Spec 029 status — tasks.md shows 53/55 checked while Status reads "Draft, scaffold ships now, implementation deferred"; which state reflects ship reality? → A: Implementation pass 1 saturated. The shared-module foundation (`audit_labels.py` + `audit_labels.js` + `diff_engine.js` + `time_format.py` + `time_format.js` + parity gate) shipped to unblock spec 022's consumption; the audit log viewer endpoint (FR-001) + SPA panel (US1, US2, US3) is implementation-deferred to pass 2. The 53 checked tasks are the shared-module subset. Status text updated to reflect the two-track reality; full Implemented flip awaits pass 2 + viewer-panel shakedown.
+- Q: Action-label localization — confirm English-only v1 (closes the [NEEDS CLARIFICATION] marker open since Session 2026-05-07)? → A: Confirmed English-only v1. FR-006 already commits to "the human-readable English label"; the shipped `audit_labels.py` + `audit_labels.js` + parity gate + spec 022's mirror module all assume English-only. i18n is a future enhancement requiring a separate spec amendment triggered by a localization use case; the current registry shape (`dict[str, dict[str, Any]]`) does not anticipate per-locale label sets. The initial-draft-assumptions block updated to "Resolved 2026-05-11".
 
 ### Session 2026-05-09
 

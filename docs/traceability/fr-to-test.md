@@ -80,6 +80,7 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-038 | untested | Spec 022 amendment: `detection_event_appended` + `detection_event_resurfaced` 2s apply window + filter-interaction render; WS payload shape backstopped by `tests/test_022_ws_events.py`; trigger: spec 022 UI implementation Phase F |
 | FR-039 | tests/frontend/test_detection_event_taxonomy.js | Spec 022 amendment: `[unregistered: <class>]` fallback verified Node-runnable; empty state + 200-char truncation `[expand]` trigger: spec 022 UI implementation Phase F |
 | FR-040 | untested | Spec 022 amendment: per-row re-surface button + archived-session disabled tooltip + 409 inline error; endpoint side backstopped by `tests/test_022_resurface_endpoint.py`; trigger: spec 022 UI implementation Phase F |
+| FR-041 | untested | Spec 022 amendment: SPA refetch on WS reconnect + focus-after-inactivity to recover from best-effort cross-instance push (spec 022 FR-009); idempotent reconciliation against rendered set; trigger: spec 022 UI implementation Phase F |
 | SR-001 | tests/test_web_ui_app.py, tests/test_011_testability.py | Security headers present; CSP report-uri; per-directive coverage (14 fragments) |
 | SR-001a | untested | WS frame cap (256KB); WS layer max_size not yet wired; trigger: Phase E ops |
 | SR-002 | tests/test_web_ui_app.py | Strict-Transport-Security header present |
