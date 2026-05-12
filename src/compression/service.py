@@ -103,6 +103,7 @@ class CompressorService:
         session_id: str,
         participant_id: str,
         turn_id: str,
+        provider: str | None = None,
     ) -> CompressedSegment:
         """Dispatch to the configured compressor; emit per-dispatch telemetry.
 
@@ -110,9 +111,16 @@ class CompressorService:
         `'noop'`. Topology-7 callers MUST request `noop` explicitly
         (the env default still works on topology 7; only non-noop
         explicit selections are blocked).
+
+        Spec 026 T050 / FR-022 / SC-011: when ``provider`` is supplied
+        AND the selected compressor is ``'layer6'`` AND the Layer 6
+        adapter's ``supports(provider) == False``, the dispatch falls
+        back to NoOp without emitting ``compression_pipeline_error``
+        — the skip is by design, not a failure.
         """
         selected = self._resolve_compressor_id(compressor_id)
         self._enforce_topology_gate(selected)
+        selected = self._layer6_closed_api_skip(selected, provider)
         compressor_class = self._lookup_class(selected)
         compressor = compressor_class()
         return self._invoke_with_telemetry(
@@ -124,6 +132,30 @@ class CompressorService:
             participant_id=participant_id,
             turn_id=turn_id,
         )
+
+    def _layer6_closed_api_skip(
+        self,
+        selected: str,
+        provider: str | None,
+    ) -> str:
+        """Fall back to NoOp when Layer 6 is selected on a closed-API leg.
+
+        Spec 026 SC-011: Layer 6 MUST be structurally skipped on
+        closed-API legs (Anthropic, OpenAI, Gemini). The discriminator
+        is the Layer 6 adapter's ``supports(provider)`` classmethod;
+        callers MAY omit ``provider`` (back-compat for legacy callers),
+        in which case no skip is applied. The skip is silent — no
+        ``compression_pipeline_error`` marker.
+        """
+        if selected != "layer6" or provider is None:
+            return selected
+        compressor_class = self._registry.get(selected)
+        if compressor_class is None:
+            return selected
+        supports = getattr(compressor_class, "supports", None)
+        if supports is None or supports(provider):
+            return selected
+        return "noop"
 
     def _resolve_compressor_id(self, explicit: str | None) -> str:
         if explicit:
@@ -173,7 +205,7 @@ class CompressorService:
             raise CompressionPipelineError(compressor.COMPRESSOR_ID, exc) from exc
         self._record_success(
             segment,
-            len(payload),
+            _approx_token_count(payload),
             duration_ms=(time.perf_counter() - start) * 1000.0,
             ctx=ctx,
         )
@@ -221,7 +253,19 @@ class CompressorService:
             compressor_id=compressor.COMPRESSOR_ID,
             compressor_version=compressor.COMPRESSOR_VERSION,
             trust_tier=trust_tier,
-            source_tokens=len(payload),
+            source_tokens=_approx_token_count(payload),
             duration_ms=duration_ms,
             error=error,
         )
+
+
+def _approx_token_count(text: str) -> int:
+    """Coarse char-to-token estimate (len // 4) for telemetry only.
+
+    Matches the NoOpCompressor's internal estimate so the SC-013 + FR-007
+    invariant ``output_tokens == source_tokens`` holds when NoOp returns
+    input verbatim. Real Phase 2 compressors compute their own
+    ``output_tokens`` via the TokenizerAdapter; ``source_tokens`` stays
+    a coarse estimate at the service-layer since it's pre-tokenization.
+    """
+    return max(len(text) // 4, 0)

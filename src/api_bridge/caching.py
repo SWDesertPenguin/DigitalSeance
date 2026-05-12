@@ -273,3 +273,50 @@ def _openai_kwargs(model: str, directives: CacheDirectives) -> dict[str, Any]:
 def _model_supports_24h(model: str) -> bool:
     """Whether the model is in the Extended Prompt Caching allowlist."""
     return model in _OPENAI_24H_RETENTION_ALLOWLIST
+
+
+def extract_cached_prefix_tokens(usage: Any) -> int | None:
+    """Return the provider-side cache-hit prefix-token count, or None.
+
+    Spec 026 US1 / FR-003 surface. The LiteLLM response `usage` object
+    carries the provider-specific cache-hit indicator after the call:
+
+    - Anthropic: ``usage.cache_read_input_tokens`` (positive on hit).
+    - OpenAI: ``usage.prompt_tokens_details.cached_tokens`` (positive
+      on hit).
+    - Gemini: implicit-caching tokens land in
+      ``usage.prompt_tokens_details.cached_tokens`` when the provider
+      surfaces them; we reuse the OpenAI accessor path.
+
+    Returns the prefix-token count when ANY provider-side marker is
+    present (zero for cache_miss, positive for cache_hit). Returns
+    ``None`` when no usage object is supplied or when no marker field
+    exists (the loop interprets that as "provider does not expose
+    cache visibility on this leg" and emits no marker).
+    """
+    if usage is None:
+        return None
+    anthropic_value = _attr_or_key(usage, "cache_read_input_tokens")
+    if anthropic_value is not None:
+        return int(anthropic_value)
+    details = _attr_or_key(usage, "prompt_tokens_details")
+    if details is not None:
+        nested = _attr_or_key(details, "cached_tokens")
+        if nested is not None:
+            return int(nested)
+    return None
+
+
+def _attr_or_key(obj: Any, name: str) -> Any:
+    """Return ``obj.name`` or ``obj[name]`` when present; None otherwise.
+
+    LiteLLM usage objects expose fields as both attributes (pydantic
+    BaseModel) and mapping keys (dict-like fallback). The accessor
+    tolerates either shape so the extractor stays adapter-agnostic.
+    """
+    value = getattr(obj, name, None)
+    if value is not None:
+        return value
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return None
