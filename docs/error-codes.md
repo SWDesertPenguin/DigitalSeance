@@ -14,6 +14,7 @@ Scope: error codes only — successful 2xx codes are not catalogued here.
 | 401 | `/sse/*`, `/tools/*`, `/admin/*` (token invalid / expired) | `{"detail": "Invalid or expired token"}` |
 | 403 | `/sse/*`, `/tools/*`, `/admin/*` (token wrong session, IP-binding mismatch, facilitator-only path, origin not allowed) | `{"detail": "<reason>"}` |
 | 404 | `/sessions/{id}/*`, `/admin/sessions/{id}/*` (session or row not found) | `{"detail": "Session not found"}` |
+| 409 | `/tools/admin/detection_events/{event_id}/resurface` (re-surface attempted on archived session per spec 022 FR-008) | `{"detail": {"error": "session_archived", "message": "re-surface requires an active session"}}` |
 | 422 | `/admin/sessions/{id}/participants/{pid}` (semantic validation: review-gate timeout out of range, etc.) | `{"detail": "<message>"}` |
 | 429 | `/tools/*` (rate limit token-bucket exceeded) | `{"detail": "Rate limit exceeded"}` |
 | 500 | any (unhandled exception fallback) | `{"detail": "Internal server error"}` |

@@ -226,6 +226,53 @@ Response to client `ping`. Heartbeat watchdog closes 1011 if no ping received wi
 
 Advisory only — facilitator decides whether to honor by flipping the participant's `routing_preference` to `observer`.
 
+### `detection_event_appended`
+
+```json
+{
+  "type": "detection_event_appended",
+  "session_id": "<session>",
+  "event": {
+    "event_id": N,
+    "event_class": "ai_question_opened|ai_exit_requested|density_anomaly|mode_recommendation|mode_change",
+    "event_class_label": "<label>",
+    "participant_id": "<participant>",
+    "trigger_snippet": "<excerpt>",
+    "trigger_snippet_truncated": true|false,
+    "detector_score": 0.87,
+    "turn_number": N,
+    "timestamp": "<iso>",
+    "disposition": "pending"
+  }
+}
+```
+
+**Facilitator-only**. Live push when a new `detection_events` row is INSERTed for an active session — fires after one of the four detector emit sites dual-writes per spec 022 FR-017. The `event` shape mirrors the `GET /tools/admin/detection_events` row plus `trigger_snippet_truncated`. Snippet is server-truncated to 1000 chars before emission to stay under the Postgres NOTIFY 8000-byte limit; clients refetch the full snippet via REST on click-expand. Disposition is always `pending` for a fresh event (no transition rows yet). Cross-instance broadcast goes through `cross_instance_broadcast.broadcast_session_event` (in-process same-instance, LISTEN/NOTIFY cross-instance) per spec 022 research §1.
+
+### `detection_event_resurfaced`
+
+```json
+{
+  "type": "detection_event_resurfaced",
+  "session_id": "<session>",
+  "event": {
+    "event_id": N,
+    "event_class": "<class>",
+    "event_class_label": "<label>",
+    "participant_id": "<participant>",
+    "trigger_snippet": "<excerpt>",
+    "trigger_snippet_truncated": true|false,
+    "detector_score": 0.87,
+    "turn_number": N,
+    "timestamp": "<iso>",
+    "disposition": "<latest>"
+  },
+  "resurface_audit_row_id": N
+}
+```
+
+**Facilitator-only**. Live push when a facilitator clicks re-surface on a previously-dispositioned event — emitted after the `admin_audit_log` re-surface row is INSERTed (spec 022 FR-006). The `event` payload carries the disposition at the moment of re-surface; re-surface does NOT mutate the disposition. `resurface_audit_row_id` is the id of the audit row written by the POST handler, useful for SPA disposition-timeline cross-reference. SPA handling: trigger the spec 011 banner-rendering pipeline (same code path as a fresh `detection_event_appended` banner); the panel row stays in place. V14 budget: P95 ≤ 200ms same-instance / ≤ 500ms cross-instance.
+
 ### `proposal_created`
 
 ```json
