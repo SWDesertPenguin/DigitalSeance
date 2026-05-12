@@ -74,13 +74,13 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-032 | untested | Spec 023 amendment: account-settings panel (email change / password change / delete); trigger: Phase F Playwright |
 | FR-033 | untested | Spec 023 amendment: uniform invalid_credentials display + 429 Retry-After countdown; trigger: Phase F Playwright |
 | FR-034 | untested | Spec 023 amendment: no new WS events; password-change invalidation surfaces via existing FR-014 401 handler; trigger: Phase F Playwright integration |
-| FR-035 | untested | Spec 022 amendment: "View detection history" button in facilitator admin panel gated by FR-009 + `SACP_DETECTION_HISTORY_ENABLED`; trigger: spec 022 UI implementation Phase F |
-| FR-036 | untested | Spec 022 amendment: detection-event panel route + columns + newest-first sort toggle; trigger: spec 022 UI implementation Phase F |
-| FR-037 | tests/frontend/test_detection_history_filters.js | Spec 022 amendment: four-axis filter AND composition + default pass-through verified Node-runnable; control wiring + per-axis hidden-events badges + clear-filters trigger: spec 022 UI implementation Phase F |
-| FR-038 | untested | Spec 022 amendment: `detection_event_appended` + `detection_event_resurfaced` 2s apply window + filter-interaction render; WS payload shape backstopped by `tests/test_022_ws_events.py`; trigger: spec 022 UI implementation Phase F |
-| FR-039 | tests/frontend/test_detection_event_taxonomy.js | Spec 022 amendment: `[unregistered: <class>]` fallback verified Node-runnable; empty state + 200-char truncation `[expand]` trigger: spec 022 UI implementation Phase F |
-| FR-040 | untested | Spec 022 amendment: per-row re-surface button + archived-session disabled tooltip + 409 inline error; endpoint side backstopped by `tests/test_022_resurface_endpoint.py`; trigger: spec 022 UI implementation Phase F |
-| FR-041 | untested | Spec 022 amendment: SPA refetch on WS reconnect + focus-after-inactivity to recover from best-effort cross-instance push (spec 022 FR-009); idempotent reconciliation against rendered set; trigger: spec 022 UI implementation Phase F |
+| FR-035 | tests/e2e/test_022_detection_history_panel.py | Spec 022 amendment: "View detection history" button + master-switch off hide; Playwright e2e covers entry-point + 404 |
+| FR-036 | tests/e2e/test_022_detection_history_panel.py | Spec 022 amendment: panel renders rows newest-first with class labels; ordering test pins research §12 default |
+| FR-037 | tests/frontend/test_detection_history_filters.js, tests/e2e/test_022_detection_history_panel.py | Spec 022 amendment: four-axis filter AND composition + Playwright filter-narrow + clear-filters |
+| FR-038 | tests/test_022_ws_events.py, tests/test_022_cross_instance_broadcast.py | Spec 022 amendment: detection_event_appended + detection_event_resurfaced payload shape + in-process broadcast + LISTEN/NOTIFY scaffold |
+| FR-039 | tests/frontend/test_detection_event_taxonomy.js, tests/e2e/test_022_detection_history_panel.py | Spec 022 amendment: registry fallback + empty-state + truncation toggle + Playwright class-label assertion |
+| FR-040 | tests/test_022_resurface_endpoint.py, tests/e2e/test_022_detection_history_panel.py | Spec 022 amendment: per-row resurface button + archived-session disabled + endpoint 409 |
+| FR-041 | tests/test_022_architectural.py | Spec 022 amendment: SPA refetch wiring (WS reconnect + visibility-return) pinned by architectural grep |
 | SR-001 | tests/test_web_ui_app.py, tests/test_011_testability.py | Security headers present; CSP report-uri; per-directive coverage (14 fragments) |
 | SR-001a | untested | WS frame cap (256KB); WS layer max_size not yet wired; trigger: Phase E ops |
 | SR-002 | tests/test_web_ui_app.py | Strict-Transport-Security header present |
@@ -245,6 +245,7 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-7 | tests/test_010_testability.py | Secret-name pattern guard drops _KEY/_SECRET/_TOKEN/_PASSWORD/_CREDENTIAL/_PASSPHRASE allowlist entries |
 | FR-8 | tests/test_010_testability.py | Audit action string "debug_export" pinned; one call site |
 | FR-9 | tests/test_mcp_app.py, tests/test_010_testability.py | CI heuristic guard + canonical strip-list contents |
+| FR-10 | tests/test_010_testability.py | Amendment 2026-05-12 paired with spec 022 pass 2: export envelope includes detection_events section via log_repo.get_detection_events_page |
 ## 009-rate-limiting
 
 | FR | Test path(s) | Notes |
@@ -359,3 +360,27 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-020 | tests/test_023_ownership_transfer.py | POST /tools/admin/account/transfer_participants gated by SACP_DEPLOYMENT_OWNER_KEY; 403 on missing/wrong header; account_ownership_transfer audit row |
 | FR-021 | tests/test_023_migration_015.py | Hash format pluggability: password_hash column accepts argon2id-encoded form (future OAuth slots in without schema change) |
 | FR-022 | tests/test_023_validators.py | Seven V16 env vars validated at startup; cross-condition WARN for SACP_ACCOUNTS_ENABLED=1 + SACP_EMAIL_TRANSPORT=noop |
+
+---
+
+## 022-detection-event-history
+
+| FR | Test path(s) | Notes |
+|----|--------------|-------|
+| FR-001 | tests/test_022_detection_events_endpoint.py, tests/test_022_filter_composition.py, tests/test_022_log_repo.py | GET /tools/admin/detection_events: response shape, five-class round-trip, page query SQL shape |
+| FR-002 | tests/test_022_detection_events_endpoint.py | Facilitator-only enforcement; non-facilitator participant gets 403 with `facilitator_only` error code |
+| FR-003 | tests/test_022_detection_events_endpoint.py | Session-bound check: facilitator-of-A querying session B gets 403 |
+| FR-004 | tests/test_022_architectural.py | Read-only contract via column-list SELECT; no write paths in get_detection_events_page |
+| FR-005 | tests/test_022_taxonomy_registry.py, tests/test_022_filter_composition.py | Five-class taxonomy: every entry has label; endpoint round-trips all classes |
+| FR-006 | tests/test_022_resurface_endpoint.py, tests/test_022_ws_events.py | POST .../resurface emits audit row + facilitator-only WS broadcast through cross_instance_broadcast |
+| FR-007 | tests/test_022_resurface_endpoint.py | Facilitator-only + session-bound (mirrors FR-002 / FR-003) |
+| FR-008 | tests/test_022_resurface_endpoint.py | Archived session 409 with `session_archived` error code |
+| FR-009 | tests/test_022_ws_events.py, tests/test_022_architectural.py | detection_event_appended envelope; SPA refetch on WS reconnect + visibility return wired (architectural grep) |
+| FR-010 | tests/test_022_disposition_timeline.py, tests/test_022_resurface_endpoint.py | Disposition timeline endpoint shape; re-surface rows preserved alongside transitions |
+| FR-011 | tests/frontend/test_detection_history_filters.js, tests/test_022_filter_composition.py | Four-axis AND composition (Node-runnable pure logic) + backend page-response carries every axis value |
+| FR-012 | tests/frontend/test_detection_history_filters.js | TRIGGER_SNIPPET_DISPLAY_CAP truncation + expand toggle pure-logic |
+| FR-013 | tests/test_022_detection_events_endpoint.py, tests/test_022_filter_composition.py, tests/test_022_log_repo.py | SACP_DETECTION_HISTORY_MAX_EVENTS cap honored end-to-end + max_events_applied flag |
+| FR-014 | tests/test_022_detection_events_endpoint.py | SACP_DETECTION_HISTORY_RETENTION_DAYS resolves a UTC lower bound; unset = no bound |
+| FR-015 | tests/test_022_filter_composition.py, tests/test_022_taxonomy_registry.py | Spec 014 mode_recommendation + mode_change surface as distinct registry classes |
+| FR-016 | tests/test_022_validators.py | Three env vars validated at startup; master-switch hides route + SPA button |
+| FR-017 | tests/test_022_architectural.py | Dual-write contract: emit sites route through persist_and_broadcast_detection_event |

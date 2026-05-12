@@ -279,3 +279,26 @@ def test_fr8_audit_action_string_is_debug_export() -> None:
     match = re.search(r'action="([^"]+)"', src)
     assert match is not None
     assert match.group(1) == "debug_export"
+
+
+# ---------------------------------------------------------------------------
+# FR-10 (amendment 2026-05-12 paired with spec 022 pass 2): detection_events
+# ---------------------------------------------------------------------------
+
+
+def test_fr10_detection_events_section_referenced_in_export_builder() -> None:
+    """The export builder MUST include the detection_events fetch call.
+
+    Source-level check rather than runtime — the existing dump tests
+    cover end-to-end behavior over an in-process DB shim. Here we just
+    pin the symbolic wiring so a future refactor that drops the FR-10
+    section fails CI immediately.
+    """
+    src = inspect.getsource(debug_module)
+    assert "_fetch_detection_events" in src, (
+        "src/mcp_server/tools/debug.py MUST include _fetch_detection_events "
+        "per spec 010 FR-10 (amendment 2026-05-12)"
+    )
+    assert (
+        "get_detection_events_page" in src
+    ), "FR-10 wiring MUST go through log_repo.get_detection_events_page"

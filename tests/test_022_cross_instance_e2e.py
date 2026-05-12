@@ -121,8 +121,9 @@ async def test_cross_instance_notify_reaches_listener(postgres_dsn: str) -> None
 
         await conn_b.add_listener(channel, _on_notify)
         payload = json.dumps(_resurface_envelope(), separators=(",", ":"))
+        escaped = payload.replace("'", "''")
         notify_sent = time.perf_counter()
-        await conn_a.execute(f"NOTIFY {channel}, '{payload.replace("'", "''")}'")
+        await conn_a.execute(f"NOTIFY {channel}, '{escaped}'")
         await _wait_for_notify(received, notify_sent + (CROSS_INSTANCE_LATENCY_BUDGET_MS / 1000.0))
         _assert_payload_within_budget(received, channel, notify_sent)
     finally:

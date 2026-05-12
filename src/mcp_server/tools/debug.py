@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
 from src.orchestrator.branch import get_main_branch_id
+from src.orchestrator.time_format import format_iso
 
 router = APIRouter(prefix="/tools/debug", tags=["debug"])
 
@@ -91,9 +92,13 @@ async def _build_dump(
     interrupts = await _fetch_all_interrupts(state.pool, session_id)
     logs = await _fetch_logs(state.pool, session_id, participants)
     spend = await _fetch_spend(state.pool, participants)
+    # Spec 010 FR-10 (amendment 2026-05-12 paired with spec 022 pass 2) —
+    # surface the dedicated detection_events table so the forensic export
+    # stays consistent with the live spec 022 panel.
+    detection_events = await _fetch_detection_events(state, session_id)
     name_by_id = {p.id: p.display_name for p in participants}
     return {
-        "exported_at": datetime.now(tz=UTC).replace(tzinfo=None).isoformat() + "Z",
+        "exported_at": format_iso(datetime.now(tz=UTC)),
         "exported_by": requester_id,
         "session": _serialize(session),
         "branch_id": branch_id,
@@ -101,9 +106,20 @@ async def _build_dump(
         "messages": [_with_speaker_name(_serialize(m), name_by_id) for m in messages],
         "interrupts": [_serialize(i) for i in interrupts],
         "logs": logs,
+        "detection_events": detection_events,
         "spend": spend,
         "config_snapshot": _config_snapshot(),
     }
+
+
+async def _fetch_detection_events(state: Any, session_id: str) -> list:
+    """Fetch every spec 022 detection_events row for the session (FR-10)."""
+    rows = await state.log_repo.get_detection_events_page(
+        session_id,
+        max_events=None,
+        since=None,
+    )
+    return [_jsonify(row) for row in rows]
 
 
 def _with_speaker_name(row: dict, name_by_id: dict[str, str]) -> dict:
