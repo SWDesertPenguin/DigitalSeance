@@ -2,7 +2,7 @@
 
 **Feature Branch**: `026-context-compression`
 **Created**: 2026-05-07
-**Status**: Draft (multi-phase: Phase 1 layers active or partially landed via fix/* PRs; Phase 2 layer 4 + Phase 3 layers 5+6 scaffold-only)
+**Status**: Clarified 2026-05-11 (multi-phase: Phase 1 layers active or partially landed via fix/* PRs; Phase 2 layer 4 + Phase 3 layers 5+6 scaffold-only; four architectural-shape clarifications resolved per Session 2026-05-11)
 **Input**: User description: "Phase 2 / Phase 3 context compression and distillation. The architectural decisions are NOT open — they are fixed by the project's compression research bundle and constitutional commitments. Six-layer stack with phase placement (Phase 1: Layers 1+2+3 plus information-density signal, TokenizerAdapter, CompressorService+NoOp; Phase 2: Layer 4 LLMLingua-2 mBERT default; Phase 3: Layer 5 Provence + Layer 6 self-hosted soft/KV-cache methods, both conditional). Per-participant pre-bridge placement is non-negotiable. Cache-vs-compress structural separation is non-negotiable. The convergence detector and adversarial rotation always run on the raw transcript, not on compressed views. Applies to topologies 1-6 (Layers 1-4 orchestrator-driven); Layer 6 applies only to legs running open-weight models the orchestrator controls; Topology 7 uses Layer 1 only via per-MCP-client provider settings. Primary use cases: ALL §1-§7 benefit from caching + structural deduplication; long-running research co-authorship (§2) and technical review and audit (§5) benefit most from Layer 4 hard compression once Phase 2 Web UI enables long-history sessions."
 
 ## Overview
@@ -103,6 +103,18 @@ gates open.
 
 ## Clarifications
 
+### Session 2026-05-11 (Resolved)
+
+The four [NEEDS CLARIFICATION] markers on architectural-shape questions are resolved in favour of the originally drafted positions. Empirical-default calibration items remain Phase-1-traffic-gated per the original framing (NOT clarification candidates).
+
+1. **`compression_log` as a dedicated table** (not a `routing_log` extension). The cardinality mismatch (per-participant-per-turn vs. per-turn) and the per-stage-timing shape of `routing_log` would force awkward multi-row encodings if extended. The new table ships with the column set drafted in FR-005 (turn_id, participant_id, source_tokens, output_tokens, compressor_id, compressor_version, trust_tier, layer, created_at) plus `duration_ms` per V14 budget enforcement. Schema migration follows spec 001 §FR-008 append-only + §FR-017 forward-only.
+
+2. **NoOpCompressor writes a `compression_log` row on every dispatch.** Phase 1 needs the per-turn baseline so the Phase 2 cutover has a comparable telemetry surface; SC-013's "one compression_log row per dispatch" invariant depends on this. The NoOp row carries `layer='noop'`, `output_tokens == source_tokens`, and any `duration_ms` measured (close-to-zero).
+
+3. **Trust-tier inheritance is MIN-of-source-tiers on mixed-tier compression**, not refuse-to-compress. The XML boundary marker (FR-012) records the resulting MIN tier so downstream consumers see the conservative envelope without losing operability on mixed-tier turns. The tier-1 boundary is unaffected because FR-014 already blocks tier-1 content from reaching the compressor — the MIN rule applies only across the tier-2/3 surface.
+
+4. **`density_anomaly_flagged` is a dual-write to both `convergence_log` and `routing_log`.** The existing spec 004 §FR-020 convergence_log row continues to carry the signal payload for downstream readers (summarizer corpus filtering per FR-019); routing_log adds `reason='density_anomaly_flagged'` for per-turn-decision visibility in the routing audit trail. The two writes co-commit in the same per-turn transaction; partial-write recovery is not required because both target append-only tables in the same database.
+
 ### Architectural decisions are FIXED (not open for revision in this spec)
 
 The following are non-negotiable per the research bundle and
@@ -150,43 +162,14 @@ prior fix/* landings; they are NOT clarification candidates:
   (`SACP_CACHE_ANTHROPIC_TTL`, default `1h`) so future provider
   changes are a single-env-var update, not a code change.
 
-### Architectural-shape questions (limited scope)
+### Architectural-shape questions (resolved 2026-05-11)
 
-- **`compression_log` table vs. `routing_log` extension.**
-  Drafted as: a new `compression_log` table with columns
-  (turn_id, participant_id, source_tokens, output_tokens,
-  compressor_id, compressor_version, trust_tier, layer,
-  created_at). Adding columns to `routing_log` was rejected
-  because compression events are a different cardinality
-  (per-participant-per-turn vs. routing's per-turn) and the
-  per-stage timing pattern of `routing_log` doesn't fit
-  multi-row-per-turn compression events. [NEEDS
-  CLARIFICATION: confirm dedicated table vs. routing_log
-  extension.]
-- **NoOpCompressor return shape.** Drafted as: NoOpCompressor
-  returns input verbatim with `output_tokens == source_tokens`
-  and `layer='noop'`. The `compression_log` row is still
-  written so Phase 1 has the per-turn telemetry the Phase 2
-  cutover needs. [NEEDS CLARIFICATION: confirm log-on-noop
-  vs. only-log-when-real-compression.]
-- **Trust-tier inheritance edge cases.** Drafted as: a
-  compressed segment's trust tier is the MIN of its source
-  segments' trust tiers. Mixed-tier source (a turn that
-  combines facilitator-trusted system content with
-  participant-supplied content) compresses to the lower tier
-  (participant-supplied), and the XML boundary marker
-  records the lower tier. [NEEDS CLARIFICATION: confirm
-  MIN-tier vs. refuse-to-compress-mixed-tier.]
-- **`density_anomaly_flagged` routing_log marker vs. spec
-  004's convergence_log row.** Spec 004 already writes a
-  convergence_log row with `tier='density_anomaly'` when
-  the signal fires. The brief asks for a `routing_log`
-  marker too. Drafted as: BOTH writes happen — convergence_log
-  carries the signal payload for downstream readers
-  (summarizer corpus filtering, etc.); routing_log carries
-  the per-turn decision marker for the routing audit trail.
-  [NEEDS CLARIFICATION: confirm dual-write vs. routing_log
-  alone vs. convergence_log alone.]
+The four items below were the spec's open architectural-shape questions. All four resolved in favour of the drafted positions in Session 2026-05-11. Captured here for traceability; the original drafted rationale stands.
+
+- **`compression_log` table vs. `routing_log` extension** — RESOLVED: dedicated table. A new `compression_log` table with columns (turn_id, participant_id, source_tokens, output_tokens, compressor_id, compressor_version, trust_tier, layer, duration_ms, created_at). Adding columns to `routing_log` was rejected because compression events are a different cardinality (per-participant-per-turn vs. routing's per-turn) and the per-stage timing pattern of `routing_log` doesn't fit multi-row-per-turn compression events.
+- **NoOpCompressor return shape** — RESOLVED: log-on-noop. NoOpCompressor returns input verbatim with `output_tokens == source_tokens` and `layer='noop'`. The `compression_log` row is still written so Phase 1 has the per-turn telemetry the Phase 2 cutover needs.
+- **Trust-tier inheritance edge cases** — RESOLVED: MIN-tier. A compressed segment's trust tier is the MIN of its source segments' trust tiers. Mixed-tier source (a turn that combines facilitator-trusted system content with participant-supplied content) compresses to the lower tier (participant-supplied), and the XML boundary marker records the lower tier. Tier-1 content never reaches the compressor (FR-014), so the MIN rule applies only across the tier-2/3 surface.
+- **`density_anomaly_flagged` routing_log marker vs. spec 004's convergence_log row** — RESOLVED: dual-write. Spec 004 already writes a convergence_log row with `tier='density_anomaly'` when the signal fires; routing_log adds `reason='density_anomaly_flagged'` for the per-turn-decision audit trail. The two writes co-commit in the same per-turn transaction.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -590,7 +573,10 @@ attempted is rejected with a clear error.
 - **FR-005**: A `compression_log` table MUST be introduced
   with columns: turn_id, participant_id, source_tokens,
   output_tokens, compressor_id, compressor_version,
-  trust_tier, layer, created_at.
+  trust_tier, layer, duration_ms, created_at. (`duration_ms`
+  carries the per-call timing for V14 Layer 4 budget
+  enforcement; NoOp dispatches record the near-zero
+  measurement per Session 2026-05-11 §2.)
 - **FR-006**: A `CompressorService` interface MUST be defined
   with at minimum `compress(payload, target_budget, trust_tier)
   -> CompressedSegment` and `register(compressor_id,

@@ -143,8 +143,9 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Type**: enum
 - **Valid range**: `"5m"` or `"1h"`
 - **Validation rule**: `validators.validate_anthropic_cache_ttl`
-- **Source spec(s)**: 003 §FR-033
+- **Source spec(s)**: 003 §FR-033, 026 FR-001 (formalises Layer 1 wiring)
 - **Note**: Default is `1h` per the 2026-03-06 silent-default change (Anthropic dropped the implicit 1h TTL to 5m without notice). Multi-minute session cadence retains warm cache hits at the 2x cache-write surcharge, recovered after the third read.
+- **Spec 026 rename reconciliation**: the spec 026 drafted name was `SACP_CACHE_ANTHROPIC_TTL`; the shipped name is `SACP_ANTHROPIC_CACHE_TTL` (this section). Operators searching for either find this doc — both names refer to the same var per [research.md §2](../specs/026-context-compression/research.md).
 
 ### `SACP_OPENAI_CACHE_RETENTION`
 
@@ -161,8 +162,47 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Type**: float
 - **Valid range**: `[1.0, 5.0]`
 - **Validation rule**: `validators.validate_density_anomaly_ratio`
-- **Source spec(s)**: 004 §FR-020 (information-density anomaly threshold)
-- **Note**: Multiplier over the rolling 20-turn density baseline mean. A value of 1.5 means "flag turns whose density is more than 1.5× the recent average." Phase 1 retuning will be informed by `tests/calibration/density_distribution.json` once production sessions accumulate.
+- **Source spec(s)**: 004 §FR-020 (information-density anomaly threshold); 026 FR-018 (formalised Phase 1 signal + summarizer corpus filter)
+- **Note**: Multiplier over the rolling 20-turn density baseline mean. A value of 1.5 means "flag turns whose density is more than 1.5x the recent average." Phase 1 retuning will be informed by `tests/calibration/density_distribution.json` once production sessions accumulate.
+- **Spec 026 rename reconciliation**: the spec 026 drafted name was `SACP_INFORMATION_DENSITY_THRESHOLD`; the shipped name is `SACP_DENSITY_ANOMALY_RATIO` (this section). Operators searching for either find this doc per [research.md §2](../specs/026-context-compression/research.md).
+
+### `SACP_CACHE_OPENAI_KEY_STRATEGY`
+
+- **Default**: `session_id`
+- **Type**: enum
+- **Valid range**: `"session_id"` or `"participant_id"`
+- **Validation rule**: `validators.validate_cache_openai_key_strategy`
+- **Source spec(s)**: 026 FR-001
+- **Note**: Routing strategy for OpenAI `prompt_cache_key`. `session_id` keeps a session's per-participant fan-out on the same backend for maximum cache hit-rate. `participant_id` partitions per participant for operators who explicitly want that. Flipping the value invalidates all existing OpenAI cache prefixes; expect a one-cycle miss spike on flip.
+
+### `SACP_COMPRESSION_PHASE2_ENABLED`
+
+- **Default**: `false`
+- **Type**: enum (string)
+- **Valid range**: `"true"` or `"false"`
+- **Validation rule**: `validators.validate_compression_phase2_enabled`
+- **Source spec(s)**: 026 FR-008
+- **Note**: Phase 2 master switch. When `false` (default), Phase 2 compressors (`llmlingua2_mbert`, `selective_context`) raise `NotImplementedError` on dispatch. When `true`, the dispatch path can route to them per `SACP_COMPRESSION_DEFAULT_COMPRESSOR` or `sessions.compression_mode`. Flipping to `true` requires `transformers` + `accelerate` installed; absence is a startup error.
+- **Cross-validator interaction**: with `SACP_COMPRESSION_DEFAULT_COMPRESSOR` set to a Phase 2 compressor (`llmlingua2_mbert` or `selective_context`), this MUST be `true` or startup exits with a ValidationFailure naming both vars.
+
+### `SACP_COMPRESSION_THRESHOLD_TOKENS`
+
+- **Default**: `4000`
+- **Type**: positive integer
+- **Valid range**: `[500, 100000]`
+- **Validation rule**: `validators.validate_compression_threshold_tokens`
+- **Source spec(s)**: 026 FR-016
+- **Note**: Hard-compression engagement threshold. When the outgoing window's projected token count (per the target provider's TokenizerAdapter) exceeds this value, the dispatch path invokes the configured compressor instead of NoOp. Default `4000` is the literature default for LLMLingua-2 mBERT on English prose. Below 500 makes compression overhead dominate any savings; above 100000 effectively disables compression for all real workloads.
+
+### `SACP_COMPRESSION_DEFAULT_COMPRESSOR`
+
+- **Default**: `noop`
+- **Type**: enum (string)
+- **Valid range**: `"noop"`, `"llmlingua2_mbert"`, `"selective_context"`, `"provence"`, `"layer6"`
+- **Validation rule**: `validators.validate_compression_default_compressor`
+- **Source spec(s)**: 026 FR-006, FR-007
+- **Note**: Default compressor id used when `sessions.compression_mode='auto'`. Phase 1 default is `noop`; Phase 2 cutover is one env-var flip to `llmlingua2_mbert` per SC-007. Out-of-set values exit at startup with the list of registered names. `provence` and `layer6` are Phase 3 scaffolds — selecting them in Phase 1 causes dispatches to fail-soft per FR-020 (the scaffold raises NotImplementedError and the dispatch falls through to un-compressed payload).
+- **Cross-validator interaction**: `SACP_COMPRESSION_PHASE2_ENABLED=false` AND this set to a Phase 2 compressor is a ValidationFailure (impossible combo). `SACP_TOPOLOGY=7` AND this NOT equal to `noop` is a ValidationFailure (topology 7 supports Layer 1 caching only).
 
 ### `SACP_NETWORK_RATELIMIT_ENABLED`
 
