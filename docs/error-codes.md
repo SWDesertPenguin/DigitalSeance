@@ -15,6 +15,8 @@ Scope: error codes only — successful 2xx codes are not catalogued here.
 | 403 | `/sse/*`, `/tools/*`, `/admin/*` (token wrong session, IP-binding mismatch, facilitator-only path, origin not allowed) | `{"detail": "<reason>"}` |
 | 404 | `/sessions/{id}/*`, `/admin/sessions/{id}/*` (session or row not found) | `{"detail": "Session not found"}` |
 | 409 | `/tools/admin/detection_events/{event_id}/resurface` (re-surface attempted on archived session per spec 022 FR-008) | `{"detail": {"error": "session_archived", "message": "re-surface requires an active session"}}` |
+| 409 | `/tools/facilitator/scratch/notes/{note_id}` (PUT — stale OCC version), `/tools/facilitator/scratch/notes/{note_id}/promote` (POST — archived session per spec 024 FR-006) | `{"detail": {"error": "stale_version" | "session_archived", "message": "<reason>"}}` |
+| 413 | `/tools/facilitator/scratch/notes` (POST + PUT — content exceeds `SACP_SCRATCH_NOTE_MAX_KB` per spec 024 FR-010) | `{"detail": {"error": "content_too_large", "message": "note content exceeds SACP_SCRATCH_NOTE_MAX_KB"}}` |
 | 422 | `/admin/sessions/{id}/participants/{pid}` (semantic validation: review-gate timeout out of range, etc.) | `{"detail": "<message>"}` |
 | 429 | `/tools/*` (rate limit token-bucket exceeded) | `{"detail": "Rate limit exceeded"}` |
 | 500 | any (unhandled exception fallback) | `{"detail": "Internal server error"}` |

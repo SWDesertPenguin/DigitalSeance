@@ -656,6 +656,9 @@ US2 acceptance scenario.
   `scratch` section clearly partitioned from the
   AI-visible `messages` array. The export shape is
   defined in `/speckit.plan`.
+- **FR-024**: The scratch panel entry-point affordance MUST live as a button in the existing facilitator session header (next to the existing admin-panel toggle), gated by FR-021 facilitator-only role check AND by FR-019 master switch `SACP_SCRATCH_ENABLED=true`. The button opens the slide-over panel at the SPA route `/session/:id/scratch` with three tabs (Notes / Summaries / Review Gate). The panel preserves the live transcript view alongside (slide-over, not full-page route) so facilitators retain context while drafting.
+- **FR-025**: The scratch panel header MUST display a scope chip indicating whether the active scratch is `account-scoped` (durable across session archive) or `session-scoped` (deleted on archive). The chip MUST be visible at all times the panel is open. When session-scoped, the chip MUST include a tooltip explaining the ephemeral-on-archive semantic so the facilitator never loses notes by surprise (clarify Q9).
+- **FR-026**: Spec 024 MUST reuse the spec 029 shared-module contracts (`specs/029-audit-log-viewer/contracts/shared-module-contracts.md` §1, §2, §3, §4): import `format_label` / `formatLabel` for any audit-adjacent labels surfaced in the panel (e.g., the promote action's audit-row preview), import `format_iso` / `formatIso` for all timestamp rendering (note created_at / updated_at / promoted_at, summary checkpoint timestamps, review-gate event timestamps), import the inline `DiffRenderer` component from `frontend/app.jsx` and the locked threshold constants from `frontend/diff_engine.js`. Spec 024 MUST NOT redeclare any of these — the spec 029 FR-020 architectural test enforces.
 
 ### Key Entities
 
