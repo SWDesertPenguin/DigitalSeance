@@ -620,6 +620,46 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Phase 3 trigger**: 003 turn-loop spec amendment exposing the per-turn timeout knob
 - **Intended type**: integer seconds, `> 0`
 
+### `SACP_STANDBY_DEFAULT_WAIT_MODE`
+
+- **Default**: `wait_for_human` — newly-INSERTed participant rows inherit this default unless the facilitator or owning human sets `wait_mode` explicitly via the spec 027 `set_wait_mode` endpoint
+- **Type**: string enum
+- **Valid range**: exactly `wait_for_human` or `always`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_standby_default_wait_mode`
+- **Source spec(s)**: 027 §FR-001 / FR-028
+- **Note**: Setting this to `always` deployment-wide effectively disables the entire standby feature — every new participant opts out of standby evaluation. The setting affects new INSERTs only; pre-existing rows retain their stored `wait_mode` value. A per-participant change via the FR-025 endpoint always supersedes this default.
+
+### `SACP_STANDBY_FILLER_DETECTION_TURNS`
+
+- **Default**: `5` (consecutive standby cycles)
+- **Type**: positive integer
+- **Valid range**: `2 <= value <= 100` (inclusive). Below `2` the repetition guard is meaningless (a single cycle would trigger); above `100` the pivot is effectively unreachable in any realistic session.
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_standby_filler_detection_turns`
+- **Source spec(s)**: 027 §FR-017 (auto-pivot consecutive-cycle denominator)
+- **Note**: The cycle counter increments on every round-robin tick where the participant remained in standby. Resets to 0 on every standby-exit transition (gate clear, manual pause, circuit_open precedence, participant departure). Persisted in `participants.standby_cycle_count` (durable across loop restarts per Session 2026-05-12 Q11).
+
+### `SACP_STANDBY_PIVOT_TIMEOUT_SECONDS`
+
+- **Default**: `600` (10 minutes)
+- **Type**: positive integer (seconds)
+- **Valid range**: `60 <= value <= 86400` (inclusive — 1 minute to 1 day)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_standby_pivot_timeout_seconds`
+- **Source spec(s)**: 027 §FR-017 (auto-pivot minimum elapsed time)
+- **Note**: Measured from the timestamp the gating event opened (the unresolved question event was emitted, the review_gate was staged, etc.). Both the cycle-count AND the elapsed-time gates must be satisfied before the pivot can fire. The 60-second floor prevents racing a near-immediate gate clear; the 1-day ceiling caps the maximum wait at one human-business-cycle.
+
+### `SACP_STANDBY_PIVOT_RATE_CAP_PER_SESSION`
+
+- **Default**: `1` pivot per session lifetime
+- **Type**: positive integer
+- **Valid range**: `0 <= value <= 100` (inclusive). `0` disables auto-pivot entirely (operators who want pure standby with no orchestrator intervention).
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_standby_pivot_rate_cap_per_session`
+- **Source spec(s)**: 027 §FR-019 (per-session pivot cap)
+- **Note**: When the cap is exhausted, subsequent would-have-pivoted conditions log `routing_log.reason='pivot_skipped_rate_cap'` and the participant remains in standby without the long-term-observer transition firing automatically (FR-020 sub-state requires the pivot to actually fire). Resolved per Session 2026-05-12 Q6 — per-session scope, not per-participant; per-participant capping is a future amendment.
+
 ## CI enforcement
 
 `scripts/check_env_vars.py` (per spec 012 FR-005):

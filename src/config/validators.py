@@ -1397,6 +1397,103 @@ def validate_deployment_owner_key() -> ValidationFailure | None:
     return None
 
 
+_STANDBY_WAIT_MODE_VALID = ("wait_for_human", "always")
+
+
+def validate_standby_default_wait_mode() -> ValidationFailure | None:
+    """SACP_STANDBY_DEFAULT_WAIT_MODE: enum, default 'wait_for_human'. 027 §FR-001 / FR-028.
+
+    Two-value enum applied to newly-INSERTed participant rows when the
+    facilitator has not set wait_mode explicitly. Out-of-set values exit
+    at startup with the list of valid names.
+    """
+    val = os.environ.get("SACP_STANDBY_DEFAULT_WAIT_MODE")
+    if val is None or val.strip() == "":
+        return None
+    if val not in _STANDBY_WAIT_MODE_VALID:
+        return ValidationFailure(
+            "SACP_STANDBY_DEFAULT_WAIT_MODE",
+            f"must be one of {list(_STANDBY_WAIT_MODE_VALID)}; got {val!r}",
+        )
+    return None
+
+
+def validate_standby_filler_detection_turns() -> ValidationFailure | None:
+    """SACP_STANDBY_FILLER_DETECTION_TURNS: int in [2, 100], default 5. 027 §FR-017.
+
+    Number of consecutive standby cycles before the auto-pivot fires.
+    Below 2 makes the repetition guard meaningless (a single cycle would
+    trigger); above 100 makes the pivot effectively unreachable in any
+    realistic session.
+    """
+    val = os.environ.get("SACP_STANDBY_FILLER_DETECTION_TURNS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_STANDBY_FILLER_DETECTION_TURNS",
+            f"must be integer; got {val!r}",
+        )
+    if not 2 <= num <= 100:
+        return ValidationFailure(
+            "SACP_STANDBY_FILLER_DETECTION_TURNS",
+            f"must be in [2, 100]; got {num}",
+        )
+    return None
+
+
+def validate_standby_pivot_timeout_seconds() -> ValidationFailure | None:
+    """SACP_STANDBY_PIVOT_TIMEOUT_SECONDS: int seconds in [60, 86400], default 600. 027 §FR-017.
+
+    Minimum elapsed time since the gating event opened before the pivot
+    can fire. 60s floor prevents racing the gate clear; 86400s ceiling
+    (1 day) caps the maximum wait at one human-business-cycle.
+    """
+    val = os.environ.get("SACP_STANDBY_PIVOT_TIMEOUT_SECONDS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_STANDBY_PIVOT_TIMEOUT_SECONDS",
+            f"must be integer; got {val!r}",
+        )
+    if not 60 <= num <= 86400:
+        return ValidationFailure(
+            "SACP_STANDBY_PIVOT_TIMEOUT_SECONDS",
+            f"must be in [60, 86400] (1 minute to 1 day); got {num}",
+        )
+    return None
+
+
+def validate_standby_pivot_rate_cap_per_session() -> ValidationFailure | None:
+    """SACP_STANDBY_PIVOT_RATE_CAP_PER_SESSION: int in [0, 100], default 1. 027 §FR-019.
+
+    Per-session pivot cap. 0 disables auto-pivot entirely (operators who
+    want pure standby with no orchestrator intervention). 100 caps the
+    upper end at a value no realistic session needs.
+    """
+    val = os.environ.get("SACP_STANDBY_PIVOT_RATE_CAP_PER_SESSION")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_STANDBY_PIVOT_RATE_CAP_PER_SESSION",
+            f"must be integer; got {val!r}",
+        )
+    if not 0 <= num <= 100:
+        return ValidationFailure(
+            "SACP_STANDBY_PIVOT_RATE_CAP_PER_SESSION",
+            f"must be in [0, 100]; got {num}",
+        )
+    return None
+
+
 def validate_web_ui_cookie_key() -> ValidationFailure | None:
     """SACP_WEB_UI_COOKIE_KEY: required signing key for Web UI session cookies.
 
@@ -1486,6 +1583,10 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_email_transport,
     validate_account_deletion_email_grace_days,
     validate_deployment_owner_key,
+    validate_standby_default_wait_mode,
+    validate_standby_filler_detection_turns,
+    validate_standby_pivot_timeout_seconds,
+    validate_standby_pivot_rate_cap_per_session,
 )
 
 

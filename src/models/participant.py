@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -48,8 +49,36 @@ class Participant:
     approved_at: datetime | None
     token_expires_at: datetime | None
     bound_ip: str | None
+    wait_mode: str = "wait_for_human"
+    standby_cycle_count: int = 0
+    wait_mode_metadata: dict[str, Any] | None = None
 
     @classmethod
     def from_record(cls, record: Any) -> Participant:
-        """Construct a Participant from an asyncpg Record."""
-        return cls(**{f: record[f] for f in cls.__slots__})
+        """Construct a Participant from an asyncpg Record.
+
+        Tolerates rows that lack the spec 027 columns (legacy test
+        fixtures, archived sessions captured before migration 021). The
+        JSONB `wait_mode_metadata` is normalized to a dict — asyncpg
+        returns it as a dict already, but the SQLite test substrate
+        stores it as a JSON string, so we coerce both shapes.
+        """
+        kwargs: dict[str, Any] = {}
+        for field in cls.__dataclass_fields__:
+            if _record_has(record, field):
+                kwargs[field] = record[field]
+        meta = kwargs.get("wait_mode_metadata")
+        if isinstance(meta, str):
+            kwargs["wait_mode_metadata"] = json.loads(meta) if meta else {}
+        elif meta is None:
+            kwargs["wait_mode_metadata"] = {}
+        return cls(**kwargs)
+
+
+def _record_has(record: Any, key: str) -> bool:
+    """True when ``record`` carries ``key`` (asyncpg Record or dict)."""
+    try:
+        record[key]
+        return True
+    except (KeyError, IndexError):
+        return False
