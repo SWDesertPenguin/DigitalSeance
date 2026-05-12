@@ -473,8 +473,12 @@ all filters and verify the full event set returns.
   `admin_audit_log` schema per the Session 2026-05-11
   amendment). The WS broadcast MUST work across orchestrator
   instances (multi-instance from v1, per Clarifications §6);
-  the cross-instance routing mechanism is settled in
-  `/speckit.plan` research.
+  the cross-instance routing goes through
+  `cross_instance_broadcast.broadcast_session_event` (Postgres
+  LISTEN/NOTIFY per `research.md §1`) — same mechanism as
+  FR-009's live-update path. Receiving-instance auth gates are
+  re-applied on delivery; the routing is not a
+  privilege-escalation hop.
 - **FR-007**: Re-surface MUST be facilitator-only and
   session-bound (mirrors FR-002 + FR-003).
 - **FR-008**: Re-surface MUST be rejected for archived
@@ -487,19 +491,26 @@ all filters and verify the full event set returns.
   amendment dual-write contract). No new WS channel is
   introduced; the existing per-session broadcast (spec 006
   §FR-013, spec 011) carries the new event-list-item shape.
-  Cross-instance delivery is **best-effort** (per Session
-  2026-05-11 Pass 1 closeout clarification): Postgres
+  The WS payload carries the event-list-item fields plus a
+  `trigger_snippet_truncated` boolean — true when the
+  server-side snippet was truncated to fit the payload budget
+  (full snippet recoverable via the FR-001 endpoint), false
+  when the snippet is the full source-row value. The client
+  uses this field to decide whether the FR-012 expand-on-click
+  affordance can render locally or requires an endpoint
+  refetch. Cross-instance delivery is **best-effort** (per
+  Session 2026-05-11 Pass 1 closeout clarification): Postgres
   LISTEN/NOTIFY is fire-and-forget, and a dropped LISTEN
   connection on the receiving instance can silently lose a
   message. The SPA MUST refetch the current page via the
   FR-001 endpoint on (a) WS reconnect AND (b) browser
-  window-focus return after an inactivity threshold to
-  recover any missed pushes; the threshold value is settled
-  in `/speckit.plan` pass 2. Eventual consistency via REST
-  refetch substitutes for at-least-once cross-instance push.
-  The cross-instance routing mechanism (LISTEN/NOTIFY) is
-  shared with re-surface (FR-006) and is detailed in
-  `research.md §1`.
+  window-focus return after an inactivity threshold of 30
+  seconds (`DETECTION_HISTORY_INACTIVITY_REFETCH_MS = 30_000`
+  in `frontend/app.jsx`) to recover any missed pushes.
+  Eventual consistency via REST refetch substitutes for
+  at-least-once cross-instance push. The cross-instance
+  routing mechanism (LISTEN/NOTIFY) is shared with re-surface
+  (FR-006) and is detailed in `research.md §1`.
 - **FR-010**: The disposition column MUST take one of four
   values: `pending`, `banner_acknowledged`, `banner_dismissed`,
   `auto_resolved`. Disposition transitions MUST be tracked as
@@ -520,10 +531,14 @@ all filters and verify the full event set returns.
   pushdown in v1; pushdown is a future enhancement gated on the
   per-session set exceeding `SACP_DETECTION_HISTORY_MAX_EVENTS`).
 - **FR-012**: The panel MUST display the trigger snippet up
-  to a documented display length cap (target: 200 characters
-  visible, full snippet on click-expand). The cap is enforced
-  client-side; the server returns the full snippet so the
-  expand action is local (no second fetch).
+  to a 200-character cap (`TRIGGER_SNIPPET_DISPLAY_CAP` in
+  `frontend/detection_history_filters.js`), with the full
+  snippet revealed via click-expand. The cap is enforced
+  client-side; the server returns the full snippet alongside
+  the `trigger_snippet_truncated` field (FR-009) so the
+  expand action is local when the field is false. When the
+  field is true, the client refetches the FR-001 endpoint to
+  recover the full snippet before expanding.
 - **FR-013**: When `SACP_DETECTION_HISTORY_MAX_EVENTS` is
   set to a positive integer, the endpoint MUST return at most
   that many events for the active session — newest first.

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -213,3 +214,47 @@ def test_authorize_cross_session_raises_403() -> None:
 
 def test_router_prefix_is_admin_namespace() -> None:
     assert endpoint.router.prefix == "/tools/admin"
+
+
+# ---------------------------------------------------------------------------
+# FR-014 retention boundary applied at endpoint integration layer
+# ---------------------------------------------------------------------------
+
+
+async def test_endpoint_passes_resolved_since_to_repo_when_retention_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SACP_DETECTION_HISTORY_RETENTION_DAYS", "7")
+    mock_page = AsyncMock(return_value=[])
+    request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                log_repo=SimpleNamespace(get_detection_events_page=mock_page),
+            )
+        ),
+    )
+    participant = SimpleNamespace(role="facilitator", session_id="s1", id="f1")
+
+    await endpoint.get_detection_events(request, "s1", participant)
+
+    assert mock_page.await_count == 1
+    kwargs = mock_page.await_args.kwargs
+    assert kwargs["since"] is not None
+    expected = datetime.now(UTC) - timedelta(days=7)
+    assert abs((kwargs["since"] - expected).total_seconds()) < 5
+
+
+async def test_endpoint_passes_since_none_when_retention_unset() -> None:
+    mock_page = AsyncMock(return_value=[])
+    request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                log_repo=SimpleNamespace(get_detection_events_page=mock_page),
+            )
+        ),
+    )
+    participant = SimpleNamespace(role="facilitator", session_id="s1", id="f1")
+
+    await endpoint.get_detection_events(request, "s1", participant)
+
+    assert mock_page.await_args.kwargs["since"] is None

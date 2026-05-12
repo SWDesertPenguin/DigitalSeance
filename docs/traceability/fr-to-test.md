@@ -380,7 +380,7 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-011 | tests/frontend/test_detection_history_filters.js, tests/test_022_filter_composition.py | Four-axis AND composition (Node-runnable pure logic) + backend page-response carries every axis value |
 | FR-012 | tests/frontend/test_detection_history_filters.js | TRIGGER_SNIPPET_DISPLAY_CAP truncation + expand toggle pure-logic |
 | FR-013 | tests/test_022_detection_events_endpoint.py, tests/test_022_filter_composition.py, tests/test_022_log_repo.py | SACP_DETECTION_HISTORY_MAX_EVENTS cap honored end-to-end + max_events_applied flag |
-| FR-014 | tests/test_022_detection_events_endpoint.py | SACP_DETECTION_HISTORY_RETENTION_DAYS resolves a UTC lower bound; unset = no bound |
+| FR-014 | tests/test_022_detection_events_endpoint.py | SACP_DETECTION_HISTORY_RETENTION_DAYS resolves a UTC lower bound (`_resolved_since` direct + endpoint-integration assertions that the resolved `since` flows through to `log_repo.get_detection_events_page`); unset = no bound |
 | FR-015 | tests/test_022_filter_composition.py, tests/test_022_taxonomy_registry.py | Spec 014 mode_recommendation + mode_change surface as distinct registry classes |
 | FR-016 | tests/test_022_validators.py | Three env vars validated at startup; master-switch hides route + SPA button |
-| FR-017 | tests/test_022_architectural.py | Dual-write contract: emit sites route through persist_and_broadcast_detection_event |
+| FR-017 | tests/test_022_architectural.py, tests/test_022_log_repo.py, tests/test_022_cross_instance_broadcast.py | Multi-faceted FR: architectural test pins the dual-write contract (emit sites route through persist_and_broadcast_detection_event); log_repo tests cover the append-only invariant + disposition denormalization on the `detection_events` table; cross_instance_broadcast tests cover the post-INSERT broadcast emission alongside the LISTEN/NOTIFY hop, including fail-soft when INSERT fails. |
