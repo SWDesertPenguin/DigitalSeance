@@ -1581,6 +1581,147 @@ def validate_scratch_retention_days_after_archive() -> ValidationFailure | None:
     return None
 
 
+def validate_provider_failure_threshold() -> ValidationFailure | None:
+    """SACP_PROVIDER_FAILURE_THRESHOLD: int in [2, 100], unset means breaker inactive.
+
+    Per spec 015 FR-002 / FR-014 / FR-015. Unset (or empty) means the circuit
+    breaker is inactive -- dispatch behavior is byte-identical to the pre-feature
+    baseline (SC-005). Out-of-range values exit at startup per V16. The lower
+    bound of 2 prevents tripping on any single isolated failure.
+    """
+    val = os.environ.get("SACP_PROVIDER_FAILURE_THRESHOLD")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_PROVIDER_FAILURE_THRESHOLD",
+            f"must be integer; got {val!r}",
+        )
+    if not 2 <= num <= 100:
+        return ValidationFailure(
+            "SACP_PROVIDER_FAILURE_THRESHOLD",
+            f"must be in [2, 100]; got {num}",
+        )
+    return None
+
+
+def validate_provider_failure_window_s() -> ValidationFailure | None:
+    """SACP_PROVIDER_FAILURE_WINDOW_S: int in [30, 3600], unset means breaker inactive.
+
+    Per spec 015 FR-002 / FR-014 / FR-015. Unset (or empty) means the circuit
+    breaker is inactive. Must be set paired with SACP_PROVIDER_FAILURE_THRESHOLD
+    (both set or both unset); cross-validator below enforces pairing.
+    """
+    val = os.environ.get("SACP_PROVIDER_FAILURE_WINDOW_S")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_PROVIDER_FAILURE_WINDOW_S",
+            f"must be integer (seconds); got {val!r}",
+        )
+    if not 30 <= num <= 3600:
+        return ValidationFailure(
+            "SACP_PROVIDER_FAILURE_WINDOW_S",
+            f"must be in [30, 3600] (30 seconds to 1 hour); got {num}",
+        )
+    return None
+
+
+_PROBE_BACKOFF_VAR = "SACP_PROVIDER_RECOVERY_PROBE_BACKOFF"
+
+
+def _check_probe_backoff_entry(entry: str) -> ValidationFailure | None:
+    """Validate one comma-separated backoff entry; return failure or None."""
+    try:
+        num = int(entry)
+    except ValueError:
+        return ValidationFailure(
+            _PROBE_BACKOFF_VAR, f"each entry must be an integer; got {entry!r}"
+        )
+    if not 1 <= num <= 600:
+        return ValidationFailure(_PROBE_BACKOFF_VAR, f"each entry must be in [1, 600]; got {num}")
+    return None
+
+
+def validate_provider_recovery_probe_backoff() -> ValidationFailure | None:
+    """SACP_PROVIDER_RECOVERY_PROBE_BACKOFF: comma-separated ints, each in [1, 600], 1-10 entries.
+
+    Per spec 015 FR-006 / FR-009 / FR-014. Unset means no auto-recovery --
+    breaker stays open until session restart or update_api_key fast-close.
+    The final entry is repeated (cycle-on-last) when the schedule exhausts.
+    """
+    val = os.environ.get(_PROBE_BACKOFF_VAR)
+    if val is None or val.strip() == "":
+        return None
+    entries = [e.strip() for e in val.split(",") if e.strip()]
+    if not entries:
+        return ValidationFailure(_PROBE_BACKOFF_VAR, "at least one entry required")
+    if len(entries) > 10:
+        return ValidationFailure(
+            _PROBE_BACKOFF_VAR, f"at most 10 entries allowed; got {len(entries)}"
+        )
+    for entry in entries:
+        failure = _check_probe_backoff_entry(entry)
+        if failure is not None:
+            return failure
+    return None
+
+
+def validate_provider_probe_timeout_s() -> ValidationFailure | None:
+    """SACP_PROVIDER_PROBE_TIMEOUT_S: int in [1, 30], unset inherits LiteLLM timeout.
+
+    Per spec 015 FR-006 / FR-014. Unset means probe calls inherit the
+    configured LiteLLM call timeout. Out-of-range values exit at startup per V16.
+    """
+    val = os.environ.get("SACP_PROVIDER_PROBE_TIMEOUT_S")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_PROVIDER_PROBE_TIMEOUT_S",
+            f"must be integer (seconds); got {val!r}",
+        )
+    if not 1 <= num <= 30:
+        return ValidationFailure(
+            "SACP_PROVIDER_PROBE_TIMEOUT_S",
+            f"must be in [1, 30]; got {num}",
+        )
+    return None
+
+
+def validate_provider_failure_paired_vars() -> ValidationFailure | None:
+    """Cross-validator: THRESHOLD and WINDOW_S must be set together or not at all.
+
+    Per spec 015 FR-015 / research.md SS6. If exactly one is set and the other
+    is unset, the breaker is in an indeterminate state and the operator is
+    likely misconfigured. Fail at startup rather than silently using one var.
+    """
+    threshold = os.environ.get("SACP_PROVIDER_FAILURE_THRESHOLD")
+    window = os.environ.get("SACP_PROVIDER_FAILURE_WINDOW_S")
+    threshold_set = bool(threshold and threshold.strip())
+    window_set = bool(window and window.strip())
+    if threshold_set and not window_set:
+        return ValidationFailure(
+            "SACP_PROVIDER_FAILURE_WINDOW_S",
+            "SACP_PROVIDER_FAILURE_THRESHOLD is set but SACP_PROVIDER_FAILURE_WINDOW_S is unset"
+            " -- both must be set together or both left unset",
+        )
+    if window_set and not threshold_set:
+        return ValidationFailure(
+            "SACP_PROVIDER_FAILURE_THRESHOLD",
+            "SACP_PROVIDER_FAILURE_WINDOW_S is set but SACP_PROVIDER_FAILURE_THRESHOLD is unset"
+            " -- both must be set together or both left unset",
+        )
+    return None
+
+
 VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_database_url,
     validate_encryption_key,
@@ -1653,6 +1794,12 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_standby_filler_detection_turns,
     validate_standby_pivot_timeout_seconds,
     validate_standby_pivot_rate_cap_per_session,
+    # ── spec 015 (provider failure detection -- circuit breaker) ── FR-014 ──
+    validate_provider_failure_threshold,
+    validate_provider_failure_window_s,
+    validate_provider_recovery_probe_backoff,
+    validate_provider_probe_timeout_s,
+    validate_provider_failure_paired_vars,  # cross-validator: must be last of the five
     # ── spec 030 Phase 2 (MCP protocol) ── FR-034 ──────────────────────────
     # validate_sacp_mcp_protocol_enabled,
     # validate_sacp_mcp_session_idle_timeout_seconds,
