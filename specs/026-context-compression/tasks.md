@@ -204,7 +204,7 @@ description: "Task list for spec 026 — Context Compression and Distillation (S
 
 ## Phase 10: Closeout
 
-- [ ] T056 Run the full `quickstart.md` smoke test (Steps 1-10) end-to-end against a live stack; capture any deltas as follow-up tickets — MAY DEFER if no live multi-provider stack is available; ride along with the next operator deploy per memory `project_deploy_dockge_truenas`.
+- [ ] T056 Run the full `quickstart.md` smoke test (Steps 1-10) end-to-end against a live stack; capture any deltas as follow-up tickets — MAY DEFER if no live multi-provider stack is available; ride along with the next operator deploy.
 - [ ] T057 Update spec.md Status line from "Clarified 2026-05-11" to "Implemented YYYY-MM-DD" once T001..T055 are saturated. Per memory `feedback_dont_declare_phase_done`, this task waits on explicit user direction — DO NOT flip Status without the user's confirmation.
 - [ ] T058 [P] Update MEMORY.md if there are reusable learnings worth persisting from the 026 implementation (Phase 2 cutover patterns, summarizer filter wiring, etc.).
 - [ ] T059 [P] V18 traceability audit per [plan.md Constitution Check V18](./plan.md): confirm every compressed segment carries the XML boundary marker AND a matching compression_log row exists for the same turn_id + participant_id + compressor_id.

@@ -35,7 +35,7 @@ Phase 0 research for spec 026. Sixteen sections covering (a) the existing Phase 
 
 **Decision**: Code is source of truth. Renaming the shipped validators + their consumers + the docs sections would touch >10 files for cosmetic alignment. The spec text rename is a single-paragraph edit. Tasks T0XX-T0YY add an inline header note to `docs/env-vars.md` cross-referencing both names so operators searching either find the right doc.
 
-**Rationale**: The shipped names are already in operator-facing surfaces — `.env` files in deployed stacks (see memory `project_deploy_dockge_truenas`), Dockge stack config at `/mnt/.ix-apps/app_mounts/dockge/stacks/sacp/`, internal documentation pointing at the shipped names. Renaming risks silent breakage on next deploy. Spec text is the canonical artefact moving forward but it follows the code, not vice versa.
+**Rationale**: The shipped names are already in operator-facing surfaces — `.env` files in deployed stacks , the deployment stack config at `<deployment-stack-path>/`, internal documentation pointing at the shipped names. Renaming risks silent breakage on next deploy. Spec text is the canonical artefact moving forward but it follows the code, not vice versa.
 
 **Spec text update** (at tasks-time, NOT in this PR): the `## Configuration (V16) — New Env Vars` section ships in tasks.md as a coordinated amendment that aligns the names. Cross-ref FR-025.
 

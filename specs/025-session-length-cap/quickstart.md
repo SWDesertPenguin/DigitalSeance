@@ -10,7 +10,7 @@ Operator + facilitator workflows for opting into the session-length cap. Default
 
 ### Set deployment-wide defaults (optional)
 
-Edit the `.env` file used by the Dockge stack at `/mnt/.ix-apps/app_mounts/dockge/stacks/sacp/.env` (per project memory `project_deploy_dockge_truenas.md`):
+Edit the `.env` file used by the deployment stack at `<deployment-stack-path>/.env` :
 
 ```bash
 # No deployment-wide cap by default. Set these only if you want every new session to start with a cap.
@@ -21,7 +21,7 @@ SACP_CONCLUDE_PHASE_TRIGGER_FRACTION=0.80   # exclusive (0.0, 1.0)
 SACP_CONCLUDE_PHASE_PROMPT_TIER=4           # one of {1, 2, 3, 4}
 ```
 
-Restart the orchestrator stack from Dockge. Verify config validation passes:
+Restart the orchestrator stack using the deployment tooling. Verify config validation passes:
 
 ```bash
 docker compose logs sacp-orchestrator | grep -i "config validation"

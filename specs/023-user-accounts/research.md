@@ -134,7 +134,7 @@ class EmailTransport(Protocol):
 
 **Alternatives considered**:
 - **Defer to a follow-up amendment** (was provisional) — rejected at scheduling; user wants the surface in v1.
-- **Filesystem-touch admin path** (e.g., a marker file gated by user/group) — rejected; adds an out-of-process state surface and complicates Docker / Dockge deployments where the orchestrator runs in a container.
+- **Filesystem-touch admin path** (e.g., a marker file gated by user/group) — rejected; adds an out-of-process state surface and complicates Docker Compose deployments where the orchestrator runs in a container.
 - **mTLS** — viable but heavier than v1 needs; requires CA management on the operator side. Reserve for a future operator-auth spec.
 
 ---

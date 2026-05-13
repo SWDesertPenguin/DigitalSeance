@@ -104,7 +104,7 @@
 - [ ] CHK062 Is the cross-instance LRU 30s cache TTL adequate against the 5s revocation propagation SLA, or is there a documented gap? [Ambiguity, Spec §FR-092 vs §FR-094]
 - [ ] CHK063 Is the "exclusion at issuance vs at dispatch" choice for AI-participant OAuth refusal sufficiently justified against detection-loudness concerns? [Assumption, Spec §FR-089 + follow-up clarification]
 - [ ] CHK064 Is the "JWT access + opaque-Fernet refresh" choice's revocation-latency trade-off accepted with documented bounds? [Assumption, research.md §2]
-- [ ] CHK065 Is the deployment-side TrueNAS Dockge manual-update requirement clearly out-of-PR-scope, not a CI failure? [Clarity, Spec §FR-006]
+- [ ] CHK065 Is the deployment-side the deployment stack manual-update requirement clearly out-of-PR-scope, not a CI failure? [Clarity, Spec §FR-006]
 
 ## Notes
 

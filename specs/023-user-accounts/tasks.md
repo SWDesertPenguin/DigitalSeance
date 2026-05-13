@@ -231,7 +231,7 @@ Per [research.md §7](./research.md) revised at impl-time, FR-020 ships in v1 wi
 **Purpose**: Quickstart validation, V14 perf-budget verification, security scanning, doc cross-references, cross-spec FR audit.
 
 - [ ] T072 [P] V14 perf-budget regression check — DEFERRED until a synthetic-load DB harness lands; per-stage `@with_stage_timing` instrumentation hooks already cover login + create + `/me/sessions` so the budget can be measured externally.
-- [ ] T073 [P] Quickstart.md walk-through — DEFERRED until the user walks the deployed Dockge stack manually (memory: `project_deploy_dockge_truenas`).
+- [ ] T073 [P] Quickstart.md walk-through — DEFERRED until the user walks the deployed the deployment stack manually .
 - [X] T074 [P] Cross-spec FR audit (spot-check):
   - spec 002 token rotation: untouched (account binding is additive on `account_participants`; per-session credential still rotates).
   - spec 010 debug-export: `service.delete_account` calls the email transport with `purpose='account_delete_export'`; the actual export payload remains a v1 placeholder — wire-up against the existing spec 010 internal export function lands in a follow-up amendment alongside the SMTP transport spec.

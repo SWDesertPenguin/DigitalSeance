@@ -10,7 +10,7 @@ Operator workflow for opting into per-IP rate limiting on the MCP server (port 8
 
 ### Enable the limiter
 
-Edit the `.env` file used by the Dockge stack at `/mnt/.ix-apps/app_mounts/dockge/stacks/sacp/.env`:
+Edit the `.env` file used by the deployment stack at `<deployment-stack-path>/.env`:
 
 ```bash
 # Master switch — must be 'true' to register the middleware
@@ -31,7 +31,7 @@ SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS=false
 SACP_NETWORK_RATELIMIT_MAX_KEYS=100000
 ```
 
-Restart the orchestrator stack from Dockge. Verify config validation passes:
+Restart the orchestrator stack using the deployment tooling. Verify config validation passes:
 
 ```bash
 docker compose logs sacp-orchestrator | grep -iE "config validation|network_ratelimit"

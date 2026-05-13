@@ -10,7 +10,7 @@ Operator + end-user workflows for opting into the user-accounts surface. Default
 
 ### Enable the accounts surface (opt-in)
 
-Edit the `.env` file used by the Dockge stack at `/mnt/.ix-apps/app_mounts/dockge/stacks/sacp/.env` (per project memory `project_deploy_dockge_truenas.md`):
+Edit the `.env` file used by the deployment stack at `<deployment-stack-path>/.env` :
 
 ```bash
 # Master switch — turns the entire account surface on.
@@ -33,7 +33,7 @@ SACP_EMAIL_TRANSPORT=noop                          # one of: noop, smtp, ses, se
 SACP_ACCOUNT_DELETION_EMAIL_GRACE_DAYS=7           # range [0, 365]; default 7. 0 = immediate release.
 ```
 
-Restart the orchestrator stack from Dockge. Verify config validation passes:
+Restart the orchestrator stack using the deployment tooling. Verify config validation passes:
 
 ```bash
 docker compose logs sacp-orchestrator | grep -i "config validation"

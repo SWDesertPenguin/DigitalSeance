@@ -143,7 +143,7 @@ Output: [research.md](./research.md) with one decision section per open question
 
 3. **Quickstart** ([quickstart.md](./quickstart.md)) — operator workflow:
    - Set deployment-wide env vars (`SACP_NETWORK_RATELIMIT_ENABLED=true`, `_RPM`, `_BURST`, `_TRUST_FORWARDED_HEADERS`, `_MAX_KEYS`).
-   - Restart orchestrator stack from Dockge.
+   - Restart orchestrator stack using the deployment tooling.
    - Verify `routing_log` middleware-duration sample.
    - Verify Retry-After header on a synthetic flood.
    - Audit-log query example for `network_rate_limit_rejected` rows.
