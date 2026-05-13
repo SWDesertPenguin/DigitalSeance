@@ -252,6 +252,19 @@ def _estimate_tokens(text: str) -> int:
     return max(default_estimator().count_tokens(text), 1)
 
 
+def _read_deferred_index_max_tokens() -> int:
+    """Spec 018 SACP_TOOL_DEFER_INDEX_MAX_TOKENS reader; default 256."""
+    import os as _os
+
+    raw = _os.environ.get("SACP_TOOL_DEFER_INDEX_MAX_TOKENS", "").strip()
+    if not raw:
+        return 256
+    try:
+        return int(raw)
+    except ValueError:
+        return 256
+
+
 def _add_system_prompt(
     context: list[ContextMessage],
     participant: Participant,
@@ -272,12 +285,24 @@ def _add_system_prompt(
 
     Spec 027 FR-015: when ``always_mode_wait_active=True``, the
     standby-ack delta appends LAST in the Tier 4 composition chain.
+
+    Spec 018 FR-014: the participant's `DeferredToolIndex` is consulted
+    once per turn-prep; its compact index entries (empty in Phase 1) are
+    threaded through to ``assemble_prompt`` so the deferred-tool list
+    surfaces in the system prompt when Phase 2's working partition is
+    active. Phase 1 (the v1 default) sees an empty list and the prompt
+    is byte-identical to the pre-feature baseline.
     """
+    from src.orchestrator.deferred_tool_index import (
+        get_deferred_index_for_participant,
+    )
     from src.prompts.conclude_delta import conclude_delta
     from src.prompts.standby_ack_delta import standby_ack_delta
 
     delta = conclude_delta(active=(phase == "conclude"))
     standby_delta = standby_ack_delta(active=always_mode_wait_active)
+    deferred_index = get_deferred_index_for_participant(participant.session_id, participant.id)
+    deferred_entries, _ = deferred_index.render_index_entries(_read_deferred_index_max_tokens())
     prompt = assemble_prompt(
         prompt_tier=participant.prompt_tier,
         custom_prompt=participant.system_prompt,
@@ -285,6 +310,7 @@ def _add_system_prompt(
         register_delta_text=register_delta_text,
         conclude_delta=delta,
         standby_ack_delta=standby_delta,
+        deferred_index_entries=deferred_entries or None,
     )
     ctx = ContextMessage("system", prompt, None)
     context.append(ctx)

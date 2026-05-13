@@ -699,6 +699,46 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Source spec(s)**: 027 §FR-019 (per-session pivot cap)
 - **Note**: When the cap is exhausted, subsequent would-have-pivoted conditions log `routing_log.reason='pivot_skipped_rate_cap'` and the participant remains in standby without the long-term-observer transition firing automatically (FR-020 sub-state requires the pivot to actually fire). Resolved per Session 2026-05-12 Q6 — per-session scope, not per-participant; per-participant capping is a future amendment.
 
+### `SACP_TOOL_DEFER_ENABLED`
+
+- **Default**: `false` (off — opt-in master switch ships disabled; Phase-1 design-hooks cut state)
+- **Type**: boolean (`true` or `false`, case-insensitive)
+- **Valid range**: exactly `true` or `false`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_tool_defer_enabled`
+- **Source spec(s)**: 018 §FR-013 (master switch for deferred tool loading)
+- **Note**: When `false` (default), the partition module returns an empty `DeferredToolIndex` and the two discovery MCP tools (`tools.list_deferred`, `tools.load_deferred`) return a documented `deferred_loading_disabled` stub. When `true`, the working partition + discovery activate and the system prompt carries the loaded subset's full schemas + the deferred subset's compact index entries.
+
+### `SACP_TOOL_LOADED_TOKEN_BUDGET`
+
+- **Default**: `1500` (tokens; applied at consumer when unset)
+- **Type**: positive integer (tokens)
+- **Valid range**: `512 <= value <= 8192`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_tool_loaded_token_budget`
+- **Source spec(s)**: 018 §FR-013 (loaded-subset token budget)
+- **Note**: Caps the loaded subset of a participant's tool definitions. Below 512, no realistic tool fits; above 8192, the partition commitment dominates the system prompt budget per Constitution §6.1. Selection policy in v1 is registration order. When `SACP_TOOL_DEFER_ENABLED=false`, this value is ignored.
+
+### `SACP_TOOL_DEFER_INDEX_MAX_TOKENS`
+
+- **Default**: `256` (tokens; applied at consumer when unset)
+- **Type**: positive integer (tokens)
+- **Valid range**: `64 <= value <= 1024`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_tool_defer_index_max_tokens`
+- **Source spec(s)**: 018 §FR-013 (deferred-index size cap)
+- **Note**: Caps the deferred-tool index emitted into the system prompt. At 256 (default), ~20 deferred tools fit before the index truncates with a pagination banner pointing the model at `tools.list_deferred` for the rest. Below 64, even a handful of tools cannot fit; above 1024, the index itself dominates the budget the partition is supposed to protect. When `SACP_TOOL_DEFER_ENABLED=false`, this value is ignored.
+
+### `SACP_TOOL_DEFER_LOAD_TIMEOUT_S`
+
+- **Default**: unset (inherits the existing MCP client request timeout)
+- **Type**: positive integer (seconds), or empty
+- **Valid range**: `1 <= value <= 30` when set
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_tool_defer_load_timeout_s`
+- **Source spec(s)**: 018 §FR-013 (discovery-load timeout)
+- **Note**: Per-call timeout for `tools.load_deferred`. Unset means the load inherits the existing MCP client request timeout. Bounded at 30s because deferred-load latency MUST stay within the participant's `turn_timeout_seconds` budget (SC-003). When `SACP_TOOL_DEFER_ENABLED=false`, this value is ignored.
+
 ## CI enforcement
 
 `scripts/check_env_vars.py` (per spec 012 FR-005):

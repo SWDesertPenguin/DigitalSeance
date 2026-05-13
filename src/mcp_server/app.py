@@ -21,6 +21,7 @@ from src.mcp_server.sse_router import router as sse_router
 from src.mcp_server.tools.admin import is_audit_viewer_enabled
 from src.mcp_server.tools.admin import router as admin_router
 from src.mcp_server.tools.debug import router as debug_router
+from src.mcp_server.tools.deferred_tools import router as deferred_tools_router
 from src.mcp_server.tools.detection_events import is_detection_history_enabled
 from src.mcp_server.tools.detection_events import router as detection_events_router
 from src.mcp_server.tools.facilitator import router as facilitator_router
@@ -234,6 +235,11 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(proposal_router)
     app.include_router(provider_router)
     app.include_router(debug_router)
+    # Spec 018 FR-014: the two discovery MCP tools (tools.list_deferred,
+    # tools.load_deferred) MUST be registered regardless of the
+    # SACP_TOOL_DEFER_ENABLED master switch — when disabled, handlers
+    # return the documented stub. Mounted unconditionally per FR-014.
+    app.include_router(deferred_tools_router)
     # Spec 029 §FR-018 — master switch hides the audit-log viewer surface
     # at the route layer when SACP_AUDIT_VIEWER_ENABLED is unset/false, so
     # disabled deployments return HTTP 404 from absence of the route rather
