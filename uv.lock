@@ -2748,7 +2748,7 @@ requires-dist = [
     { name = "itsdangerous", specifier = ">=2.2.0" },
     { name = "litellm", specifier = ">=1.83.0,<1.83.8" },
     { name = "llmlingua", marker = "extra == 'compression-phase2'", specifier = ">=0.2.2,<0.3" },
-    { name = "mcp", specifier = ">=1.9.4,<2.0.0" },
+    { name = "mcp", specifier = "==1.27.1" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.12" },
