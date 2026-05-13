@@ -350,13 +350,19 @@ within network RTT and that manual-refresh tools are exposed.
   `(session_id, participant_id, change_kind, tool_name,
   old_hash, new_hash, observed_at, trigger_source,
   prompt_cache_invalidated)`. `trigger_source ∈ {poll, push,
-  manual}`. `change_kind ∈ {added, removed, description_changed,
-  schema_changed, refresh_failed}` per the Clarifications
-  resolution.
-- **FR-005**: A tool-set change MUST trigger a system-prompt
-  rebuild on the affected participant's NEXT turn-prep boundary
-  (per §4.2 step 6). The rebuild MUST NOT happen mid-payload
-  assembly for a turn already in progress.
+  manual, registration}` (registration is used for the initial
+  tool-fetch audit row at `register_participant` time, if a change
+  is detected relative to the empty baseline). `change_kind ∈
+  {added, removed, description_changed, schema_changed,
+  refresh_failed}` per the Clarifications resolution.
+- **FR-005**: A tool-set change detected at the §4.2 step-6
+  turn-prep boundary (`_assemble_and_dispatch` entry) MUST trigger
+  a system-prompt rebuild on the SAME turn — the assembler reads
+  from the freshly updated registry on this turn, not deferred to
+  the next. A refresh completing after assembly has already started
+  for a given turn MUST NOT modify that turn's context; it takes
+  effect on the next turn's boundary (no torn reads). Per
+  Clarifications §2 resolution.
 - **FR-006**: Tool registries are per-participant private. No
   participant's tool list, change events, or refresh state may
   appear in another participant's context, audit-log view, or
@@ -404,14 +410,18 @@ within network RTT and that manual-refresh tools are exposed.
 - **ParticipantToolRegistry** (per-participant, session-local) —
   captures the current tool set:
   `(session_id, participant_id, tools[], tool_set_hash,
-  last_refreshed_at, push_subscribed)`. Cached for session
-  lifetime; not persisted across restart.
-- **ToolListChangedRecord** (audit) — captures every change with
-  the FR-004 field set.
-- **ToolRefreshFailureRecord** (audit) — captures failed refresh
-  attempts:
-  `(session_id, participant_id, attempted_at, failure_kind,
-  retry_in_s)`.
+  last_refreshed_at, push_subscribed, consecutive_failures,
+  next_retry_at)`. Cached for session lifetime; not persisted
+  across restart. `consecutive_failures` and `next_retry_at`
+  support the FR-011 retry path and the spec 015 breaker
+  interaction.
+- **ToolListChangedRecord** (audit) — captures every change and
+  every refresh failure (via `change_kind=refresh_failed`) with
+  the FR-004 field set. Refresh failures do NOT produce a separate
+  record type; they use this same record with
+  `change_kind=refresh_failed`, `tool_name=null`, and
+  `new_hash=null`. (The previously-listed ToolRefreshFailureRecord
+  entity is superseded by this consolidated design.)
 - **ToolSubscriptionRecord** (audit) — captures push-subscription
   outcome at registration:
   `(session_id, participant_id, supported, subscribed_at_or_null,
