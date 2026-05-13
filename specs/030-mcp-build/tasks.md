@@ -204,7 +204,7 @@ For each tool defined in T064–T073, implement the `ToolDispatch` callable that
 ### Architectural tests (REQUIRED per spec)
 
 - [ ] T088 [US8] `tests/test_mcp_tools_parity.py` — enumerate every public `participant_api` router endpoint AND every `RegistryEntry`; assert parity OR documented exclusion (FR-068, SC-036)
-- [ ] T089 [US8] `tests/test_mcp_tools_registry_size.py` — registry size invariant (~50 tools); lookup is O(1) (SC-037)
+- [ ] T089 [US8] `tests/test_mcp_tools_registry_size.py` — registry size invariant (~50 tools); lookup is O(1) (SC-037); assert registry is immutable post-startup (attempt to mutate raises `TypeError` or equivalent — enforces spec §Out of Scope "Hot-reload of the tool registry") (C5 analysis fix)
 
 ### Per-category happy + error path tests
 
