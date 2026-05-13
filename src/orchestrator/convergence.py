@@ -10,6 +10,7 @@ from collections import deque
 from dataclasses import dataclass
 from functools import partial
 
+import asyncpg
 import numpy as np
 
 from src.orchestrator.density import (
@@ -228,18 +229,35 @@ class ConvergenceDetector:
         specs/026-context-compression/contracts/routing-log-additions.md
         are NOT carried — routing_log has no generic payload column;
         readers JOIN convergence_log on (turn_number, session_id).
+
+        Fail-soft: if `speaker_id` is missing OR not present in
+        `participants` (the FK target), skip the marker rather than
+        propagating a constraint violation up through the anomaly
+        fan-out — convergence_log already carries the primary record.
         """
-        attributee = speaker_id or session_id
-        await self._log_repo.log_routing(
-            session_id=session_id,
-            turn_number=turn_number,
-            intended=attributee,
-            actual=attributee,
-            action="quality_signal",
-            complexity="n/a",
-            domain_match=False,
-            reason="density_anomaly_flagged",
-        )
+        if not speaker_id:
+            return
+        try:
+            await self._log_repo.log_routing(
+                session_id=session_id,
+                turn_number=turn_number,
+                intended=speaker_id,
+                actual=speaker_id,
+                action="quality_signal",
+                complexity="n/a",
+                domain_match=False,
+                reason="density_anomaly_flagged",
+            )
+        except asyncpg.ForeignKeyViolationError as exc:
+            log.warning(
+                "density-anomaly routing-log marker skipped: %s",
+                exc,
+                extra={
+                    "session_id": session_id,
+                    "turn_number": turn_number,
+                    "speaker_id": speaker_id,
+                },
+            )
 
     async def _dual_write_detection_event(
         self,
