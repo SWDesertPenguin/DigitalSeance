@@ -116,6 +116,48 @@ sacp_rate_limit_rejection_total = _CounterFamily(
 )
 
 
+# ---------------------------------------------------------------------------
+# Spec 015 circuit breaker metrics (FR-013)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CircuitBreakerMetrics:
+    """Aggregate circuit-breaker state snapshot per FR-013.
+
+    ``open_count`` is the number of currently open or half_open circuits.
+    ``open_since_by_participant`` maps (session_id, participant_id) to
+    the ISO-format open-since timestamp. ``trigger_reason_counts`` maps
+    trigger_reason string to count of currently-open circuits with that reason.
+    """
+
+    open_count: int
+    open_since_by_participant: dict[tuple[str, str], str]
+    trigger_reason_counts: dict[str, int]
+
+
+def get_circuit_breaker_metrics() -> CircuitBreakerMetrics:
+    """Return a live snapshot of circuit breaker state for FR-013.
+
+    Reads from the in-memory _CIRCUITS dict (no DB round-trip).
+    """
+    from src.orchestrator.circuit_breaker import get_metrics_snapshot
+
+    snapshots = get_metrics_snapshot()
+    open_since: dict[tuple[str, str], str] = {}
+    reason_counts: dict[str, int] = {}
+    for snap in snapshots:
+        key = (snap.session_id, snap.participant_id)
+        if snap.open_since is not None:
+            open_since[key] = snap.open_since.isoformat()
+        reason_counts[snap.trigger_reason] = reason_counts.get(snap.trigger_reason, 0) + 1
+    return CircuitBreakerMetrics(
+        open_count=len(snapshots),
+        open_since_by_participant=open_since,
+        trigger_reason_counts=reason_counts,
+    )
+
+
 def increment_network_rate_limit_rejection() -> None:
     """Spec 019 rejection branch helper (FR-010 + contracts/metrics.md)."""
     sacp_rate_limit_rejection_total.labels(
@@ -130,7 +172,9 @@ def reset_for_tests() -> None:
 
 
 __all__ = [
+    "CircuitBreakerMetrics",
     "MetricSample",
+    "get_circuit_breaker_metrics",
     "increment_network_rate_limit_rejection",
     "reset_for_tests",
     "sacp_rate_limit_rejection_total",

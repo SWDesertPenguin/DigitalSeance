@@ -22,7 +22,16 @@ from src.api_bridge.tokenizer import default_estimator
 from src.orchestrator.branch import get_main_branch_id
 from src.orchestrator.budget import BudgetEnforcer
 from src.orchestrator.cadence import CadenceController
-from src.orchestrator.circuit_breaker import CircuitBreaker
+from src.orchestrator.circuit_breaker import (
+    CircuitBreaker,
+    _compute_api_key_fingerprint,
+)
+from src.orchestrator.circuit_breaker import (
+    is_open as _breaker_is_open,
+)
+from src.orchestrator.circuit_breaker import (
+    record_failure as _breaker_record_failure,
+)
 from src.orchestrator.context import ContextAssembler
 from src.orchestrator.convergence import DIVERGENCE_PROMPT, ConvergenceDetector
 from src.orchestrator.dma_controller import DmaController
@@ -102,7 +111,7 @@ class ConversationLoop:
         self._assembler = ContextAssembler(pool)
         self._router = TurnRouter(pool, encryption_key=encryption_key)
         self._budget = BudgetEnforcer(LogRepository(pool))
-        self._breaker = CircuitBreaker(pool)
+        self._breaker = CircuitBreaker()
         self._int_repo = InterruptRepository(pool)
         self._msg_repo = MessageRepository(pool)
         self._log_repo = LogRepository(pool)
@@ -861,6 +870,12 @@ async def _read_next_turn_number(pool: asyncpg.Pool, session_id: str) -> int:
     return int(maximum or 0) + 1
 
 
+def _fingerprint(participant: object) -> str:
+    """Compute api_key fingerprint for a participant."""
+    api_key = getattr(participant, "api_key_encrypted", None) or ""
+    return _compute_api_key_fingerprint(api_key)
+
+
 async def _check_skip_conditions(
     budget: BudgetEnforcer,
     breaker: CircuitBreaker,
@@ -870,7 +885,9 @@ async def _check_skip_conditions(
     """Return a skip result if speaker should be skipped."""
     if not await budget.check_budget(speaker):
         return _skip_result(session_id, speaker.id, "budget_exceeded")
-    if await breaker.is_open(speaker.id):
+    provider = getattr(speaker, "provider", "") or ""
+    fp = _fingerprint(speaker)
+    if _breaker_is_open(session_id, speaker.id, provider, fp):
         return _skip_result(session_id, speaker.id, "circuit_open")
     return None
 
@@ -1061,7 +1078,7 @@ async def _assemble_and_dispatch(
         return response, messages, None
     except _DISPATCH_FAILURE_TYPES as e:
         log.warning("%s for %s: %s", _DISPATCH_FAILURE_LABEL[type(e)], speaker.id, e)
-        await _record_failure_and_announce(ctx, breaker, speaker)
+        await _record_failure_and_announce(ctx, breaker, speaker, exc=e)
         await _broadcast_provider_error(ctx.session_id, speaker, e)
         return None, None, _DISPATCH_FAILURE_REASON[type(e)]
 
@@ -1088,9 +1105,27 @@ async def _record_failure_and_announce(
     ctx: _TurnContext,
     breaker: CircuitBreaker,
     speaker: object,
+    exc: BaseException | None = None,
 ) -> None:
     """Increment breaker; broadcast updated health state; if newly open, announce."""
-    just_opened = await breaker.record_failure(speaker.id)
+    from src.api_bridge.adapter import CanonicalErrorCategory, get_adapter
+
+    failure_kind = CanonicalErrorCategory.UNKNOWN
+    if exc is not None:
+        import contextlib
+
+        with contextlib.suppress(Exception):
+            failure_kind = get_adapter().normalize_error(exc).category
+    provider = getattr(speaker, "provider", "") or ""
+    fp = _fingerprint(speaker)
+    just_opened = await _breaker_record_failure(
+        ctx.session_id,
+        speaker.id,
+        provider,
+        fp,
+        failure_kind,
+        pool=ctx.pool,
+    )
     from src.repositories.participant_repo import ParticipantRepository
     from src.web_ui.events import broadcast_participant_update
 

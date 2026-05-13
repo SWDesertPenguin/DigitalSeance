@@ -373,6 +373,13 @@ async def reset_ai_credentials(
         model=body.model,
         api_endpoint=body.api_endpoint,
     )
+    from src.orchestrator.circuit_breaker import close_on_key_update
+
+    await close_on_key_update(
+        participant.session_id,
+        body.participant_id,
+        request.app.state.pool,
+    )
     await _audit_reset(request, participant, target)
     await _push_participant_update(request, participant.session_id, body.participant_id)
     return {"status": "reset", "participant_id": body.participant_id}

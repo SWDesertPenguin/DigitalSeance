@@ -2,7 +2,7 @@
 
 **Feature Branch**: `015-provider-failure-detection`
 **Created**: 2026-05-06
-**Status**: Clarified
+**Status**: Implemented 2026-05-13
 **Input**: User description: "Provider failure detection and isolation for SACP's bridge layer. When a participant's configured provider becomes unhealthy — returning errors, timing out, or otherwise failing repeatedly — SACP must detect the condition, stop sending requests to that provider for a cooldown period, and recover automatically when the provider becomes healthy again. This protects participants from cascading failures and prevents wasted token spend on calls that will fail. The mechanism must respect SACP's BYOK/sovereignty model: one participant's failures must not affect other participants, and SACP must never transparently fall back to a different provider — each participant's identity is tied to their declared model. Failures and recoveries must be visible in the audit log and in the metrics surface. Phase 1 scope. Cross-references §7 of sacp-design.md (security/reliability) and the constitution's participant-sovereignty principles."
 
 ## Overview
