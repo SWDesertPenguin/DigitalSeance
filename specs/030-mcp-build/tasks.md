@@ -103,8 +103,8 @@ description: "Task list for spec 030 MCP Build implementation"
 - [ ] T035 [P] [US4] Create `src/mcp_protocol/handshake.py`: `initialize` handler — protocol-version negotiation (strict; rejects non-2025-11-25 per research.md §6), capability advertisement (tools + logging only; NO prompts NO resources per FR-032), `Mcp-Session-Id` issuance via `secrets.token_bytes(32).hex()` (FR-015, FR-020)
 - [ ] T036 [US4] Create `src/mcp_protocol/dispatcher.py`: `tools/call` boundary per contracts/mcp-tools-call.md — registry lookup, paramsSchema validation, scope check, idempotency check, dispatch, returnSchema validation, audit-log emission (FR-017, FR-053, FR-054, FR-056). Implements the boundary signature from contracts/tool-registry-shape.md (depends on T032, T033)
 - [ ] T037 [P] [US4] Create `src/mcp_protocol/discovery.py`: `/.well-known/mcp-server` endpoint per contracts/mcp-discovery-metadata.md — works in both `enabled: true` and `enabled: false` states (FR-024, SC-023)
-- [ ] T037B [P] [US7] Create `src/mcp_protocol/ping.py` (or inline in `src/mcp_protocol/handshake.py`): `ping` method handler returns minimal JSON-RPC 2.0 success envelope with no body data beyond protocol-required fields per FR-018; add to the method-dispatch table in `transport.py`
-- [ ] T037C [P] [US4] Create `src/mcp_protocol/hooks.py`: `DispatchHook` Protocol + built-in `V14TimingHook` (emits per-stage timing to `routing_log`) + `AuditLogHook` (writes `admin_audit_log` row) per FR-066 + contracts/tool-registry-shape.md; wire both hooks into `dispatcher.py`
+- [ ] T208 [P] [US7] Create `src/mcp_protocol/ping.py` (or inline in `src/mcp_protocol/handshake.py`): `ping` method handler returns minimal JSON-RPC 2.0 success envelope with no body data beyond protocol-required fields per FR-018; add to the method-dispatch table in `transport.py`
+- [ ] T209 [P] [US4] Create `src/mcp_protocol/hooks.py`: `DispatchHook` Protocol + built-in `V14TimingHook` (emits per-stage timing to `routing_log`) + `AuditLogHook` (writes `admin_audit_log` row) per FR-066 + contracts/tool-registry-shape.md; wire both hooks into `dispatcher.py`
 - [ ] T038 [P] [US4] Create `src/mcp_protocol/routing.py`: spec 022 cross-instance dispatch integration — at `tools/call` time consult the binding registry; if bound to different instance, forward via HTTP proxy hop with original envelope (FR-023, SC-019)
 - [ ] T039 [US4] Create `src/mcp_protocol/transport.py`: Streamable HTTP transport handler — mounts at `/mcp` on the port 8750 ASGI app; FastAPI `APIRouter` integration; rate-limit middleware re-uses spec 019 with per-bearer bucket key (FR-026, FR-028)
 - [ ] T040 [US4] Wire `src/mcp_protocol/transport.py` into `src/run_apps.py` `create_participant_api_app` — gated by `SACP_MCP_PROTOCOL_ENABLED` env var; when false, `/mcp` returns HTTP 404 (FR-025, SC-016)
@@ -235,7 +235,7 @@ For each tool category, one happy-path + one error-path test (FR-067):
 
 ### FR-057 audit action-code migration (D1 analysis fix)
 
-- [ ] T109B [US8] In `src/mcp_protocol/dispatcher.py`, replace the Phase 2 generic `action='mcp_tool_called'` with the per-tool `action=f'mcp_tool_{tool_name}'` now that the ToolRegistry is populated (FR-057). Add test to `tests/test_mcp_tools_audit_invariant.py` asserting per-tool action codes on every dispatch.
+- [ ] T210 [US8] In `src/mcp_protocol/dispatcher.py`, replace the Phase 2 generic `action='mcp_tool_called'` with the per-tool `action=f'mcp_tool_{tool_name}'` now that the ToolRegistry is populated (FR-057). Add test to `tests/test_mcp_tools_audit_invariant.py` asserting per-tool action codes on every dispatch.
 
 ### Phase 3 closeout preflights
 
@@ -332,11 +332,11 @@ For each tool category, one happy-path + one error-path test (FR-067):
 
 ### Per-IP rate-limit on OAuth endpoints (C3 analysis fix)
 
-- [ ] T155B [US13] Wire spec 019 per-IP rate-limit middleware onto `/authorize`, `/token`, and `/revoke` endpoints in `src/mcp_protocol/auth/` per FR-093. Add `tests/test_mcp_oauth_per_ip_rate_limit.py` asserting per-IP bucket isolation on each endpoint.
+- [ ] T211 [US13] Wire spec 019 per-IP rate-limit middleware onto `/authorize`, `/token`, and `/revoke` endpoints in `src/mcp_protocol/auth/` per FR-093. Add `tests/test_mcp_oauth_per_ip_rate_limit.py` asserting per-IP bucket isolation on each endpoint.
 
 ### Session-claim mismatch enforcement (C4 analysis fix)
 
-- [ ] T155C [US13] Add `tests/test_mcp_oauth_session_claim.py`: token's `session_id` claim mismatches with target tool-call session → dispatcher returns `SACP_E_FORBIDDEN` per FR-080.
+- [ ] T212 [US13] Add `tests/test_mcp_oauth_session_claim.py`: token's `session_id` claim mismatches with target tool-call session → dispatcher returns `SACP_E_FORBIDDEN` per FR-080.
 
 ### Phase 4 closeout preflights
 
@@ -470,9 +470,9 @@ For each tool category, one happy-path + one error-path test (FR-067):
 
 Each spec phase ships as its own PR:
 1. **PR 1**: Phase 1 (rename) — T001–T027
-2. **PR 2**: Phase 2 (MCP protocol) — T028–T057 + T037B (ping) + T037C (hooks)
-3. **PR 3**: Phase 3 (tool mapping) — T058–T109 + T109B (FR-057 action-code migration) (can race PR 2)
-4. **PR 4**: Phase 4 (OAuth) — T110–T156 + T155B (per-IP rate-limit) + T155C (session-claim test) (after PRs 2+3 + sovereignty remediation)
+2. **PR 2**: Phase 2 (MCP protocol) — T028–T057 + T208 (ping) + T209 (hooks)
+3. **PR 3**: Phase 3 (tool mapping) — T058–T109 + T210 (FR-057 action-code migration) (can race PR 2)
+4. **PR 4**: Phase 4 (OAuth) — T110–T156 + T211 (per-IP rate-limit) + T212 (session-claim test) (after PRs 2+3 + sovereignty remediation)
 5. **PR 5**: Phase 5 (onboarding docs) — T157–T200 (can race the others; v1)
 6. **PR 6 (optional)**: Phase 5 doc updates after Phase 4 lands — content-fills T169 reserved section
 
