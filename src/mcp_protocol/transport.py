@@ -95,8 +95,9 @@ def _build_caller_context(request: Request, params: dict, session_id_header: str
 
     store = get_session_store()
     active = store.get(session_id_header) if session_id_header else None
-    db_pool = getattr(getattr(request, "app", None), "state", None)
-    db_pool = getattr(db_pool, "pool", None)
+    app_state = getattr(getattr(request, "app", None), "state", None)
+    db_pool = getattr(app_state, "pool", None)
+    encryption_key = getattr(app_state, "encryption_key", None)
     return CallerContext(
         participant_id=(active.bound_participant_id or "unknown") if active else "unknown",
         session_id=active.bound_sacp_session_id if active else None,
@@ -107,6 +108,7 @@ def _build_caller_context(request: Request, params: dict, session_id_header: str
         dispatch_started_at=datetime.now(tz=UTC),
         idempotency_key=params.get("_idempotency_key"),
         db_pool=db_pool,
+        encryption_key=encryption_key,
     )
 
 

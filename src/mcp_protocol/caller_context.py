@@ -21,3 +21,4 @@ class CallerContext:
     dispatch_started_at: datetime
     idempotency_key: str | None
     db_pool: Any | None = None
+    encryption_key: str | None = None

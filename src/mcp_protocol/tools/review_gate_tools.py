@@ -49,15 +49,61 @@ async def _dispatch_review_gate_list_pending(ctx: CallerContext, params: dict) -
 
 
 async def _dispatch_review_gate_approve(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    if ctx.db_pool is None:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_db_pool"}
+    draft_id = params.get("draft_id")
+    if not draft_id:
+        return {"error": "SACP_E_VALIDATION", "reason": "draft_id_required"}
+    from src.repositories.review_gate_repo import ReviewGateRepository
+
+    repo = ReviewGateRepository(ctx.db_pool)
+    try:
+        draft = await repo.get_by_id(draft_id)
+        if draft is None:
+            return {"error": "SACP_E_NOT_FOUND", "reason": "draft_not_found"}
+        resolved = await repo.resolve(draft_id, resolution="approved")
+    except Exception as exc:
+        return {"error": "SACP_E_INTERNAL", "reason": str(exc)}
+    return {"status": "approved", "id": resolved.id, "draft_id": resolved.id}
 
 
 async def _dispatch_review_gate_reject(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    if ctx.db_pool is None:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_db_pool"}
+    draft_id = params.get("draft_id")
+    if not draft_id:
+        return {"error": "SACP_E_VALIDATION", "reason": "draft_id_required"}
+    from src.repositories.review_gate_repo import ReviewGateRepository
+
+    repo = ReviewGateRepository(ctx.db_pool)
+    try:
+        draft = await repo.get_by_id(draft_id)
+        if draft is None:
+            return {"error": "SACP_E_NOT_FOUND", "reason": "draft_not_found"}
+        resolved = await repo.resolve(draft_id, resolution="rejected")
+    except Exception as exc:
+        return {"error": "SACP_E_INTERNAL", "reason": str(exc)}
+    return {"status": "rejected", "id": resolved.id, "draft_id": resolved.id}
 
 
 async def _dispatch_review_gate_edit_and_approve(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    if ctx.db_pool is None:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_db_pool"}
+    draft_id = params.get("draft_id")
+    edited_content = params.get("edited_content") or params.get("content")
+    if not draft_id or not edited_content:
+        return {"error": "SACP_E_VALIDATION", "reason": "draft_id_and_edited_content_required"}
+    from src.repositories.review_gate_repo import ReviewGateRepository
+
+    repo = ReviewGateRepository(ctx.db_pool)
+    try:
+        draft = await repo.get_by_id(draft_id)
+        if draft is None:
+            return {"error": "SACP_E_NOT_FOUND", "reason": "draft_not_found"}
+        resolved = await repo.resolve(draft_id, resolution="edited", edited_content=edited_content)
+    except Exception as exc:
+        return {"error": "SACP_E_INTERNAL", "reason": str(exc)}
+    return {"status": "edited_and_approved", "id": resolved.id, "draft_id": resolved.id}
 
 
 def register(registry: dict) -> None:

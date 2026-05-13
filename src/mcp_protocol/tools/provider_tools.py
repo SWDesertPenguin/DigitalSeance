@@ -15,7 +15,10 @@ async def _dispatch_provider_list(ctx: CallerContext, params: dict) -> dict:
 
 
 async def _dispatch_provider_test_credentials(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    # Testing credentials requires an outbound call through the LiteLLM adapter
+    # (process-level state initialized in the app lifespan). The db_pool alone
+    # is insufficient; this tool requires orchestrator context.
+    return {"error": "SACP_E_INTERNAL", "reason": "requires_orchestrator_context"}
 
 
 def _list_defn() -> ToolDefinition:

@@ -36,15 +36,86 @@ def _defn(
 
 
 async def _dispatch_proposal_create(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    if ctx.db_pool is None:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_db_pool"}
+    session_id = params.get("session_id") or ctx.session_id
+    proposed_by = params.get("proposed_by") or ctx.participant_id
+    topic = (params.get("topic") or "").strip()
+    position = (params.get("position") or "").strip()
+    if not session_id or not topic or not position:
+        return {"error": "SACP_E_VALIDATION", "reason": "session_id_topic_position_required"}
+    from src.repositories.proposal_repo import ProposalRepository
+    from src.repositories.session_repo import SessionRepository
+
+    session_repo = SessionRepository(ctx.db_pool)
+    try:
+        session = await session_repo.get_session(session_id)
+        if session is None:
+            return {"error": "SACP_E_NOT_FOUND", "reason": "session_not_found"}
+        repo = ProposalRepository(ctx.db_pool)
+        proposal = await repo.create_proposal(
+            session_id=session_id,
+            proposed_by=proposed_by,
+            topic=topic,
+            position=position,
+            acceptance_mode=params.get("acceptance_mode") or session.acceptance_mode,
+        )
+    except Exception as exc:
+        return {"error": "SACP_E_INTERNAL", "reason": str(exc)}
+    return {
+        "status": "created",
+        "id": proposal.id,
+        "proposal_id": proposal.id,
+        "topic": proposal.topic,
+    }
 
 
 async def _dispatch_proposal_cast_vote(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    if ctx.db_pool is None:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_db_pool"}
+    proposal_id = params.get("proposal_id")
+    participant_id = params.get("participant_id") or ctx.participant_id
+    vote_value = params.get("vote")
+    if not proposal_id or not vote_value:
+        return {"error": "SACP_E_VALIDATION", "reason": "proposal_id_and_vote_required"}
+    from src.repositories.errors import DuplicateVoteError
+    from src.repositories.proposal_repo import ProposalRepository
+
+    repo = ProposalRepository(ctx.db_pool)
+    try:
+        vote = await repo.cast_vote(
+            proposal_id=proposal_id,
+            participant_id=participant_id,
+            vote=vote_value,
+            comment=params.get("comment"),
+        )
+    except DuplicateVoteError as exc:
+        return {"error": "SACP_E_VALIDATION", "reason": str(exc)}
+    except Exception as exc:
+        return {"error": "SACP_E_INTERNAL", "reason": str(exc)}
+    return {"status": "voted", "proposal_id": proposal_id, "vote": vote.vote}
 
 
 async def _dispatch_proposal_close(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    if ctx.db_pool is None:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_db_pool"}
+    proposal_id = params.get("proposal_id")
+    resolution = params.get("status") or params.get("resolution") or "accepted"
+    if not proposal_id:
+        return {"error": "SACP_E_VALIDATION", "reason": "proposal_id_required"}
+    from src.repositories.proposal_repo import ProposalRepository
+
+    repo = ProposalRepository(ctx.db_pool)
+    try:
+        proposal = await repo.resolve_proposal(proposal_id, resolution)
+    except Exception as exc:
+        return {"error": "SACP_E_INTERNAL", "reason": str(exc)}
+    return {
+        "status": "resolved",
+        "id": proposal.id,
+        "proposal_id": proposal.id,
+        "resolution": proposal.status,
+    }
 
 
 async def _dispatch_proposal_list(ctx: CallerContext, params: dict) -> dict:

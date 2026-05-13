@@ -62,11 +62,46 @@ async def _dispatch_admin_list_participants(ctx: CallerContext, params: dict) ->
 
 
 async def _dispatch_admin_transfer_facilitator(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    if ctx.db_pool is None:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_db_pool"}
+    session_id = params.get("session_id") or ctx.session_id
+    new_facilitator_id = params.get("new_facilitator_id")
+    if not session_id or not new_facilitator_id:
+        return {
+            "error": "SACP_E_VALIDATION",
+            "reason": "session_id_and_new_facilitator_id_required",
+        }
+    from src.repositories.session_repo import SessionRepository
+
+    repo = SessionRepository(ctx.db_pool)
+    try:
+        await repo.update_facilitator(session_id, new_facilitator_id)
+        session = await repo.get_session(session_id)
+        if session is None:
+            return {"error": "SACP_E_NOT_FOUND", "reason": "session_not_found"}
+    except Exception as exc:
+        return {"error": "SACP_E_INTERNAL", "reason": str(exc)}
+    return {"session_id": session_id, "facilitator_id": new_facilitator_id, "status": "transferred"}
 
 
 async def _dispatch_admin_archive_session(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    # Same as session.archive: uses repo.update_status without orchestrator loop teardown.
+    # The loop teardown requires process-level asyncio task state; that stays in the HTTP path.
+    if ctx.db_pool is None:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_db_pool"}
+    session_id = params.get("session_id") or ctx.session_id
+    if not session_id:
+        return {"error": "SACP_E_VALIDATION", "reason": "session_id_required"}
+    from src.repositories.session_repo import SessionRepository
+
+    repo = SessionRepository(ctx.db_pool)
+    try:
+        session = await repo.update_status(session_id, "archived")
+    except ValueError as exc:
+        return {"error": "SACP_E_VALIDATION", "reason": str(exc)}
+    except Exception as exc:
+        return {"error": "SACP_E_INTERNAL", "reason": str(exc)}
+    return {"session_id": session.id, "status": session.status}
 
 
 def _register_list_tools(registry: dict) -> None:

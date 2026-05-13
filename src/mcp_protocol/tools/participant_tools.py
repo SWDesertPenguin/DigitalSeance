@@ -36,19 +36,108 @@ def _defn(
 
 
 async def _dispatch_participant_create(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    if ctx.db_pool is None:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_db_pool"}
+    session_id = params.get("session_id") or ctx.session_id
+    if not session_id:
+        return {"error": "SACP_E_VALIDATION", "reason": "session_id_required"}
+    display_name = (params.get("display_name") or "").strip()
+    if not display_name:
+        return {"error": "SACP_E_VALIDATION", "reason": "display_name_required"}
+    encryption_key = ctx.encryption_key
+    if not encryption_key:
+        # Fall back to env var when the key was not threaded through ctx
+        import os
+
+        encryption_key = os.environ.get("SACP_ENCRYPTION_KEY", "")
+    if not encryption_key:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_encryption_key"}
+    from src.repositories.participant_repo import ParticipantRepository
+
+    repo = ParticipantRepository(ctx.db_pool, encryption_key=encryption_key)
+    try:
+        new_p, _ = await repo.add_participant(
+            session_id=session_id,
+            display_name=display_name,
+            provider=params.get("provider") or "human",
+            model=params.get("model") or "human",
+            model_tier=params.get("model_tier") or "n/a",
+            model_family=params.get("model_family") or "human",
+            context_window=int(params.get("context_window") or 0),
+            api_key=params.get("api_key") or None,
+            api_endpoint=params.get("api_endpoint") or None,
+            budget_hourly=params.get("budget_hourly"),
+            budget_daily=params.get("budget_daily"),
+            max_tokens_per_turn=params.get("max_tokens_per_turn"),
+            auto_approve=bool(params.get("auto_approve", True)),
+        )
+    except Exception as exc:
+        return {"error": "SACP_E_INTERNAL", "reason": str(exc)}
+    return {"participant_id": new_p.id, "role": new_p.role, "display_name": new_p.display_name}
 
 
 async def _dispatch_participant_update(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    if ctx.db_pool is None:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_db_pool"}
+    participant_id = params.get("participant_id")
+    if not participant_id:
+        return {"error": "SACP_E_VALIDATION", "reason": "participant_id_required"}
+    # Supported update: budget fields and role changes go through repo methods.
+    encryption_key = ctx.encryption_key
+    if not encryption_key:
+        import os
+
+        encryption_key = os.environ.get("SACP_ENCRYPTION_KEY", "")
+    if not encryption_key:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_encryption_key"}
+    from src.repositories.participant_repo import ParticipantRepository
+
+    repo = ParticipantRepository(ctx.db_pool, encryption_key=encryption_key)
+    try:
+        if "role" in params:
+            await repo.update_role(participant_id, params["role"])
+        if any(k in params for k in ("budget_hourly", "budget_daily", "max_tokens_per_turn")):
+            await repo.update_budget(
+                participant_id,
+                budget_hourly=params.get("budget_hourly"),
+                budget_daily=params.get("budget_daily"),
+                max_tokens_per_turn=params.get("max_tokens_per_turn"),
+            )
+        p = await repo.get_participant(participant_id)
+        if p is None:
+            return {"error": "SACP_E_NOT_FOUND", "reason": "participant_not_found"}
+    except Exception as exc:
+        return {"error": "SACP_E_INTERNAL", "reason": str(exc)}
+    return {"participant_id": p.id, "role": p.role, "status": p.status}
 
 
 async def _dispatch_participant_remove(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    if ctx.db_pool is None:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_db_pool"}
+    participant_id = params.get("participant_id")
+    if not participant_id:
+        return {"error": "SACP_E_VALIDATION", "reason": "participant_id_required"}
+    encryption_key = ctx.encryption_key
+    if not encryption_key:
+        import os
+
+        encryption_key = os.environ.get("SACP_ENCRYPTION_KEY", "")
+    if not encryption_key:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_encryption_key"}
+    from src.repositories.participant_repo import ParticipantRepository
+
+    repo = ParticipantRepository(ctx.db_pool, encryption_key=encryption_key)
+    try:
+        await repo.depart_participant(participant_id)
+    except Exception as exc:
+        return {"error": "SACP_E_INTERNAL", "reason": str(exc)}
+    return {"participant_id": participant_id, "status": "offline"}
 
 
 async def _dispatch_participant_rotate_token(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    # Token rotation requires the AuthService (bcrypt + token reveal), which is
+    # process-level state and cannot be reconstructed from the db_pool alone.
+    return {"error": "SACP_E_INTERNAL", "reason": "requires_orchestrator_context"}
 
 
 async def _dispatch_participant_list(ctx: CallerContext, params: dict) -> dict:
@@ -85,15 +174,95 @@ async def _dispatch_participant_get(ctx: CallerContext, params: dict) -> dict:
 
 
 async def _dispatch_participant_inject_message(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    if ctx.db_pool is None:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_db_pool"}
+    session_id = params.get("session_id") or ctx.session_id
+    speaker_id = params.get("participant_id") or ctx.participant_id
+    content = (params.get("content") or "").strip()
+    if not session_id or not speaker_id or not content:
+        return {
+            "error": "SACP_E_VALIDATION",
+            "reason": "session_id_participant_id_content_required",
+        }
+    from src.repositories.message_repo import MessageRepository
+
+    msg_repo = MessageRepository(ctx.db_pool)
+    # Resolve the branch_id for the session
+    try:
+        async with ctx.db_pool.acquire() as conn:
+            branch_id = await conn.fetchval(
+                "SELECT id FROM branches WHERE session_id = $1 AND name = 'main' LIMIT 1",
+                session_id,
+            )
+        if not branch_id:
+            async with ctx.db_pool.acquire() as conn:
+                branch_id = await conn.fetchval(
+                    "SELECT id FROM branches WHERE session_id = $1 LIMIT 1",
+                    session_id,
+                )
+        if not branch_id:
+            return {"error": "SACP_E_NOT_FOUND", "reason": "no_branch_for_session"}
+        msg = await msg_repo.append_message(
+            session_id=session_id,
+            branch_id=branch_id,
+            speaker_id=speaker_id,
+            speaker_type=params.get("speaker_type") or "human",
+            content=content,
+            token_count=max(len(content.split()), 1),
+            complexity_score="n/a",
+        )
+    except Exception as exc:
+        return {"error": "SACP_E_INTERNAL", "reason": str(exc)}
+    return {"status": "injected", "turn_number": msg.turn_number, "id": msg.turn_number}
 
 
 async def _dispatch_participant_set_routing_preference(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    if ctx.db_pool is None:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_db_pool"}
+    participant_id = params.get("participant_id") or ctx.participant_id
+    preference = params.get("preference") or params.get("routing_preference")
+    if not participant_id or not preference:
+        return {"error": "SACP_E_VALIDATION", "reason": "participant_id_and_preference_required"}
+    try:
+        async with ctx.db_pool.acquire() as conn:
+            result = await conn.execute(
+                "UPDATE participants SET routing_preference = $1 WHERE id = $2",
+                preference,
+                participant_id,
+            )
+        if result == "UPDATE 0":
+            return {"error": "SACP_E_NOT_FOUND", "reason": "participant_not_found"}
+    except Exception as exc:
+        return {"error": "SACP_E_INTERNAL", "reason": str(exc)}
+    return {"status": "updated", "participant_id": participant_id, "preference": preference}
 
 
 async def _dispatch_participant_set_budget(ctx: CallerContext, params: dict) -> dict:
-    return {"error": "SACP_E_NOT_FOUND", "reason": "direct_http_required"}
+    if ctx.db_pool is None:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_db_pool"}
+    participant_id = params.get("participant_id")
+    if not participant_id:
+        return {"error": "SACP_E_VALIDATION", "reason": "participant_id_required"}
+    encryption_key = ctx.encryption_key
+    if not encryption_key:
+        import os
+
+        encryption_key = os.environ.get("SACP_ENCRYPTION_KEY", "")
+    if not encryption_key:
+        return {"error": "SACP_E_INTERNAL", "reason": "no_encryption_key"}
+    from src.repositories.participant_repo import ParticipantRepository
+
+    repo = ParticipantRepository(ctx.db_pool, encryption_key=encryption_key)
+    try:
+        await repo.update_budget(
+            participant_id,
+            budget_hourly=params.get("budget_hourly"),
+            budget_daily=params.get("budget_daily"),
+            max_tokens_per_turn=params.get("max_tokens_per_turn"),
+        )
+    except Exception as exc:
+        return {"error": "SACP_E_INTERNAL", "reason": str(exc)}
+    return {"status": "updated", "participant_id": participant_id}
 
 
 def _register_facilitator_tools(registry: dict) -> None:
