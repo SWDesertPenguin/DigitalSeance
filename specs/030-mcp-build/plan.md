@@ -217,9 +217,11 @@ src/
 
 alembic/
 └── versions/
-    └── <slot_NNN>_oauth_state_tables.py  # PHASE 4: oauth_clients, oauth_authorization_codes,
+    └── 022_oauth_state_tables.py          # PHASE 4: oauth_clients, oauth_authorization_codes,
                                           # oauth_access_tokens, oauth_refresh_tokens,
-                                          # oauth_token_families (no Phase 1/2/3 migrations)
+                                          # oauth_token_families. revision="022", down_revision="021"
+                                          # (chain: ...→019→021→022; 020 intentionally skipped)
+                                          # (no Phase 1/2/3 migrations)
 
 tests/
 ├── conftest.py                      # PHASE 4: mirror oauth_* tables per feedback_test_schema_mirror

@@ -1653,6 +1653,40 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_standby_filler_detection_turns,
     validate_standby_pivot_timeout_seconds,
     validate_standby_pivot_rate_cap_per_session,
+    # ── spec 030 Phase 2 (MCP protocol) ── FR-034 ──────────────────────────
+    # validate_sacp_mcp_protocol_enabled,
+    # validate_sacp_mcp_session_idle_timeout_seconds,
+    # validate_sacp_mcp_session_max_lifetime_seconds,
+    # validate_sacp_mcp_max_concurrent_sessions,
+    # ── spec 030 Phase 3 (MCP tool mapping) ── FR-069 ──────────────────────
+    # validate_sacp_mcp_tool_session_enabled,
+    # validate_sacp_mcp_tool_participant_enabled,
+    # validate_sacp_mcp_tool_proposal_enabled,
+    # validate_sacp_mcp_tool_review_gate_enabled,
+    # validate_sacp_mcp_tool_debug_export_enabled,
+    # validate_sacp_mcp_tool_audit_log_enabled,
+    # validate_sacp_mcp_tool_detection_events_enabled,
+    # validate_sacp_mcp_tool_scratch_enabled,
+    # validate_sacp_mcp_tool_provider_enabled,
+    # validate_sacp_mcp_tool_admin_enabled,
+    # validate_sacp_mcp_tool_idempotency_retention_hours,
+    # validate_sacp_mcp_tool_deprecation_horizon_days,
+    # validate_sacp_mcp_tool_pagination_default_size,
+    # validate_sacp_mcp_tool_pagination_max_size,
+    # ── spec 030 Phase 4 (OAuth 2.1 + PKCE) ── FR-088, FR-094 ─────────────
+    # validate_sacp_oauth_enabled,
+    # validate_sacp_oauth_access_token_ttl_minutes,
+    # validate_sacp_oauth_refresh_token_ttl_days,
+    # validate_sacp_oauth_auth_code_ttl_seconds,
+    # validate_sacp_oauth_client_registration_mode,
+    # validate_sacp_oauth_static_token_grace_days,
+    # validate_sacp_oauth_step_up_freshness_seconds,
+    # validate_sacp_oauth_revocation_propagation_seconds,
+    # validate_sacp_oauth_signing_key_path,
+    # validate_sacp_oauth_failed_pkce_threshold,
+    # validate_sacp_oauth_cimd_allowed_hosts,
+    # validate_sacp_mcp_token_cache_ttl_seconds,          # FR-094 analysis I1
+    # validate_sacp_oauth_previous_signing_key_path,      # optional rotation key
 )
 
 

@@ -30,6 +30,11 @@ allowed-values:
   # specs/026-context-compression/contracts/env-vars.md and is the public
   # operator-facing name of the Phase 2 master switch.
   - "SACP_COMPRESSION_PHASE2_ENABLED"
+  # Spec 030 Phase 5 onboarding-doc placeholder prefix (FR-121). All sample
+  # bearer tokens in docs/participant-onboarding*.md use the form
+  # SACP_DOC_EXAMPLE_<32-char alphanumeric> so they are unambiguously
+  # recognisable as placeholders. The prefix itself is not a secret.
+  - "SACP_DOC_EXAMPLE_"
 
 git:
   all-branches: true

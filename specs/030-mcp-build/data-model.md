@@ -277,7 +277,7 @@ Indexes:
 
 ### Migration considerations
 
-- Alembic revision slot must be pre-allocated at PR-spawn time per `feedback_parallel_merge_sequence_collisions`. Slot follows whatever the previous migration's revision was at Phase 4 PR open time.
+- Alembic revision: `022_oauth_state_tables.py` with `revision = "022"`, `down_revision = "021"`. The chain is `... → 019 → 021 → 022`; revision 020 was intentionally skipped in an earlier migration batch. Pre-allocated 2026-05-13.
 - `tests/conftest.py` schema mirror updated alongside the migration per `feedback_test_schema_mirror`.
 - No data migration for existing data; the tables start empty and populate as OAuth flows complete.
 
