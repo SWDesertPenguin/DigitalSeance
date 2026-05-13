@@ -7,13 +7,13 @@
 
 Phase 1 back-fill that replaces the existing 78-line `CircuitBreaker` class (consecutive-failure counter, no audit log, no sliding window, no probe recovery) with a full three-state per-participant circuit breaker. The new implementation is keyed on `(session_id, participant_id, provider, api_key_fingerprint)`, uses a ring-buffer sliding-window failure count, transitions through closed / open / half_open states, issues recovery probes on a configurable backoff schedule, audit-logs every state transition into `admin_audit_log`, and exposes aggregate breaker state in the metrics surface. When all four env vars are unset the behavior is byte-identical to the pre-feature baseline (no implicit defaults).
 
-Technical approach: replace `src/orchestrator/circuit_breaker.py` in-place with the full state machine; wire the new keyed check and failure-recording call sites into the existing `loop.py` dispatch path; add four env-var validators and `docs/env-vars.md` sections as the V16 gate; ship one alembic migration (022) adding three audit tables for open/probe/close events; update `tests/conftest.py` to mirror the new tables; add test files per user story.
+Technical approach: replace `src/orchestrator/circuit_breaker.py` in-place with the full state machine; wire the new keyed check and failure-recording call sites into the existing `loop.py` dispatch path; add four env-var validators and `docs/env-vars.md` sections as the V16 gate; ship one alembic migration (023) adding three audit tables for open/probe/close events; update `tests/conftest.py` to mirror the new tables; add test files per user story.
 
 ## Technical Context
 
 **Language/Version**: Python 3.14.4 (per Constitution §6.8 slim-bookworm).
 **Primary Dependencies**: FastAPI, asyncpg, alembic, pydantic, pytest. No new runtime dependencies — the circuit breaker is orchestrator-internal; `CanonicalError` categories already defined in `src/api_bridge/adapter.py` + `src/api_bridge/litellm/errors.py`.
-**Storage**: PostgreSQL 16. One new alembic migration (022) adds three append-only audit tables: `provider_circuit_open_log`, `provider_circuit_probe_log`, `provider_circuit_close_log`. In-memory `CircuitState` per session — not persisted across restart (session-local model per spec §Assumptions). `tests/conftest.py` schema mirror updated per `feedback_test_schema_mirror`.
+**Storage**: PostgreSQL 16. One new alembic migration (023) adds three append-only audit tables: `provider_circuit_open_log`, `provider_circuit_probe_log`, `provider_circuit_close_log`. In-memory `CircuitState` per session — not persisted across restart (session-local model per spec §Assumptions). `tests/conftest.py` schema mirror updated per `feedback_test_schema_mirror`.
 **Testing**: pytest with the existing per-test FastAPI fixture. DB-gated tests follow the conftest schema-mirror pattern.
 **Target Platform**: Linux server (Docker Compose, Debian slim-bookworm).
 **Project Type**: Web service (single project; existing `src/` + `tests/` layout).
@@ -88,7 +88,7 @@ src/
 |                                   #   SACP_PROVIDER_PROBE_TIMEOUT_S)
 
 alembic/versions/
-+-- 022_circuit_breaker_audit.py    # NEW: 3 append-only audit tables
++-- 023_circuit_breaker_audit.py    # NEW: 3 append-only audit tables
 
 tests/
 +-- conftest.py                     # mirror new audit tables in raw DDL
@@ -101,7 +101,7 @@ docs/
 +-- env-vars.md                     # add 4 new sections (V16 gate; FR-014)
 ```
 
-**Structure Decision**: Single Python service (existing `src/` + `tests/` layout). `circuit_breaker.py` is replaced in-place rather than introducing a new module; the existing import in `loop.py` and the existing call sites continue to work through the same module path. The three audit tables ship in a single migration (022) to keep the chain atomic.
+**Structure Decision**: Single Python service (existing `src/` + `tests/` layout). `circuit_breaker.py` is replaced in-place rather than introducing a new module; the existing import in `loop.py` and the existing call sites continue to work through the same module path. The three audit tables ship in a single migration (023) to keep the chain atomic.
 
 ## Complexity Tracking
 
@@ -153,7 +153,7 @@ Output: [research.md](./research.md) with one decision section per open question
 ## Notes for `/speckit.tasks`
 
 - Task list MUST gate the V16 deliverable (4 validators registered in `VALIDATORS` tuple + `docs/env-vars.md` sections) BEFORE any US-phase code work per FR-014.
-- The alembic migration 022 AND `tests/conftest.py` schema-mirror update MUST land together in a single task (memory: `feedback_test_schema_mirror` — CI builds schema from conftest, not migrations).
+- The alembic migration 023 AND `tests/conftest.py` schema-mirror update MUST land together in a single task (memory: `feedback_test_schema_mirror` — CI builds schema from conftest, not migrations).
 - Paired-var validation (threshold + window must both be set or both unset) is a cross-validator dependency; the cross-check validator function runs AFTER both individual validators in the `VALIDATORS` tuple ordering.
 - `circuit_breaker.py` is a replacement, not an addition. The existing import path `from src.orchestrator.circuit_breaker import CircuitBreaker` must continue to resolve; the new `CircuitBreaker` class signature MAY change (new key parameters) — confirm `loop.py` call sites are updated atomically in the same task as the replacement.
 - SC-005 regression test (env vars unset = byte-identical baseline) should land early to catch any unintended default activation.

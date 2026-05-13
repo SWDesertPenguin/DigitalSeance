@@ -54,7 +54,7 @@ Single project, paths under repo root. Backend code under [src/](src/); tests un
 
 ### Schema migration + conftest mirror (single landing per memory feedback_test_schema_mirror)
 
-- [ ] T014 Generate alembic migration `022_circuit_breaker_audit.py` in [alembic/versions/](alembic/versions/) per [data-model.md](specs/015-provider-failure-detection/data-model.md): three append-only audit tables (`provider_circuit_open_log`, `provider_circuit_probe_log`, `provider_circuit_close_log`) with the columns and indexes in data-model.md. `down_revision = "021"`. AND mirror all three table DDLs into [tests/conftest.py](tests/conftest.py) raw schema in the same task. No `upgrade` / `downgrade` calls to existing tables -- pure additions.
+- [ ] T014 Generate alembic migration `023_circuit_breaker_audit.py` in [alembic/versions/](alembic/versions/) per [data-model.md](specs/015-provider-failure-detection/data-model.md): three append-only audit tables (`provider_circuit_open_log`, `provider_circuit_probe_log`, `provider_circuit_close_log`) with the columns and indexes in data-model.md. `down_revision = "021"`. AND mirror all three table DDLs into [tests/conftest.py](tests/conftest.py) raw schema in the same task. No `upgrade` / `downgrade` calls to existing tables -- pure additions.
 
 **Checkpoint**: V16 gate green; schema migration + conftest mirror landed. User-story phases unblocked.
 

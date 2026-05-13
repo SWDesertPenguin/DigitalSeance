@@ -47,7 +47,7 @@ Stored in `CircuitState.failure_window` (a `collections.deque`). Entries older t
 
 ## DB Audit Tables (append-only, no UPDATE/DELETE)
 
-Migration: `alembic/versions/022_circuit_breaker_audit.py`
+Migration: `alembic/versions/023_circuit_breaker_audit.py`
 
 ### provider_circuit_open_log
 
@@ -124,12 +124,10 @@ Per `feedback_test_schema_mirror`: the three table DDLs above MUST be added to t
 ## Migration chain
 
 ```
-... -> 019 -> 021 -> 022
+... -> 019 -> 021 -> 023
 ```
 
-019 is the current head. 021 (`participant_standby_modes`, spec 027) has `down_revision = "019"`. Migration 022 for this spec has `down_revision = "021"` — it chains after 021 in the sequence. The file is named `022_circuit_breaker_audit.py`.
-
-Note: revision numbers 020 is absent from the chain (no file in `alembic/versions/`). Number 022 is the next available slot and is used by this spec.
+Current head on main is 021 (`participant_standby_modes`). Revision 022 is pre-allocated by spec 030 Phase 4 (`022_oauth_state_tables.py`). This spec uses 023 (`023_circuit_breaker_audit.py`, `down_revision = "021"`). If spec 030 merges before this spec, update `down_revision` to `"022"` for a clean linear chain. If this spec merges first, a merge migration will be needed when spec 030 lands. Note: revision 020 is intentionally absent from the chain.
 
 ---
 
