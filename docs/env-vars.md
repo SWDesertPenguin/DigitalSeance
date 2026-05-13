@@ -879,6 +879,136 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool pagination ceiling)
 - **Note**: Hard ceiling for page_size on any paginated MCP tool response. Callers requesting more receive the ceiling value, not an error.
 
+### `SACP_OAUTH_ENABLED`
+
+- **Default**: `false`
+- **Type**: boolean (`true`/`false`)
+- **Valid range**: `true` or `false`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_enabled`
+- **Source spec(s)**: 030 Phase 4 FR-088 (OAuth 2.1 master switch)
+- **Note**: Master switch for the OAuth 2.1 + PKCE authorization server. When `true`, `SACP_OAUTH_SIGNING_KEY_PATH` must point to a readable ES256 PEM private key or startup exits.
+
+### `SACP_OAUTH_ACCESS_TOKEN_TTL_MINUTES`
+
+- **Default**: `60`
+- **Type**: positive integer (minutes)
+- **Valid range**: `5 <= value <= 1440` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_access_token_ttl_minutes`
+- **Source spec(s)**: 030 Phase 4 FR-088 (JWT access token lifetime)
+- **Note**: Lifetime of issued JWT access tokens. Shorter values limit blast radius of compromised tokens.
+
+### `SACP_OAUTH_REFRESH_TOKEN_TTL_DAYS`
+
+- **Default**: `30`
+- **Type**: positive integer (days)
+- **Valid range**: `1 <= value <= 365` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_refresh_token_ttl_days`
+- **Source spec(s)**: 030 Phase 4 FR-088 (opaque refresh token lifetime)
+- **Note**: Lifetime of issued opaque refresh tokens. Refresh tokens are Fernet-encrypted at rest and indexed by SHA-256 hash.
+
+### `SACP_OAUTH_AUTH_CODE_TTL_SECONDS`
+
+- **Default**: `60`
+- **Type**: positive integer (seconds)
+- **Valid range**: `10 <= value <= 600` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_auth_code_ttl_seconds`
+- **Source spec(s)**: 030 Phase 4 FR-088 (PKCE authorization code lifetime)
+- **Note**: Lifetime of short-lived PKCE authorization codes. Codes are single-use; this TTL prevents stale codes from replay.
+
+### `SACP_OAUTH_CLIENT_REGISTRATION_MODE`
+
+- **Default**: `allowlist`
+- **Type**: enum
+- **Valid range**: `open`, `allowlist`, or `closed`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_client_registration_mode`
+- **Source spec(s)**: 030 Phase 4 FR-088 (CIMD client registration policy)
+- **Note**: Controls CIMD-based client registration. `open` accepts all, `allowlist` restricts to `SACP_OAUTH_CIMD_ALLOWED_HOSTS` domains, `closed` rejects all new registrations.
+
+### `SACP_OAUTH_STATIC_TOKEN_GRACE_DAYS`
+
+- **Default**: `90`
+- **Type**: non-negative integer (days)
+- **Valid range**: `0 <= value <= 365` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_static_token_grace_days`
+- **Source spec(s)**: 030 Phase 4 FR-088 (static token migration grace period)
+- **Note**: Days after first migration-prompt before static bearer tokens on the MCP endpoint are hard-rejected. 0 means immediate rejection after first prompt. The participant_api static token path is unaffected.
+
+### `SACP_OAUTH_STEP_UP_FRESHNESS_SECONDS`
+
+- **Default**: `300`
+- **Type**: positive integer (seconds)
+- **Valid range**: `30 <= value <= 3600` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_step_up_freshness_seconds`
+- **Source spec(s)**: 030 Phase 4 FR-088 (step-up auth freshness window)
+- **Note**: Freshness window for step-up authentication on destructive tools (admin.transfer_facilitator, admin.archive_session, admin.mass_revoke_tokens, session.delete). If auth_time in the JWT is older than this value, step-up is required.
+
+### `SACP_OAUTH_REVOCATION_PROPAGATION_SECONDS`
+
+- **Default**: `5`
+- **Type**: positive integer (seconds)
+- **Valid range**: `1 <= value <= 60` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_revocation_propagation_seconds`
+- **Source spec(s)**: 030 Phase 4 FR-088 (revocation propagation SLA)
+- **Note**: Aspirational SLA for revocation events to propagate to active MCP transport connections. Bounded by `SACP_MCP_TOKEN_CACHE_TTL_SECONDS`.
+
+### `SACP_OAUTH_SIGNING_KEY_PATH`
+
+- **Default**: (none — required when `SACP_OAUTH_ENABLED=true`)
+- **Type**: filesystem path
+- **Valid range**: readable file when set
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_signing_key_path`
+- **Source spec(s)**: 030 Phase 4 FR-088 (ES256 signing key)
+- **Note**: Path to the ES256 PEM private key used to sign JWT access tokens. Required when OAuth is enabled. Startup exits with a clear error if the path is unset or unreadable.
+
+### `SACP_OAUTH_FAILED_PKCE_THRESHOLD`
+
+- **Default**: `10`
+- **Type**: positive integer
+- **Valid range**: `1 <= value <= 1000` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_failed_pkce_threshold`
+- **Source spec(s)**: 030 Phase 4 FR-088 (PKCE brute-force protection)
+- **Note**: Per-client threshold for failed PKCE verifier attempts before a temporary block is applied. Protects against brute-force code_challenge enumeration per FR-072.
+
+### `SACP_OAUTH_CIMD_ALLOWED_HOSTS`
+
+- **Default**: `""` (empty — all hosts permitted in open mode)
+- **Type**: comma-separated list of hostnames
+- **Valid range**: valid hostname labels
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_cimd_allowed_hosts`
+- **Source spec(s)**: 030 Phase 4 FR-088 (CIMD allowlist)
+- **Note**: Allowlist of hostname labels for CIMD URL validation when `SACP_OAUTH_CLIENT_REGISTRATION_MODE=allowlist`. Empty means all hosts are allowed in `open` mode. Irrelevant in `closed` mode.
+
+### `SACP_MCP_TOKEN_CACHE_TTL_SECONDS`
+
+- **Default**: `5`
+- **Type**: positive integer (seconds)
+- **Valid range**: `1 <= value <= 30` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_token_cache_ttl_seconds`
+- **Source spec(s)**: 030 Phase 4 FR-094 (JWT validation cache TTL)
+- **Note**: Per-instance JWT validation cache TTL. Revocations propagate within this window. Lower values reduce revocation latency at the cost of more DB lookups on cache miss.
+
+### `SACP_OAUTH_PREVIOUS_SIGNING_KEY_PATH`
+
+- **Default**: (none — optional)
+- **Type**: filesystem path
+- **Valid range**: readable file if set
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_previous_signing_key_path`
+- **Source spec(s)**: 030 Phase 4 FR-088 (key rotation fallback)
+- **Note**: Optional path to the previous ES256 PEM private key used as a fallback verification key during key rotation. Not required; validated only when set.
+
 ## CI enforcement
 
 `scripts/check_env_vars.py` (per spec 012 FR-005):

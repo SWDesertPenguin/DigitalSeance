@@ -45,6 +45,10 @@ dependencies = [
     # Pinned per Constitution §6.3; version-bump policy in docs/dependency-policy.md.
     # SDK provides wire-format envelope handling + initialize capability negotiation.
     "mcp==1.27.1",
+    # Spec 030 Phase 4: ES256 JWT signing + verification for OAuth 2.1 access tokens.
+    # Pinned per Constitution §6.3. The [crypto] extra is required for EC key support
+    # (cryptography package already present via spec 023 argon2/Fernet path).
+    "PyJWT[crypto]==2.12.1",
 ]
 
 [project.optional-dependencies]

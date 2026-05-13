@@ -46,6 +46,18 @@ async def _run() -> None:
         from src.mcp_protocol.transport import mcp_router
 
         mcp_app.include_router(mcp_router)
+    if os.environ.get("SACP_OAUTH_ENABLED", "false").lower() == "true":
+        from src.mcp_protocol.auth.authorization_server import auth_router
+        from src.mcp_protocol.auth.cimd_endpoint import cimd_router
+        from src.mcp_protocol.auth.discovery_metadata import oauth_discovery_router
+        from src.mcp_protocol.auth.revocation_endpoint import revocation_router
+        from src.mcp_protocol.auth.token_endpoint import token_router
+
+        mcp_app.include_router(auth_router)
+        mcp_app.include_router(token_router)
+        mcp_app.include_router(revocation_router)
+        mcp_app.include_router(oauth_discovery_router)
+        mcp_app.include_router(cimd_router)
     web_app = create_web_app()
     mcp = _server(mcp_app, port=8750)
     web = _server(web_app, port=8751)

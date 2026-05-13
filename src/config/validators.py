@@ -1887,6 +1887,333 @@ def validate_sacp_mcp_tool_pagination_max_size() -> ValidationFailure | None:
     return None
 
 
+def validate_sacp_oauth_enabled() -> ValidationFailure | None:
+    """SACP_OAUTH_ENABLED: bool, default 'false'. 030 Phase 4 FR-088.
+
+    Master switch for the OAuth 2.1 + PKCE authorization server. When 'true',
+    SACP_OAUTH_SIGNING_KEY_PATH must point to a readable ES256 PEM private key.
+    """
+    val = os.environ.get("SACP_OAUTH_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val.lower() not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_OAUTH_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_oauth_access_token_ttl_minutes() -> ValidationFailure | None:
+    """SACP_OAUTH_ACCESS_TOKEN_TTL_MINUTES: int [5, 1440], default 60. 030 Phase 4 FR-088.
+
+    Lifetime of issued JWT access tokens in minutes. Shorter values limit
+    the blast radius of a compromised token; longer values reduce client
+    refresh frequency.
+    """
+    val = os.environ.get("SACP_OAUTH_ACCESS_TOKEN_TTL_MINUTES")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_OAUTH_ACCESS_TOKEN_TTL_MINUTES",
+            f"must be integer; got {val!r}",
+        )
+    if not 5 <= num <= 1440:
+        return ValidationFailure(
+            "SACP_OAUTH_ACCESS_TOKEN_TTL_MINUTES",
+            f"must be in [5, 1440]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_refresh_token_ttl_days() -> ValidationFailure | None:
+    """SACP_OAUTH_REFRESH_TOKEN_TTL_DAYS: int [1, 365], default 30. 030 Phase 4 FR-088.
+
+    Lifetime of issued opaque refresh tokens in days.
+    """
+    val = os.environ.get("SACP_OAUTH_REFRESH_TOKEN_TTL_DAYS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_OAUTH_REFRESH_TOKEN_TTL_DAYS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 365:
+        return ValidationFailure(
+            "SACP_OAUTH_REFRESH_TOKEN_TTL_DAYS",
+            f"must be in [1, 365]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_auth_code_ttl_seconds() -> ValidationFailure | None:
+    """SACP_OAUTH_AUTH_CODE_TTL_SECONDS: int [10, 600], default 60. 030 Phase 4 FR-088.
+
+    Lifetime of short-lived PKCE authorization codes in seconds. Codes are
+    single-use; this TTL prevents stale codes from being replayed.
+    """
+    val = os.environ.get("SACP_OAUTH_AUTH_CODE_TTL_SECONDS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_OAUTH_AUTH_CODE_TTL_SECONDS",
+            f"must be integer; got {val!r}",
+        )
+    if not 10 <= num <= 600:
+        return ValidationFailure(
+            "SACP_OAUTH_AUTH_CODE_TTL_SECONDS",
+            f"must be in [10, 600]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_client_registration_mode() -> ValidationFailure | None:
+    """SACP_OAUTH_CLIENT_REGISTRATION_MODE: enum, default 'allowlist'. 030 Phase 4 FR-088.
+
+    Controls how CIMD-based client registrations are accepted:
+    'open' accepts all, 'allowlist' restricts to operator-configured domains,
+    'closed' rejects all new registrations.
+    """
+    val = os.environ.get("SACP_OAUTH_CLIENT_REGISTRATION_MODE")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("open", "allowlist", "closed"):
+        return ValidationFailure(
+            "SACP_OAUTH_CLIENT_REGISTRATION_MODE",
+            f"must be 'open', 'allowlist', or 'closed'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_oauth_static_token_grace_days() -> ValidationFailure | None:
+    """SACP_OAUTH_STATIC_TOKEN_GRACE_DAYS: int [0, 365], default 90. 030 Phase 4 FR-088.
+
+    Days after first migration-prompt before static tokens on the MCP endpoint
+    are hard-rejected. 0 means immediate rejection after first prompt.
+    """
+    val = os.environ.get("SACP_OAUTH_STATIC_TOKEN_GRACE_DAYS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_OAUTH_STATIC_TOKEN_GRACE_DAYS",
+            f"must be integer; got {val!r}",
+        )
+    if not 0 <= num <= 365:
+        return ValidationFailure(
+            "SACP_OAUTH_STATIC_TOKEN_GRACE_DAYS",
+            f"must be in [0, 365]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_step_up_freshness_seconds() -> ValidationFailure | None:
+    """SACP_OAUTH_STEP_UP_FRESHNESS_SECONDS: int [30, 3600], default 300. 030 Phase 4 FR-088.
+
+    Freshness window in seconds for step-up authentication on destructive tools.
+    If auth_time in the JWT is older than this value, step-up is required.
+    """
+    val = os.environ.get("SACP_OAUTH_STEP_UP_FRESHNESS_SECONDS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_OAUTH_STEP_UP_FRESHNESS_SECONDS",
+            f"must be integer; got {val!r}",
+        )
+    if not 30 <= num <= 3600:
+        return ValidationFailure(
+            "SACP_OAUTH_STEP_UP_FRESHNESS_SECONDS",
+            f"must be in [30, 3600]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_revocation_propagation_seconds() -> ValidationFailure | None:
+    """SACP_OAUTH_REVOCATION_PROPAGATION_SECONDS: int [1, 60], default 5. 030 Phase 4 FR-088.
+
+    Target SLA in seconds for revocation events to propagate to active MCP
+    transport connections. Bounded by the JWT cache TTL.
+    """
+    val = os.environ.get("SACP_OAUTH_REVOCATION_PROPAGATION_SECONDS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_OAUTH_REVOCATION_PROPAGATION_SECONDS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 60:
+        return ValidationFailure(
+            "SACP_OAUTH_REVOCATION_PROPAGATION_SECONDS",
+            f"must be in [1, 60]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_signing_key_path() -> ValidationFailure | None:
+    """SACP_OAUTH_SIGNING_KEY_PATH: path, no default. Required when OAUTH_ENABLED=true. 030 Phase 4.
+
+    Filesystem path to the ES256 PEM private key used to sign JWT access tokens.
+    Required when SACP_OAUTH_ENABLED=true; must be a readable file.
+    """
+    oauth_enabled = os.environ.get("SACP_OAUTH_ENABLED", "false").lower() == "true"
+    val = os.environ.get("SACP_OAUTH_SIGNING_KEY_PATH")
+    if not oauth_enabled:
+        return None
+    if val is None or val.strip() == "":
+        return ValidationFailure(
+            "SACP_OAUTH_SIGNING_KEY_PATH",
+            "required when SACP_OAUTH_ENABLED=true; no path set",
+        )
+    import pathlib
+
+    p = pathlib.Path(val.strip())
+    if not p.exists():
+        return ValidationFailure(
+            "SACP_OAUTH_SIGNING_KEY_PATH",
+            f"file does not exist: {val!r}",
+        )
+    if not p.is_file():
+        return ValidationFailure(
+            "SACP_OAUTH_SIGNING_KEY_PATH",
+            f"path is not a regular file: {val!r}",
+        )
+    try:
+        p.read_bytes()
+    except OSError as exc:
+        return ValidationFailure(
+            "SACP_OAUTH_SIGNING_KEY_PATH",
+            f"not readable: {exc}",
+        )
+    return None
+
+
+def validate_sacp_oauth_failed_pkce_threshold() -> ValidationFailure | None:
+    """SACP_OAUTH_FAILED_PKCE_THRESHOLD: int [1, 1000], default 10. 030 Phase 4 FR-088.
+
+    Per-client threshold for failed PKCE verifier attempts before a temporary
+    block is applied. Protects against brute-force code_challenge enumeration.
+    """
+    val = os.environ.get("SACP_OAUTH_FAILED_PKCE_THRESHOLD")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_OAUTH_FAILED_PKCE_THRESHOLD",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 1000:
+        return ValidationFailure(
+            "SACP_OAUTH_FAILED_PKCE_THRESHOLD",
+            f"must be in [1, 1000]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_cimd_allowed_hosts() -> ValidationFailure | None:
+    """SACP_OAUTH_CIMD_ALLOWED_HOSTS: csv-of-hostnames, default '' (empty=all). 030 Phase 4 FR-088.
+
+    Comma-separated list of allowed hostname labels for CIMD URL validation
+    when registration mode is 'allowlist'. Empty means all hosts are permitted
+    in 'open' mode; irrelevant in 'closed' mode.
+    """
+    val = os.environ.get("SACP_OAUTH_CIMD_ALLOWED_HOSTS")
+    if val is None or val.strip() == "":
+        return None
+    import re as _re
+
+    _hostname_re = _re.compile(
+        r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?"
+        r"(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$"
+    )
+    for raw in val.split(","):
+        host = raw.strip()
+        if not host:
+            continue
+        if not _hostname_re.match(host):
+            return ValidationFailure(
+                "SACP_OAUTH_CIMD_ALLOWED_HOSTS",
+                f"invalid hostname in list: {host!r}",
+            )
+    return None
+
+
+def validate_sacp_mcp_token_cache_ttl_seconds() -> ValidationFailure | None:
+    """SACP_MCP_TOKEN_CACHE_TTL_SECONDS: int [1, 30], default 5. 030 Phase 4 FR-094.
+
+    Per-instance JWT validation cache TTL in seconds. Revocations propagate
+    within this window; lower values reduce revocation latency at the cost of
+    more DB round-trips.
+    """
+    val = os.environ.get("SACP_MCP_TOKEN_CACHE_TTL_SECONDS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_TOKEN_CACHE_TTL_SECONDS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 30:
+        return ValidationFailure(
+            "SACP_MCP_TOKEN_CACHE_TTL_SECONDS",
+            f"must be in [1, 30]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_previous_signing_key_path() -> ValidationFailure | None:
+    """SACP_OAUTH_PREVIOUS_SIGNING_KEY_PATH: path, optional. 030 Phase 4 FR-088.
+
+    Filesystem path to the previous ES256 PEM private key for verification
+    during key rotation. Used as a fallback verification key when the primary
+    key cannot verify a token. Not required; only validated when set.
+    """
+    val = os.environ.get("SACP_OAUTH_PREVIOUS_SIGNING_KEY_PATH")
+    if val is None or val.strip() == "":
+        return None
+    import pathlib
+
+    p = pathlib.Path(val.strip())
+    if not p.exists():
+        return ValidationFailure(
+            "SACP_OAUTH_PREVIOUS_SIGNING_KEY_PATH",
+            f"file does not exist: {val!r}",
+        )
+    if not p.is_file():
+        return ValidationFailure(
+            "SACP_OAUTH_PREVIOUS_SIGNING_KEY_PATH",
+            f"path is not a regular file: {val!r}",
+        )
+    try:
+        p.read_bytes()
+    except OSError as exc:
+        return ValidationFailure(
+            "SACP_OAUTH_PREVIOUS_SIGNING_KEY_PATH",
+            f"not readable: {exc}",
+        )
+    return None
+
+
 def validate_scratch_retention_days_after_archive() -> ValidationFailure | None:
     """SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE: empty OR int in [1, 36500]. 024 §FR-018 / FR-022.
 
@@ -2006,19 +2333,19 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_sacp_mcp_tool_pagination_default_size,
     validate_sacp_mcp_tool_pagination_max_size,
     # ── spec 030 Phase 4 (OAuth 2.1 + PKCE) ── FR-088, FR-094 ─────────────
-    # validate_sacp_oauth_enabled,
-    # validate_sacp_oauth_access_token_ttl_minutes,
-    # validate_sacp_oauth_refresh_token_ttl_days,
-    # validate_sacp_oauth_auth_code_ttl_seconds,
-    # validate_sacp_oauth_client_registration_mode,
-    # validate_sacp_oauth_static_token_grace_days,
-    # validate_sacp_oauth_step_up_freshness_seconds,
-    # validate_sacp_oauth_revocation_propagation_seconds,
-    # validate_sacp_oauth_signing_key_path,
-    # validate_sacp_oauth_failed_pkce_threshold,
-    # validate_sacp_oauth_cimd_allowed_hosts,
-    # validate_sacp_mcp_token_cache_ttl_seconds,          # FR-094 analysis I1
-    # validate_sacp_oauth_previous_signing_key_path,      # optional rotation key
+    validate_sacp_oauth_enabled,
+    validate_sacp_oauth_access_token_ttl_minutes,
+    validate_sacp_oauth_refresh_token_ttl_days,
+    validate_sacp_oauth_auth_code_ttl_seconds,
+    validate_sacp_oauth_client_registration_mode,
+    validate_sacp_oauth_static_token_grace_days,
+    validate_sacp_oauth_step_up_freshness_seconds,
+    validate_sacp_oauth_revocation_propagation_seconds,
+    validate_sacp_oauth_signing_key_path,
+    validate_sacp_oauth_failed_pkce_threshold,
+    validate_sacp_oauth_cimd_allowed_hosts,
+    validate_sacp_mcp_token_cache_ttl_seconds,
+    validate_sacp_oauth_previous_signing_key_path,
 )
 
 
