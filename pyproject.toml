@@ -41,6 +41,12 @@ dependencies = [
     # §6.3; the wrapping module src/accounts/hashing.py owns the only
     # call sites so a future swap stays internal-architecture.
     "argon2-cffi>=25.1.0,<26.0.0",
+    # Spec 016: Prometheus-format metrics surface. Pinned per Constitution
+    # §6.3 to the latest stable release as of 2026-05-13. The isolated
+    # CollectorRegistry pattern keeps SACP metrics separate from any
+    # process-default registry; generate_latest() produces standard text
+    # format (MIME text/plain; version=0.0.4) for external scrapers.
+    "prometheus-client==0.25.0",
 ]
 
 [project.optional-dependencies]

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `016-prometheus-metrics`
 **Created**: 2026-05-06
-**Status**: Draft
+**Status**: Implemented 2026-05-13
 **Input**: User description: "Operational observability for SACP via Prometheus-format metrics. Operators running SACP need visibility into per-participant token spend, per-provider health, per-session conversation quality (convergence drift), routing-decision patterns, and rate-limit rejections. Without these signals, debugging production sessions or diagnosing budget anomalies requires reading raw audit logs, which does not scale. The metrics surface must respect SACP's privacy and sovereignty constraints: no metric label may carry participant-private state (model name, key fragments, message content). Label cardinality must be bounded at session scope so long-running deployments do not blow out the metrics database. The /metrics endpoint participates in the rate-limit exemption set alongside /health. Phase 1 scope covers operational debugging metrics. Phase 2 extends with Web UI dashboard panels. Cross-references §7.6 (privacy boundaries) and the cost-tracking and routing subsystems already in sacp-design.md."
 
 ## Overview
@@ -87,6 +87,18 @@ visualization layer only).
   exposure controlled by the deployer (per §7.4 "remote access for
   participants"). [NEEDS CLARIFICATION: confirm `/metrics` does
   not require its own bearer token or scrape credential.]
+
+### Session 2026-05-13
+
+All four markers resolved as drafted:
+
+1. **§7.6 vs §7.2 dual cross-reference** — accepted as drafted. Both §7.2 (Participant Privacy — field visibility model) and §7.6 (AI-Specific Security — no-message-content-in-labels) are intentionally cited. The dual cross-reference is correct; no change needed.
+
+2. **Model name excluded from labels** — confirmed. Model name is excluded from all metric labels even though §7.2 classifies it as a public field. The cardinality argument (model identifiers are an unbounded string set) independently justifies exclusion; the user's stricter privacy stance reinforces it. FR-004 stands as written.
+
+3. **Phase labeling** — confirmed as Phase 3 backfill. Phases 1 and 2 are closed; this spec lands in the Phase 3 timeline on the `016-prometheus-metrics` branch. The "Phase 2 Web UI dashboard" follow-up noted in user input is a separate future spec captured in local memory only; it is not in scope here.
+
+4. **Authentication on `/metrics`** — confirmed. No bearer token or scrape credential required at the application layer. The endpoint inherits the same TLS + network-exposure model as `/health` (§7.4). Operators control access via network policy; SACP adds no additional application-layer auth gate on the metrics path.
 
 ## User Scenarios & Testing *(mandatory)*
 

@@ -739,6 +739,33 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Source spec(s)**: 015 §FR-006, §FR-014
 - **Note**: Wraps the `validate_credentials()` probe call with `asyncio.wait_for`. A probe that exceeds this timeout counts as a failed probe and keeps the breaker open (conservative / fail-closed). Independent of the two threshold/window vars.
 
+### `SACP_METRICS_ENABLED`
+
+- **Default**: `false` (metrics endpoint not registered)
+- **Type**: boolean (`true`/`false` case-insensitive, or `1`/`0`)
+- **Valid range**: `true`, `false`, `1`, `0` (case-insensitive)
+- **Fail-closed semantics**: unset or `false` means the `/metrics` route is absent and no metric collection overhead occurs. Unparseable values cause startup exit per V16.
+- **Validation rule**: `validators.validate_metrics_enabled`
+- **Source spec(s)**: 016 §FR-001, §FR-007
+
+### `SACP_METRICS_SESSION_GRACE_S`
+
+- **Default**: `30` (one standard Prometheus scrape interval)
+- **Type**: positive integer (seconds)
+- **Valid range**: `5 <= value <= 300`
+- **Fail-closed semantics**: unset means default 30. Out-of-range values cause startup exit per V16. Values below 5 may not allow a final scrape before eviction; values above 300 hold cardinality open too long.
+- **Validation rule**: `validators.validate_metrics_session_grace_s`
+- **Source spec(s)**: 016 §FR-006
+
+### `SACP_METRICS_BIND_PATH`
+
+- **Default**: `/metrics`
+- **Type**: string (URL path)
+- **Valid range**: must start with `/`; after the leading slash, only alphanumeric characters and dashes are allowed; must not collide with existing routes (`/health`, `/healthz`)
+- **Fail-closed semantics**: unset means `/metrics`. Path colliding with an existing route causes startup exit per V16.
+- **Validation rule**: `validators.validate_metrics_bind_path`
+- **Source spec(s)**: 016 §FR-001
+
 ## CI enforcement
 
 `scripts/check_env_vars.py` (per spec 012 FR-005):

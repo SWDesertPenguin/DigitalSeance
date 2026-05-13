@@ -16,6 +16,8 @@ from fastapi.responses import JSONResponse
 from src.api_bridge.adapter import initialize_adapter
 from src.config import load_settings
 from src.database.connection import close_pool, create_pool
+from src.mcp_server.metrics_router import is_metrics_enabled
+from src.mcp_server.metrics_router import router as metrics_router
 from src.mcp_server.sse import get_connection_manager
 from src.mcp_server.sse_router import router as sse_router
 from src.mcp_server.tools.admin import is_audit_viewer_enabled
@@ -247,6 +249,11 @@ def _include_routers(app: FastAPI) -> None:
     if is_detection_history_enabled():
         app.include_router(detection_events_router)
     _maybe_include_scratch_router(app)
+    # Spec 016 §FR-001 / FR-007 -- metrics surface gated by SACP_METRICS_ENABLED.
+    # When disabled (default), the route is absent and /metrics returns HTTP 404
+    # from route absence -- byte-identical to the pre-feature baseline (SC-005).
+    if is_metrics_enabled():
+        app.include_router(metrics_router)
 
 
 def _maybe_include_scratch_router(app: FastAPI) -> None:
