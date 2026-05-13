@@ -2,7 +2,7 @@
 
 **Feature Branch**: `030-mcp-build`
 **Created**: 2026-05-13
-**Status**: Draft (Phase 3 prerequisite — five-phase build correcting the misnamed `src/mcp_server/` module and shipping actual MCP protocol support; phases A→B+C→D→E sequence with B+C co-designed)
+**Status**: Clarified + Planned (Phase 3 prerequisite — five-phase build correcting the misnamed `src/mcp_server/` module and shipping actual MCP protocol support; phases A→B+C→D→E sequence with B+C co-designed). Clarifications resolved 2026-05-13 (Session block + follow-up); plan/research/data-model/contracts/quickstart/tasks all shipped.
 **Input**: User description: "The repo's `src/mcp_server/` is misnamed — it does not implement the Model Context Protocol. It is SACP's participant-facing FastAPI surface plus a `/sse/{session_id}` SACP turn-event stream. This build is a five-phase sequence that (1) renames the misnamed module to `src/participant_api/` and reserves `src/mcp_protocol/` for the actual MCP layer; (2) implements the MCP protocol over Streamable HTTP per MCP spec revision 2025-11-25 (SSE intentionally skipped — the revision deprecates it); (3) defines the tool surface mapping every public `participant_api` capability to a named, JSON-Schema'd, error-contracted MCP tool with scope binding; (4) layers OAuth 2.1 + PKCE on the MCP endpoint per Constitution §10 Phase 3 roadmap with per-participant token isolation, refresh rotation, discovery metadata, Client ID Metadata Documents, scope binding to phase 3's vocabulary, step-up for destructive actions, and a controlled migration off static tokens; (5) ships participant onboarding documentation deliverables covering the cross-platform overview, Windows-specific gotchas (8.3 short paths, env-var workarounds, PowerShell vs cmd.exe, Defender stall, CRLF vs LF), and macOS-specific gotchas (config-file path, xattr quarantine handling). Phase 1 is pure refactor with no behavior change. Phases 2 and 3 are co-designed. Phase 4 layers OAuth onto phases 2+3. Phase 5 documentation can ship earlier as the SACP participant API docs surface."
 
 ## Overview
@@ -341,7 +341,7 @@ The Constitution §10 Phase 3 roadmap names "OAuth 2.1 with PKCE replaces static
 - **FR-081**: Refresh tokens MUST be encrypted at rest using the existing Phase 1 Fernet pattern (spec 023). The cleartext refresh token is presented to the client once at issuance; the orchestrator stores only the Fernet-encrypted form. Token lookup at the token endpoint uses a per-token hash for indexing.
 - **FR-082**: A migration path MUST be provided for existing static-token participants on the MCP endpoint. The first MCP request from a static-token participant after Phase 4 ships MUST return a migration prompt in the error response pointing the user to the OAuth onboarding flow. The static token MUST continue working during the grace period.
 - **FR-083**: After `SACP_OAUTH_STATIC_TOKEN_GRACE_DAYS` elapse from Phase 4 ship date (or from the per-participant first-prompted date — pin in `/speckit.plan`), static tokens on the MCP endpoint MUST stop validating; requests MUST be rejected with `migration_required`. The SACP participant API (the renamed `src/participant_api/` routers used by the Web UI) MUST continue accepting static tokens regardless of the MCP grace period.
-- **FR-084**: The facilitator scope MUST grant session-governance authority but MUST NOT grant access to participant API keys, wallets, or sponsored-AI credentials owned by other participants. Specifically: `tool:provider` for the facilitator scope MUST NOT include `participant.test_credentials` on a non-self participant's BYOK record. `tool:participant.set_budget` for the facilitator scope MUST NOT include non-sponsored participants' budgets. The sovereignty remediation completes before this phase's `/speckit.tasks` and codifies the exclusions in the scope claim semantics.
+- **FR-084**: The facilitator scope MUST grant session-governance authority but MUST NOT grant access to participant API keys, wallets, or sponsored-AI credentials owned by other participants. Specifically: `tool:provider` for the facilitator scope MUST NOT include `participant.test_credentials` on a non-self participant's BYOK record. `tool:participant.set_budget` for the facilitator scope MUST NOT include non-sponsored participants' budgets. The sponsor scope MUST NOT grant message-injection on the sponsored AI's behalf. These exclusions are codified inline within this spec's implementation (T084, T086, T110 in tasks.md); per Session 2026-05-13 follow-up, no external sovereignty-remediation work item is tracked — the work lives in this build.
 - **FR-085**: Every token issuance, refresh, and revocation event MUST emit an `admin_audit_log` row with `action='token_issued'` / `action='token_refreshed'` / `action='token_revoked'`, the participant id, the client id, the scopes granted, and the token identifier (with the token value scrubbed). Failed events (PKCE mismatch, scope rejection, family-replay) MUST also be logged with a `security_event` row.
 - **FR-086**: Step-up authorization MUST be required for destructive facilitator actions: `admin.transfer_facilitator`, `admin.archive_session`, `admin.mass_revoke_tokens`, `session.delete`. The dispatcher checks the access token's `auth_time` claim against the current time; if the difference exceeds `SACP_OAUTH_STEP_UP_FRESHNESS_SECONDS`, the dispatch returns `step_up_required` and the client must complete a fresh authorization flow.
 - **FR-087**: The orchestrator process MUST exit at startup on invalid OAuth env-var values — invalid TTLs, malformed signing keys, missing required configuration. V15 fail-closed gate observed in CI.
@@ -537,67 +537,114 @@ The Constitution §10 Phase 3 roadmap names "OAuth 2.1 with PKCE replaces static
 - Q: Phase 3 tool naming convention — `domain.action` snake_case vs. camelCase vs. flat snake_case (`session_create`)? → A: `domain.action` snake_case (e.g., `session.create`, `participant.inject_message`). Aligns with existing SACP route shape under `src/mcp_server/tools/` (now `participant_api/tools/`), provides a single readable namespace separator for MCP clients enumerating tools, matches common MCP-tool naming in community examples. Locks FR-038.
 - Q: Phase 4 access-token format — JWT access + opaque refresh vs. fully-opaque vs. fully-JWT? → A: JWT-signed access tokens + opaque refresh tokens stored Fernet-encrypted at rest. JWT access enables stateless per-dispatch validation (no DB round-trip on every `tools/call`) at the cost of slightly delayed revocation — bounded by FR-094's 30-second per-instance cache TTL; opaque refresh keeps the long-lived credential out of any verifier's parsing path AND aligns with spec 023's Fernet-encrypted at-rest pattern (FR-081). Locks FR-097 + FR-081 + AccessToken / RefreshToken key-entities.
 
-### Phase 1 clarifications
+### Session 2026-05-13 (follow-up — remaining clarifications locked with drafted defaults)
 
-- **Target module name `participant_api`.** Resolved per Session 2026-05-13 — `participant_api` confirmed. Rationale captured above.
-- **Namespace for the future MCP module.** Resolved per Session 2026-05-13 — `src/mcp_protocol/` confirmed. Rationale captured above.
-- **Backward-compat alias retention duration.** Drafted: `prime_from_mcp_app()` retained as an alias for one release after rename, then removed. [NEEDS CLARIFICATION: confirm one-release retention vs. immediate removal vs. permanent alias. Internal audit: are there any external callers at all? If none, immediate removal is cleaner.]
-- **Deployment config path audit.** The TrueNAS Dockge stack may reference `src/mcp_server/` paths in volume mounts, entrypoint scripts, or env-var defaults. Drafted: audit both the repo-side `compose.yaml` AND the running-deployment file on TrueNAS. [NEEDS CLARIFICATION: confirm both paths are audited; confirm who applies the deployment-side update.]
-- **Alembic migration impact.** Drafted: alembic revision IDs are not affected. However, any migration that imports from `src.mcp_server` (e.g., for shared constants or enum mirrors) must be updated. [NEEDS CLARIFICATION: confirm migrations contain no module-path references in `down_revision` or related metadata fields; spot-check expected zero hits.]
-- **CI lane parity.** Drafted: the pre-refactor test suite establishes a baseline; the post-refactor suite must match exactly. [NEEDS CLARIFICATION: confirm baseline-capture mechanism (CI run pre-refactor, post-refactor, diff the outputs) vs. trust-the-greens approach.]
+After the top-5 highest-impact pivots above, the remaining clarification markers are locked with their drafted positions confirmed. Each entry below is the canonical resolution; the per-phase clarification blocks that follow this session repeat the same answers for searchability but carry no fresh content.
 
-### Phase 2 clarifications
+- Q: Phase 1 backward-compat alias retention duration? → A: One release (drafted). `prime_from_mcp_app` aliased to `prime_from_participant_api_app` for one release with release-notes flag; removed in the next. No deprecation warning at import time. (Locks FR-004.)
+- Q: Phase 1 deployment config audit scope? → A: Both repo-side `compose.yaml` AND running TrueNAS Dockge stack file at `/mnt/.ix-apps/app_mounts/dockge/stacks/sacp/compose.yaml`. Repo-side updates in the refactor PR; operator applies the TrueNAS update manually per memory `project_deploy_dockge_truenas`. (Locks FR-006.)
+- Q: Phase 1 alembic migration impact verification? → A: Spot-check confirmed; alembic revision IDs and `down_revision` metadata fields contain no module-path references. CI grep guard catches any future drift. (Locks FR-005.)
+- Q: Phase 1 CI baseline-capture mechanism? → A: Run pre-refactor test count + ruff baseline in the PR's CI; post-refactor must match exactly. Trust-the-greens rejected — baseline numbers are explicit per FR-012. (Locks FR-012 + SC-002.)
+- Q: Phase 2 protocol-version negotiation behavior on mismatch? → A: Strict rejection (research.md §6). The `initialize` response advertises 2025-11-25; clients negotiating any other version receive a JSON-RPC 2.0 error naming the supported version. No graceful downgrade. (Locks FR-015.)
+- Q: Phase 2 prompts and resources v1 scope? → A: Out of v1 scope (drafted). `tools` capability family only. `prompts/list` and `resources/list` return -32601. (Locks FR-032 + SC-021.)
+- Q: Phase 2 AI participant access via MCP? → A: AI participants MAY connect via MCP for the subset of tools where `aiAccessible=True` per FR-063 (drafted). The provider-side exclusion (humans excluded from LiteLLM dispatch per `feedback_exclude_humans_from_dispatch`) does NOT apply in reverse — MCP is a client-side surface and accepts either humans or AIs. (Locks FR-063 interaction.)
+- Q: Phase 2 session timeout semantics? → A: Idle timeout 30 minutes (`SACP_MCP_SESSION_IDLE_TIMEOUT_SECONDS=1800`); hard cap 24 hours (`SACP_MCP_SESSION_MAX_LIFETIME_SECONDS=86400`); both env-tunable per research.md §3. Idle/hard-cap expiry returns HTTP 404 + JSON-RPC -32003 with `data.reason="mcp_session_expired"` per research.md §7. (Locks FR-021 + env-var defaults.)
+- Q: Phase 2 concurrent-session cap value? → A: 100 per orchestrator instance (`SACP_MCP_MAX_CONCURRENT_SESSIONS=100`, default; env-tunable). Beyond cap, `initialize` returns HTTP 503 + Retry-After. Value may be re-tuned after first-prototype memory-footprint measurement. (Locks FR-027.)
+- Q: Phase 2 SACP `/sse/{session_id}` integration with MCP transport? → A: Structurally distinct. The SACP turn-event stream's `{turn, speaker_id, action, skipped}` payload is NOT an MCP envelope. Future MCP `resources` subscription is a separate amendment if it ever ships. (Locks FR-037.)
+- Q: Phase 2 error-code mapping retention of SACP codes? → A: SACP-native codes preserved in `data.sacp_error_code` per FR-019; silent translation rejected because it loses forensic continuity. Four server-defined codes reserved: -32001 (auth), -32002 (rate-limit), -32003 (SACP state), -32004 (reserved for future extension within -32099). (Locks FR-019.)
+- Q: Phase 2 discovery metadata endpoint? → A: `/.well-known/mcp-server` per contracts/mcp-discovery-metadata.md. Mandatory fields: `enabled`, `protocol_version`, `endpoint_url`, `auth`, `server`. Optional: `oauth_metadata_url` (present only when Phase 4 OAuth is enabled). (Locks FR-024.)
+- Q: Phase 3 AI participant tool access list — enumerate vs deny-list? → A: Enumerate via per-tool `aiAccessible` flag in `ToolDefinition` per FR-063 (drafted). Allow list: `participant.inject_message` (on own behalf), `proposal.cast_vote`, `participant.set_routing_preference` (on self), `detection_events.list/detail` (own session read-only). Deny list: `participant.rotate_token` on others, `admin.transfer_facilitator`, debug-export, all `tool:admin.*`, all `tool:provider.test_credentials` on others' BYOK. (Locks FR-063 + T084.)
+- Q: Phase 3 sponsor scope tool list? → A: Read tools on sponsored AI state + `participant.set_budget` + `participant.rotate_token` on sponsored AI. Explicitly excluded: message-injection on sponsored AI's behalf (preserves AI sovereignty per Constitution §3). (Locks FR-065 + T086.)
+- Q: Phase 3 versioning policy? → A: Version-as-name-suffix (drafted). Breaking schema change ships `session.create.v2`; the original keeps its name for one minor-version cycle, then sunsets returning `SACP_E_DEPRECATED` pointing to the replacement. Cycle length env-tunable via `SACP_MCP_TOOL_DEPRECATION_HORIZON_DAYS` (default 90). (Locks FR-062.)
+- Q: Phase 3 pagination cursor encoding? → A: Opaque base64-encoded JSON object with `{last_id, sort_key_value, encoded_at}` per data-model.md Phase 3 section. Server is the only decoder. (Locks FR-059.)
+- Q: Phase 3 idempotency-key expiration? → A: 24 hours retention (`SACP_MCP_TOOL_IDEMPOTENCY_RETENTION_HOURS=24`, env-tunable 1–168). Re-submitted key within window returns original result. (Locks FR-058.)
+- Q: Phase 3 error-code consolidation? → A: Shared catalog in `src/mcp_protocol/errors.py` (drafted) + per-tool `errorContract` enumeration. Universal codes always available; tool-specific codes declared per `ToolDefinition`. (Locks FR-055.)
+- Q: Phase 3 debug-export tool scope binding? → A: Facilitator-scoped (same as spec 010 REST surface). Chunked-return mode for large exports via pagination per FR-059. (Locks FR-046.)
+- Q: Phase 3 deprecated-tool sunset horizon? → A: One minor-version cycle (drafted); operator-tunable via `SACP_MCP_TOOL_DEPRECATION_HORIZON_DAYS` (default 90 days, range 7–365). Six-month default rejected — too long for v1 development pace. (Locks FR-062 default.)
+- Q: Phase 3 granular master switch granularity? → A: One master switch (`SACP_MCP_PROTOCOL_ENABLED`) + per-category switches (10 of them per FR-061) defaulting `true` when master is `true`. Per-tool switches rejected — explosion of env vars; granular needs land via tool versioning instead. (Locks FR-061.)
+- Q: Phase 3 cross-spec tool surface dependency direction (022, 024, 029)? → A: This spec (030) declares the MCP tools; specs 022/024/029 do NOT add MCP tooling themselves. If a source spec ships before C, the MCP tool's dispatch is a stub returning `SACP_E_NOT_FOUND` until the source spec reaches Implemented (research.md §8). (Locks FR-064.)
+- Q: Phase 3 tool description language scope? → A: English-only in v1 (drafted). Localization is out of scope; MCP protocol does not standardize localization extensions in revision 2025-11-25. (Locks FR-038.)
+- Q: Phase 4 token format pin? → A: Resolved in primary Session 2026-05-13 entry above — JWT access + opaque-Fernet refresh.
+- Q: Phase 4 refresh-rotation timing? → A: Strict rotation on every use (drafted) per FR-079. No grace, no rotation-on-near-expiry. Replay → family revocation + `security_event` row. (Locks FR-079.)
+- Q: Phase 4 scope vocabulary granularity? → A: Role-plus-tool-category (drafted) per FR-077. 4 role scopes + 10 tool-category scopes = 14 distinct claims. Per-tool granularity rejected — scope-token bloat without commensurate authorization benefit. (Locks FR-077.)
+- Q: Phase 4 static-token grace duration? → A: 90 days (one quarter) default `SACP_OAUTH_STATIC_TOKEN_GRACE_DAYS=90`, env-tunable 0–365. Counter starts at per-participant first-prompted date, not Phase 4 ship date (smoother migration UX). (Locks FR-083.)
+- Q: Phase 4 WebAuthn / passkey scope? → A: Out of v1 (drafted). Email + password authentication per spec 023 at the authorization endpoint. Passkeys may extend the surface in a later amendment without breaking changes. (Locks FR-090.)
+- Q: Phase 4 multi-session-concurrent-participant model? → A: Subject-scoped many participants (drafted) per FR-091. One OAuth subject (one human) may participate in N sessions concurrently; each session has its own participant record; tokens issued for each are independent and isolated. (Locks FR-091 + SC-040.)
+- Q: Phase 4 step-up freshness threshold? → A: 5 minutes default `SACP_OAUTH_STEP_UP_FRESHNESS_SECONDS=300`, env-tunable 30–3600 per research.md §3. (Locks FR-086.)
+- Q: Phase 4 client-registration mode default? → A: `allowlist` per research.md §9. Operator pre-approves CIMD URLs out-of-band; `open` rejected as too permissive for v1, `closed` rejected as too restrictive. (Locks FR-076 default.)
+- Q: Phase 4 revocation propagation latency? → A: 5-second SLA (`SACP_OAUTH_REVOCATION_PROPAGATION_SECONDS=5`) bounded by per-instance JWT-validation cache TTL ≤ 30s per FR-094. Cache miss → DB lookup → revocation visible. Push-based broadcast rejected — adds infrastructure dependency for marginal latency gain. (Locks FR-092 + FR-094.)
+- Q: Phase 4 cross-instance token-store consistency model? → A: DB as source-of-truth + per-instance LRU with TTL ≤ 30s (drafted) per FR-094. Redis pub/sub broadcast rejected — adds runtime dependency; if Phase 2's spec 022 broadcast surfaces a Redis dependency anyway, this MAY be re-evaluated in a follow-up amendment. (Locks FR-094.)
+- Q: Phase 4 sovereignty boundary specifics? → A: FR-084 exclusions are codified inline within this spec's implementation tasks (T084, T086, T110). No external sovereignty-remediation work item is tracked; the work is in this build. Specifically: facilitator scope's `tool:provider` MUST NOT include `participant.test_credentials` on other participants' BYOK; `tool:participant.set_budget` MUST NOT include non-sponsored participants' budgets; sponsor scope NEVER grants message-injection on sponsored AI's behalf. (Locks FR-084.)
+- Q: Phase 4 AI participant exclusion enforcement mechanism? → A: Exclusion at issuance per FR-089 (drafted). The authorization endpoint refuses to start a flow naming an AI participant; emits `security_event` row. Exclusion-at-dispatch rejected as too-late (forensically loud and surface-area-larger). (Locks FR-089.)
+- Q: Phase 5 document location convention? → A: Three docs at `docs/` root per research.md §10. No `docs/onboarding/` subdirectory. (Locks Phase 5 doc placement.)
+- Q: Phase 5 doc versioning convention? → A: Phase-and-date dual fields plus tested-against version per FR-117. Git history is supplementary, not the primary signal; a participant reading the doc must see the version state without git access. (Locks FR-117.)
+- Q: Phase 5 sample config redaction policy? → A: Prefix-marked `SACP_DOC_EXAMPLE_<32-char alphanumeric>` per FR-121 + research.md §11. `.2ms.yaml` allowlist updated alongside. Angle-bracket placeholders rejected (ambiguous in copy-paste); real-format tokens rejected (high-maintenance allowlist). (Locks FR-121.)
+- Q: Phase 5 troubleshooting matrix scope? → A: Four-code minimum (401, 403, 404, timeout) per FR-116. Broader coverage may land in v2 of the docs after onboarding incidents surface additional failure modes. (Locks FR-116.)
+- Q: Phase 5 Linux deferral approach? → A: No-stub-page approach (drafted) per FR-122. The cross-platform overview carries a one-sentence Linux acknowledgment; no separate Linux file ships. (Locks FR-122.)
+- Q: Phase 5 macOS Apple Silicon vs Intel? → A: Unified macOS doc with inline arch notes (drafted) per FR-114 + research.md §10. Pre-emptive split rejected — too speculative for v1; one doc covers both. (Locks Phase 5 macOS doc structure.)
+- Q: Phase 5 mobile client roadmap? → A: Complete omission (drafted) per FR-123. No mention in the cross-platform overview — implies no roadmap commitment. If mobile MCP clients become a use case, that work scopes its own doc. (Locks FR-123.)
+- Q: Phase 5 pre-MCP-shipping doc surface strategy? → A: Ship now with reserved amendment per FR-118 (drafted). v1 documents current SACP-native surface; Phase 4 OAuth migration section is structurally reserved at v1 ship time and content-fills when Phase 4 lands. Two-versions-side-by-side rejected — adds reader confusion ahead of any actual transition. (Locks FR-118.)
 
-- **Protocol version pin.** Drafted: pin to MCP spec revision **2025-11-25** as the v1 target. The `initialize` handshake advertises this version; clients negotiating older versions are rejected. [NEEDS CLARIFICATION: confirm 2025-11-25 pin vs. supporting a version range; confirm rejection-on-mismatch vs. graceful-downgrade.]
-- **Transport binding — mount on port 8750 vs. third ASGI app.** Resolved per Session 2026-05-13 — mount at `/mcp` on the existing port 8750 ASGI app confirmed. Rationale captured above. Path is exactly `/mcp` (not `/mcp/v1/`); versioning happens via the `initialize` handshake's negotiated protocol version, not via URL prefix.
-- **Prompts and resources protocol surfaces — v1 scope.** Drafted: out-of-scope for v1. The MCP protocol has `tools`, `prompts`, and `resources` as the three first-class capability families. v1 implements `tools` only. [NEEDS CLARIFICATION: confirm tools-only v1 vs. tools+prompts v1 vs. tools+prompts+resources v1.]
-- **AI participant access via MCP.** Drafted: yes, AI participants in a SACP session MAY connect via MCP. The provider-side exclusion (humans must be excluded from LiteLLM dispatch paths) does NOT apply in reverse — MCP-as-client-side is fine for either humans or AIs. [NEEDS CLARIFICATION: confirm AI-via-MCP allowed vs. human-only-via-MCP; confirm interaction with the existing provider-exclusion invariant.]
-- **Session timeout semantics.** Drafted: idle timeout 30 minutes since last request (configurable; default 1800). Hard cap: 24 hours per session id regardless of activity. [NEEDS CLARIFICATION: confirm 30-minute idle / 24-hour hard cap vs. other values; confirm idle-expiry behavior (404 vs. 401 vs. 410).]
-- **Concurrent-session cap value.** Drafted: 100 concurrent MCP sessions per orchestrator instance, default 100. [NEEDS CLARIFICATION: confirm 100-session cap value; the right number depends on per-session memory footprint, which is unknown until prototyping lands.]
-- **Integration with the existing `/sse/{session_id}` SACP stream.** Drafted: structurally distinct from any MCP transport mechanism. The SACP stream's `{turn, speaker_id, action, skipped}` payload is NOT an MCP envelope. [NEEDS CLARIFICATION: confirm structural-separation stance vs. exposing the SACP turn stream through an MCP `resources` subscription in a future amendment.]
-- **Error-code mapping from MCP to existing SACP error codes.** Drafted: validation → -32602; auth → -32001; rate-limit → -32002; SACP state → -32003. SACP-native error codes preserved in `data`. [NEEDS CLARIFICATION: confirm preserved-in-data approach vs. silent translation; confirm the four server-defined code reservations vs. other values within the JSON-RPC server-error range.]
-- **Discovery metadata endpoint binding.** Drafted: `/.well-known/mcp-server` returns minimal metadata. [NEEDS CLARIFICATION: confirm `/.well-known/mcp-server` path vs. alternative; confirm what fields are mandatory per the MCP spec revision 2025-11-25 and which are optional.]
+### Resolved clarifications by phase (history)
 
-### Phase 3 clarifications
+All per-phase clarification entries below are resolved per the Session 2026-05-13 + follow-up blocks above. The per-phase enumeration is retained for searchability — each bullet here points back to the canonical resolution and carries no fresh content.
 
-- **Tool naming convention final pin.** Resolved per Session 2026-05-13 — `domain.action` snake_case confirmed (e.g., `session.create`, `participant.inject_message`, `proposal.cast_vote`). Rationale captured above.
-- **AI participant tool access list.** Drafted as: AI participants registered via the BYOK provider flow can invoke a subset of tools — message injection on their own behalf, proposal voting, scratch read where extended to it, detection-event read. [NEEDS CLARIFICATION: enumerate the AI-accessible tool list versus deny-list approach.]
-- **Sponsor scope mapping.** Spec 023 introduces account-level sponsorship. Drafted as: tools that touch the sponsored AI's budget are reachable by the sponsor's scope; tools that emit on the sponsored AI's behalf are not. [NEEDS CLARIFICATION: enumerate sponsor-scope tool list; confirm sponsor cannot impersonate the sponsored AI.]
-- **Versioning policy.** Drafted as: tool names carry an implicit v1; a breaking schema change requires a new tool name (`session.create.v2`). [NEEDS CLARIFICATION: confirm version-as-name-suffix versus version-as-protocol-header versus version-as-tool-metadata.]
-- **Pagination cursor encoding.** Drafted as: cursor is an opaque base64-encoded JSON object with `{last_id, sort_key_value}`. [NEEDS CLARIFICATION: confirm opaque-base64 versus server-side-token; affects horizontal-scaling story.]
-- **Idempotency-key expiration.** Drafted as: 24 hours retention; re-submitted key within the window returns the original result. [NEEDS CLARIFICATION: confirm 24h expiration versus session-lifetime retention versus no expiration.]
-- **Error-code consolidation.** Drafted as: every tool defines its error codes locally; a shared catalog lives in `src/mcp_protocol/errors.py`. [NEEDS CLARIFICATION: confirm shared catalog plus per-tool extension versus fully per-tool.]
-- **Debug-export tool scope binding.** Spec 010's `/tools/debug/export` is facilitator-scoped today. Drafted as: same scope on the MCP tool variant; chunked-return mode for large exports. [NEEDS CLARIFICATION: confirm chunked-return mechanism versus single-shot with size cap.]
-- **Deprecated-tool sunset horizon.** Drafted as: one minor-version cycle. [NEEDS CLARIFICATION: confirm one-minor-cycle versus six-month versus operator-tunable.]
-- **Granular master switches.** Drafted as: one master switch plus optional per-category switches defaulting `true` when the master is `true`. [NEEDS CLARIFICATION: confirm one-per-category versus one-per-tool versus master-only.]
-- **Cross-spec tool surfaces (022, 024, 029).** Specs 022, 024, and 029 ship read-side surfaces that become MCP tools. Drafted as: Phase 3 declares those tools and depends on the source specs being Implemented. [NEEDS CLARIFICATION: confirm dependency direction; if 022/024/029 ship before C, do they expose MCP tools themselves or wait for C?]
-- **Tool description language scope.** Drafted as: each tool's `description` string is in English; localization is out of scope for v1. [NEEDS CLARIFICATION: confirm English-only versus locale-aware via MCP protocol extension.]
+#### Phase 1
+- Target module name `participant_api` — resolved (Session 2026-05-13).
+- Namespace `src/mcp_protocol/` — resolved (Session 2026-05-13).
+- Backward-compat alias retention duration — one release (follow-up).
+- Deployment config path audit — repo-side + TrueNAS file; operator applies TrueNAS update (follow-up).
+- Alembic migration impact — no module-path references in metadata; CI grep guard (follow-up).
+- CI lane parity — explicit pre-refactor baseline capture per FR-012 (follow-up).
 
-### Phase 4 clarifications
+#### Phase 2
+- Protocol version pin — 2025-11-25 strict; reject-on-mismatch (follow-up).
+- Transport binding `/mcp` on port 8750 — resolved (Session 2026-05-13).
+- Prompts and resources v1 scope — tools-only; `prompts/list` and `resources/list` return -32601 (follow-up).
+- AI participant access via MCP — per-tool `aiAccessible` flag (follow-up).
+- Session timeout semantics — 30-min idle / 24-hr hard cap; expiry returns 404 + -32003 (follow-up).
+- Concurrent-session cap — 100 default (follow-up).
+- `/sse/{session_id}` SACP-stream integration — structurally distinct from MCP transport (follow-up).
+- Error-code mapping — SACP codes preserved in `data.sacp_error_code` (follow-up).
+- Discovery metadata endpoint — `/.well-known/mcp-server` per contracts/mcp-discovery-metadata.md (follow-up).
 
-- **Token format pin.** Resolved per Session 2026-05-13 — JWT-signed access tokens + opaque-refresh tokens (Fernet-encrypted at rest, indexed by hash) confirmed. Rationale captured above.
-- **Refresh-rotation timing.** Drafted as: every refresh-token use rotates the token. [NEEDS CLARIFICATION: confirm strict-rotation-on-every-use versus rotation-on-near-expiry versus no-rotation.]
-- **Scope vocabulary granularity.** Drafted as: role-level scopes plus per-tool-category scopes. [NEEDS CLARIFICATION: confirm role-plus-tool-category versus role-only versus per-tool granularity.]
-- **Static-token grace duration.** Drafted as: env-tunable, default `90` (one quarter). [NEEDS CLARIFICATION: confirm 90-day default versus 30-day default versus no-default-must-be-set.]
-- **WebAuthn / passkey scope.** Drafted as: out of scope for v1. [NEEDS CLARIFICATION: confirm v1 password-only versus v1 password-or-passkey.]
-- **Multi-session-concurrent-participant model.** Drafted as: yes — one OAuth subject can participate in multiple SACP sessions concurrently. [NEEDS CLARIFICATION: confirm subject-scoped-many-participants versus subject-equals-one-participant.]
-- **Step-up freshness threshold.** Drafted as: 5 minutes (configurable). [NEEDS CLARIFICATION: confirm 5-minute default versus 60-second default versus operator-set.]
-- **Client-registration mode.** Drafted as: env-controlled (`open` / `allowlist` / `closed`); default `allowlist`. [NEEDS CLARIFICATION: confirm allowlist-default versus open-default.]
-- **Revocation propagation latency.** Drafted as: token revocation closes existing MCP transport connections within 5 seconds. [NEEDS CLARIFICATION: confirm 5-second revocation-to-disconnect SLA versus immediate-disconnect-via-push.]
-- **Cross-instance token-store consistency model.** Drafted as: DB as source-of-truth; per-instance LRU with TTL ≤ 30s. [NEEDS CLARIFICATION: confirm DB-as-source-of-truth versus DB-plus-pub-sub-broadcast.]
-- **Sovereignty boundary specifics.** The sovereignty remediation clarifies that facilitator scope grants session-governance authority but NOT access to participant API keys, wallets, or sponsored-AI credentials. [NEEDS CLARIFICATION: confirm exclusions enumerated in the scope claim semantics.]
-- **AI participant exclusion enforcement mechanism.** Drafted as: AI participants registered via the BYOK flow are structurally excluded from OAuth issuance. [NEEDS CLARIFICATION: confirm exclusion-at-issuance versus exclusion-at-dispatch versus both.]
+#### Phase 3
+- Tool naming convention `domain.action` snake_case — resolved (Session 2026-05-13).
+- AI participant tool access list — enumerated allow/deny per `aiAccessible` flag (follow-up).
+- Sponsor scope tool list — read tools + budget/rotation on sponsored AI; NO message-injection on sponsored AI behalf (follow-up).
+- Versioning policy — version-as-name-suffix; `SACP_MCP_TOOL_DEPRECATION_HORIZON_DAYS=90` default (follow-up).
+- Pagination cursor encoding — opaque base64 JSON `{last_id, sort_key_value, encoded_at}` (follow-up).
+- Idempotency-key expiration — 24h default; env-tunable 1–168h (follow-up).
+- Error-code consolidation — shared catalog in `src/mcp_protocol/errors.py` + per-tool extension (follow-up).
+- Debug-export tool scope — facilitator; chunked via FR-059 pagination (follow-up).
+- Deprecated-tool sunset horizon — one minor-version cycle; env-tunable (follow-up).
+- Granular master switches — master + per-category (10) defaulting `true` (follow-up).
+- Cross-spec tool surfaces (022, 024, 029) — declared here; specs 022/024/029 do NOT add MCP tooling (follow-up).
+- Tool description language — English-only in v1 (follow-up).
 
-### Phase 5 clarifications
+#### Phase 4
+- Token format pin — JWT access + opaque-Fernet refresh (Session 2026-05-13).
+- Refresh-rotation timing — strict rotation on every use; replay → family revocation + security_event (follow-up).
+- Scope vocabulary granularity — role-plus-tool-category; 14 distinct claims (follow-up).
+- Static-token grace duration — 90 days default; counter starts at per-participant first-prompted date (follow-up).
+- WebAuthn / passkey scope — out of v1; password-only (follow-up).
+- Multi-session-concurrent-participant — subject-scoped many participants (follow-up).
+- Step-up freshness threshold — 300s default; env-tunable 30–3600s (follow-up).
+- Client-registration mode — `allowlist` default (follow-up).
+- Revocation propagation latency — 5s SLA bounded by 30s cache TTL (follow-up).
+- Cross-instance token-store consistency — DB-as-source-of-truth + per-instance LRU TTL ≤ 30s (follow-up).
+- Sovereignty boundary specifics — FR-084 exclusions codified inline in this spec's T084/T086/T110; no external work item (follow-up).
+- AI participant exclusion enforcement — at issuance (authorization endpoint refuses); security_event row (follow-up).
 
-- **Document location convention.** Drafted as: three files at `docs/` root, NOT nested in `docs/onboarding/`. [NEEDS CLARIFICATION: confirm flat `docs/` placement vs. `docs/onboarding/` subdirectory.]
-- **Versioning convention.** Drafted as: each doc carries a header `**SACP Phase**: <phase>` and `**Last Updated**: <date>`. [NEEDS CLARIFICATION: confirm phase-and-date dual fields vs. a single doc-version semver vs. relying on git history.]
-- **Sample config redaction policy.** Drafted as: placeholder tokens use the prefix `SACP_DOC_EXAMPLE_` (32+ alphanumeric chars); session_id placeholder is `000000000000`. [NEEDS CLARIFICATION: confirm prefix-marked placeholder shape vs. generic `<your-token-here>` angle-bracket markers vs. real-format example tokens that would need allowlist entries.]
-- **Troubleshooting matrix scope.** Drafted as: the matrix covers four HTTP status codes (401, 403, 404, timeout) at minimum. [NEEDS CLARIFICATION: confirm four-code minimum vs. broader coverage from spec inception.]
-- **Linux deferral confirmation.** Drafted as: Linux client onboarding is explicitly out-of-scope for v1. [NEEDS CLARIFICATION: confirm Linux deferral with no-stub-page approach vs. minimal Linux stub page that says "deferred".]
-- **macOS Apple Silicon vs Intel differences.** Drafted as: the macOS doc treats both architectures together; ARM-specific notes appear inline. [NEEDS CLARIFICATION: confirm unified-macOS-doc with inline arch notes vs. preemptive split into `participant-onboarding-macos-arm.md` and `participant-onboarding-macos-intel.md`.]
-- **Mobile client roadmap.** Drafted as: mobile MCP clients are out-of-scope for v1; not mentioned in the cross-platform overview. [NEEDS CLARIFICATION: confirm complete-omission vs. one-sentence acknowledgement that mobile is deferred.]
-- **Pre-MCP-shipping docs surface.** Drafted as: the docs ship as v1 today describing the existing SACP participant API surface, and gain a Phase 4 amendment section when Phase 2 / Phase 4 ship. [NEEDS CLARIFICATION: confirm ship-now-with-reserved-amendment vs. wait-for-Phase-2-to-ship vs. ship-now-with-two-versions-side-by-side.]
+#### Phase 5
+- Document location convention — three docs at `docs/` root (follow-up).
+- Versioning convention — phase + last-updated + tested-against per FR-117 (follow-up).
+- Sample config redaction policy — `SACP_DOC_EXAMPLE_` prefix + `.2ms.yaml` allowlist update (follow-up).
+- Troubleshooting matrix scope — four-code minimum (401, 403, 404, timeout) (follow-up).
+- Linux deferral — no-stub-page; one-sentence acknowledgment in cross-platform overview (follow-up).
+- macOS Apple Silicon vs Intel — unified doc with inline arch notes (follow-up).
+- Mobile client roadmap — complete omission from v1 (follow-up).
+- Pre-MCP-shipping doc surface — ship now with reserved amendment per FR-118 (follow-up).
 
 ## Constitution Constraints (V12-V20)
 
