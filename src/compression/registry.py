@@ -39,8 +39,14 @@ def compress(
     session_id: str,
     participant_id: str,
     turn_id: str,
+    provider: str | None = None,
 ) -> CompressedSegment:
-    """Convenience wrapper over the process-scope CompressorService."""
+    """Convenience wrapper over the process-scope CompressorService.
+
+    Spec 026 T050: pass ``provider`` (LiteLLM-style model prefix) to
+    enable Layer 6's closed-API skip per SC-011. Omitting it preserves
+    the pre-T050 behaviour (no skip applied).
+    """
     return compressor_service.compress(
         payload,
         target_budget,
@@ -49,4 +55,5 @@ def compress(
         session_id=session_id,
         participant_id=participant_id,
         turn_id=turn_id,
+        provider=provider,
     )

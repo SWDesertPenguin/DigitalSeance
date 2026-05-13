@@ -348,6 +348,66 @@ async def set_own_routing_preference(
     }
 
 
+_WaitModeLiteral = Literal["wait_for_human", "always"]
+
+
+class _SetWaitModeBody(BaseModel):
+    """Spec 027 FR-025 request body for the wait_mode setter."""
+
+    wait_mode: _WaitModeLiteral
+
+
+@router.post("/set_wait_mode")
+async def set_wait_mode(
+    request: Request,
+    body: _SetWaitModeBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Spec 027 FR-025: caller sets their own wait_mode.
+
+    Mirrors the existing /set_routing_preference self-serve shape per
+    `contracts/wait-mode-endpoint.md`: row UPDATE + audit row +
+    participant_update WS broadcast.
+    """
+    from src.orchestrator.standby import update_participant_wait_mode
+
+    previous = await update_participant_wait_mode(
+        request.app.state.pool, participant.id, body.wait_mode
+    )
+    if previous is None:
+        raise HTTPException(404, "participant row not found")
+    await _audit_and_broadcast_wait_mode(request, participant, previous, body.wait_mode)
+    return {
+        "status": "updated",
+        "participant_id": participant.id,
+        "wait_mode": body.wait_mode,
+    }
+
+
+async def _audit_and_broadcast_wait_mode(
+    request: Request,
+    participant: Participant,
+    previous: str,
+    new_value: str,
+) -> None:
+    """Write the wait_mode_changed audit row and push participant_update WS."""
+    from src.web_ui.events import broadcast_participant_update
+
+    await request.app.state.log_repo.log_admin_action(
+        session_id=participant.session_id,
+        facilitator_id=participant.id,
+        action="wait_mode_changed",
+        target_id=participant.id,
+        previous_value=previous,
+        new_value=new_value,
+    )
+    await broadcast_participant_update(
+        participant.session_id,
+        participant.id,
+        request.app.state.participant_repo,
+    )
+
+
 @router.post("/rotate_token")
 async def rotate_token(
     request: Request,

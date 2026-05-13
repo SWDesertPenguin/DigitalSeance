@@ -90,6 +90,22 @@ Payload drops encrypted fields and adds `spend_daily` / `spend_hourly` aggregate
 
 Emitted when a participant row no longer exists (hard-delete from rejection).
 
+### `participant_standby`
+
+```json
+{"v": 1, "type": "participant_standby", "participant_id": "<uuid>", "reason": "awaiting_human|awaiting_gate|awaiting_vote|filler_stuck", "since_turn": N}
+```
+
+Spec 027 FR-010. Emitted when the orchestrator's standby evaluator transitions a participant from `active` to `standby` because one of the four detection signals fired AND the participant is in `wait_mode='wait_for_human'`. The `reason` enum maps to the four signals: unresolved `ai_question_opened` -> `awaiting_human`; pending `review_gate_staged` -> `awaiting_gate`; proposal awaiting vote with stuck stance -> `awaiting_vote`; filler-scorer stuck pattern -> `filler_stuck`. The `since_turn` field is the current turn number at the transition point. Broadcast to all session subscribers (facilitator + participants) — both roles need it for the participant-card rendering per spec 011 FR-053 (the amendment co-drafted with spec 027).
+
+### `participant_standby_exited`
+
+```json
+{"v": 1, "type": "participant_standby_exited", "participant_id": "<uuid>", "cleared_at_turn": N}
+```
+
+Spec 027 FR-011. Emitted when the orchestrator's standby evaluator transitions a participant out of `standby` because all four detection signals cleared OR the participant's wait_mode was flipped to `always`. The `cleared_at_turn` field is the current turn number at the exit point. Broadcast to all session subscribers.
+
 ### `convergence_update`
 
 ```json

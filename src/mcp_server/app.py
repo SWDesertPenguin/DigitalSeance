@@ -32,6 +32,8 @@ from src.repositories.errors import (
     NotFacilitatorError,
     ParticipantNotInSessionError,
 )
+from src.scratch.router import is_scratch_enabled
+from src.scratch.router import router as scratch_router
 
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
 
@@ -61,6 +63,12 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     pool = await create_pool(settings.database)
     app.state.connection_manager = get_connection_manager()
     _attach_services(app, pool, settings.encryption.key)
+    # Spec 026 T038 / FR-006 — freeze the compressor registry so no
+    # module imported after this point can register a new compressor.
+    # Production lifespan runs exactly once per process; tests stand
+    # the app up fresh per case so we tolerate a double-freeze cheaply
+    # by checking the registry's frozen flag before calling.
+    _freeze_compressor_registry(pool)
     yield
     await close_pool(pool)
     _reset_adapter_for_tests()
@@ -238,6 +246,19 @@ def _include_routers(app: FastAPI) -> None:
     # of the route rather than a 200 with empty data.
     if is_detection_history_enabled():
         app.include_router(detection_events_router)
+    _maybe_include_scratch_router(app)
+
+
+def _maybe_include_scratch_router(app: FastAPI) -> None:
+    """Spec 024 FR-019: scratch surface gated by SACP_SCRATCH_ENABLED."""
+    if not is_scratch_enabled():
+        return
+    from src.scratch.promote import register_promote_route
+    from src.scratch.router import register_routes as register_scratch_routes
+
+    register_scratch_routes(scratch_router)
+    register_promote_route(scratch_router)
+    app.include_router(scratch_router)
 
 
 def _attach_services(
@@ -279,6 +300,20 @@ def _attach_auth_and_repos(
     app.state.log_repo = LogRepository(pool)
     app.state.register_repo = RegisterRepository(pool)
     app.state.rate_limiter = RateLimiter()
+    _attach_scratch_service(app, pool)
+
+
+def _attach_scratch_service(app: FastAPI, pool: object) -> None:
+    """Spec 024: ScratchService keyed to FacilitatorNotesRepository + log_repo."""
+    from src.scratch.repository import FacilitatorNotesRepository
+    from src.scratch.service import ScratchService
+
+    notes_repo = FacilitatorNotesRepository(pool)
+    app.state.scratch_service = ScratchService(
+        pool=pool,
+        notes_repo=notes_repo,
+        log_repo=app.state.log_repo,
+    )
 
 
 def _attach_orchestrator(
@@ -290,3 +325,47 @@ def _attach_orchestrator(
     from src.orchestrator.loop import ConversationLoop
 
     app.state.conversation_loop = ConversationLoop(pool, encryption_key=encryption_key)
+
+
+def _freeze_compressor_registry(pool: object) -> None:
+    """Spec 026 T038 — wire the compression_log writer and freeze the registry.
+
+    The compressor package registers concrete compressors at import time
+    (``src.compression.registry``); the FastAPI lifespan flips the
+    registry to read-only here. The in-memory telemetry sink (test
+    default) gets swapped for an asyncpg-backed writer so production
+    dispatches land in ``compression_log`` per spec 001 §FR-008.
+    """
+    from src.compression import _telemetry_sink, registry
+
+    _telemetry_sink.set_writer(_build_compression_log_writer(pool))
+    if not registry.compressor_service._frozen:  # noqa: SLF001 — startup-only
+        registry.compressor_service.freeze()
+
+
+def _build_compression_log_writer(pool: object):
+    """Return a sync callable that fires the async insert as a background task."""
+    from src.compression import _telemetry_sink
+    from src.repositories.compression_repo import insert_compression_log
+
+    async def _async_write(record: _telemetry_sink.CompressionLogRecord) -> None:
+        try:
+            await insert_compression_log(pool, record)  # type: ignore[arg-type]
+        except Exception:  # noqa: BLE001 — telemetry MUST NOT abort the loop
+            logging.getLogger(__name__).exception(
+                "compression_log write failed compressor_id=%s",
+                record.compressor_id,
+            )
+
+    def _writer(record: _telemetry_sink.CompressionLogRecord) -> None:
+        # The fire-and-forget pattern keeps the dispatch path non-blocking
+        # on persistence. RuntimeError fires when there is no running loop
+        # (test harness, sync caller); the in-memory accumulator already
+        # captured the record for inspection so the swallow is safe.
+        import asyncio
+        import contextlib
+
+        with contextlib.suppress(RuntimeError):
+            asyncio.get_running_loop().create_task(_async_write(record))
+
+    return _writer

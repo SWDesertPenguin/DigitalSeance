@@ -64,23 +64,39 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-022 | untested | Facilitator session-settings cap control + current-elapsed display; trigger: spec 025 UI implementation Phase F or Playwright |
 | FR-023 | untested | Conclude-phase banner driven by `session_concluding` WS event with copy variants per `trigger_reason`; trigger: spec 025 UI implementation Phase F |
 | FR-024 | untested | Cap-decrease 409 disambiguation modal (absolute / relative interpretation); trigger: spec 025 UI implementation Phase F |
-| FR-025 | untested | "View audit log" button in facilitator admin panel gated by FR-009 + `SACP_AUDIT_VIEWER_ENABLED`; trigger: spec 029 UI implementation Phase F |
-| FR-026 | untested | Audit log panel route at `/session/:id/audit` with offset pagination consuming `GET /tools/admin/audit_log`; trigger: spec 029 UI implementation Phase F |
-| FR-027 | untested | Audit log filter controls (actor / action type / time range) + WS-mismatch badge; trigger: spec 029 UI implementation Phase F |
-| FR-028 | untested | Row expansion routes to spec 029 DiffRenderer for diffable values; trigger: spec 029 UI implementation Phase F |
-| FR-029 | untested | `[scrubbed]` placeholder + `[unregistered]` rendering + 2s WS-event apply window; trigger: spec 029 UI implementation Phase F |
+| FR-025 | tests/e2e/test_029_audit_panel.py::test_us1_master_switch_hides_button_and_404s_route | Spec 029 amendment: "View audit log" admin-panel button gated by FR-009 + `SACP_AUDIT_VIEWER_ENABLED`; master-switch-off path covered by e2e (skip-gated `SACP_RUN_E2E=1` + `SACP_RUN_E2E_MASTER_SWITCH_OFF=1`); endpoint side backstopped by `tests/test_029_admin_endpoint_helpers.py` |
+| FR-026 | tests/e2e/test_029_audit_panel.py::test_us1_panel_renders_rows_with_english_labels | Spec 029 amendment: panel route at `/session/:id/audit` consuming `GET /tools/admin/audit_log` with offset pagination + reverse-chronological order; row rendering covered by e2e (skip-gated `SACP_RUN_E2E=1`); endpoint contract backstopped by `tests/test_029_audit_log_endpoint.py` + `tests/test_029_admin_endpoint_helpers.py` |
+| FR-027 | tests/frontend/test_filter_logic.js | Spec 029 amendment: client-side filter logic (actor / action type / time range AND composition) Node-runnable; UI wiring + WS-mismatch badge increment covered by `tests/e2e/test_029_audit_panel.py::test_us3_filter_narrows_visible_set` + `test_us3_filter_badge_increments_for_hidden_ws_push` |
+| FR-028 | tests/frontend/test_diff_engine.js | Spec 029 amendment: DiffRenderer threshold dispatch + auto-format probe + line/word modes Node-runnable; expand-to-diff UI wiring covered by `tests/e2e/test_029_audit_panel.py::test_us2_review_gate_edit_row_expands_to_diff` + `test_us2_word_level_toggle_recomputes` + `test_us2_value_less_row_expands_to_metadata_only` |
+| FR-029 | tests/test_029_audit_log_endpoint.py | Spec 029 amendment: server-side `[scrubbed]` redaction at endpoint + `[unregistered]` fallback covered by `test_rotate_token_row_returns_scrubbed_at_endpoint` + `test_unregistered_action_renders_fallback_label_and_logs_warning`; WS-side scrub backstopped by `tests/test_029_audit_broadcast.py`; SPA render of placeholders via shared `tests/frontend/test_audit_labels.js` |
 | FR-030 | untested | Spec 023 amendment: SPA auth-gate region (login + create-account when SACP_ACCOUNTS_ENABLED=1); trigger: Phase F Playwright with master switch on |
 | FR-031 | untested | Spec 023 amendment: post-login session-list region rendering /me/sessions segmented active+archived; trigger: Phase F Playwright |
 | FR-032 | untested | Spec 023 amendment: account-settings panel (email change / password change / delete); trigger: Phase F Playwright |
 | FR-033 | untested | Spec 023 amendment: uniform invalid_credentials display + 429 Retry-After countdown; trigger: Phase F Playwright |
 | FR-034 | untested | Spec 023 amendment: no new WS events; password-change invalidation surfaces via existing FR-014 401 handler; trigger: Phase F Playwright integration |
-| FR-035 | untested | Spec 022 amendment: "View detection history" button in facilitator admin panel gated by FR-009 + `SACP_DETECTION_HISTORY_ENABLED`; trigger: spec 022 UI implementation Phase F |
-| FR-036 | untested | Spec 022 amendment: detection-event panel route + columns + newest-first sort toggle; trigger: spec 022 UI implementation Phase F |
-| FR-037 | tests/frontend/test_detection_history_filters.js | Spec 022 amendment: four-axis filter AND composition + default pass-through verified Node-runnable; control wiring + per-axis hidden-events badges + clear-filters trigger: spec 022 UI implementation Phase F |
-| FR-038 | untested | Spec 022 amendment: `detection_event_appended` + `detection_event_resurfaced` 2s apply window + filter-interaction render; WS payload shape backstopped by `tests/test_022_ws_events.py`; trigger: spec 022 UI implementation Phase F |
-| FR-039 | tests/frontend/test_detection_event_taxonomy.js | Spec 022 amendment: `[unregistered: <class>]` fallback verified Node-runnable; empty state + 200-char truncation `[expand]` trigger: spec 022 UI implementation Phase F |
-| FR-040 | untested | Spec 022 amendment: per-row re-surface button + archived-session disabled tooltip + 409 inline error; endpoint side backstopped by `tests/test_022_resurface_endpoint.py`; trigger: spec 022 UI implementation Phase F |
-| FR-041 | untested | Spec 022 amendment: SPA refetch on WS reconnect + focus-after-inactivity to recover from best-effort cross-instance push (spec 022 FR-009); idempotent reconciliation against rendered set; trigger: spec 022 UI implementation Phase F |
+| FR-035 | tests/e2e/test_022_detection_history_panel.py | Spec 022 amendment: "View detection history" button + master-switch off hide; Playwright e2e covers entry-point + 404 |
+| FR-036 | tests/e2e/test_022_detection_history_panel.py | Spec 022 amendment: panel renders rows newest-first with class labels; ordering test pins research §12 default |
+| FR-037 | tests/frontend/test_detection_history_filters.js, tests/e2e/test_022_detection_history_panel.py | Spec 022 amendment: four-axis filter AND composition + Playwright filter-narrow + clear-filters |
+| FR-038 | tests/test_022_ws_events.py, tests/test_022_cross_instance_broadcast.py | Spec 022 amendment: detection_event_appended + detection_event_resurfaced payload shape + in-process broadcast + LISTEN/NOTIFY scaffold |
+| FR-039 | tests/frontend/test_detection_event_taxonomy.js, tests/e2e/test_022_detection_history_panel.py | Spec 022 amendment: registry fallback + empty-state + truncation toggle + Playwright class-label assertion |
+| FR-040 | tests/test_022_resurface_endpoint.py, tests/e2e/test_022_detection_history_panel.py | Spec 022 amendment: per-row resurface button + archived-session disabled + endpoint 409 |
+| FR-041 | tests/test_022_architectural.py | Spec 022 amendment: SPA refetch wiring (WS reconnect + visibility-return) pinned by architectural grep |
+| FR-042 | untested | Spec 024 amendment: Scratch button in session header gated by FR-009 + SACP_SCRATCH_ENABLED; trigger: spec 024 UI implementation Phase F |
+| FR-043 | untested | Spec 024 amendment: scratch slide-over panel at route /session/:id/scratch with three tabs; trigger: spec 024 UI implementation Phase F |
+| FR-044 | tests/frontend/test_scratch_notes.js | Spec 024 amendment: 2s autosave debounce + status indicator + OCC 409 handling; pure-logic helpers covered by Node test; UI wiring trigger: spec 024 UI implementation Phase F |
+| FR-045 | untested | Spec 024 amendment: promote-to-transcript confirmation modal with exact text; trigger: spec 024 UI implementation Phase F |
+| FR-046 | tests/test_029_architectural.py | Spec 024 amendment: shared-module reuse (DiffRenderer, threshold constants, format_label, format_iso); spec 029 architectural test enforces no parallel implementations |
+| FR-047 | untested | Spec 024 amendment: Summaries tab with 20-per-page offset pagination + copy-to-notes; trigger: spec 024 UI implementation Phase F |
+| FR-048 | untested | Spec 024 amendment: Review Gate tab with DiffRenderer expansion for review_gate_edit rows; trigger: spec 024 UI implementation Phase F |
+| FR-049 | untested | Spec 024 amendment: archived-session affordances (scope chip visible, promote button disabled with tooltip); trigger: spec 024 UI implementation Phase F |
+| FR-052 | tests/frontend/test_standby_ui.js | Spec 027 amendment: facilitator-only wait_mode badge derivation verified Node-runnable; React-side gating + role check trigger: spec 027 UI implementation Phase F |
+| FR-053 | tests/frontend/test_standby_ui.js | Spec 027 amendment: standby-pill copy resolution from WS event reason verified Node-runnable; pill rendering + clear-on-exit trigger: spec 027 UI implementation Phase F |
+| FR-054 | tests/test_027_validators.py | Spec 027 amendment: facilitator wait_mode toggle posting to set_wait_mode endpoint; backend endpoint surface backstopped by validator + architectural tests; trigger: spec 027 UI implementation Phase F |
+| FR-055 | tests/frontend/test_standby_ui.js | Spec 027 amendment: pivot-message detection via metadata.kind verified Node-runnable; banner-style rendering trigger: spec 027 UI implementation Phase F |
+| FR-056 | tests/frontend/test_standby_ui.js | Spec 027 amendment: long-term-observer detection + badge copy verified Node-runnable; React-side rendering trigger: spec 027 UI implementation Phase F |
+| FR-057 | untested | Spec 027 amendment: layout tolerance for combined badge presence + 24-char truncation; trigger: spec 027 UI implementation Phase F Playwright |
+| FR-058 | tests/test_027_architectural.py | Spec 027 amendment: wait_mode + wait_mode_metadata extension on participant_update WS payload — backstopped by `_participant_payload` extension in `src/web_ui/events.py` and architectural test asserting the contract |
+| FR-059 | tests/test_027_architectural.py | Spec 027 amendment: five new audit-action labels registered in both audit_labels.py + frontend mirror; parity-gate enforced via architectural test |
 | SR-001 | tests/test_web_ui_app.py, tests/test_011_testability.py | Security headers present; CSP report-uri; per-directive coverage (14 fragments) |
 | SR-001a | untested | WS frame cap (256KB); WS layer max_size not yet wired; trigger: Phase E ops |
 | SR-002 | tests/test_web_ui_app.py | Strict-Transport-Security header present |
@@ -245,6 +261,7 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-7 | tests/test_010_testability.py | Secret-name pattern guard drops _KEY/_SECRET/_TOKEN/_PASSWORD/_CREDENTIAL/_PASSPHRASE allowlist entries |
 | FR-8 | tests/test_010_testability.py | Audit action string "debug_export" pinned; one call site |
 | FR-9 | tests/test_mcp_app.py, tests/test_010_testability.py | CI heuristic guard + canonical strip-list contents |
+| FR-10 | tests/test_010_testability.py | Amendment 2026-05-12 paired with spec 022 pass 2: export envelope includes detection_events section via log_repo.get_detection_events_page |
 ## 009-rate-limiting
 
 | FR | Test path(s) | Notes |
@@ -359,3 +376,96 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-020 | tests/test_023_ownership_transfer.py | POST /tools/admin/account/transfer_participants gated by SACP_DEPLOYMENT_OWNER_KEY; 403 on missing/wrong header; account_ownership_transfer audit row |
 | FR-021 | tests/test_023_migration_015.py | Hash format pluggability: password_hash column accepts argon2id-encoded form (future OAuth slots in without schema change) |
 | FR-022 | tests/test_023_validators.py | Seven V16 env vars validated at startup; cross-condition WARN for SACP_ACCOUNTS_ENABLED=1 + SACP_EMAIL_TRANSPORT=noop |
+
+---
+
+## 022-detection-event-history
+
+| FR | Test path(s) | Notes |
+|----|--------------|-------|
+| FR-001 | tests/test_022_detection_events_endpoint.py, tests/test_022_filter_composition.py, tests/test_022_log_repo.py | GET /tools/admin/detection_events: response shape, five-class round-trip, page query SQL shape |
+| FR-002 | tests/test_022_detection_events_endpoint.py | Facilitator-only enforcement; non-facilitator participant gets 403 with `facilitator_only` error code |
+| FR-003 | tests/test_022_detection_events_endpoint.py | Session-bound check: facilitator-of-A querying session B gets 403 |
+| FR-004 | tests/test_022_architectural.py | Read-only contract via column-list SELECT; no write paths in get_detection_events_page |
+| FR-005 | tests/test_022_taxonomy_registry.py, tests/test_022_filter_composition.py | Five-class taxonomy: every entry has label; endpoint round-trips all classes |
+| FR-006 | tests/test_022_resurface_endpoint.py, tests/test_022_ws_events.py | POST .../resurface emits audit row + facilitator-only WS broadcast through cross_instance_broadcast |
+| FR-007 | tests/test_022_resurface_endpoint.py | Facilitator-only + session-bound (mirrors FR-002 / FR-003) |
+| FR-008 | tests/test_022_resurface_endpoint.py | Archived session 409 with `session_archived` error code |
+| FR-009 | tests/test_022_ws_events.py, tests/test_022_architectural.py | detection_event_appended envelope; SPA refetch on WS reconnect + visibility return wired (architectural grep) |
+| FR-010 | tests/test_022_disposition_timeline.py, tests/test_022_resurface_endpoint.py | Disposition timeline endpoint shape; re-surface rows preserved alongside transitions |
+| FR-011 | tests/frontend/test_detection_history_filters.js, tests/test_022_filter_composition.py | Four-axis AND composition (Node-runnable pure logic) + backend page-response carries every axis value |
+| FR-012 | tests/frontend/test_detection_history_filters.js | TRIGGER_SNIPPET_DISPLAY_CAP truncation + expand toggle pure-logic |
+| FR-013 | tests/test_022_detection_events_endpoint.py, tests/test_022_filter_composition.py, tests/test_022_log_repo.py | SACP_DETECTION_HISTORY_MAX_EVENTS cap honored end-to-end + max_events_applied flag |
+| FR-014 | tests/test_022_detection_events_endpoint.py | SACP_DETECTION_HISTORY_RETENTION_DAYS resolves a UTC lower bound (`_resolved_since` direct + endpoint-integration assertions that the resolved `since` flows through to `log_repo.get_detection_events_page`); unset = no bound |
+| FR-015 | tests/test_022_filter_composition.py, tests/test_022_taxonomy_registry.py | Spec 014 mode_recommendation + mode_change surface as distinct registry classes |
+| FR-016 | tests/test_022_validators.py | Three env vars validated at startup; master-switch hides route + SPA button |
+| FR-017 | tests/test_022_architectural.py, tests/test_022_log_repo.py, tests/test_022_cross_instance_broadcast.py | Multi-faceted FR: architectural test pins the dual-write contract (emit sites route through persist_and_broadcast_detection_event); log_repo tests cover the append-only invariant + disposition denormalization on the `detection_events` table; cross_instance_broadcast tests cover the post-INSERT broadcast emission alongside the LISTEN/NOTIFY hop, including fail-soft when INSERT fails. |
+
+---
+
+## 024-facilitator-scratch
+
+| FR | Test path(s) | Notes |
+|----|--------------|-------|
+| FR-001 | tests/test_024_architectural.py | FR-001 architectural enforcement: no code path from src/orchestrator/, src/prompts/, src/api_bridge/, or src/operations/ imports src.scratch.* |
+| FR-002 | tests/test_024_master_switch_off.py | GET /tools/facilitator/scratch route presence + master-switch-off absence; DB-gated integration coverage trigger: Postgres test harness Phase F |
+| FR-003 | tests/test_024_master_switch_off.py | POST /tools/facilitator/scratch/notes route presence; full endpoint integration trigger: Postgres test harness Phase F |
+| FR-004 | tests/test_024_master_switch_off.py | PUT /tools/facilitator/scratch/notes/<id> route presence; OCC behavior in FacilitatorNotesRepository.update_note; DB integration trigger: Phase F |
+| FR-005 | tests/test_024_master_switch_off.py | DELETE /tools/facilitator/scratch/notes/<id> route presence; soft-delete behavior in FacilitatorNotesRepository.soft_delete_note; DB integration trigger: Phase F |
+| FR-006 | tests/test_024_master_switch_off.py | POST /tools/facilitator/scratch/notes/<id>/promote route presence; promote handler reuses inject_message path; DB integration trigger: Phase F |
+| FR-007 | tests/frontend/test_scratch_notes.js | PromoteConfirmModal in frontend/app.jsx shows the EXACT text from the note (no truncation) with Confirm disabled when content is empty; pure-logic helpers exercised in Node test; e2e trigger: Playwright Phase F |
+| FR-008 | tests/test_024_master_switch_off.py | Promote routes through _validate_and_persist via existing participant.py helpers; DB integration trigger: Phase F |
+| FR-009 | tests/frontend/test_scratch_notes.js | 2s autosave debounce covered by frontend Node test |
+| FR-010 | tests/test_024_validators.py | SACP_SCRATCH_NOTE_MAX_KB validator boundary conditions + HTTP 413 enforced in router._enforce_size |
+| FR-011 | tests/frontend/test_scratch_notes.js | SummariesTab in frontend/app.jsx reads summaries section of FR-002 payload; parseSummaryContent + formatTurnRange helpers covered by Node test |
+| FR-012 | tests/frontend/test_scratch_notes.js | 20-per-page offset pagination wired via /tools/facilitator/scratch/summaries endpoint + SummariesPager component; pure-logic helpers covered in Node test |
+| FR-013 | tests/frontend/test_scratch_notes.js | ReviewGateTab in frontend/app.jsx reads review_gate_events section of FR-002 payload; service.list_review_gate_events filters admin_audit_log by action LIKE 'review_gate_%'; reviewGateDisposition helper covered in Node test |
+| FR-014 | tests/test_029_architectural.py, tests/frontend/test_scratch_notes.js | Spec 029 architectural test extended for spec 024 (no parallel threshold constants); component reuse trigger: spec 024 UI implementation Phase F |
+| FR-015 | tests/test_024_master_switch_off.py | facilitator_notes account_id FK SET NULL behavior in alembic migration; runtime scope detection via ScratchService.resolve_account_id; DB integration trigger: Phase F |
+| FR-016 | tests/test_024_validators.py | Account-scoped notes survive archive via partial index on account_id IS NOT NULL AND deleted_at IS NULL; retention sweep gated by SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE |
+| FR-017 | tests/test_024_validators.py | Session-scoped notes deleted on session DELETE via CASCADE FK in alembic 019 |
+| FR-018 | tests/test_024_validators.py | SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE validator; retention sweep script trigger: T015 follow-up |
+| FR-019 | tests/test_024_master_switch_off.py | SACP_SCRATCH_ENABLED master switch — no scratch routes mount when off; routes appear when on |
+| FR-020 | tests/test_024_audit_labels.py | Five scratch actions registered in audit_labels.LABELS + frontend mirror; emit sites covered by ScratchService methods (integration: Phase F) |
+| FR-021 | tests/test_024_master_switch_off.py | Facilitator-only access via get_current_participant; non-facilitator HTTP 403 trigger: spec 024 integration Phase F |
+| FR-022 | tests/test_024_validators.py | Three SACP_SCRATCH_* env vars validated at startup; V16 fail-closed gate |
+| FR-023 | untested | Scratch section in spec 010 debug-export payload; trigger: spec 010 amendment Phase F |
+| FR-024 | tests/frontend/test_scratch_notes.js | "Scratch" entry-point button in AdminPanel gated by scratchEnabled probe; ScratchPanel slide-over rendered in frontend/app.jsx; e2e trigger: Playwright Phase F |
+| FR-025 | tests/frontend/test_scratch_notes.js | Scope chip in ScratchPanel header reading "Account-scoped" / "Session-scoped"; describeScope helper covered in Node test |
+| FR-026 | tests/test_029_architectural.py, tests/test_024_audit_labels.py | Spec 029 shared-module contract reuse enforced by parity gate + spec 029 architectural test extension |
+
+---
+
+## 027-participant-standby-modes
+
+| FR | Test path(s) | Notes |
+|----|--------------|-------|
+| FR-001 | tests/test_027_architectural.py | participants.wait_mode column shipped via migration 021; CHECK constraint enum (`wait_for_human` / `always`); test substrate mirrored |
+| FR-002 | tests/test_027_architectural.py | participants.status enum extended to include `standby`; migration 021 drops + recreates the CHECK constraint |
+| FR-003 | tests/test_027_standby_evaluator.py | StandbyEvaluator hooked into the per-tick loop BEFORE router.next_speaker; constant-time per participant |
+| FR-004 | tests/test_027_standby_evaluator.py | Detection signal #1 — unresolved ai_question_opened from detection_events |
+| FR-005 | tests/test_027_standby_evaluator.py | Detection signal #2 — pending review_gate_staged from review_gate_drafts |
+| FR-006 | tests/test_027_standby_evaluator.py | Detection signal #3 — proposal awaiting vote + last-2-turns stuck (cos > 0.8 AND new_tokens < 50) |
+| FR-007 | tests/test_027_standby_evaluator.py | Detection signal #4 — spec 021 filler-scorer aggregate consumed via routing_log.filler_score; off-rails-coordination skip when density_anomaly fires same tick |
+| FR-008 | tests/test_027_standby_evaluator.py | wait_for_human + any signal -> status='standby' + admin_audit_log standby_entered |
+| FR-009 | tests/test_027_standby_evaluator.py | router.next_speaker filters status='active' — standby participants naturally skipped |
+| FR-010 | tests/test_027_standby_evaluator.py | participant_standby WS event payload — reason + since_turn fields |
+| FR-011 | tests/test_027_standby_evaluator.py | Next-tick exit when all signals clear; participant_standby_exited WS broadcast |
+| FR-012 | tests/test_027_standby_evaluator.py | paused supersedes standby — evaluator excludes status='paused' from candidate set |
+| FR-013 | tests/test_027_standby_evaluator.py | circuit_open precedence — evaluator excludes status='circuit_open' from candidate set |
+| FR-014 | tests/test_027_always_mode_delta.py, tests/test_027_standby_evaluator.py | always-mode participants not transitioned to standby regardless of signals; existing standby cleared on flip-to-always |
+| FR-015 | tests/test_027_always_mode_delta.py | Tier 4 acknowledgment delta in standby_ack_delta.py; pre-import validation; injection via assemble_prompt |
+| FR-016 | tests/test_027_always_mode_delta.py | Fixed-additive Tier 4 composition order — register first, conclude second, standby third (SC-007) |
+| FR-017 | tests/test_027_standby_evaluator.py | Auto-pivot triggers when cycle_count >= N AND elapsed >= timeout; eligible participant list computed via gate-age scan |
+| FR-018 | tests/test_027_standby_evaluator.py | Pivot message persisted with speaker_type='system' AND metadata->>'kind'='orchestrator_pivot' |
+| FR-019 | tests/test_027_standby_evaluator.py | pivot_rate_cap_per_session honored — second pivot prevented when cap exhausted |
+| FR-020 | tests/test_027_standby_evaluator.py | wait_mode_metadata.long_term_observer=true set on pivot targets in wait_for_human mode |
+| FR-021 | tests/test_027_standby_evaluator.py | Long-term-observer exits cleanly back to active when gate clears (apply_eval_result _transition_to_active path resets the JSONB flag) |
+| FR-022 | tests/test_027_always_mode_delta.py | Pivot text + ack delta text hardcoded; pre-validated through output_validator at module import |
+| FR-023 | tests/test_027_standby_evaluator.py | O(1) per participant per tick — fetch_evaluable_rows + per-signal lookups are constant-time |
+| FR-024 | tests/test_027_validators.py | Four new SACP_STANDBY_* env vars validated at startup; registered in VALIDATORS tuple; entries in docs/env-vars.md |
+| FR-025 | tests/test_027_validators.py | POST /tools/participant/set_wait_mode endpoint — backstopped by validator + architectural tests; integration via existing FR-009 / participant snapshot path |
+| FR-026 | tests/test_027_standby_evaluator.py | observer-downgrade evaluator skips participants with status='standby' (filter in src/orchestrator/observer_downgrade.py:evaluate_downgrade) |
+| FR-027 | tests/test_027_standby_evaluator.py | participants.standby_cycle_count durable column; increments on still-standby ticks; resets on exit transition |
+| FR-028 | tests/test_027_architectural.py | Four SACP_STANDBY_* validators registered in VALIDATORS tuple per spec naming convention |
+| FR-029 | tests/test_027_architectural.py | Five new audit-action labels registered in both audit_labels.py mirrors (parity gate enforced via architectural test + scripts/check_audit_label_parity.py) |

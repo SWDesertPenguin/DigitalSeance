@@ -20,7 +20,11 @@ from typing import Any
 import litellm
 
 from src.api_bridge.adapter import ProviderResponse
-from src.api_bridge.caching import CacheDirectives, apply_directives
+from src.api_bridge.caching import (
+    CacheDirectives,
+    apply_directives,
+    extract_cached_prefix_tokens,
+)
 from src.database.encryption import decrypt_value
 from src.repositories.errors import (
     CompoundRetryExhaustedError,
@@ -311,6 +315,7 @@ def _extract_response(
         cost_usd=_compute_cost(response, model),
         model=model,
         latency_ms=latency,
+        cached_prefix_tokens=extract_cached_prefix_tokens(usage),
     )
 
 

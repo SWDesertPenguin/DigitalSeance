@@ -108,8 +108,16 @@ def evaluate_downgrade(
     current_tpm: int,
     thresholds: ObserverDowngradeThresholds,
 ) -> _DowngradeDecision:
-    """Decide whether to downgrade per FR-008/FR-009/FR-011 (last-human protection)."""
-    active = [p for p in participants if p.status != "paused" and p.role in _ACTIVE_ROLES]
+    """Decide whether to downgrade per FR-008/FR-009/FR-011 (last-human protection).
+
+    Spec 027 FR-026 precedence: participants already in ``status='standby'``
+    are excluded from observer-downgrade evaluation (gate-blocked outranks
+    traffic-shape; the standby participant is ALREADY skipped from the
+    round-robin, so re-typing them to observer is double-work).
+    """
+    active = [
+        p for p in participants if p.status not in ("paused", "standby") and p.role in _ACTIVE_ROLES
+    ]
     trigger = _which_threshold_tripped(len(active), current_tpm, thresholds)
     if trigger is None:
         return NoOp()

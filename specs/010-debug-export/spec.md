@@ -2,10 +2,14 @@
 
 **Feature Branch**: `fix/live-test-feedback` (bundled fix; would be `010-debug-export` as its own feature)
 **Created**: 2026-04-15
-**Status**: Implemented (Phase 1 closed 2026-04-20)
+**Status**: Implemented (Phase 1 closed 2026-04-20); Amended 2026-05-12 (paired with spec 022 pass 2 — adds `detection_events` section to the export envelope; see Clarifications §Session 2026-05-12 + FR-10)
 **Input**: User description: "Add an option to dump everything about a session in one JSON blob for troubleshooting — session + participants + messages + interrupts + logs + config, including nulls/empties."
 
 ## Clarifications
+
+### Session 2026-05-12 (amendment — paired with spec 022 pass 2)
+
+Spec 022's Session 2026-05-11 amendment introduced a dedicated `detection_events` table as the source-of-truth for the five-class detection taxonomy (`ai_question_opened`, `ai_exit_requested`, `density_anomaly`, `mode_recommendation`, `mode_change`). The pre-amendment claim that spec 010 "already includes these events" via `routing_log` + `convergence_log` + `admin_audit_log` joins is stale; question and exit detections were never persisted on the live pre-022 path and density-anomaly rows lack participant attribution. Spec 010 acquires a new section in the export envelope to keep the live panel (spec 022) and the forensic export (spec 010) surfaces consistent — operators using either get the same answers. FR-10 below pins the section contract. Same facilitator-only / session-bound authorization as the rest of the export payload; no new env var.
 
 ### Session 2026-05-02 (audit fix/010-compliance — Phase D)
 
@@ -49,6 +53,7 @@ When something goes wrong in a live session — ordering, empty responses, cost 
 - **FR-7** Config snapshot covers only a fixed `SACP_*` allowlist (`_CONFIG_KEYS` in `src/mcp_server/tools/debug.py`); never includes secrets. A secondary defensive name-pattern guard (`_SECRET_NAME_PATTERN`) drops any allowlisted key whose name ends in `_KEY`, `_SECRET`, `_TOKEN`, `_PASSWORD`, `_CREDENTIAL`, or `_PASSPHRASE` — protection against an operator accidentally adding a sensitive variable to the allowlist.
 - **FR-8** Calling the export endpoint MUST be recorded in `admin_audit_log` with `action='debug_export'`, `facilitator_id=<requester>`, `target_id=<session_id>`. The export is a high-leverage facilitator action (it dumps every byte of session state); leaving it unaudited would let an attacker exfiltrate without a forensic trail.
 - **FR-9** The strip-list (`_SENSITIVE_FIELDS`) is the canonical source of truth for which serialized participant fields are excluded. New schema columns whose names end in `_encrypted` / `_hash` or equal `bound_ip` MUST be added to the strip-list — a CI guard (`tests/test_mcp_app.py::test_sensitive_fields_cover_obvious_patterns`) fails the build if any obvious-sensitive Participant dataclass field is missing from the set.
+- **FR-10** (amendment 2026-05-12 — paired with spec 022 pass 2) The export envelope MUST include a `detection_events` array containing every row from the `detection_events` table (alembic 017) for the requested `session_id`. Each entry carries the persisted columns verbatim: `id`, `event_class`, `participant_id`, `trigger_snippet`, `detector_score`, `turn_number`, `timestamp` (ISO-8601), `disposition`, `last_disposition_change_at` (nullable). The section is gated by the same facilitator-only / session-bound contract as the rest of the payload (FR-2 / FR-3). No master switch — the export surface follows spec 010's existing on-by-default posture. Empty sessions return `detection_events: []` per FR-5. Operators using either the live panel (spec 022) or the forensic export (spec 010) get the same five-class view; mismatches indicate spec 022 emit-site drift and surface in the V18 traceability audit.
 
 ## Success Criteria
 

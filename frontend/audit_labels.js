@@ -51,6 +51,16 @@
     "detection_event_dismissed": { label: "Detection event dismissed" },
     "detection_event_auto_resolved": { label: "Detection event auto-resolved" },
     "detection_event_resurface": { label: "Detection event re-surfaced" },
+    "facilitator_note_created": { label: "Facilitator created scratch note" },
+    "facilitator_note_updated": { label: "Facilitator updated scratch note" },
+    "facilitator_note_deleted": { label: "Facilitator deleted scratch note" },
+    "facilitator_promoted_note": { label: "Facilitator promoted note to transcript" },
+    "facilitator_note_purged_retention": { label: "Scratch note purged by retention sweep" },
+    "standby_entered": { label: "Participant entered standby" },
+    "standby_exited": { label: "Participant exited standby" },
+    "pivot_injected": { label: "Orchestrator injected pivot message" },
+    "standby_observer_marked": { label: "Participant marked long-term observer" },
+    "wait_mode_changed": { label: "Participant wait_mode changed" },
   };
 
   // Return the registered label for `action`, or the

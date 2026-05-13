@@ -182,7 +182,7 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Valid range**: `"true"` or `"false"`
 - **Validation rule**: `validators.validate_compression_phase2_enabled`
 - **Source spec(s)**: 026 FR-008
-- **Note**: Phase 2 master switch. When `false` (default), Phase 2 compressors (`llmlingua2_mbert`, `selective_context`) raise `NotImplementedError` on dispatch. When `true`, the dispatch path can route to them per `SACP_COMPRESSION_DEFAULT_COMPRESSOR` or `sessions.compression_mode`. Flipping to `true` requires `transformers` + `accelerate` installed; absence is a startup error.
+- **Note**: Phase 2 master switch. When `false` (default), Phase 2 compressors (`llmlingua2_mbert`, `selective_context`) raise `NotImplementedError` on dispatch. When `true`, the dispatch path can route to them per `SACP_COMPRESSION_DEFAULT_COMPRESSOR` or `sessions.compression_mode`. Flipping to `true` requires the optional `compression-phase2` extra installed (`uv pip install -e .[compression-phase2]`); absence raises `NotImplementedError` at first dispatch and the CompressorService fails soft to un-compressed payload per FR-020.
 - **Cross-validator interaction**: with `SACP_COMPRESSION_DEFAULT_COMPRESSOR` set to a Phase 2 compressor (`llmlingua2_mbert` or `selective_context`), this MUST be `true` or startup exits with a ValidationFailure naming both vars.
 
 ### `SACP_COMPRESSION_THRESHOLD_TOKENS`
@@ -193,6 +193,15 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Validation rule**: `validators.validate_compression_threshold_tokens`
 - **Source spec(s)**: 026 FR-016
 - **Note**: Hard-compression engagement threshold. When the outgoing window's projected token count (per the target provider's TokenizerAdapter) exceeds this value, the dispatch path invokes the configured compressor instead of NoOp. Default `4000` is the literature default for LLMLingua-2 mBERT on English prose. Below 500 makes compression overhead dominate any savings; above 100000 effectively disables compression for all real workloads.
+
+### `SACP_LLMLINGUA_MODEL`
+
+- **Status**: Reserved — no startup validator; defensive fall-back to default at load time
+- **Default**: `microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank`
+- **Type**: string (Hugging Face checkpoint identifier or local model path)
+- **Valid range**: any string accepted by the `llmlingua.PromptCompressor` model loader
+- **Source spec(s)**: 026 FR-008 (Phase 2 Layer 4)
+- **Note**: Override hook for operators on air-gapped stacks who mirror the LLMLingua-2 mBERT checkpoint locally OR want to point at a fine-tuned SafeTensors-only weights bundle. Reserved — not a master switch; the dispatch path's gating is `SACP_COMPRESSION_PHASE2_ENABLED` + the `compression-phase2` extra. Unset / empty value falls back to the published Microsoft checkpoint above. Lazy-loaded on first compress dispatch; per-process singleton.
 
 ### `SACP_COMPRESSION_DEFAULT_COMPRESSOR`
 
@@ -425,6 +434,36 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Source spec(s)**: 023 §FR-020 / research §7 (revised at impl-time to ship in v1)
 - **Note**: Gates `POST /tools/admin/account/transfer_participants` per spec 023 FR-020. When unset, the endpoint refuses every request — the admin-auth shim has no key to compare against. When set, callers attach the same value as the `X-Deployment-Owner-Key` header on the transfer request. The shim is intentionally minimal: a single static key. Future operator-auth specs (mTLS, OAuth M2M) replace the dependency without changing the endpoint contract.
 
+
+### `SACP_SCRATCH_ENABLED`
+
+- **Default**: `0` (off — opt-in master switch ships disabled)
+- **Type**: boolean (`0` or `1`)
+- **Valid range**: exactly `0` or `1`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_scratch_enabled`
+- **Source spec(s)**: 024 §FR-019 / FR-022 (master switch for the facilitator scratch panel surface)
+- **Note**: When `0` (the default), every endpoint under `/tools/facilitator/scratch/` returns HTTP 404 and the SPA does NOT render the scratch panel entry-point button in the session header. When `1`, the scratch router mounts and the entry-point button surfaces (gated additionally by FR-021 facilitator-only role check). Notes data NEVER reaches AI context regardless of this switch — the surface is gated, not the FR-001 isolation guarantee.
+
+### `SACP_SCRATCH_NOTE_MAX_KB`
+
+- **Default**: `64`
+- **Type**: positive integer (kilobytes)
+- **Valid range**: `1 <= value <= 1024` (1 KiB to 1 MiB inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_scratch_note_max_kb`
+- **Source spec(s)**: 024 §FR-010 / FR-022 (per-note size cap)
+- **Note**: Per-note content size cap. Notes exceeding the cap are rejected with HTTP 413 from the `POST` and `PUT` scratch-notes endpoints. The cap protects against unbounded notes consuming DB space; raising past 1 MiB is unsupported in v1 (the underlying TEXT column accepts more bytes, but the SPA renderer + autosave-debounce envelope assume bounded inputs).
+
+### `SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE`
+
+- **Default**: unset (indefinite retention; no sweep applies)
+- **Type**: positive integer (days), or empty
+- **Valid range**: `1 <= value <= 36500` (1 day to 100 years) when set
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_scratch_retention_days_after_archive`
+- **Source spec(s)**: 024 §FR-018 / FR-022 (retention sweep for account-scoped notes)
+- **Note**: Retention applies to account-scoped notes only (session-scoped notes are deleted on archive regardless of this value per FR-017). The sweep is operator-scheduled via `scripts/scratch_retention_sweep.py`; the orchestrator does NOT auto-purge in-process. Each purged note emits one `admin_audit_log` row with `action=''facilitator_note_purged_retention''`.
 ## Reserved (documented but not yet wired)
 
 These vars appear in the debug-export config snapshot allowlist but are NOT consumed by application code. Operators setting them today will see the value in the debug snapshot but no behavioral effect. Validators land when application code starts consuming them — likely as part of a per-spec amendment cluster.
@@ -619,6 +658,46 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Status**: Reserved
 - **Phase 3 trigger**: 003 turn-loop spec amendment exposing the per-turn timeout knob
 - **Intended type**: integer seconds, `> 0`
+
+### `SACP_STANDBY_DEFAULT_WAIT_MODE`
+
+- **Default**: `wait_for_human` — newly-INSERTed participant rows inherit this default unless the facilitator or owning human sets `wait_mode` explicitly via the spec 027 `set_wait_mode` endpoint
+- **Type**: string enum
+- **Valid range**: exactly `wait_for_human` or `always`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_standby_default_wait_mode`
+- **Source spec(s)**: 027 §FR-001 / FR-028
+- **Note**: Setting this to `always` deployment-wide effectively disables the entire standby feature — every new participant opts out of standby evaluation. The setting affects new INSERTs only; pre-existing rows retain their stored `wait_mode` value. A per-participant change via the FR-025 endpoint always supersedes this default.
+
+### `SACP_STANDBY_FILLER_DETECTION_TURNS`
+
+- **Default**: `5` (consecutive standby cycles)
+- **Type**: positive integer
+- **Valid range**: `2 <= value <= 100` (inclusive). Below `2` the repetition guard is meaningless (a single cycle would trigger); above `100` the pivot is effectively unreachable in any realistic session.
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_standby_filler_detection_turns`
+- **Source spec(s)**: 027 §FR-017 (auto-pivot consecutive-cycle denominator)
+- **Note**: The cycle counter increments on every round-robin tick where the participant remained in standby. Resets to 0 on every standby-exit transition (gate clear, manual pause, circuit_open precedence, participant departure). Persisted in `participants.standby_cycle_count` (durable across loop restarts per Session 2026-05-12 Q11).
+
+### `SACP_STANDBY_PIVOT_TIMEOUT_SECONDS`
+
+- **Default**: `600` (10 minutes)
+- **Type**: positive integer (seconds)
+- **Valid range**: `60 <= value <= 86400` (inclusive — 1 minute to 1 day)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_standby_pivot_timeout_seconds`
+- **Source spec(s)**: 027 §FR-017 (auto-pivot minimum elapsed time)
+- **Note**: Measured from the timestamp the gating event opened (the unresolved question event was emitted, the review_gate was staged, etc.). Both the cycle-count AND the elapsed-time gates must be satisfied before the pivot can fire. The 60-second floor prevents racing a near-immediate gate clear; the 1-day ceiling caps the maximum wait at one human-business-cycle.
+
+### `SACP_STANDBY_PIVOT_RATE_CAP_PER_SESSION`
+
+- **Default**: `1` pivot per session lifetime
+- **Type**: positive integer
+- **Valid range**: `0 <= value <= 100` (inclusive). `0` disables auto-pivot entirely (operators who want pure standby with no orchestrator intervention).
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_standby_pivot_rate_cap_per_session`
+- **Source spec(s)**: 027 §FR-019 (per-session pivot cap)
+- **Note**: When the cap is exhausted, subsequent would-have-pivoted conditions log `routing_log.reason='pivot_skipped_rate_cap'` and the participant remains in standby without the long-term-observer transition firing automatically (FR-020 sub-state requires the pivot to actually fire). Resolved per Session 2026-05-12 Q6 — per-session scope, not per-participant; per-participant capping is a future amendment.
 
 ## CI enforcement
 

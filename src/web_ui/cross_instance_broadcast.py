@@ -47,6 +47,7 @@ from typing import Any
 
 import asyncpg
 
+from src.observability.instrumentation import instrument_stage
 from src.web_ui.websocket import broadcast_to_session_roles
 
 _logger = logging.getLogger(__name__)
@@ -99,14 +100,24 @@ async def broadcast_session_event(
     cross-instance NOTIFY is skipped with a DEBUG log.
     """
     envelope = _truncate_snippet(envelope)
-    await broadcast_to_session_roles(session_id, envelope, allow_roles=FACILITATOR_ROLES)
+    async with instrument_stage(
+        "detection_events.ws_push",
+        session_id=session_id,
+        envelope_type=envelope.get("type"),
+    ):
+        await broadcast_to_session_roles(session_id, envelope, allow_roles=FACILITATOR_ROLES)
     if pool is None:
         _logger.debug(
             "cross_instance_broadcast.skip_notify_no_pool",
             extra={"session_id": session_id},
         )
         return
-    await _emit_notify(pool, session_id, envelope)
+    async with instrument_stage(
+        "detection_events.resurface_cross_instance",
+        session_id=session_id,
+        envelope_type=envelope.get("type"),
+    ):
+        await _emit_notify(pool, session_id, envelope)
 
 
 async def _emit_notify(
