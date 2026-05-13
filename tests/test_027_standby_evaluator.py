@@ -176,7 +176,7 @@ async def test_pivot_rate_cap_zero_disables(pool: asyncpg.Pool) -> None:
 
 async def _seed_pivot_eligible(pool: asyncpg.Pool, session_id: str, pid: str) -> None:
     """Helper: backdate the participant's standby_entered audit row by 700s."""
-    past_ts = datetime.now(UTC) - timedelta(seconds=700)
+    past_ts = (datetime.now(UTC) - timedelta(seconds=700)).replace(tzinfo=None)
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE participants SET standby_cycle_count = 10 WHERE id = $1",
@@ -280,9 +280,9 @@ async def _insert_pending_review_gate(
             """
             INSERT INTO review_gate_drafts (
               id, session_id, participant_id, turn_number,
-              draft_content, status, created_at
+              draft_content, context_summary, status, created_at
             ) VALUES (
-              $1, $2, $3, 1, 'draft', 'pending', NOW()
+              $1, $2, $3, 1, 'draft', '', 'pending', NOW()
             )
             """,
             f"d_{uuid.uuid4().hex[:8]}",
