@@ -78,23 +78,42 @@ async def test_density_anomaly_dual_writes_convergence_log_and_routing_log() -> 
             turn_number=21,
             session_id="s1",
             content="alpha beta gamma delta",
+            speaker_id="p1",
         )
     finally:
         _restore_anomaly_path()
     log_repo.log_density_anomaly.assert_awaited_once()
-    density_call = log_repo.log_density_anomaly.await_args.kwargs
-    assert density_call["turn_number"] == 21
-    assert density_call["session_id"] == "s1"
+    density = log_repo.log_density_anomaly.await_args.kwargs
+    assert (density["turn_number"], density["session_id"]) == (21, "s1")
     log_repo.log_routing.assert_any_call(
         session_id="s1",
         turn_number=21,
-        intended="s1",
-        actual="s1",
+        intended="p1",
+        actual="p1",
         action="quality_signal",
         complexity="n/a",
         domain_match=False,
         reason="density_anomaly_flagged",
     )
+
+
+@pytest.mark.asyncio
+async def test_density_anomaly_skips_routing_marker_when_no_speaker_id() -> None:
+    """Missing speaker_id skips the routing marker (FK target unknown)."""
+    log_repo = _build_log_repo()
+    detector = _build_detector(baseline=[0.01] * 20, log_repo=log_repo)
+    _force_anomaly_path()
+    try:
+        await detector.process_turn(
+            turn_number=21,
+            session_id="s1",
+            content="alpha beta gamma delta",
+        )
+    finally:
+        _restore_anomaly_path()
+    log_repo.log_density_anomaly.assert_awaited_once()
+    for call in log_repo.log_routing.await_args_list:
+        assert call.kwargs.get("reason") != "density_anomaly_flagged"
 
 
 @pytest.mark.asyncio
