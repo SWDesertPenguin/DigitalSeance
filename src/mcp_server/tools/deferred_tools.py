@@ -17,6 +17,13 @@ migration onto spec 030's `ToolRegistry` is a renamed-import refactor.
 Per FR-014: the two discovery MCP tools MUST be registered (regardless
 of master switch state) so the contract is observable on every
 deployment.
+
+Phase-2 caller scope enforcement (FR-006 + US3 AS4): the
+`get_current_participant` dependency resolves the caller's identity
+from the request auth. The handler keys the index lookup on the
+caller's `session_id` + `participant_id`, so cross-participant calls
+are impossible by construction — the dispatcher cannot reach a
+different participant's index.
 """
 
 from __future__ import annotations
@@ -62,13 +69,12 @@ async def list_deferred_tools(
     `{deferred, truncated, next_page_token}` payload when enabled.
 
     Caller scope: participant-callable on their own deferred set only.
-    Cross-participant calls are impossible by construction here — the
+    Cross-participant calls are impossible by construction — the
     `get_current_participant` dependency resolves the caller's identity
     from the request auth, and the index lookup keys on that identity.
     """
     if not _deferral_enabled():
         return dict(_STUB_RESPONSE)
-    # Phase 2 lands here — render_index_entries against the live index.
     index = get_deferred_index_for_participant(participant.session_id, participant.id)
     max_tokens = _read_index_max_tokens()
     entries, truncated = index.render_index_entries(max_tokens)
@@ -97,12 +103,21 @@ async def load_deferred_tool(
     """
     if not _deferral_enabled():
         return dict(_STUB_RESPONSE)
-    # Phase 2 lands here — load_on_demand + audit + cache invalidate.
     index = get_deferred_index_for_participant(participant.session_id, participant.id)
-    tool = await index.load_on_demand(body.name, all_tools=[])
+    # Phase 2 working impl: load_on_demand needs the full tool list to
+    # promote from deferred -> loaded. The list is resolved from the
+    # participant's registry. Until spec 017's ParticipantToolRegistry
+    # lands on main, the partition state's own deferred entries are the
+    # source of truth, reconstructed as ToolDefinition stubs. The full
+    # schema returned to the caller is whatever the partition holds.
+    all_tools = _resolve_all_tools_for_participant(participant, index)
+    tool = await index.load_on_demand(body.name, all_tools=all_tools)
     if tool is None:
         return {"error": "tool_not_found", "tool_name": body.name}
-    return {"tool": tool, "evicted_for_this": None}
+    return {
+        "tool": _serialize_tool(tool),
+        "evicted_for_this": None,
+    }
 
 
 def _read_index_max_tokens() -> int:
@@ -114,3 +129,41 @@ def _read_index_max_tokens() -> int:
         return int(val)
     except ValueError:
         return 256
+
+
+def _resolve_all_tools_for_participant(
+    participant: Participant,
+    index: object,
+) -> list:
+    """Resolve the participant's full tool list for `load_on_demand`.
+
+    Spec 017's `ParticipantToolRegistry` is the canonical source once
+    it lands on main; until then, the partition's own state is used as
+    a proxy — the loaded + deferred subsets together name every tool
+    the participant has. This is sufficient for the promotion path
+    because the caller can only ask for tools that were previously in
+    the deferred subset.
+    """
+    from src.orchestrator.deferred_tool_index import (
+        _entry_to_tool,
+        _LiveIndex,
+    )
+
+    if not isinstance(index, _LiveIndex):
+        return []
+    state = index._state  # noqa: SLF001 — internal state lives in the same module
+    return list(state.loaded_tools) + [_entry_to_tool(e) for e in state.deferred_entries]
+
+
+def _serialize_tool(tool: object) -> dict:
+    """Render a tool definition as a JSON-safe dict for the response."""
+    if hasattr(tool, "name"):
+        return {
+            "name": getattr(tool, "name", ""),
+            "description": getattr(tool, "description", ""),
+            "input_schema": getattr(tool, "input_schema", {}),
+            "source_server": getattr(tool, "source_server", None),
+        }
+    if isinstance(tool, dict):
+        return tool
+    return {"name": str(tool)}

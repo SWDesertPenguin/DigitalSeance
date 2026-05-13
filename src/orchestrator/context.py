@@ -81,6 +81,7 @@ class ContextAssembler:
         budget = _available_budget(participant)
         context: list[ContextMessage] = []
         register_delta = await self._resolve_register_delta(session_id, participant.id)
+        await self._maybe_trigger_deferred_partition(session_id, participant)
         used = _add_system_prompt(
             context,
             participant,
@@ -100,6 +101,49 @@ class ContextAssembler:
             roster=roster,
         )
         return _reorder_chronologically(context)
+
+    async def _maybe_trigger_deferred_partition(
+        self,
+        session_id: str,
+        participant: Participant,
+    ) -> None:
+        """Spec 018 Phase 2 — fire the initial partition on first turn-prep.
+
+        Resolves the participant's `DeferredToolIndex`; if it's a live
+        index (master switch on) and has never been computed, kicks off
+        `compute_partition`. The tool list comes from the spec 018
+        tool-list-provider hook (set externally by spec 017's
+        ParticipantToolRegistry once that lands on main). Until then,
+        the provider returns an empty list and the partition records a
+        zero-tools decision — observable via the audit log as the
+        signal that deferral is active for this participant.
+
+        Best-effort: any failure here is logged and swallowed so the
+        rest of context assembly proceeds unblocked.
+        """
+        from src.orchestrator.deferred_tool_index import (
+            _LiveIndex,
+            get_deferred_index_for_participant,
+            get_tool_list_provider,
+        )
+
+        try:
+            idx = get_deferred_index_for_participant(session_id, participant.id)
+            if not isinstance(idx, _LiveIndex):
+                return
+            if not idx.is_empty():
+                return
+            provider = get_tool_list_provider()
+            tools = await provider(session_id, participant.id) if provider else []
+            tokenizer = get_tokenizer_for_model(participant.model)
+            budget = _read_loaded_token_budget()
+            await idx.compute_partition(tools, budget=budget, tokenizer=tokenizer)
+        except Exception:
+            log.exception(
+                "deferred_tool_partition trigger failed (session=%s participant=%s)",
+                session_id,
+                participant.id,
+            )
 
     async def _resolve_register_delta(
         self,
@@ -263,6 +307,19 @@ def _read_deferred_index_max_tokens() -> int:
         return int(raw)
     except ValueError:
         return 256
+
+
+def _read_loaded_token_budget() -> int:
+    """Spec 018 SACP_TOOL_LOADED_TOKEN_BUDGET reader; default 1500."""
+    import os as _os
+
+    raw = _os.environ.get("SACP_TOOL_LOADED_TOKEN_BUDGET", "").strip()
+    if not raw:
+        return 1500
+    try:
+        return int(raw)
+    except ValueError:
+        return 1500
 
 
 def _add_system_prompt(
