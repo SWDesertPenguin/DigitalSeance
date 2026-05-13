@@ -1062,7 +1062,24 @@ async def _assemble_and_dispatch(
     Spec 025 FR-008: ``phase`` plumbs through to the assembler so the
     conclude delta lands at Tier 4 only when the loop is in conclude
     phase; default ``'running'`` preserves pre-feature output.
+
+    Spec 017 FR-005: tool-list freshness check at turn-prep boundary.
+    Hash is sealed at this point (before assembler.assemble); the
+    assembler reads the live registry so any change detected here
+    takes effect on this turn's system prompt.
     """
+    # Spec 017 FR-005: check tool-list freshness for non-human participants.
+    # Fail-soft (V6): maybe_refresh swallows its own exceptions; we wrap it
+    # defensively so any unexpected error never aborts the turn loop.
+    provider = getattr(speaker, "provider", "") or ""
+    if provider != "human":
+        try:
+            from src.orchestrator.tool_list_freshness import maybe_refresh
+
+            mcp_url = getattr(speaker, "api_endpoint", None) or None
+            await maybe_refresh(ctx.session_id, speaker.id, mcp_url, ctx.pool)
+        except Exception:  # noqa: BLE001 -- instrumentation MUST NOT abort turn
+            log.debug("tool_freshness_check_failed speaker=%s", speaker.id, exc_info=True)
     assemble_start = time.monotonic()
     context = await assembler.assemble(
         session_id=ctx.session_id,

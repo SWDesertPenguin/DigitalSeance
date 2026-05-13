@@ -2,7 +2,7 @@
 
 **Feature Branch**: `017-tool-list-freshness`
 **Created**: 2026-05-06
-**Status**: Draft
+**Status**: Implemented 2026-05-13
 **Input**: User description: "Tool-list freshness for participant-registered MCP servers. Participants register their own MCP servers as part of their sovereignty surface. MCP servers may add, remove, or modify tools between session start and any subsequent turn (server restart, capability update, version bump). Without a freshness mechanism, the orchestrator caches stale tool definitions and the participant operates on out-of-date capabilities — which can cause failed tool calls, missing functionality, or silent behavior changes. The mechanism must keep each participant's tool registry private to that participant, integrate cleanly with the adaptive context assembly (§4.2) so system-prompt rebuilds happen at the right moments, and produce audit-log entries for every tool-set change. Provider-native prompt caching makes the system prompt the highest-value cache target on participating providers, so tool-set changes carry a real cost that the spec must address. Phase 1 minimum (polling-only) is acceptable if the push-notification path is non-trivial; the full push + poll + manual-refresh design lands in Phase 2."
 
 ## Overview
@@ -114,6 +114,16 @@ that triggers that deferred work — and this spec delivers it.
   enum (`added`, `removed`, `description_changed`, `schema_changed`).
   [NEEDS CLARIFICATION: confirm we collapse these into a single
   audit-event family vs. emit four distinct event types.]
+
+### Session 2026-05-13
+
+1. **Polling-only v1 confirmed.** Phase 1 ships polling-only with push-subscription stubs gated by `SACP_TOOL_REFRESH_PUSH_ENABLED=false`. The stub attempts `notifications/tools/list_changed` subscription at participant registration when the flag is true and audits the outcome; the delivery path (push-driven refresh) is a Phase-2 spec. This means the flag is wired and testable in v1 but the push-delivery loop ships later. Polling is the always-correct floor.
+
+2. **At-turn-boundary check confirmed.** The hash check runs at `_assemble_and_dispatch` entry (before `assembler.assemble(...)` is called in loop.py), which is the §4.2 step-6 equivalent. The hash is sealed at that point; any refresh completing mid-assembly uses the sealed hash (no torn reads). If a change is detected, the registry is updated in-place and the assembler picks up the fresh tool list on this same turn (the system prompt is rebuilt on this turn, not deferred). This is acceptable because the assembler always reads from the live registry at assembly time.
+
+3. **Audit-log only in v1 confirmed.** `prompt_cache_invalidated` is recorded in the `admin_audit_log` entry (FR-012). Spec 016 metrics surface is a SHOULD cross-reference, not a hard dependency — v1 ships the audit row only. The `prompt_cache_invalidated` boolean is set True when the registry's `last_refreshed_at` indicates the tool list was already sent to the provider at least once (i.e., it is not the first turn for this participant).
+
+4. **Single `change_kind` enum confirmed.** The five values are `added`, `removed`, `description_changed`, `schema_changed`, `refresh_failed`. All five reuse the single `tool_list_changed` action type in `admin_audit_log` (one action family, multiple `change_kind` discriminators in the JSONB payload). This is consistent with the existing pattern (e.g., spec 014 reuses `admin_audit_log` with multiple action types but a single table).
 
 ## User Scenarios & Testing *(mandatory)*
 
