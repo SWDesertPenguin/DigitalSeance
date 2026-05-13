@@ -1655,6 +1655,238 @@ def validate_sacp_mcp_max_concurrent_sessions() -> ValidationFailure | None:
     return None
 
 
+def validate_sacp_mcp_tool_session_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_SESSION_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069.
+
+    Category switch for session management tools in the MCP tool registry.
+    When 'false', session.* tools are absent from tools/list and tools/call
+    returns SACP_E_NOT_FOUND per FR-061.
+    """
+    val = os.environ.get("SACP_MCP_TOOL_SESSION_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_SESSION_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_participant_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_PARTICIPANT_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_PARTICIPANT_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_PARTICIPANT_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_proposal_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_PROPOSAL_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_PROPOSAL_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_PROPOSAL_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_review_gate_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_REVIEW_GATE_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_REVIEW_GATE_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_REVIEW_GATE_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_debug_export_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_DEBUG_EXPORT_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_DEBUG_EXPORT_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_DEBUG_EXPORT_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_audit_log_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_AUDIT_LOG_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_AUDIT_LOG_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_AUDIT_LOG_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_detection_events_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_DETECTION_EVENTS_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_DETECTION_EVENTS_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_DETECTION_EVENTS_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_scratch_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_SCRATCH_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_SCRATCH_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_SCRATCH_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_provider_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_PROVIDER_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_PROVIDER_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_PROVIDER_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_admin_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_ADMIN_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_ADMIN_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_ADMIN_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_idempotency_retention_hours() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_IDEMPOTENCY_RETENTION_HOURS: int [1, 168], default 24. 030 Phase 3 FR-069.
+
+    How long idempotency keys are retained in admin_audit_log for deduplication.
+    168 hours = 7 days is the maximum sensible window; 1 hour is the minimum
+    that provides any meaningful deduplication across a real client session.
+    """
+    val = os.environ.get("SACP_MCP_TOOL_IDEMPOTENCY_RETENTION_HOURS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_IDEMPOTENCY_RETENTION_HOURS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 168:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_IDEMPOTENCY_RETENTION_HOURS",
+            f"must be in [1, 168]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_deprecation_horizon_days() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_DEPRECATION_HORIZON_DAYS: int [7, 365], default 90. 030 Phase 3 FR-069.
+
+    Number of days a tool remains in the registry after its deprecatedAt date
+    before being removed. Clients have this window to migrate to the replacement.
+    """
+    val = os.environ.get("SACP_MCP_TOOL_DEPRECATION_HORIZON_DAYS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_DEPRECATION_HORIZON_DAYS",
+            f"must be integer; got {val!r}",
+        )
+    if not 7 <= num <= 365:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_DEPRECATION_HORIZON_DAYS",
+            f"must be in [7, 365]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_pagination_default_size() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_PAGINATION_DEFAULT_SIZE: int [1, 1000], default 50. 030 Phase 3 FR-069.
+
+    Default page size for paginated MCP tool responses when the caller does not
+    supply a cursor or page_size parameter.
+    """
+    val = os.environ.get("SACP_MCP_TOOL_PAGINATION_DEFAULT_SIZE")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_PAGINATION_DEFAULT_SIZE",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 1000:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_PAGINATION_DEFAULT_SIZE",
+            f"must be in [1, 1000]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_pagination_max_size() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_PAGINATION_MAX_SIZE: int [10, 10000], default 500. 030 Phase 3 FR-069.
+
+    Hard ceiling for page_size on any paginated MCP tool. Callers requesting
+    more than this value receive the ceiling, not an error.
+    """
+    val = os.environ.get("SACP_MCP_TOOL_PAGINATION_MAX_SIZE")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_PAGINATION_MAX_SIZE",
+            f"must be integer; got {val!r}",
+        )
+    if not 10 <= num <= 10000:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_PAGINATION_MAX_SIZE",
+            f"must be in [10, 10000]; got {num}",
+        )
+    return None
+
+
 def validate_scratch_retention_days_after_archive() -> ValidationFailure | None:
     """SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE: empty OR int in [1, 36500]. 024 §FR-018 / FR-022.
 
@@ -1759,20 +1991,20 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_sacp_mcp_session_max_lifetime_seconds,
     validate_sacp_mcp_max_concurrent_sessions,
     # ── spec 030 Phase 3 (MCP tool mapping) ── FR-069 ──────────────────────
-    # validate_sacp_mcp_tool_session_enabled,
-    # validate_sacp_mcp_tool_participant_enabled,
-    # validate_sacp_mcp_tool_proposal_enabled,
-    # validate_sacp_mcp_tool_review_gate_enabled,
-    # validate_sacp_mcp_tool_debug_export_enabled,
-    # validate_sacp_mcp_tool_audit_log_enabled,
-    # validate_sacp_mcp_tool_detection_events_enabled,
-    # validate_sacp_mcp_tool_scratch_enabled,
-    # validate_sacp_mcp_tool_provider_enabled,
-    # validate_sacp_mcp_tool_admin_enabled,
-    # validate_sacp_mcp_tool_idempotency_retention_hours,
-    # validate_sacp_mcp_tool_deprecation_horizon_days,
-    # validate_sacp_mcp_tool_pagination_default_size,
-    # validate_sacp_mcp_tool_pagination_max_size,
+    validate_sacp_mcp_tool_session_enabled,
+    validate_sacp_mcp_tool_participant_enabled,
+    validate_sacp_mcp_tool_proposal_enabled,
+    validate_sacp_mcp_tool_review_gate_enabled,
+    validate_sacp_mcp_tool_debug_export_enabled,
+    validate_sacp_mcp_tool_audit_log_enabled,
+    validate_sacp_mcp_tool_detection_events_enabled,
+    validate_sacp_mcp_tool_scratch_enabled,
+    validate_sacp_mcp_tool_provider_enabled,
+    validate_sacp_mcp_tool_admin_enabled,
+    validate_sacp_mcp_tool_idempotency_retention_hours,
+    validate_sacp_mcp_tool_deprecation_horizon_days,
+    validate_sacp_mcp_tool_pagination_default_size,
+    validate_sacp_mcp_tool_pagination_max_size,
     # ── spec 030 Phase 4 (OAuth 2.1 + PKCE) ── FR-088, FR-094 ─────────────
     # validate_sacp_oauth_enabled,
     # validate_sacp_oauth_access_token_ttl_minutes,

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any
@@ -20,16 +21,21 @@ from src.mcp_protocol.hooks import AuditLogHook, DispatchHook, V14TimingHook
 
 log = logging.getLogger("sacp.mcp.dispatcher")
 
-# Phase 3 populates this registry via register() calls at startup.
-# Phase 2 ships an empty registry; tools/call returns -32601 for every name.
-_TOOL_REGISTRY: dict[str, Any] = {}
-
 _BUILTIN_HOOKS: list[DispatchHook] = [V14TimingHook(), AuditLogHook()]
+
+_AUDIT_LOG_SQL = """
+    INSERT INTO admin_audit_log
+        (session_id, facilitator_id, action, target_id,
+         previous_value, new_value)
+    VALUES ($1, $2, $3, $4, $5, $6)
+"""
 
 
 def get_registry() -> dict[str, Any]:
-    """Return the mutable tool registry (populated by Phase 3)."""
-    return _TOOL_REGISTRY
+    """Return the live tool registry."""
+    from src.mcp_protocol.tools import REGISTRY
+
+    return REGISTRY  # type: ignore[return-value]
 
 
 class DispatchError(Exception):
@@ -46,7 +52,14 @@ def _check_authorization(entry: Any, caller_context: CallerContext) -> None:
     """Raise DispatchError if the caller lacks scope or AI access."""
     defn = entry.definition
     required_scope = defn.scopeRequirement
-    if required_scope != "any" and required_scope not in caller_context.scopes:
+    if required_scope == "sponsor":
+        if "sponsor" not in caller_context.scopes and "facilitator" not in caller_context.scopes:
+            raise DispatchError(
+                SACP_AUTH_FAILED,
+                "Insufficient scope",
+                {"sacp_error_code": SACP_E_FORBIDDEN, "required": required_scope},
+            )
+    elif required_scope != "any" and required_scope not in caller_context.scopes:
         raise DispatchError(
             SACP_AUTH_FAILED,
             "Insufficient scope",
@@ -77,6 +90,30 @@ async def _invoke(entry: Any, caller_context: CallerContext, arguments: dict) ->
     return result, int((time.monotonic() - started) * 1000)
 
 
+async def _emit_tool_audit_row(
+    caller_context: CallerContext,
+    tool_name: str,
+    elapsed_ms: int,
+) -> None:
+    """Write per-tool action code to admin_audit_log per FR-057."""
+    if caller_context.db_pool is None:
+        return
+    action = f"mcp_tool_{tool_name}"
+    try:
+        async with caller_context.db_pool.acquire() as conn:
+            await conn.execute(
+                _AUDIT_LOG_SQL,
+                caller_context.session_id or "mcp",
+                caller_context.participant_id,
+                action,
+                tool_name,
+                None,
+                json.dumps({"elapsed_ms": elapsed_ms}),
+            )
+    except Exception:
+        log.debug("_emit_tool_audit_row failed silently", exc_info=True)
+
+
 async def dispatch(
     caller_context: CallerContext,
     tool_name: str,
@@ -87,7 +124,8 @@ async def dispatch(
 
     Raises DispatchError on any JSON-RPC-reportable failure.
     """
-    entry = _TOOL_REGISTRY.get(tool_name)
+    registry = get_registry()
+    entry = registry.get(tool_name)
     if entry is None:
         raise DispatchError(
             JSONRPC_METHOD_NOT_FOUND,
@@ -99,6 +137,7 @@ async def dispatch(
     for hook in all_hooks:
         await hook.pre(caller_context, tool_name, arguments)
     result, elapsed_ms = await _invoke(entry, caller_context, arguments)
+    await _emit_tool_audit_row(caller_context, tool_name, elapsed_ms)
     for hook in all_hooks:
         await hook.post(caller_context, tool_name, arguments, result, elapsed_ms)
     return result

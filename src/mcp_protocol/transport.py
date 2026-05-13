@@ -149,20 +149,32 @@ async def _handle_tools_call(
     )
 
 
+def _build_tools_list_response(req_id: object) -> JSONResponse:
+    """Build the tools/list JSON-RPC response from the live registry."""
+    from src.mcp_protocol.dispatcher import get_registry
+
+    tools = [
+        {
+            "name": e.definition.name,
+            "description": e.definition.description,
+            "inputSchema": e.definition.paramsSchema,  # noqa: N815
+        }
+        for e in get_registry().values()
+    ]
+    return JSONResponse(
+        status_code=200,
+        content={"jsonrpc": "2.0", "result": {"tools": tools}, "id": req_id},
+    )
+
+
 async def _route_method(
     request: Request, body: dict, method: str, req_id: object, session_id_header: str | None
 ) -> JSONResponse:
     """Route a non-initialize method to the correct handler."""
     if method == "tools/list":
-        return JSONResponse(
-            status_code=200,
-            content={"jsonrpc": "2.0", "result": {"tools": []}, "id": req_id},
-        )
+        return _build_tools_list_response(req_id)
     if method == "ping":
-        return JSONResponse(
-            status_code=200,
-            content={"jsonrpc": "2.0", "result": {}, "id": req_id},
-        )
+        return JSONResponse(status_code=200, content={"jsonrpc": "2.0", "result": {}, "id": req_id})
     if method in ("prompts/list", "resources/list"):
         return _error_response(
             400, JSONRPC_METHOD_NOT_FOUND, f"Method not supported: {method}", req_id

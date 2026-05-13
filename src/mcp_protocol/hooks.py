@@ -102,13 +102,14 @@ class AuditLogHook:
         ctx = await _get_ctx(caller_context)
         if ctx is None:
             return
+        action = f"mcp_tool_{tool_name}"
         try:
             async with ctx.db_pool.acquire() as conn:
                 await conn.execute(
                     _AUDIT_LOG_SQL,
                     ctx.session_id or "mcp",
                     ctx.participant_id,
-                    "mcp_tool_called",
+                    action,
                     tool_name,
                     None,
                     json.dumps({"elapsed_ms": elapsed_ms}),

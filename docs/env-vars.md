@@ -739,6 +739,146 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Source spec(s)**: 030 Phase 2 FR-034 (MCP concurrent-session cap)
 - **Note**: Per-instance in-memory cap. When the active session count reaches this value, subsequent `initialize` requests return HTTP 503 with a `Retry-After: 30` header (FR-027). Clients should back off and retry. Scale by increasing this value if the workload legitimately exceeds the default; note that each session consumes heap memory proportional to its metadata.
 
+### `SACP_MCP_TOOL_SESSION_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_session_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — session)
+- **Note**: When `'false'`, session.* tools are absent from tools/list and any tools/call for a session.* tool returns SACP_E_NOT_FOUND per FR-061.
+
+### `SACP_MCP_TOOL_PARTICIPANT_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_participant_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — participant)
+- **Note**: When `'false'`, participant.* tools are absent from tools/list and return SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_PROPOSAL_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_proposal_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — proposal)
+- **Note**: When `'false'`, proposal.* tools are absent from tools/list and return SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_REVIEW_GATE_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_review_gate_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — review_gate)
+- **Note**: When `'false'`, review_gate.* tools are absent from tools/list and return SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_DEBUG_EXPORT_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_debug_export_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — debug_export)
+- **Note**: When `'false'`, debug.* tools are absent from tools/list and return SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_AUDIT_LOG_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_audit_log_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — audit_log)
+- **Note**: When `'false'`, admin.get_audit_log is absent from tools/list and returns SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_DETECTION_EVENTS_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_detection_events_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — detection_events)
+- **Note**: When `'false'`, detection_events.* tools are absent from tools/list and return SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_SCRATCH_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_scratch_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — scratch)
+- **Note**: When `'false'`, scratch.* tools are absent from tools/list and return SACP_E_NOT_FOUND on call. Scratch tools return stub errors when spec 024 is not implemented.
+
+### `SACP_MCP_TOOL_PROVIDER_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_provider_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — provider)
+- **Note**: When `'false'`, provider.* tools are absent from tools/list and return SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_ADMIN_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_admin_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — admin)
+- **Note**: When `'false'`, admin.list_sessions, admin.list_participants, admin.transfer_facilitator, and admin.archive_session are absent from tools/list and return SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_IDEMPOTENCY_RETENTION_HOURS`
+
+- **Default**: `24`
+- **Type**: positive integer (hours)
+- **Valid range**: `1 <= value <= 168` (inclusive — 1 hour to 7 days)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_idempotency_retention_hours`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool idempotency window)
+- **Note**: Idempotency keys are stored in admin_audit_log. Re-submissions within this window return the original result without re-executing the tool. After this window, a re-submission with the same key is treated as a fresh call.
+
+### `SACP_MCP_TOOL_DEPRECATION_HORIZON_DAYS`
+
+- **Default**: `90`
+- **Type**: positive integer (days)
+- **Valid range**: `7 <= value <= 365` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_deprecation_horizon_days`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool deprecation window)
+- **Note**: Tools with a `deprecatedAt` timestamp remain in the registry for this many days after deprecation. After the window closes, the tool is removed from the registry entirely. Clients should migrate before the horizon.
+
+### `SACP_MCP_TOOL_PAGINATION_DEFAULT_SIZE`
+
+- **Default**: `50`
+- **Type**: positive integer
+- **Valid range**: `1 <= value <= 1000` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_pagination_default_size`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool pagination default)
+- **Note**: Applied when a caller invokes a paginated tool without specifying page_size. Bounded by SACP_MCP_TOOL_PAGINATION_MAX_SIZE.
+
+### `SACP_MCP_TOOL_PAGINATION_MAX_SIZE`
+
+- **Default**: `500`
+- **Type**: positive integer
+- **Valid range**: `10 <= value <= 10000` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_pagination_max_size`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool pagination ceiling)
+- **Note**: Hard ceiling for page_size on any paginated MCP tool response. Callers requesting more receive the ceiling value, not an error.
+
 ## CI enforcement
 
 `scripts/check_env_vars.py` (per spec 012 FR-005):
