@@ -4,7 +4,7 @@
 
 The router mounts conditionally on ``SACP_AUDIT_VIEWER_ENABLED=true``; when
 disabled the route is absent and ALL callers receive ``HTTP 404`` per FR-018.
-The mount decision lives in ``src/mcp_server/app.py`` so the master switch
+The mount decision lives in ``src/participant_api/app.py`` so the master switch
 hides the surface from probe-based discovery.
 
 Authorization (per ``contracts/audit-log-endpoint.md``):
@@ -27,9 +27,9 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
 from src.orchestrator.audit_log_view import page_to_payload
+from src.participant_api.middleware import get_current_participant
 
 router = APIRouter(prefix="/tools/admin", tags=["admin"])
 

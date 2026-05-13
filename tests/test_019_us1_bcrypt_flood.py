@@ -257,7 +257,7 @@ def test_as4_master_switch_off_no_middleware(monkeypatch) -> None:
     factory entry point so an end-to-end byte-identity regression
     surfaces here too.
     """
-    from src.mcp_server.app import create_app
+    from src.participant_api.app import create_app
 
     monkeypatch.setenv("SACP_NETWORK_RATELIMIT_ENABLED", "false")
     app = create_app()

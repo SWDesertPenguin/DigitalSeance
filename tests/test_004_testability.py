@@ -35,7 +35,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.mcp_server.tools.debug import _LOG_QUERIES
 from src.orchestrator import convergence as convergence_module
 from src.orchestrator.adversarial import AdversarialRotator
 from src.orchestrator.cadence import (
@@ -53,6 +52,7 @@ from src.orchestrator.convergence import (
     DIVERGENCE_PROMPT,
     ConvergenceDetector,
 )
+from src.participant_api.tools.debug import _LOG_QUERIES
 
 # ---------------------------------------------------------------------------
 # FR-013: SafeTensors-only model load (structural enforcement)

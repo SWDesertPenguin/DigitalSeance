@@ -10,9 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from src.api_bridge.tokenizer import default_estimator
-from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
 from src.orchestrator.branch import get_main_branch_id
+from src.participant_api.middleware import get_current_participant
 from src.repositories.errors import SessionNotActiveError
 
 router = APIRouter(prefix="/tools/participant", tags=["participant"])
@@ -235,8 +235,8 @@ async def add_ai_participant(
         new_p.id,
         p_repo,
     )
-    from src.mcp_server.tools.session import is_loop_running
     from src.orchestrator.announcements import announce_arrival
+    from src.participant_api.tools.session import is_loop_running
 
     if is_loop_running(participant.session_id):
         await announce_arrival(

@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import HTTPException
 
-from src.mcp_server.tools import detection_events as endpoint
+from src.participant_api.tools import detection_events as endpoint
 
 
 def _make_row() -> dict:

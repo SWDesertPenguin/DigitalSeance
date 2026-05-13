@@ -8,7 +8,7 @@ Covers:
   generic `"IP binding mismatch"` detail in the 403 body when
   `IPBindingMismatchError` fires; never echoes the bound IP, the
   request IP, or any other fragment of the underlying exception. Pairs
-  with the MCP equivalent in `src/mcp_server/middleware.py`.
+  with the participant API equivalent in `src/participant_api/middleware.py`.
 * audit H-02 / M-08 — the signed session cookie carries an opaque sid
   only; the bearer + (participant_id, session_id) binding lives in
   the server-side `SessionStore`. The cookie is signature-stable but

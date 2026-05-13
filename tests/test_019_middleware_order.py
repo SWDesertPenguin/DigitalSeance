@@ -28,7 +28,7 @@ import re
 
 import pytest
 
-from src.mcp_server.app import create_app
+from src.participant_api.app import create_app
 
 
 def _set_required_env(monkeypatch) -> None:

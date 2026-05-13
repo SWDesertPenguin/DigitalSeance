@@ -19,9 +19,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import HTTPException
 
-from src.mcp_server.tools.facilitator import _repipeline_or_raise
+from src.participant_api.tools.facilitator import _repipeline_or_raise
 
-_PATCH = "src.mcp_server.tools.facilitator.run_security_pipeline"
+_PATCH = "src.participant_api.tools.facilitator.run_security_pipeline"
 
 # ---------------------------------------------------------------------------
 # Fake pipeline outputs

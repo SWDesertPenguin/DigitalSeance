@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-from src.mcp_server.app import create_app
-from src.mcp_server.tools.session import (
+from src.participant_api.app import create_app
+from src.participant_api.tools.session import (
     _format_json_message,
     _format_md_message,
 )

@@ -2,16 +2,16 @@
 
 """Shared-services wiring for the Web UI.
 
-The Web UI needs the same pool, auth service, and repositories the MCP
-app uses. Rather than creating an entirely separate stack, the MCP app's
-lifespan prepares the pool, attaches services to its ``app.state``, and
-these helpers hydrate the Web UI's ``app.state`` with the same objects.
+The Web UI needs the same pool, auth service, and repositories the participant
+API app uses. Rather than creating an entirely separate stack, the participant
+API app's lifespan prepares the pool, attaches services to its ``app.state``,
+and these helpers hydrate the Web UI's ``app.state`` with the same objects.
 
 When ``src/run_apps.py`` launches both apps in the same process, it calls
-``prime_from_mcp_app`` after MCP's startup and before the Web UI begins
-serving requests. In standalone dev mode (launching the Web UI by itself)
-the Web UI runs its own lifespan and provisions its own pool via
-``build_standalone_services``.
+``prime_from_participant_api_app`` after the participant API's startup and
+before the Web UI begins serving requests. In standalone dev mode (launching
+the Web UI by itself) the Web UI runs its own lifespan and provisions its
+own pool via ``build_standalone_services``.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from src.accounts.service import AccountService
 from src.auth.service import AuthService
 from src.config import load_settings
 from src.database.connection import close_pool, create_pool
-from src.mcp_server.sse import ConnectionManager, get_connection_manager
+from src.participant_api.sse import ConnectionManager, get_connection_manager
 from src.repositories.account_repo import AccountRepository
 from src.repositories.interrupt_repo import InterruptRepository
 from src.repositories.log_repo import LogRepository
@@ -124,10 +124,10 @@ async def close_standalone_services(services: SharedServices) -> None:
     await close_pool(services.pool)
 
 
-def prime_from_mcp_app(web_app: FastAPI, mcp_app: FastAPI) -> None:
-    """Copy services from a fully-initialized MCP app onto the Web UI app.
+def prime_from_participant_api_app(web_app: FastAPI, mcp_app: FastAPI) -> None:
+    """Copy services from a fully-initialized participant API app onto the Web UI app.
 
-    Used by ``src/run_apps.py`` after the MCP app's startup completes.
+    Used by ``src/run_apps.py`` after the participant API app's startup completes.
     """
     pool = mcp_app.state.pool
     log_repo = mcp_app.state.log_repo
@@ -173,7 +173,11 @@ def _maybe_build_account_service(
 
 
 def _resolve_encryption_key(mcp_app: FastAPI) -> str:
-    """Read the encryption key from the MCP app, falling back to settings."""
+    """Read the encryption key from the participant API app, falling back to settings."""
     if hasattr(mcp_app.state, "encryption_key"):
         return mcp_app.state.encryption_key
     return load_settings().encryption.key
+
+
+# Backward-compat alias -- remove in next release (spec 030 FR-004)
+prime_from_mcp_app = prime_from_participant_api_app

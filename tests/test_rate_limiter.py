@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from src.mcp_server.rate_limiter import RateLimiter
+from src.participant_api.rate_limiter import RateLimiter
 
 
 def test_within_limit_passes() -> None:

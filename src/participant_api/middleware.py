@@ -10,8 +10,8 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from src.auth.service import AuthService
-from src.mcp_server.rate_limiter import RateLimiter
 from src.models.participant import Participant
+from src.participant_api.rate_limiter import RateLimiter
 from src.repositories.errors import (
     AuthRequiredError,
     IPBindingMismatchError,

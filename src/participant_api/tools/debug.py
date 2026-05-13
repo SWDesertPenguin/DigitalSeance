@@ -12,10 +12,10 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
 from src.orchestrator.branch import get_main_branch_id
 from src.orchestrator.time_format import format_iso
+from src.participant_api.middleware import get_current_participant
 
 router = APIRouter(prefix="/tools/debug", tags=["debug"])
 

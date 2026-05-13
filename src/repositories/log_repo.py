@@ -421,7 +421,7 @@ class LogRepository(BaseRepository):
         """Append a register-change audit row.
 
         Spec 021 T043. Wraps ``log_admin_action`` so callers in
-        ``src.mcp_server.tools.facilitator`` (T040 / T052) hand structured
+        ``src.participant_api.tools.facilitator`` (T040 / T052) hand structured
         dicts and the helper renders them as JSON for the audit row's
         TEXT columns. ``previous_value`` is ``None`` on a first-time set
         (no prior row existed) per the contract.

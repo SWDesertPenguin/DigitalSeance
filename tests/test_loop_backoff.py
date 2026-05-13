@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.mcp_server.tools.session import (
+from src.participant_api.tools.session import (
     _SKIP_BACKOFF_BASE_S,
     _SKIP_BACKOFF_MAX_S,
     _log_and_count,

@@ -23,8 +23,8 @@ from src.api_bridge.list_models import (
     ListModelsError,
     list_provider_models,
 )
-from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
+from src.participant_api.middleware import get_current_participant
 
 router = APIRouter(prefix="/tools/provider", tags=["provider"])
 

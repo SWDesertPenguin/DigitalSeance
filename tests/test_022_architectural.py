@@ -55,7 +55,7 @@ def test_resurface_path_routes_through_cross_instance_broadcast() -> None:
     Sweep 3 introduces the POST .../resurface handler. The check only
     activates once the endpoint module references broadcast helpers.
     """
-    endpoint_module = SRC / "mcp_server" / "tools" / "detection_events.py"
+    endpoint_module = SRC / "participant_api" / "tools" / "detection_events.py"
     if not endpoint_module.exists():
         return
     text = endpoint_module.read_text(encoding="utf-8")
@@ -63,7 +63,7 @@ def test_resurface_path_routes_through_cross_instance_broadcast() -> None:
         return
     if "broadcast_to_session(" in text and "broadcast_session_event" not in text:
         raise AssertionError(
-            "src/mcp_server/tools/detection_events.py must use "
+            "src/participant_api/tools/detection_events.py must use "
             "cross_instance_broadcast.broadcast_session_event for "
             "detection_event_resurfaced / detection_event_appended payloads, "
             "not broadcast_to_session — the latter bypasses the cross-instance "

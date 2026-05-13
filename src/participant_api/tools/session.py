@@ -13,9 +13,9 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, field_validator
 
-from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
 from src.orchestrator.branch import get_main_branch_id
+from src.participant_api.middleware import get_current_participant
 from src.repositories.errors import (
     AllParticipantsExhaustedError,
     SessionNotActiveError,
@@ -314,7 +314,7 @@ async def _reject_duplicate_human_name(
     or released ('reset') humans don't block the same name from being
     redeemed on a fresh invite.
     """
-    from src.mcp_server.tools.facilitator import _DEPARTED_STATUSES
+    from src.participant_api.tools.facilitator import _DEPARTED_STATUSES
 
     cleaned = display_name.strip().lower()
     existing = await p_repo.list_participants(session_id)

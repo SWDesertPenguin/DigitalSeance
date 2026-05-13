@@ -62,8 +62,8 @@ async def _persist_and_broadcast(
 ) -> int | None:
     """Reuse the spec 006 injection path. Returns turn_number or None on inactive."""
     from src.api_bridge.tokenizer import default_estimator
-    from src.mcp_server.tools.participant import _broadcast_human_message
     from src.orchestrator.branch import get_main_branch_id
+    from src.participant_api.tools.participant import _broadcast_human_message
     from src.repositories.errors import SessionNotActiveError
 
     msg_repo = request.app.state.message_repo
@@ -173,8 +173,8 @@ async def promote_note(
 
 
 def _get_current_participant():
-    """Lazy import to break circular dependency with mcp_server package."""
-    from src.mcp_server.middleware import get_current_participant
+    """Lazy import to break circular dependency with participant_api package."""
+    from src.participant_api.middleware import get_current_participant
 
     return get_current_participant
 

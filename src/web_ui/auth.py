@@ -277,7 +277,7 @@ async def _authenticate_or_raise(
         # Generic detail only — the underlying exception carries the bound IP
         # and the request IP for operator-side forensic logging, but echoing
         # them in the HTTP response would hand a stolen-token replay attempt
-        # the legitimate user's bound IP. Mirrors src/mcp_server/middleware.py.
+        # the legitimate user's bound IP. Mirrors src/participant_api/middleware.py.
         raise HTTPException(403, "IP binding mismatch") from None
 
 

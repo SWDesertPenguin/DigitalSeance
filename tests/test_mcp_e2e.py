@@ -11,7 +11,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from src.mcp_server.app import _add_middleware, _attach_services, _include_routers
+from src.participant_api.app import _add_middleware, _attach_services, _include_routers
 from tests.conftest import TEST_ENCRYPTION_KEY
 
 

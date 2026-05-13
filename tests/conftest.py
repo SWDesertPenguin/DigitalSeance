@@ -49,7 +49,7 @@ os.environ.setdefault(
 def _spec_020_register_adapters() -> None:
     """Spec 020: ensure both adapters are registered for the test session.
 
-    Production-path init runs in `src/mcp_server/app.py:_lifespan`. Tests
+    Production-path init runs in `src/participant_api/app.py:_lifespan`. Tests
     that exercise dispatch outside of the FastAPI lifespan (e.g.,
     `test_loop_integration.py`'s direct `loop.execute_turn(...)` calls
     via `mock_litellm`) need the LiteLLM adapter registered so
@@ -916,7 +916,7 @@ def mcp_app() -> object:
     recurring middleware-state-leak bug class in feature 012 US7
     (FR-009).
     """
-    from src.mcp_server.app import create_app
+    from src.participant_api.app import create_app
 
     return create_app()
 

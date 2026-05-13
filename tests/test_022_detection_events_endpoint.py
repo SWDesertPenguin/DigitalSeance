@@ -2,7 +2,7 @@
 
 """Spec 022 endpoint-helper unit tests (T024 of tasks.md).
 
-Covers the non-DB unit surface of ``src/mcp_server/tools/detection_events.py``:
+Covers the non-DB unit surface of ``src/participant_api/tools/detection_events.py``:
 
 - Env-var resolvers (``_resolved_max_events``, ``_resolved_since``,
   ``is_detection_history_enabled``).
@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from src.mcp_server.tools import detection_events as endpoint
+from src.participant_api.tools import detection_events as endpoint
 
 
 @pytest.fixture(autouse=True)

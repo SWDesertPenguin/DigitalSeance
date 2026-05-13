@@ -28,7 +28,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.mcp_server.sse import ConnectionManager
+from src.participant_api.sse import ConnectionManager
 
 # ---------------------------------------------------------------------------
 # FR-013: traceback non-leak — parametrized over multiple exception types
@@ -37,7 +37,7 @@ from src.mcp_server.sse import ConnectionManager
 
 def _make_boom_app(exc_factory) -> FastAPI:
     """Minimal app with only the exception handlers wired; raises on GET /boom."""
-    from src.mcp_server.app import _add_exception_handlers
+    from src.participant_api.app import _add_exception_handlers
 
     app = FastAPI()
     _add_exception_handlers(app)
@@ -102,7 +102,7 @@ def test_fr015_docs_all_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> 
     than HTTP requests so the test doesn't need a DB.
     """
     monkeypatch.setenv("SACP_ENABLE_DOCS", "0")
-    from src.mcp_server.app import create_app
+    from src.participant_api.app import create_app
 
     app = create_app()
     assert app.docs_url is None, "/docs should be disabled"
@@ -113,7 +113,7 @@ def test_fr015_docs_all_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> 
 def test_fr015_all_docs_enabled_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """FR-015: /docs, /redoc, and /openapi.json all enabled when SACP_ENABLE_DOCS=1."""
     monkeypatch.setenv("SACP_ENABLE_DOCS", "1")
-    from src.mcp_server.app import create_app
+    from src.participant_api.app import create_app
 
     app = create_app()
     assert app.docs_url == "/docs", "/docs should be enabled"
@@ -128,7 +128,7 @@ def test_fr015_all_docs_enabled_via_env(monkeypatch: pytest.MonkeyPatch) -> None
 
 def _make_cors_app(monkeypatch: pytest.MonkeyPatch, cors_origins: str | None = None) -> FastAPI:
     """Minimal FastAPI with only CORS middleware; no DB lifespan."""
-    from src.mcp_server.app import _add_middleware
+    from src.participant_api.app import _add_middleware
 
     if cors_origins is not None:
         monkeypatch.setenv("SACP_CORS_ORIGINS", cors_origins)
@@ -219,12 +219,12 @@ async def test_fr019_cap_enforcement_via_router(monkeypatch: pytest.MonkeyPatch)
     """
     monkeypatch.setenv("SACP_MAX_SUBSCRIBERS_PER_SESSION", "2")
 
-    from src.mcp_server.sse_router import _max_subscribers_per_session
+    from src.participant_api.sse_router import _max_subscribers_per_session
 
     assert _max_subscribers_per_session() == 2
 
     # Simulate the cap reached by filling subscriber_count via ConnectionManager.
-    from src.mcp_server.sse_router import _max_subscribers_per_session
+    from src.participant_api.sse_router import _max_subscribers_per_session
 
     cm = ConnectionManager()
     # Subscribe up to cap.
@@ -233,7 +233,7 @@ async def test_fr019_cap_enforcement_via_router(monkeypatch: pytest.MonkeyPatch)
     assert cm.subscriber_count("ses-cap") == 2
 
     # The 3rd would be rejected by the router; verify the cap logic directly.
-    from src.mcp_server.sse_router import _max_subscribers_per_session
+    from src.participant_api.sse_router import _max_subscribers_per_session
 
     cap = _max_subscribers_per_session()
     assert cm.subscriber_count("ses-cap") >= cap, "cap reached"
@@ -245,7 +245,10 @@ async def test_fr019_cap_enforcement_via_router(monkeypatch: pytest.MonkeyPatch)
 def test_fr019_max_subscribers_env_zero_uses_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """Zero is an invalid cap value; the function falls back to the default 64."""
     monkeypatch.setenv("SACP_MAX_SUBSCRIBERS_PER_SESSION", "0")
-    from src.mcp_server.sse_router import _DEFAULT_MAX_SUBSCRIBERS, _max_subscribers_per_session
+    from src.participant_api.sse_router import (
+        _DEFAULT_MAX_SUBSCRIBERS,
+        _max_subscribers_per_session,
+    )
 
     assert _max_subscribers_per_session() == _DEFAULT_MAX_SUBSCRIBERS
 
@@ -255,7 +258,10 @@ def test_fr019_max_subscribers_env_non_integer_uses_default(
 ) -> None:
     """Non-integer value falls back to default 64."""
     monkeypatch.setenv("SACP_MAX_SUBSCRIBERS_PER_SESSION", "many")
-    from src.mcp_server.sse_router import _DEFAULT_MAX_SUBSCRIBERS, _max_subscribers_per_session
+    from src.participant_api.sse_router import (
+        _DEFAULT_MAX_SUBSCRIBERS,
+        _max_subscribers_per_session,
+    )
 
     assert _max_subscribers_per_session() == _DEFAULT_MAX_SUBSCRIBERS
 
@@ -263,7 +269,10 @@ def test_fr019_max_subscribers_env_non_integer_uses_default(
 def test_fr019_max_subscribers_unset_uses_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """Unset env var uses default 64."""
     monkeypatch.delenv("SACP_MAX_SUBSCRIBERS_PER_SESSION", raising=False)
-    from src.mcp_server.sse_router import _DEFAULT_MAX_SUBSCRIBERS, _max_subscribers_per_session
+    from src.participant_api.sse_router import (
+        _DEFAULT_MAX_SUBSCRIBERS,
+        _max_subscribers_per_session,
+    )
 
     assert _max_subscribers_per_session() == _DEFAULT_MAX_SUBSCRIBERS
 
@@ -281,7 +290,7 @@ async def test_sse_keepalive_emitted_on_timeout() -> None:
     SSE comment (which keeps proxy connections alive) rather than silently
     stalling or raising TimeoutError to the client.
     """
-    from src.mcp_server.sse_router import _event_stream
+    from src.participant_api.sse_router import _event_stream
 
     cm = ConnectionManager()
     frames: list[str] = []
@@ -292,7 +301,7 @@ async def test_sse_keepalive_emitted_on_timeout() -> None:
             break  # collect exactly one frame then stop
 
     # Temporarily lower keepalive to 0.01s for the test.
-    import src.mcp_server.sse_router as sse_module
+    import src.participant_api.sse_router as sse_module
 
     original = sse_module._KEEPALIVE_TIMEOUT
     sse_module._KEEPALIVE_TIMEOUT = 0.01

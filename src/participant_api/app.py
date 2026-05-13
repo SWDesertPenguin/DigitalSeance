@@ -16,18 +16,18 @@ from fastapi.responses import JSONResponse
 from src.api_bridge.adapter import initialize_adapter
 from src.config import load_settings
 from src.database.connection import close_pool, create_pool
-from src.mcp_server.sse import get_connection_manager
-from src.mcp_server.sse_router import router as sse_router
-from src.mcp_server.tools.admin import is_audit_viewer_enabled
-from src.mcp_server.tools.admin import router as admin_router
-from src.mcp_server.tools.debug import router as debug_router
-from src.mcp_server.tools.detection_events import is_detection_history_enabled
-from src.mcp_server.tools.detection_events import router as detection_events_router
-from src.mcp_server.tools.facilitator import router as facilitator_router
-from src.mcp_server.tools.participant import router as participant_router
-from src.mcp_server.tools.proposal import router as proposal_router
-from src.mcp_server.tools.provider import router as provider_router
-from src.mcp_server.tools.session import router as session_router
+from src.participant_api.sse import get_connection_manager
+from src.participant_api.sse_router import router as sse_router
+from src.participant_api.tools.admin import is_audit_viewer_enabled
+from src.participant_api.tools.admin import router as admin_router
+from src.participant_api.tools.debug import router as debug_router
+from src.participant_api.tools.detection_events import is_detection_history_enabled
+from src.participant_api.tools.detection_events import router as detection_events_router
+from src.participant_api.tools.facilitator import router as facilitator_router
+from src.participant_api.tools.participant import router as participant_router
+from src.participant_api.tools.proposal import router as proposal_router
+from src.participant_api.tools.provider import router as provider_router
+from src.participant_api.tools.session import router as session_router
 from src.repositories.errors import (
     NotFacilitatorError,
     ParticipantNotInSessionError,
@@ -278,7 +278,7 @@ def _attach_auth_and_repos(
 ) -> None:
     """Attach auth, repos, and rate limiter."""
     from src.auth.service import AuthService
-    from src.mcp_server.rate_limiter import RateLimiter
+    from src.participant_api.rate_limiter import RateLimiter
     from src.repositories.interrupt_repo import InterruptRepository
     from src.repositories.invite_repo import InviteRepository
     from src.repositories.log_repo import LogRepository

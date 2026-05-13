@@ -28,8 +28,8 @@ from src.audit.network_rate_limit_audit import (
     reset_coalescer_for_tests,
     reset_unresolvable_queue_for_tests,
 )
-from src.mcp_server.rate_limiter import RateLimiter
 from src.observability.metrics import reset_for_tests, sacp_rate_limit_rejection_total
+from src.participant_api.rate_limiter import RateLimiter
 
 
 @pytest.fixture(autouse=True)

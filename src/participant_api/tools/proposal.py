@@ -17,8 +17,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from src.auth.guards import require_facilitator
-from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
+from src.participant_api.middleware import get_current_participant
 from src.repositories.errors import DuplicateVoteError
 from src.repositories.proposal_repo import Proposal, ProposalRepository
 

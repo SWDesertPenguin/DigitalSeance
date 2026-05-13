@@ -13,8 +13,8 @@ from collections.abc import AsyncGenerator
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
+from src.participant_api.middleware import get_current_participant
 
 log = logging.getLogger(__name__)
 

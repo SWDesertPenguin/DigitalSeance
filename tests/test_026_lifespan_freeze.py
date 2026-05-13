@@ -40,7 +40,7 @@ def _reset_compressor_registry_for_test() -> None:
 def test_freeze_flips_registry_to_read_only() -> None:
     """After lifespan freeze, register() raises RuntimeError."""
     from src.compression import registry
-    from src.mcp_server.app import _freeze_compressor_registry
+    from src.participant_api.app import _freeze_compressor_registry
 
     pool = MagicMock()
     _freeze_compressor_registry(pool)
@@ -50,7 +50,7 @@ def test_freeze_flips_registry_to_read_only() -> None:
 
 def test_freeze_is_idempotent_across_test_setup() -> None:
     """Calling _freeze_compressor_registry twice does not error."""
-    from src.mcp_server.app import _freeze_compressor_registry
+    from src.participant_api.app import _freeze_compressor_registry
 
     pool = MagicMock()
     _freeze_compressor_registry(pool)
@@ -60,7 +60,7 @@ def test_freeze_is_idempotent_across_test_setup() -> None:
 def test_freeze_installs_telemetry_writer() -> None:
     """After freeze, _telemetry_sink._writer is non-None."""
     from src.compression import _telemetry_sink
-    from src.mcp_server.app import _freeze_compressor_registry
+    from src.participant_api.app import _freeze_compressor_registry
 
     pool = MagicMock()
     _freeze_compressor_registry(pool)

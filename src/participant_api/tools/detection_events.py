@@ -4,7 +4,7 @@
 
 The router mounts conditionally on ``SACP_DETECTION_HISTORY_ENABLED=true``;
 when disabled the route is absent and ALL callers receive ``HTTP 404`` per
-FR-016. The mount decision lives in ``src/mcp_server/app.py`` so the master
+FR-016. The mount decision lives in ``src/participant_api/app.py`` so the master
 switch hides the surface from probe-based discovery.
 
 Authorization (per ``contracts/detection-events-endpoint.md``):
@@ -28,10 +28,10 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
 from src.observability.instrumentation import instrument_stage
 from src.orchestrator.time_format import format_iso, format_iso_or_none
+from src.participant_api.middleware import get_current_participant
 from src.repositories.detection_event_repo import apply_resurface
 from src.web_ui.cross_instance_broadcast import broadcast_session_event
 from src.web_ui.detection_events import format_class_label

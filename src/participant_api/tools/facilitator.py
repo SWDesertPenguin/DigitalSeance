@@ -11,10 +11,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from src.api_bridge.tokenizer import default_estimator
-from src.mcp_server.middleware import get_current_participant
 from src.models.participant import Participant
 from src.orchestrator.branch import get_main_branch_id
 from src.orchestrator.loop import run_security_pipeline
+from src.participant_api.middleware import get_current_participant
 
 router = APIRouter(prefix="/tools/facilitator", tags=["facilitator"])
 
@@ -81,8 +81,8 @@ async def add_participant(
         p_repo,
         request.app.state.log_repo,
     )
-    from src.mcp_server.tools.session import is_loop_running
     from src.orchestrator.announcements import announce_arrival
+    from src.participant_api.tools.session import is_loop_running
 
     if is_loop_running(participant.session_id):
         await announce_arrival(
@@ -181,8 +181,8 @@ async def approve_participant(
         participant_id=participant_id,
     )
     await _push_participant_update(request, participant.session_id, participant_id)
-    from src.mcp_server.tools.session import is_loop_running
     from src.orchestrator.announcements import announce_arrival
+    from src.participant_api.tools.session import is_loop_running
 
     if is_loop_running(participant.session_id):
         await announce_arrival(
