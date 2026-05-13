@@ -699,6 +699,46 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Source spec(s)**: 027 §FR-019 (per-session pivot cap)
 - **Note**: When the cap is exhausted, subsequent would-have-pivoted conditions log `routing_log.reason='pivot_skipped_rate_cap'` and the participant remains in standby without the long-term-observer transition firing automatically (FR-020 sub-state requires the pivot to actually fire). Resolved per Session 2026-05-12 Q6 — per-session scope, not per-participant; per-participant capping is a future amendment.
 
+### `SACP_MCP_PROTOCOL_ENABLED`
+
+- **Default**: `false`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_protocol_enabled`
+- **Source spec(s)**: 030 Phase 2 FR-034 (MCP Streamable HTTP master switch)
+- **Note**: When `'false'` (default), POST /mcp returns HTTP 404. The discovery endpoint `/.well-known/mcp-server` remains active and responds with `{"enabled": false}` per FR-024 + SC-023 so clients can discover the switch state without assuming availability.
+
+### `SACP_MCP_SESSION_IDLE_TIMEOUT_SECONDS`
+
+- **Default**: `1800` (30 minutes)
+- **Type**: positive integer (seconds)
+- **Valid range**: `60 <= value <= 86400` (inclusive — 1 minute to 1 day)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_session_idle_timeout_seconds`
+- **Source spec(s)**: 030 Phase 2 FR-034 (MCP session idle expiry)
+- **Note**: When a session has received no requests for this many seconds, the next request returns HTTP 404 with JSON-RPC error -32003 and `data.reason = "mcp_session_expired"`. Clients must re-initialize. The 60s floor prevents impractically short windows; the 86400s ceiling prevents idle sessions from accumulating indefinitely past the hard max-lifetime cap.
+
+### `SACP_MCP_SESSION_MAX_LIFETIME_SECONDS`
+
+- **Default**: `86400` (24 hours)
+- **Type**: positive integer (seconds)
+- **Valid range**: `600 <= value <= 604800` (inclusive — 10 minutes to 7 days)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_session_max_lifetime_seconds`
+- **Source spec(s)**: 030 Phase 2 FR-034 (MCP session hard lifetime cap)
+- **Note**: Hard cap enforced regardless of activity. Even a continuously active session is evicted after this many seconds from its `created_at`. Prevents indefinite accumulation of in-memory session state across long-running client connections. Server restart always evicts all sessions; this cap governs within-process accumulation.
+
+### `SACP_MCP_MAX_CONCURRENT_SESSIONS`
+
+- **Default**: `100`
+- **Type**: positive integer
+- **Valid range**: `1 <= value <= 10000` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_max_concurrent_sessions`
+- **Source spec(s)**: 030 Phase 2 FR-034 (MCP concurrent-session cap)
+- **Note**: Per-instance in-memory cap. When the active session count reaches this value, subsequent `initialize` requests return HTTP 503 with a `Retry-After: 30` header (FR-027). Clients should back off and retry. Scale by increasing this value if the workload legitimately exceeds the default; note that each session consumes heap memory proportional to its metadata.
+
 ## CI enforcement
 
 `scripts/check_env_vars.py` (per spec 012 FR-005):

@@ -41,6 +41,10 @@ dependencies = [
     # §6.3; the wrapping module src/accounts/hashing.py owns the only
     # call sites so a future swap stays internal-architecture.
     "argon2-cffi>=25.1.0,<26.0.0",
+    # Spec 030 Phase 2: MCP Streamable HTTP transport per revision 2025-11-25.
+    # Pinned per Constitution §6.3; version-bump policy in docs/dependency-policy.md.
+    # SDK provides wire-format envelope handling + initialize capability negotiation.
+    "mcp>=1.9.4,<2.0.0",
 ]
 
 [project.optional-dependencies]

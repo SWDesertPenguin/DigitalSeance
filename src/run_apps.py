@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 
 import uvicorn
@@ -22,6 +23,7 @@ from src.config import (
     ConfigValidationError,
     validate_all,
 )
+from src.mcp_protocol.discovery import discovery_router
 from src.participant_api.app import create_app as create_participant_api_app
 from src.security import install_scrub_excepthook, install_scrub_filter
 from src.web_ui.app import create_web_app
@@ -39,6 +41,11 @@ log = logging.getLogger("sacp.run_apps")
 async def _run() -> None:
     """Start both uvicorn servers concurrently with shared services."""
     mcp_app = create_participant_api_app()
+    mcp_app.include_router(discovery_router)
+    if os.environ.get("SACP_MCP_PROTOCOL_ENABLED", "false").lower() == "true":
+        from src.mcp_protocol.transport import mcp_router
+
+        mcp_app.include_router(mcp_router)
     web_app = create_web_app()
     mcp = _server(mcp_app, port=8750)
     web = _server(web_app, port=8751)

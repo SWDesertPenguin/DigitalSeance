@@ -1555,6 +1555,106 @@ def validate_scratch_note_max_kb() -> ValidationFailure | None:
     return None
 
 
+def validate_sacp_mcp_protocol_enabled() -> ValidationFailure | None:
+    """SACP_MCP_PROTOCOL_ENABLED: bool, default 'false'. 030 Phase 2 FR-034.
+
+    Master switch for the MCP Streamable HTTP protocol surface. When 'false'
+    (default), POST /mcp returns HTTP 404 and the transport router is not
+    mounted. The discovery endpoint at /.well-known/mcp-server remains
+    available and responds with {"enabled": false}. Accepts only 'true' or
+    'false' (case-sensitive); any other value exits at startup.
+    """
+    val = os.environ.get("SACP_MCP_PROTOCOL_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_PROTOCOL_ENABLED",
+            f"must be 'true' or 'false' (case-sensitive); got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_session_idle_timeout_seconds() -> ValidationFailure | None:
+    """SACP_MCP_SESSION_IDLE_TIMEOUT_SECONDS: int [60, 86400], default 1800. 030 Phase 2 FR-034.
+
+    Idle timeout for an MCP session. When a session has received no requests
+    for this many seconds, the next request carrying its Mcp-Session-Id header
+    receives HTTP 404 with JSON-RPC error -32003. Below 60s is impractically
+    short for any real client; above 86400s (1 day) exceeds the max lifetime
+    floor and is rejected.
+    """
+    val = os.environ.get("SACP_MCP_SESSION_IDLE_TIMEOUT_SECONDS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_SESSION_IDLE_TIMEOUT_SECONDS",
+            f"must be integer; got {val!r}",
+        )
+    if not 60 <= num <= 86400:
+        return ValidationFailure(
+            "SACP_MCP_SESSION_IDLE_TIMEOUT_SECONDS",
+            f"must be in [60, 86400]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_mcp_session_max_lifetime_seconds() -> ValidationFailure | None:
+    """SACP_MCP_SESSION_MAX_LIFETIME_SECONDS: int [600, 604800], default 86400. 030 Phase 2 FR-034.
+
+    Hard lifetime cap for an MCP session regardless of activity. When a
+    session exceeds this age, the next request returns HTTP 404 with JSON-RPC
+    error -32003. Minimum 600s (10 minutes) ensures the session is long enough
+    to be useful; maximum 604800s (7 days) prevents indefinite accumulation of
+    in-memory session state.
+    """
+    val = os.environ.get("SACP_MCP_SESSION_MAX_LIFETIME_SECONDS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_SESSION_MAX_LIFETIME_SECONDS",
+            f"must be integer; got {val!r}",
+        )
+    if not 600 <= num <= 604800:
+        return ValidationFailure(
+            "SACP_MCP_SESSION_MAX_LIFETIME_SECONDS",
+            f"must be in [600, 604800]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_mcp_max_concurrent_sessions() -> ValidationFailure | None:
+    """SACP_MCP_MAX_CONCURRENT_SESSIONS: int [1, 10000], default 100. 030 Phase 2 FR-034.
+
+    Per-instance cap on simultaneous active MCP sessions. When the in-memory
+    session store reaches this count, subsequent initialize requests return
+    HTTP 503 with a Retry-After header. Below 1 would disable the MCP surface
+    entirely; above 10000 risks unbounded memory growth on underpowered hosts.
+    """
+    val = os.environ.get("SACP_MCP_MAX_CONCURRENT_SESSIONS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_MAX_CONCURRENT_SESSIONS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 10000:
+        return ValidationFailure(
+            "SACP_MCP_MAX_CONCURRENT_SESSIONS",
+            f"must be in [1, 10000]; got {num}",
+        )
+    return None
+
+
 def validate_scratch_retention_days_after_archive() -> ValidationFailure | None:
     """SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE: empty OR int in [1, 36500]. 024 §FR-018 / FR-022.
 
@@ -1654,10 +1754,10 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_standby_pivot_timeout_seconds,
     validate_standby_pivot_rate_cap_per_session,
     # ── spec 030 Phase 2 (MCP protocol) ── FR-034 ──────────────────────────
-    # validate_sacp_mcp_protocol_enabled,
-    # validate_sacp_mcp_session_idle_timeout_seconds,
-    # validate_sacp_mcp_session_max_lifetime_seconds,
-    # validate_sacp_mcp_max_concurrent_sessions,
+    validate_sacp_mcp_protocol_enabled,
+    validate_sacp_mcp_session_idle_timeout_seconds,
+    validate_sacp_mcp_session_max_lifetime_seconds,
+    validate_sacp_mcp_max_concurrent_sessions,
     # ── spec 030 Phase 3 (MCP tool mapping) ── FR-069 ──────────────────────
     # validate_sacp_mcp_tool_session_enabled,
     # validate_sacp_mcp_tool_participant_enabled,
