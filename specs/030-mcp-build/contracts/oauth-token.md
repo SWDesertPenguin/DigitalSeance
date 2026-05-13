@@ -26,10 +26,11 @@ The token endpoint per RFC 6749. Supports `authorization_code` and `refresh_toke
   "token_type": "Bearer",
   "expires_in": 3600,
   "refresh_token": "<opaque 256-bit string>",
-  "scope": "facilitator tool:session tool:participant ...",
-  "jti": "<access token jti claim>"
+  "scope": "facilitator tool:session tool:participant ..."
 }
 ```
+
+Note: `jti` is a claim INSIDE the `access_token` JWT (per FR-097), not a top-level token-response field. Clients that need the jti must decode the JWT; SACP does not surface it in the token response body. (Corrected per analysis finding I3.)
 
 Access token JWT claims (per FR-097):
 - `sub`: participant_id

@@ -92,6 +92,9 @@ This file resolves the open technology choices the plan defers. The Session 2026
 | `SACP_OAUTH_SIGNING_KEY_PATH` | path | (none) | readable file | `validate_sacp_oauth_signing_key_path` |
 | `SACP_OAUTH_FAILED_PKCE_THRESHOLD` | int | `10` | 1–1000 | `validate_sacp_oauth_failed_pkce_threshold` |
 | `SACP_OAUTH_CIMD_ALLOWED_HOSTS` | csv-of-host | (empty=all) | valid hostnames | `validate_sacp_oauth_cimd_allowed_hosts` |
+| `SACP_MCP_TOKEN_CACHE_TTL_SECONDS` | int | `5` | 1–30 | `validate_sacp_mcp_token_cache_ttl_seconds` |
+
+`SACP_MCP_TOKEN_CACHE_TTL_SECONDS` added per analysis finding I1: FR-092 specifies a 5s revocation SLA; FR-094's 30s cache upper bound conflicts unless the cache TTL default is also 5s. Default 5 aligns the two. Operators who accept a wider revocation window can widen to ≤ 30s.
 
 Plus the optional `SACP_OAUTH_PREVIOUS_SIGNING_KEY_PATH` for the rotation grace window (validator `validate_sacp_oauth_previous_signing_key_path`).
 
