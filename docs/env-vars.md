@@ -979,6 +979,16 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Source spec(s)**: 030 Phase 4 FR-088 (PKCE brute-force protection)
 - **Note**: Per-client threshold for failed PKCE verifier attempts before a temporary block is applied. Protects against brute-force code_challenge enumeration per FR-072.
 
+### `SACP_OAUTH_CIMD_ALLOW_HTTP`
+
+- **Default**: `""` (off — https only)
+- **Type**: relaxed boolean
+- **Valid range**: case-insensitive `1` / `true` / `yes` (on); `0` / `false` / `no` / empty (off)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_cimd_allow_http`
+- **Source spec(s)**: 030 Phase 4 FR-088 (CIMD SSRF defence escape hatch)
+- **Note**: Test-only escape hatch that permits `http://` CIMD URLs alongside the default `https://`-only set, used by [tests/test_mcp_oauth_cimd.py](../tests/test_mcp_oauth_cimd.py) to exercise the SSRF-defence path without requiring a TLS-terminated fixture. Production deployments leave this unset; the SSRF guard in `fetch_and_validate_cimd` rejects every non-https scheme.
+
 ### `SACP_OAUTH_CIMD_ALLOWED_HOSTS`
 
 - **Default**: `""` (empty — all hosts permitted in open mode)
