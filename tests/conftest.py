@@ -90,14 +90,6 @@ def _spec_020_init_adapter(request: pytest.FixtureRequest) -> object:
 
 
 @pytest.fixture(scope="session")
-def event_loop_policy() -> object:
-    """Use default event loop policy for all async tests."""
-    import asyncio
-
-    return asyncio.DefaultEventLoopPolicy()
-
-
-@pytest.fixture(scope="session")
 async def _create_test_db() -> AsyncGenerator[str, None]:
     """Create a temporary test database, yield URL, then drop it."""
     db_name = f"sacp_test_{uuid.uuid4().hex[:8]}"
