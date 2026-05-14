@@ -805,6 +805,42 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Validation rule**: `validators.validate_metrics_bind_path`
 - **Source spec(s)**: 016 §FR-001
 
+### `SACP_TOOL_REFRESH_POLL_INTERVAL_S`
+
+- **Default**: unset (polling disabled; tool lists captured once at registration)
+- **Type**: positive integer (seconds)
+- **Valid range**: `15 <= value <= 3600` (15 seconds to 1 hour)
+- **Fail-closed semantics**: unset means polling is disabled and pre-feature behavior is preserved byte-identically (FR-014). Out-of-range values cause startup exit per V16.
+- **Validation rule**: `validators.validate_sacp_tool_refresh_poll_interval_s`
+- **Source spec(s)**: 017 §FR-002, §FR-013, §FR-014
+
+### `SACP_TOOL_REFRESH_TIMEOUT_S`
+
+- **Default**: unset (inherits the configured MCP client request timeout; 30s fallback)
+- **Type**: positive integer (seconds)
+- **Valid range**: `1 <= value <= 30`
+- **Fail-closed semantics**: unset means each refresh call inherits the adapter timeout. Out-of-range values cause startup exit per V16.
+- **Validation rule**: `validators.validate_sacp_tool_refresh_timeout_s`
+- **Source spec(s)**: 017 §FR-011, §FR-013
+
+### `SACP_TOOL_LIST_MAX_BYTES`
+
+- **Default**: unset (code applies 65536 bytes / 64 KiB default per `/speckit.plan` §Storage)
+- **Type**: positive integer (bytes)
+- **Valid range**: `1024 <= value <= 1048576` (1 KiB to 1 MiB)
+- **Fail-closed semantics**: unset means the 65536-byte default is applied in code. Overflow truncates the list and emits an audit entry. Out-of-range values cause startup exit per V16.
+- **Validation rule**: `validators.validate_sacp_tool_list_max_bytes`
+- **Source spec(s)**: 017 §FR-010, §FR-013
+
+### `SACP_TOOL_REFRESH_PUSH_ENABLED`
+
+- **Default**: `false` (push subscription not attempted; Phase 1 polling-only)
+- **Type**: boolean (`true`/`false` case-insensitive, or `1`/`0`)
+- **Valid range**: `true`, `false`, `1`, `0` (case-insensitive)
+- **Fail-closed semantics**: unset or `false` means no push subscription attempt at participant registration (Phase 1 floor). When `true` (Phase 2), the orchestrator attempts `notifications/tools/list_changed` subscription and audits the outcome. Unparseable values cause startup exit per V16.
+- **Validation rule**: `validators.validate_sacp_tool_refresh_push_enabled`
+- **Source spec(s)**: 017 §FR-007, §FR-013
+
 ## CI enforcement
 
 `scripts/check_env_vars.py` (per spec 012 FR-005):

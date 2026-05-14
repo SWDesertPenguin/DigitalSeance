@@ -235,19 +235,47 @@ async def add_ai_participant(
         new_p.id,
         p_repo,
     )
+    await _maybe_announce_arrival(request, participant.session_id, new_p)
+    await _register_tool_freshness(request, participant.session_id, new_p)
+    return {"participant_id": new_p.id, "auth_token": auth_token, "role": new_p.role}
+
+
+async def _maybe_announce_arrival(request: Request, session_id: str, new_p: object) -> None:
+    """Announce AI arrival to the loop when it is running."""
     from src.mcp_server.tools.session import is_loop_running
     from src.orchestrator.announcements import announce_arrival
 
-    if is_loop_running(participant.session_id):
+    if is_loop_running(session_id):
         await announce_arrival(
             pool=request.app.state.pool,
             msg_repo=request.app.state.message_repo,
-            session_id=participant.session_id,
+            session_id=session_id,
             speaker_id=new_p.id,
             joining_name=new_p.display_name,
             kind="joined as a sponsored AI",
         )
-    return {"participant_id": new_p.id, "auth_token": auth_token, "role": new_p.role}
+
+
+async def _register_tool_freshness(request: Request, session_id: str, new_p: object) -> None:
+    """Spec 017 FR-001 / FR-007: register tool-list freshness for new AI participant.
+
+    Fail-soft: registration failure must not abort the add_ai response.
+    """
+    try:
+        from src.orchestrator.tool_list_freshness import register_participant as _reg_tools
+
+        await _reg_tools(
+            session_id=session_id,
+            participant_id=new_p.id,
+            mcp_url=getattr(new_p, "api_endpoint", None) or None,
+            pool=request.app.state.pool,
+        )
+    except Exception:
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning(
+            "tool_list_freshness: register_participant failed for %s", new_p.id
+        )
 
 
 async def _persist_sponsored_ai(

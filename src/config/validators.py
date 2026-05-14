@@ -1847,6 +1847,104 @@ def validate_metrics_session_grace_s() -> ValidationFailure | None:
     return None
 
 
+def validate_sacp_tool_refresh_poll_interval_s() -> ValidationFailure | None:
+    """SACP_TOOL_REFRESH_POLL_INTERVAL_S: int [15, 3600], unset means polling disabled. 017 §FR-002.
+
+    Polling interval in seconds for per-participant MCP tool-list refreshes.
+    Unset (default) means polling is disabled and tool lists are captured once at
+    registration (pre-feature behavior per FR-014). Out-of-range values exit at
+    startup per V16. 15s minimum bounds MCP server load; 3600s maximum bounds
+    worst-case staleness window.
+    """
+    val = os.environ.get("SACP_TOOL_REFRESH_POLL_INTERVAL_S")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_TOOL_REFRESH_POLL_INTERVAL_S",
+            f"must be integer (seconds); got {val!r}",
+        )
+    if not 15 <= num <= 3600:
+        return ValidationFailure(
+            "SACP_TOOL_REFRESH_POLL_INTERVAL_S",
+            f"must be in [15, 3600] (15 seconds to 1 hour); got {num}",
+        )
+    return None
+
+
+def validate_sacp_tool_refresh_timeout_s() -> ValidationFailure | None:
+    """SACP_TOOL_REFRESH_TIMEOUT_S: int [1, 30], unset means inherit adapter timeout. 017 §FR-011.
+
+    Timeout in seconds for each MCP tools/list call. Unset means the refresh
+    inherits the configured MCP client request timeout (30s fallback). Out-of-range
+    values exit at startup per V16.
+    """
+    val = os.environ.get("SACP_TOOL_REFRESH_TIMEOUT_S")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_TOOL_REFRESH_TIMEOUT_S",
+            f"must be integer (seconds); got {val!r}",
+        )
+    if not 1 <= num <= 30:
+        return ValidationFailure(
+            "SACP_TOOL_REFRESH_TIMEOUT_S",
+            f"must be in [1, 30]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_tool_list_max_bytes() -> ValidationFailure | None:
+    """SACP_TOOL_LIST_MAX_BYTES: int [1024, 1048576], unset means 65536 default. 017 §FR-010.
+
+    Maximum total byte size of a participant's tool list. Unset means a default
+    of 65536 bytes (64 KiB) is applied in code. Overflow truncates the list to
+    the first N tools that fit and emits an audit entry. Out-of-range values exit
+    at startup per V16.
+    """
+    val = os.environ.get("SACP_TOOL_LIST_MAX_BYTES")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_TOOL_LIST_MAX_BYTES",
+            f"must be integer (bytes); got {val!r}",
+        )
+    if not 1024 <= num <= 1048576:
+        return ValidationFailure(
+            "SACP_TOOL_LIST_MAX_BYTES",
+            f"must be in [1024, 1048576] (1 KiB to 1 MiB); got {num}",
+        )
+    return None
+
+
+def validate_sacp_tool_refresh_push_enabled() -> ValidationFailure | None:
+    """SACP_TOOL_REFRESH_PUSH_ENABLED: bool, default false. 017 §FR-007.
+
+    When false (default, Phase 1), the orchestrator does not attempt to subscribe
+    to notifications/tools/list_changed at participant registration. When true
+    (Phase 2), a subscription attempt is made and the outcome is audited.
+    Accepts 'true'/'false' (case-insensitive) or '1'/'0'. Unparseable values
+    exit at startup per V16.
+    """
+    val = os.environ.get("SACP_TOOL_REFRESH_PUSH_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val.strip().lower() not in ("true", "false", "1", "0"):
+        return ValidationFailure(
+            "SACP_TOOL_REFRESH_PUSH_ENABLED",
+            f"must be 'true'/'false' (case-insensitive) or '1'/'0'; got {val!r}",
+        )
+    return None
+
+
 def validate_metrics_bind_path() -> ValidationFailure | None:
     """SACP_METRICS_BIND_PATH: URL path string, default '/metrics'. 016 FR-001.
 
@@ -1961,6 +2059,11 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_metrics_enabled,
     validate_metrics_session_grace_s,
     validate_metrics_bind_path,
+    # ── spec 017 (tool-list freshness) ── FR-013 ────────────────────────────
+    validate_sacp_tool_refresh_poll_interval_s,
+    validate_sacp_tool_refresh_timeout_s,
+    validate_sacp_tool_list_max_bytes,
+    validate_sacp_tool_refresh_push_enabled,
     # ── spec 030 Phase 2 (MCP protocol) ── FR-034 ──────────────────────────
     # validate_sacp_mcp_protocol_enabled,
     # validate_sacp_mcp_session_idle_timeout_seconds,
