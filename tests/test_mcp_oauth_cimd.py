@@ -127,6 +127,40 @@ async def test_ipv6_loopback_rejected() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dns_rebind_blocked_by_ip_pinning() -> None:
+    """The fetch must connect to the IP resolved during pre-fetch validation
+    so an attacker who controls DNS cannot rebind the hostname to an internal
+    address between `_enforce_ssrf_safe_target` and the actual GET.
+    """
+    doc = {"redirect_uris": ["https://attacker.example/cb"], "client_name": "X"}
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.content = json.dumps(doc).encode()
+
+    captured: dict = {}
+
+    async def fake_get(url, **kwargs):
+        captured["url"] = url
+        captured["headers"] = kwargs.get("headers", {})
+        captured["extensions"] = kwargs.get("extensions", {})
+        return mock_resp
+
+    with (
+        patch("socket.getaddrinfo", return_value=[_addrinfo("8.8.8.8", 2)]),
+        patch("httpx.AsyncClient") as mock_client_cls,
+    ):
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=fake_get)
+        mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        await fetch_and_validate_cimd("https://attacker.example/cimd.json", [])
+
+    assert captured["url"] == "https://8.8.8.8/cimd.json"
+    assert captured["headers"]["Host"] == "attacker.example"
+    assert captured["extensions"]["sni_hostname"] == "attacker.example"
+
+
+@pytest.mark.asyncio
 async def test_dns_failure_rejected() -> None:
     import socket as _socket
 

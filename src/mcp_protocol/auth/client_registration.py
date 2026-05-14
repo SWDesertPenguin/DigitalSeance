@@ -10,7 +10,7 @@ import os
 import socket
 import uuid
 from datetime import UTC, datetime
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import asyncpg
 import httpx
@@ -46,7 +46,11 @@ async def fetch_and_validate_cimd(url: str, allowed_hosts: list[str]) -> dict:
     the hostname must resolve only to public, routable addresses, and known
     metadata-service literals are unconditionally blocked. Redirects are
     disabled at the transport so a redirect to an internal host cannot bypass
-    the pre-fetch resolution check.
+    the pre-fetch resolution check. The connection is pinned to the IP
+    selected during pre-fetch resolution so a DNS-rebinding attacker cannot
+    swap in an internal address between the safety check and the fetch; the
+    original hostname is preserved for the Host header and TLS SNI/cert
+    validation.
     """
     parsed = urlparse(url)
     allow_http = os.environ.get("SACP_OAUTH_CIMD_ALLOW_HTTP", "").lower() in {"1", "true", "yes"}
@@ -61,13 +65,19 @@ async def fetch_and_validate_cimd(url: str, allowed_hosts: list[str]) -> dict:
     if allowed_hosts and not any(host == h or host.endswith("." + h) for h in allowed_hosts):
         raise ValueError(f"CIMD host {host!r} not in allowed list")
 
-    await _enforce_ssrf_safe_target(host)
+    safe_ip = await _enforce_ssrf_safe_target(host)
+    pinned_url = _pin_url_to_ip(parsed, safe_ip)
+    host_header = f"{host}:{parsed.port}" if parsed.port else host
 
     try:
         async with httpx.AsyncClient(
             follow_redirects=False, timeout=_CIMD_TIMEOUT_SECONDS
         ) as client:
-            resp = await client.get(url)  # noqa: S113 -- timeout set on the client
+            resp = await client.get(  # noqa: S113 -- timeout set on the client
+                pinned_url,
+                headers={"Host": host_header},
+                extensions={"sni_hostname": host},
+            )
     except httpx.TooManyRedirects as exc:
         raise ValueError("CIMD URL redirect chain too long") from exc
     except httpx.TimeoutException as exc:
@@ -137,13 +147,30 @@ def _allowed_hosts_from_env() -> list[str]:
     return [h.strip() for h in raw.split(",") if h.strip()]
 
 
-async def _enforce_ssrf_safe_target(host: str) -> None:
-    """Resolve `host` and reject any address that targets internal networks.
+def _pin_url_to_ip(parsed, ip: str) -> str:
+    """Substitute the validated IP literal for the hostname in the URL.
+
+    The caller sends the original hostname back via the Host header and the
+    `sni_hostname` request extension so vhost routing and TLS cert validation
+    still see the user-facing name; only the IP-layer destination is pinned.
+    """
+    netloc = f"[{ip}]" if ":" in ip else ip
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+    return urlunparse(
+        (parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+    )
+
+
+async def _enforce_ssrf_safe_target(host: str) -> str:
+    """Resolve `host`, reject internal targets, and return a safe IP literal.
 
     Runs `getaddrinfo` in a worker thread so the event loop is not blocked.
     Every returned address must be a global, routable IP — any private,
     loopback, link-local, multicast, reserved, or unspecified address aborts
     the fetch with a fixed-form ValueError that carries no resolver details.
+    Returns the first safe address so the caller can pin the connection and
+    defeat DNS-rebinding TOCTOU.
     """
     if host.lower() in _CIMD_BLOCKED_LITERAL_HOSTS:
         raise ValueError("CIMD URL targets a blocked address")
@@ -156,6 +183,7 @@ async def _enforce_ssrf_safe_target(host: str) -> None:
     if not infos:
         raise ValueError("CIMD URL hostname does not resolve")
 
+    safe_ip: str | None = None
     for info in infos:
         sockaddr = info[4]
         if not sockaddr:
@@ -174,3 +202,9 @@ async def _enforce_ssrf_safe_target(host: str) -> None:
             or ip.is_unspecified
         ):
             raise ValueError("CIMD URL must not resolve to an internal address")
+        if safe_ip is None:
+            safe_ip = ip_str
+
+    if safe_ip is None:
+        raise ValueError("CIMD URL hostname does not resolve")
+    return safe_ip
