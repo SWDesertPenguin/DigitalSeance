@@ -2,7 +2,7 @@
 
 **Feature Branch**: `026-context-compression`
 **Created**: 2026-05-07
-**Status**: Clarified 2026-05-11 (multi-phase: Phase 1 layers active or partially landed via fix/* PRs; Phase 2 layer 4 + Phase 3 layers 5+6 scaffold-only; four architectural-shape clarifications resolved per Session 2026-05-11)
+**Status**: Implemented 2026-05-13
 **Input**: User description: "Phase 2 / Phase 3 context compression and distillation. The architectural decisions are NOT open — they are fixed by the project's compression research bundle and constitutional commitments. Six-layer stack with phase placement (Phase 1: Layers 1+2+3 plus information-density signal, TokenizerAdapter, CompressorService+NoOp; Phase 2: Layer 4 LLMLingua-2 mBERT default; Phase 3: Layer 5 Provence + Layer 6 self-hosted soft/KV-cache methods, both conditional). Per-participant pre-bridge placement is non-negotiable. Cache-vs-compress structural separation is non-negotiable. The convergence detector and adversarial rotation always run on the raw transcript, not on compressed views. Applies to topologies 1-6 (Layers 1-4 orchestrator-driven); Layer 6 applies only to legs running open-weight models the orchestrator controls; Topology 7 uses Layer 1 only via per-MCP-client provider settings. Primary use cases: ALL §1-§7 benefit from caching + structural deduplication; long-running research co-authorship (§2) and technical review and audit (§5) benefit most from Layer 4 hard compression once Phase 2 Web UI enables long-history sessions."
 
 ## Overview
