@@ -52,10 +52,10 @@ description: "Task list for spec 028 — CAPCOM-Like Routing Scope"
 - [X] T006 [P] Add `_filter_visibility(messages, participant, capcom_id) -> list[ContextMessage]` pure function to `src/orchestrator/context.py` per research.md §3. Wire it as the LAST step inside `ContextAssembler.assemble()` immediately before `_secure_content`. Add the `capcom_participant_id` read to the sessions SELECT issued at assemble-start. The function MUST be under 25 lines per Constitution §6.10
 - [X] T007 [P] Extend `src/orchestrator/audit_labels.py` with four new entries (`capcom_assigned`, `capcom_rotated`, `capcom_disabled`, `capcom_departed_no_replacement`); all `scrub_value=False`. Update `frontend/audit_labels.js` with the same four entries (label strings only; no `scrub_value` field per the established mirror pattern)
 - [X] T008 [P] Run `scripts/check_audit_label_parity.py` to confirm the four new entries pair correctly across the Python + JS mirrors; resolve any drift before continuing
-- [ ] T009 [P] Update `scripts/check_detection_taxonomy_parity.py` allowlist to admit the new `routing_log.reason` value `message_filtered_capcom_scope:excluded=<N>`; re-run the script and confirm zero drift
+- [X] T009 [P] Update `scripts/check_detection_taxonomy_parity.py` allowlist to admit the new `routing_log.reason` value `message_filtered_capcom_scope:excluded=<N>`; re-run the script and confirm zero drift
 - [X] T010 [P] Add `tests/test_028_migration.py` covering: migration apply + rollback; default values on existing rows after migration; partial-unique-index admits at most one `capcom` per session; non-`capcom` participants are unconstrained by the index; check constraint rejects unknown kind/visibility values
 - [X] T011 [P] Add `tests/test_028_visibility_filter.py` covering FR-006: panel AI participant gets only `public` messages; CAPCOM participant gets both `public` + `capcom_only`; human participant gets both; no CAPCOM assigned (NULL `capcom_participant_id`) every message is visible to every participant (degenerate state matches pre-feature behavior); the function rejects malformed inputs with a clear error rather than silent omission
-- [ ] T012 [P] Add `tests/test_028_routing_log_reason.py` covering FR-023: when the visibility filter excludes at least one message for a participant, a `routing_log` row is emitted with `reason='message_filtered_capcom_scope:excluded=<N>'` carrying the exclusion count; zero-exclusion turns emit no row; the new reason value is on the detection-taxonomy allowlist
+- [X] T012 [P] Add `tests/test_028_routing_log_reason.py` covering FR-023: when the visibility filter excludes at least one message for a participant, a `routing_log` row is emitted with `reason='message_filtered_capcom_scope:excluded=<N>'` carrying the exclusion count; zero-exclusion turns emit no row; the new reason value is on the detection-taxonomy allowlist
 
 **Checkpoint**: Foundation ready — schema applied, filter in place, audit-label registry updated, parity gates green; user story implementation can now begin in parallel.
 
@@ -72,8 +72,8 @@ description: "Task list for spec 028 — CAPCOM-Like Routing Scope"
 - [X] T013 [P] [US1] Add `tests/test_028_capcom_endpoints.py::test_assign_endpoint_*` covering FR-007: happy-path assign sets routing_preference + capcom_participant_id + emits `capcom_assigned` audit row; second assign attempt rejected by partial-unique-index with HTTP 409; non-facilitator auth → 403; master-switch off → 404; unknown participant id → 404
 - [X] T014 [P] [US1] Add `tests/test_028_inject_handler.py::test_visibility_default_*` covering FR-015 + FR-016: with `SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN=false` (default), human message without explicit visibility defaults to `public`; with `=true`, defaults to `capcom_only`; explicit per-message visibility overrides the default; `capcom_only` rejected with HTTP 409 when no CAPCOM is assigned (FR-021 / INV-3); panel AI emitting `capcom_only` rejected with HTTP 422 (INV-4)
 - [X] T015 [P] [US1] Add `tests/test_028_capcom_relay_pipeline.py::test_capcom_relay_through_security_pipeline` covering FR-017: a `capcom_relay` emitted by the CAPCOM AI flows through `_validate_and_persist`; high-risk relay content stages for facilitator review per spec 007 §FR-005; benign relay persists as `kind='capcom_relay'`, `visibility='public'`
-- [ ] T016 [P] [US1] Add `tests/test_028_ws_events.py::test_capcom_assigned_ws_event` covering the `capcom_assigned` WS event shape per research.md §7: payload includes `session_id`, `capcom_participant_id`, `capcom_display_name`, `timestamp`; broadcast to all session subscribers (not role-filtered); arrives within 2s of endpoint commit
-- [ ] T017 [P] [US1] Add `tests/test_028_architectural.py::test_no_message_content_read_bypasses_visibility_filter` per research.md §4 / §13: AST-scan `src/` for `messages.content` reads; assert every read site is on the explicit five-entry allowlist with documented justification; synthetic bypass (added then removed) is detected
+- [X] T016 [P] [US1] Add `tests/test_028_ws_events.py::test_capcom_assigned_ws_event` covering the `capcom_assigned` WS event shape per research.md §7: payload includes `session_id`, `capcom_participant_id`, `capcom_display_name`, `timestamp`; broadcast to all session subscribers (not role-filtered); arrives within 2s of endpoint commit
+- [X] T017 [P] [US1] Add `tests/test_028_architectural.py::test_no_message_content_read_bypasses_visibility_filter` per research.md §4 / §13: AST-scan `src/` for `messages.content` reads; assert every read site is on the explicit five-entry allowlist with documented justification; synthetic bypass (added then removed) is detected
 
 ### Implementation for User Story 1
 
@@ -81,9 +81,9 @@ description: "Task list for spec 028 — CAPCOM-Like Routing Scope"
 - [X] T019 [US1] Mount the `admin_capcom` router in `src/web_ui/app.py` conditional on `SACP_CAPCOM_ENABLED`. When the master switch is false, the router is NOT mounted and every CAPCOM endpoint returns HTTP 404 (FR-021)
 - [X] T020 [P] [US1] Extend `src/web_ui/inject.py` (or the equivalent message-injection handler) with: (a) visibility-default selector consulting `SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN`; (b) INV-3 check rejecting `capcom_only` writes when `sessions.capcom_participant_id IS NULL`; (c) INV-4 check rejecting panel-AI emissions of `capcom_only`. Each rejection returns the appropriate HTTP code with a structured error
 - [X] T021 [P] [US1] Extend `src/repositories/message_repo.py` with `kind` + `visibility` persistence on every INSERT path; add a query helper `fetch_messages_for_assembly(session_id, branch_id, since_turn)` that returns rows including the new columns. The visibility filter (T006) consumes this output
-- [ ] T022 [P] [US1] Add the `capcom_relay` emit path: when the CAPCOM AI's dispatch produces a turn the orchestrator (or CAPCOM-side scaffolding per research.md §11) flags as a relay, the message persists with `kind='capcom_relay'`, `visibility='public'`. The flag-detection mechanism: a structured XML marker in the CAPCOM AI's output (`<capcom_relay>...</capcom_relay>`) parsed at write time; absent the marker, the message persists as `kind='utterance'`, `visibility='public'` (CAPCOM AI's regular turn, FR-FR-012 / US1 Acceptance Scenario 7)
+- [X] T022 [P] [US1] Add the `capcom_relay` emit path: when the CAPCOM AI's dispatch produces a turn the orchestrator (or CAPCOM-side scaffolding per research.md §11) flags as a relay, the message persists with `kind='capcom_relay'`, `visibility='public'`. The flag-detection mechanism: a structured XML marker in the CAPCOM AI's output (`<capcom_relay>...</capcom_relay>`) parsed at write time; absent the marker, the message persists as `kind='utterance'`, `visibility='public'` (CAPCOM AI's regular turn, FR-FR-012 / US1 Acceptance Scenario 7)
 - [X] T023 [P] [US1] Add `capcom_assigned` WS event emission to `src/web_ui/events.py` per research.md §7. Broadcast to all session subscribers via the existing `broadcast_to_session` helper. Payload shape per the research note
-- [ ] T024 [US1] Update `src/orchestrator/prompts/` (spec 008 coordination) with the CAPCOM addendum per research.md §11. The addendum is a conditional suffix appended to the CAPCOM participant's system prompt at dispatch time when `routing_preference='capcom'` is detected. The exact wording follows research.md §11's draft; finalize during this task
+- [X] T024 [US1] Update `src/orchestrator/prompts/` (spec 008 coordination) with the CAPCOM addendum per research.md §11. The addendum is a conditional suffix appended to the CAPCOM participant's system prompt at dispatch time when `routing_preference='capcom'` is detected. The exact wording follows research.md §11's draft; finalize during this task
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently — facilitator assigns CAPCOM, human messages flow to CAPCOM only when scoped, CAPCOM relay surfaces to panel.
 
@@ -98,13 +98,13 @@ description: "Task list for spec 028 — CAPCOM-Like Routing Scope"
 ### Tests for User Story 2
 
 - [X] T025 [P] [US2] Add `tests/test_028_inject_handler.py::test_capcom_query_response_default_scope` covering FR-014: when a human's message is a reply to a `capcom_query` (identified via `reply_to_query_id` payload field or `parent_turn` reference), the visibility defaults to `capcom_only` regardless of `SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN`; explicit override to `public` is honored
-- [ ] T026 [P] [US2] Add `tests/test_028_capcom_relay_pipeline.py::test_capcom_query_persistence` covering FR-013: a `capcom_query` emitted by CAPCOM persists with `kind='capcom_query'`, `visibility='capcom_only'`; the CAPCOM AI's regular non-query turns are NOT auto-tagged as queries
+- [X] T026 [P] [US2] Add `tests/test_028_capcom_relay_pipeline.py::test_capcom_query_persistence` covering FR-013: a `capcom_query` emitted by CAPCOM persists with `kind='capcom_query'`, `visibility='capcom_only'`; the CAPCOM AI's regular non-query turns are NOT auto-tagged as queries
 
 ### Implementation for User Story 2
 
-- [ ] T027 [P] [US2] Add the `capcom_query` emit path inside the same handler from T022. Structured XML marker `<capcom_query>...</capcom_query>` in the CAPCOM AI's output triggers `kind='capcom_query'`, `visibility='capcom_only'` at write time
+- [X] T027 [P] [US2] Add the `capcom_query` emit path inside the same handler from T022. Structured XML marker `<capcom_query>...</capcom_query>` in the CAPCOM AI's output triggers `kind='capcom_query'`, `visibility='capcom_only'` at write time
 - [X] T028 [P] [US2] Extend the inject handler (T020) with the `reply_to_query_id` payload field: when present and refers to a `capcom_query` message, the visibility default flips to `capcom_only` per FR-014, irrespective of `SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN`
-- [ ] T029 [P] [US2] Extend the CAPCOM-side prompt addendum (T024) with `capcom_query` scaffolding: explain to the CAPCOM AI when to emit a query vs. a relay; document the XML marker form. The addendum body finalizes during this task
+- [X] T029 [P] [US2] Extend the CAPCOM-side prompt addendum (T024) with `capcom_query` scaffolding: explain to the CAPCOM AI when to emit a query vs. a relay; document the XML marker form. The addendum body finalizes during this task
 
 **Checkpoint**: At this point, Users Stories 1 AND 2 should both work — the bidirectional CAPCOM channel is complete.
 
@@ -119,9 +119,9 @@ description: "Task list for spec 028 — CAPCOM-Like Routing Scope"
 ### Tests for User Story 3
 
 - [X] T030 [P] [US3] Add `tests/test_028_capcom_endpoints.py::test_rotate_endpoint_*` covering FR-008: happy-path rotation updates `routing_preference` on both participants + updates `sessions.capcom_participant_id` + emits `capcom_rotated` audit row; concurrent rotate attempts: one succeeds, the other gets HTTP 409; rotation never trips the partial unique index (research.md §14)
-- [ ] T031 [P] [US3] Add `tests/test_028_rotation_no_inherit.py` covering FR-010: after rotation, B's next context excludes all prior `capcom_only` messages; A's next context (now a regular participant) ALSO excludes them (A's prior privileged view does NOT survive demotion); historical attribution of prior `capcom_only` rows remains as A (`speaker_id` unchanged)
-- [ ] T032 [P] [US3] Add `tests/test_028_capcom_concurrency.py::test_in_flight_query_arrival_attribution` covering FR-013: an in-flight `capcom_query` from A; rotation to B happens; human response arrives post-rotation; B's next context includes the response (arrival-time attribution per research.md §8); A's now-non-CAPCOM context does NOT
-- [ ] T033 [P] [US3] Add `tests/test_028_ws_events.py::test_capcom_rotated_ws_event` covering the `capcom_rotated` WS event shape per research.md §7: payload includes both previous + new participant ids + display names + timestamp; broadcast to all session subscribers
+- [X] T031 [P] [US3] Add `tests/test_028_rotation_no_inherit.py` covering FR-010: after rotation, B's next context excludes all prior `capcom_only` messages; A's next context (now a regular participant) ALSO excludes them (A's prior privileged view does NOT survive demotion); historical attribution of prior `capcom_only` rows remains as A (`speaker_id` unchanged)
+- [X] T032 [P] [US3] Add `tests/test_028_capcom_concurrency.py::test_in_flight_query_arrival_attribution` covering FR-013: an in-flight `capcom_query` from A; rotation to B happens; human response arrives post-rotation; B's next context includes the response (arrival-time attribution per research.md §8); A's now-non-CAPCOM context does NOT
+- [X] T033 [P] [US3] Add `tests/test_028_ws_events.py::test_capcom_rotated_ws_event` covering the `capcom_rotated` WS event shape per research.md §7: payload includes both previous + new participant ids + display names + timestamp; broadcast to all session subscribers
 
 ### Implementation for User Story 3
 
@@ -141,8 +141,8 @@ description: "Task list for spec 028 — CAPCOM-Like Routing Scope"
 ### Tests for User Story 4
 
 - [X] T036 [P] [US4] Add `tests/test_028_capcom_endpoints.py::test_disable_endpoint_*` covering FR-009: happy-path disable reverts the CAPCOM's `routing_preference`, NULLs `sessions.capcom_participant_id`, emits `capcom_disabled` audit row; disable when no CAPCOM is assigned → HTTP 404; non-facilitator → 403
-- [ ] T037 [P] [US4] Add `tests/test_028_disable_no_promotion.py` covering FR-011: after disable, every AI's context EXCLUDES the historical `capcom_only` content (no retroactive promotion); the formerly-CAPCOM AI's next context EXCLUDES the historical `capcom_only` too (their prior privileged view does not survive disable per spec User Story 4 Acceptance Scenario 4 — note: this differs from the spec text which is internally inconsistent; reconcile during this task with the user via spec amendment if needed); the `capcom_only` UI option is hidden when no CAPCOM is assigned
-- [ ] T038 [P] [US4] Add `tests/test_028_ws_events.py::test_capcom_disabled_ws_event` covering the `capcom_disabled` WS event shape per research.md §7
+- [X] T037 [P] [US4] Add `tests/test_028_disable_no_promotion.py` covering FR-011: after disable, every AI's context EXCLUDES the historical `capcom_only` content (no retroactive promotion); the formerly-CAPCOM AI's next context EXCLUDES the historical `capcom_only` too (their prior privileged view does not survive disable per spec User Story 4 Acceptance Scenario 4 — note: this differs from the spec text which is internally inconsistent; reconcile during this task with the user via spec amendment if needed); the `capcom_only` UI option is hidden when no CAPCOM is assigned
+- [X] T038 [P] [US4] Add `tests/test_028_ws_events.py::test_capcom_disabled_ws_event` covering the `capcom_disabled` WS event shape per research.md §7
 
 ### Implementation for User Story 4
 
@@ -177,10 +177,10 @@ description: "Task list for spec 028 — CAPCOM-Like Routing Scope"
 **⚠️ Before starting Phase 8**: Ask the user which spec 011 FR slots to allocate for these UI additions, and confirm wording for the new FRs. Do NOT draft spec 011 amendments unilaterally.
 
 - [X] T046 [P] Extend `frontend/app.jsx` with a CAPCOM badge on the participant card (renders when `participants[i].routing_preference === 'capcom'`); reads from the existing participant roster state
-- [ ] T047 [P] Extend `frontend/app.jsx` with a visibility indicator on each transcript message (renders for `capcom_only` messages a distinct icon + label "Private to CAPCOM"); reads from `messages[i].visibility`
-- [ ] T048 [P] Extend `frontend/app.jsx` with facilitator-only Assign/Rotate/Disable controls in the admin panel; calls the new endpoints from Phase 3-6; updates the participant roster optimistically; rolls back on error
+- [X] T047 [P] Extend `frontend/app.jsx` with a visibility indicator on each transcript message (renders for `capcom_only` messages a distinct icon + label "Private to CAPCOM"); reads from `messages[i].visibility`
+- [X] T048 [P] Extend `frontend/app.jsx` with facilitator-only Assign/Rotate/Disable controls in the admin panel; calls the new endpoints from Phase 3-6; updates the participant roster optimistically; rolls back on error
 - [X] T049 [P] Extend `frontend/app.jsx` with a per-message visibility toggle in the human composer: default value follows `SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN` (fetched from the session-config endpoint); the toggle is greyed when no CAPCOM is assigned; pre-flight calls the inject endpoint with the explicit `visibility` field
-- [ ] T050 [P] Wire the three new WS events (`capcom_assigned`, `capcom_rotated`, `capcom_disabled`) into the SPA WebSocket handler; trigger participant roster refetch + UI rerender on each
+- [X] T050 [P] Wire the three new WS events (`capcom_assigned`, `capcom_rotated`, `capcom_disabled`) into the SPA WebSocket handler; trigger participant roster refetch + UI rerender on each
 - [ ] T051 [P] Add SR-001-style Playwright e2e covering the assign → exchange → rotate → disable flow end-to-end through the SPA (file: `tests/web_ui/test_028_capcom_e2e.py` under the spec 011 Phase F testability framework)
 
 **Checkpoint**: UI complete; the feature is operator-usable end-to-end through the SPA.
@@ -205,10 +205,10 @@ description: "Task list for spec 028 — CAPCOM-Like Routing Scope"
 - [X] T056 [P] Run `python scripts/check_audit_label_parity.py` and confirm zero drift between Python + JS audit-label mirrors
 - [X] T057 [P] Run `python scripts/check_detection_taxonomy_parity.py` and confirm the new `message_filtered_capcom_scope` reason is on the allowlist with zero drift
 - [X] T058 [P] Verify alembic migration chain is linear (no parallel revisions) by running `python -m alembic history --verbose` and inspecting; the 024 migration has a single `down_revision = '023'`
-- [ ] T059 [P] Run `.specify/integrations/claude/scripts/update-context.ps1` (Windows) or `.sh` (POSIX) to refresh `CLAUDE.md` recent-changes block with the spec 028 line
+- [X] T059 [P] Run `.specify/integrations/claude/scripts/update-context.ps1` (Windows) or `.sh` (POSIX) to refresh `CLAUDE.md` recent-changes block with the spec 028 line
 - [X] T060 [P] Run the full pytest suite locally; resolve any regressions
 - [X] T061 [P] Run `ruff check .` and resolve any lint drift
-- [ ] T062 [P] Update spec.md Status header from "Draft (clarify session 2026-05-14 complete; plan/tasks pending)" to "Implemented YYYY-MM-DD" once all preceding tasks are checked; do NOT flip the status unilaterally — wait for explicit user confirmation per `feedback_dont_declare_phase_done`
+- [X] T062 [P] Update spec.md Status header from "Draft (clarify session 2026-05-14 complete; plan/tasks pending)" to "Implemented YYYY-MM-DD" once all preceding tasks are checked; do NOT flip the status unilaterally — wait for explicit user confirmation per `feedback_dont_declare_phase_done`
 
 ---
 

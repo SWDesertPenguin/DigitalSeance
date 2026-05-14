@@ -2,7 +2,7 @@
 
 **Feature Branch**: `028-capcom-routing-scope`
 **Created**: 2026-05-07
-**Status**: Draft (clarify session 2026-05-14 complete; plan/tasks pending)
+**Status**: Implemented 2026-05-14 (migration 024, visibility filter on dispatch + AI-visible read APIs, facilitator assign/rotate/disable + side-effect-free GET introspection, two-tier summarizer, capcom_relay/query XML markers, CAPCOM prompt addendum, AdminPanel CAPCOM controls + transcript pills + composer toggle, departure cascade, FR-019 architectural test, structured logging for FR-023). Spec 011 amendments FR-063..FR-066. Playwright e2e (T051) deferred to the spec 011 Phase F testability batch.
 **Input**: User description: "CAPCOM-like routing scope. Modeled on Mission Control's CAPCOM (Capsule Communicator), a single AI plus the humans share a channel that the rest of the AIs cannot see; CAPCOM relays summarized / curated input to the larger AI panel. SIGNIFICANT routing-model expansion — adds a 9th routing scope and introduces visibility partitioning across the participant set. New routing scope `capcom`; new message subtypes `capcom_relay` (CAPCOM forwarding curated human content to the panel) and `capcom_query` (CAPCOM asking the human on behalf of the panel); message visibility scope (`public` / `capcom_only`). Single CAPCOM per session; facilitator-rotatable. The CAPCOM AI's outputs reaching the panel are subject to standard inter-AI trust tier; rotation does NOT inherit prior CAPCOM's capcom_only context. Applies to topologies 1-6 (orchestrator-mediated visibility partitioning); incompatible with topology 7. Primary use cases: research co-authorship (§2), consulting (§3), decision-making under asymmetric expertise (§6)."
 
 ## Overview

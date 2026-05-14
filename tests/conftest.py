@@ -138,17 +138,41 @@ async def _execute_schema_sql(conn: asyncpg.Connection) -> None:
 
 def _get_schema_sql() -> list[str]:
     """Return the DDL statements for the full schema."""
+    return [*_core_table_ddls(), *_oauth_table_ddls(), *_index_ddls()]
+
+
+def _core_table_ddls() -> list[str]:
+    return [*_session_participant_ddls(), *_log_table_ddls(), *_app_table_ddls()]
+
+
+def _session_participant_ddls() -> list[str]:
     return [
         _sessions_ddl(),
         _participants_ddl(),
         _sessions_fk_ddl(),
+        _sessions_capcom_fk_ddl(),
         _branches_ddl(),
         _messages_ddl(),
+    ]
+
+
+def _log_table_ddls() -> list[str]:
+    return [
         _routing_log_ddl(),
         _usage_log_ddl(),
         _convergence_log_ddl(),
         _admin_audit_log_ddl(),
         _security_events_ddl(),
+        _compression_log_ddl(),
+        _detection_events_ddl(),
+        _provider_circuit_open_log_ddl(),
+        _provider_circuit_probe_log_ddl(),
+        _provider_circuit_close_log_ddl(),
+    ]
+
+
+def _app_table_ddls() -> list[str]:
+    return [
         _interrupt_queue_ddl(),
         _review_gate_drafts_ddl(),
         _invites_ddl(),
@@ -158,18 +182,17 @@ def _get_schema_sql() -> list[str]:
         _participant_register_override_ddl(),
         _accounts_ddl(),
         _account_participants_ddl(),
-        _compression_log_ddl(),
-        _detection_events_ddl(),
         _facilitator_notes_ddl(),
+    ]
+
+
+def _oauth_table_ddls() -> list[str]:
+    return [
         _oauth_clients_ddl(),
         _oauth_token_families_ddl(),
         _oauth_authorization_codes_ddl(),
         _oauth_refresh_tokens_ddl(),
         _oauth_access_tokens_ddl(),
-        _provider_circuit_open_log_ddl(),
-        _provider_circuit_probe_log_ddl(),
-        _provider_circuit_close_log_ddl(),
-        *_index_ddls(),
     ]
 
 
@@ -212,7 +235,7 @@ _SESSIONS_TABLE_DDL = """
         compression_mode TEXT NOT NULL DEFAULT 'auto'
             CHECK (compression_mode IN ('auto', 'off', 'noop', 'llmlingua2_mbert',
                                         'selective_context', 'provence', 'layer6')),
-        capcom_participant_id TEXT REFERENCES participants(id)
+        capcom_participant_id TEXT
     )
 """
 
@@ -276,6 +299,19 @@ def _sessions_fk_ddl() -> str:
         ALTER TABLE sessions
         ADD CONSTRAINT fk_sessions_facilitator
         FOREIGN KEY (facilitator_id) REFERENCES participants(id)
+    """
+
+
+def _sessions_capcom_fk_ddl() -> str:
+    # Spec 028 alembic 024 mirror. Lands as a deferred ALTER so the
+    # conftest fixture can build the schema in the order
+    # sessions → participants → ALTER FK (mirrors the facilitator_id
+    # pattern). The migration itself adds the column + FK in one shot
+    # because by migration time the participants table already exists.
+    return """
+        ALTER TABLE sessions
+        ADD CONSTRAINT fk_sessions_capcom_participant
+        FOREIGN KEY (capcom_participant_id) REFERENCES participants(id)
     """
 
 

@@ -1052,28 +1052,38 @@ async def capcom_assign(
     """Spec 028 §FR-007 — assign a CAPCOM. Facilitator only."""
     _require_capcom_master_switch()
     _require_facilitator(participant)
+    await _validate_rotate_target(request, body.participant_id, participant.session_id)
+    prior = await _execute_assign(request, body.participant_id, participant)
+    await _broadcast_capcom_event(
+        request,
+        participant.session_id,
+        "capcom_assigned",
+        body.participant_id,
+    )
+    return {"capcom_participant_id": body.participant_id, "prior_routing_preference": prior}
+
+
+async def _execute_assign(
+    request: Request,
+    target_id: str,
+    participant: Participant,
+) -> str | None:
     session_repo = request.app.state.session_repo
     log_repo = request.app.state.log_repo
-    target = await request.app.state.participant_repo.get_participant(body.participant_id)
-    if target is None or target.session_id != participant.session_id:
-        raise HTTPException(404, "Unknown participant")
-    if target.provider == "human":
-        raise HTTPException(422, "CAPCOM target must be an AI participant")
     try:
-        prior = await session_repo.assign_capcom(participant.session_id, body.participant_id)
+        prior = await session_repo.assign_capcom(participant.session_id, target_id)
     except asyncpg.UniqueViolationError as e:
         raise HTTPException(409, "Another CAPCOM is already assigned") from e
     await log_repo.log_admin_action(
         session_id=participant.session_id,
         facilitator_id=participant.id,
         action="capcom_assigned",
-        target_id=body.participant_id,
+        target_id=target_id,
         previous_value=prior,
         new_value="capcom",
         broadcast_session_id=participant.session_id,
     )
-    await _broadcast_capcom_event(request, "capcom_assigned", body.participant_id)
-    return {"capcom_participant_id": body.participant_id}
+    return prior
 
 
 @router.post("/capcom/rotate")
@@ -1087,7 +1097,12 @@ async def capcom_rotate(
     _require_facilitator(participant)
     await _validate_rotate_target(request, body.new_participant_id, participant.session_id)
     out_id, prior_new = await _execute_rotate(request, body.new_participant_id, participant)
-    await _broadcast_capcom_event(request, "capcom_rotated", body.new_participant_id)
+    await _broadcast_capcom_event(
+        request,
+        participant.session_id,
+        "capcom_rotated",
+        body.new_participant_id,
+    )
     return {
         "previous_capcom_id": out_id,
         "new_capcom_id": body.new_participant_id,
@@ -1158,6 +1173,17 @@ async def capcom_disable(
     """Spec 028 §FR-009 — disable CAPCOM mode. Facilitator only."""
     _require_capcom_master_switch()
     _require_facilitator(participant)
+    out_id = await _execute_disable(request, participant)
+    await _broadcast_capcom_event(
+        request,
+        participant.session_id,
+        "capcom_disabled",
+        out_id,
+    )
+    return {"previous_capcom_id": out_id}
+
+
+async def _execute_disable(request: Request, participant: Participant) -> str:
     session_repo = request.app.state.session_repo
     log_repo = request.app.state.log_repo
     audit_rows = await log_repo.get_audit_log(participant.session_id)
@@ -1179,12 +1205,12 @@ async def capcom_disable(
         new_value=prior_outgoing,
         broadcast_session_id=participant.session_id,
     )
-    await _broadcast_capcom_event(request, "capcom_disabled", out_id)
-    return {"previous_capcom_id": out_id}
+    return out_id or ""
 
 
 async def _broadcast_capcom_event(
     request: Request,
+    session_id: str,
     event_type: str,
     participant_id: str | None,
 ) -> None:
@@ -1193,27 +1219,25 @@ async def _broadcast_capcom_event(
     The companion ``audit_entry`` push fires from ``log_admin_action`` so
     facilitator audit panels also see the row. This helper carries the
     structured CAPCOM-specific payload (display name + id) for clients
-    that key off the typed event name.
+    that key off the typed event name. ``session_id`` is passed in
+    explicitly so disable broadcasts don't depend on the outgoing
+    participant resolving (the row may already be in transition).
     """
+    from datetime import UTC, datetime
+
     from src.web_ui.events import iso
     from src.web_ui.websocket import broadcast_to_session
 
-    display_name = None
+    display_name: str | None = None
     if participant_id:
         p = await request.app.state.participant_repo.get_participant(participant_id)
         display_name = p.display_name if p else None
-    sid = None
-    p_repo = request.app.state.participant_repo
-    if participant_id:
-        p = await p_repo.get_participant(participant_id)
-        sid = p.session_id if p else None
-    from datetime import UTC, datetime
-
     await broadcast_to_session(
-        sid or "",
+        session_id,
         {
             "v": 1,
             "type": event_type,
+            "session_id": session_id,
             "participant_id": participant_id,
             "display_name": display_name,
             "timestamp": iso(datetime.now(UTC)),
