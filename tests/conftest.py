@@ -90,14 +90,6 @@ def _spec_020_init_adapter(request: pytest.FixtureRequest) -> object:
 
 
 @pytest.fixture(scope="session")
-def event_loop_policy() -> object:
-    """Use default event loop policy for all async tests."""
-    import asyncio
-
-    return asyncio.DefaultEventLoopPolicy()
-
-
-@pytest.fixture(scope="session")
 async def _create_test_db() -> AsyncGenerator[str, None]:
     """Create a temporary test database, yield URL, then drop it."""
     db_name = f"sacp_test_{uuid.uuid4().hex[:8]}"
@@ -174,6 +166,9 @@ def _get_schema_sql() -> list[str]:
         _oauth_authorization_codes_ddl(),
         _oauth_refresh_tokens_ddl(),
         _oauth_access_tokens_ddl(),
+        _provider_circuit_open_log_ddl(),
+        _provider_circuit_probe_log_ddl(),
+        _provider_circuit_close_log_ddl(),
         *_index_ddls(),
     ]
 
@@ -695,6 +690,42 @@ def _oauth_token_families_ddl() -> str:
     """
 
 
+def _provider_circuit_open_log_ddl() -> str:
+    # spec 015 alembic 023: circuit open audit rows (FR-012, US3 AS1).
+    # Append-only; no FK constraints (audit survives session deletion per 007 pattern).
+    return """
+        CREATE TABLE provider_circuit_open_log (
+            id              BIGSERIAL PRIMARY KEY,
+            session_id      TEXT NOT NULL,
+            participant_id  TEXT NOT NULL,
+            provider        TEXT NOT NULL,
+            api_key_fingerprint TEXT NOT NULL,
+            trigger_reason  TEXT NOT NULL,
+            failure_count   INTEGER NOT NULL,
+            window_seconds  INTEGER NOT NULL,
+            opened_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """
+
+
+def _provider_circuit_probe_log_ddl() -> str:
+    # spec 015 alembic 023: probe attempt audit rows (FR-012, US3 AS4).
+    return """
+        CREATE TABLE provider_circuit_probe_log (
+            id              BIGSERIAL PRIMARY KEY,
+            session_id      TEXT NOT NULL,
+            participant_id  TEXT NOT NULL,
+            provider        TEXT NOT NULL,
+            api_key_fingerprint TEXT NOT NULL,
+            probe_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            probe_outcome   TEXT NOT NULL,
+            probe_latency_ms INTEGER NOT NULL,
+            schedule_position INTEGER NOT NULL,
+            schedule_exhausted BOOLEAN NOT NULL DEFAULT FALSE
+        )
+    """
+
+
 def _oauth_authorization_codes_ddl() -> str:
     """spec 030 Phase 4 — alembic 022 mirror; short-lived PKCE-bound authorization codes."""
     return """
@@ -750,6 +781,24 @@ def _oauth_access_tokens_ddl() -> str:
     """
 
 
+def _provider_circuit_close_log_ddl() -> str:
+    # spec 015 alembic 023: circuit close audit rows (FR-012, US3 AS3).
+    return """
+        CREATE TABLE provider_circuit_close_log (
+            id              BIGSERIAL PRIMARY KEY,
+            session_id      TEXT NOT NULL,
+            participant_id  TEXT NOT NULL,
+            provider        TEXT NOT NULL,
+            api_key_fingerprint TEXT NOT NULL,
+            closed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            total_open_seconds INTEGER NOT NULL,
+            probes_attempted INTEGER NOT NULL,
+            probes_succeeded INTEGER NOT NULL,
+            trigger_reason  TEXT NOT NULL
+        )
+    """
+
+
 def _index_ddls() -> list[str]:
     return [
         *_core_index_ddls(),
@@ -757,6 +806,7 @@ def _index_ddls() -> list[str]:
         *_compression_log_index_ddls(),
         *_detection_events_index_ddls(),
         *_facilitator_notes_index_ddls(),
+        *_circuit_breaker_index_ddls(),
     ]
 
 
@@ -844,6 +894,18 @@ def _core_index_ddls() -> list[str]:
     ]
 
 
+def _circuit_breaker_index_ddls() -> list[str]:
+    """spec 015 alembic 023 mirror; indexes on the three circuit audit tables."""
+    return [
+        "CREATE INDEX idx_circuit_open_session"
+        " ON provider_circuit_open_log (session_id, opened_at DESC)",
+        "CREATE INDEX idx_circuit_probe_session"
+        " ON provider_circuit_probe_log (session_id, probe_at DESC)",
+        "CREATE INDEX idx_circuit_close_session"
+        " ON provider_circuit_close_log (session_id, closed_at DESC)",
+    ]
+
+
 def _account_index_ddls() -> list[str]:
     return [
         # spec 023 §FR-002 / research §9 — alembic 015 mirror; covers the
@@ -883,7 +945,10 @@ async def _truncate_all(pool: asyncpg.Pool) -> None:
             " messages, branches,"
             " oauth_access_tokens, oauth_refresh_tokens,"
             " oauth_authorization_codes, oauth_token_families,"
-            " oauth_clients, facilitator_notes"
+            " oauth_clients,"
+            " provider_circuit_open_log, provider_circuit_probe_log,"
+            " provider_circuit_close_log,"
+            " facilitator_notes"
             " CASCADE"
         )
         await conn.execute("UPDATE sessions SET facilitator_id = NULL")

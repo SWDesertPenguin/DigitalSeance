@@ -90,6 +90,7 @@ def assemble_prompt(
     conclude_delta: str = "",
     standby_ack_delta: str = "",
     shaping_retry_delta_text: str | None = None,
+    deferred_index_entries: list[str] | None = None,
 ) -> str:
     """Assemble the full system prompt from tiers + custom content.
 
@@ -125,6 +126,17 @@ def assemble_prompt(
     so the model sees the tightening directive at the most-recent
     position. ``None`` disables injection (default — no retry in flight,
     or the master switch is off).
+
+    ``deferred_index_entries`` (spec 018 FR-003 / FR-014) is the optional
+    list of compact deferred-tool index entries rendered by the
+    participant's `DeferredToolIndex`. Phase-1 callers always pass `None`
+    or an empty list (the no-op `_EmptyIndex` returns `[]`); Phase-2
+    callers pass the live deferred subset's compact-entry strings. When
+    non-empty, the entries land in a single new Tier-4 fragment headed
+    by "Available deferred tools (load via tools.load_deferred):" so the
+    model sees them in the same position as other Tier-4 deltas.
+    Byte-identical pre-feature behavior is preserved when the parameter
+    is None or empty.
     """
     parts = list(_tier_parts(prompt_tier))
     if custom_prompt:
@@ -140,6 +152,9 @@ def assemble_prompt(
         parts.append(standby_ack_delta)
     if shaping_retry_delta_text:
         parts.append(shaping_retry_delta_text)
+    if deferred_index_entries:
+        header = "Available deferred tools (load via tools.load_deferred):"
+        parts.append(header + "\n" + "\n".join(deferred_index_entries))
     return _embed_canaries(parts, _generate_canaries())
 
 

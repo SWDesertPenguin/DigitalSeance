@@ -16,11 +16,14 @@ from fastapi.responses import JSONResponse
 from src.api_bridge.adapter import initialize_adapter
 from src.config import load_settings
 from src.database.connection import close_pool, create_pool
+from src.participant_api.metrics_router import is_metrics_enabled
+from src.participant_api.metrics_router import router as metrics_router
 from src.participant_api.sse import get_connection_manager
 from src.participant_api.sse_router import router as sse_router
 from src.participant_api.tools.admin import is_audit_viewer_enabled
 from src.participant_api.tools.admin import router as admin_router
 from src.participant_api.tools.debug import router as debug_router
+from src.participant_api.tools.deferred_tools import router as deferred_tools_router
 from src.participant_api.tools.detection_events import is_detection_history_enabled
 from src.participant_api.tools.detection_events import router as detection_events_router
 from src.participant_api.tools.facilitator import router as facilitator_router
@@ -234,6 +237,11 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(proposal_router)
     app.include_router(provider_router)
     app.include_router(debug_router)
+    # Spec 018 FR-014: the two discovery MCP tools (tools.list_deferred,
+    # tools.load_deferred) MUST be registered regardless of the
+    # SACP_TOOL_DEFER_ENABLED master switch — when disabled, handlers
+    # return the documented stub. Mounted unconditionally per FR-014.
+    app.include_router(deferred_tools_router)
     # Spec 029 §FR-018 — master switch hides the audit-log viewer surface
     # at the route layer when SACP_AUDIT_VIEWER_ENABLED is unset/false, so
     # disabled deployments return HTTP 404 from absence of the route rather
@@ -247,6 +255,11 @@ def _include_routers(app: FastAPI) -> None:
     if is_detection_history_enabled():
         app.include_router(detection_events_router)
     _maybe_include_scratch_router(app)
+    # Spec 016 §FR-001 / FR-007 -- metrics surface gated by SACP_METRICS_ENABLED.
+    # When disabled (default), the route is absent and /metrics returns HTTP 404
+    # from route absence -- byte-identical to the pre-feature baseline (SC-005).
+    if is_metrics_enabled():
+        app.include_router(metrics_router)
 
 
 def _maybe_include_scratch_router(app: FastAPI) -> None:

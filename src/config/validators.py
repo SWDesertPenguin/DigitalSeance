@@ -2240,6 +2240,426 @@ def validate_scratch_retention_days_after_archive() -> ValidationFailure | None:
     return None
 
 
+def validate_sacp_tool_defer_enabled() -> ValidationFailure | None:
+    """SACP_TOOL_DEFER_ENABLED: bool true/false case-insensitive, default false. 018 §FR-013.
+
+    Master switch for deferred tool loading. When false (the v1 default
+    and the Phase-1-cut state), the partition module returns an empty
+    DeferredToolIndex and the discovery MCP tools return a documented
+    stub response. When true, the working partition + discovery
+    mechanism activates.
+    """
+    val = os.environ.get("SACP_TOOL_DEFER_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val.strip().lower() not in {"true", "false"}:
+        return ValidationFailure(
+            "SACP_TOOL_DEFER_ENABLED",
+            f"must be 'true' or 'false' (case-insensitive); got {val!r}",
+        )
+    return None
+
+
+def validate_provider_failure_threshold() -> ValidationFailure | None:
+    """SACP_PROVIDER_FAILURE_THRESHOLD: int in [2, 100], unset means breaker inactive.
+
+    Per spec 015 FR-002 / FR-014 / FR-015. Unset (or empty) means the circuit
+    breaker is inactive -- dispatch behavior is byte-identical to the pre-feature
+    baseline (SC-005). Out-of-range values exit at startup per V16. The lower
+    bound of 2 prevents tripping on any single isolated failure.
+    """
+    val = os.environ.get("SACP_PROVIDER_FAILURE_THRESHOLD")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_PROVIDER_FAILURE_THRESHOLD",
+            f"must be integer; got {val!r}",
+        )
+    if not 2 <= num <= 100:
+        return ValidationFailure(
+            "SACP_PROVIDER_FAILURE_THRESHOLD",
+            f"must be in [2, 100]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_tool_loaded_token_budget() -> ValidationFailure | None:
+    """SACP_TOOL_LOADED_TOKEN_BUDGET: int in [512, 8192], default 1500. 018 §FR-013.
+
+    Token budget for the loaded subset of a participant's tool definitions.
+    Below 512, no realistic tool fits; above 8192, the partition commitment
+    dominates the system prompt budget. Default 1500 leaves room for the
+    rest of the prompt-tier budget (Constitution §6.1).
+    """
+    val = os.environ.get("SACP_TOOL_LOADED_TOKEN_BUDGET")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_TOOL_LOADED_TOKEN_BUDGET",
+            f"must be integer; got {val!r}",
+        )
+    if not 512 <= num <= 8192:
+        return ValidationFailure(
+            "SACP_TOOL_LOADED_TOKEN_BUDGET",
+            f"must be in [512, 8192] tokens; got {num}",
+        )
+    return None
+
+
+def validate_provider_failure_window_s() -> ValidationFailure | None:
+    """SACP_PROVIDER_FAILURE_WINDOW_S: int in [30, 3600], unset means breaker inactive.
+
+    Per spec 015 FR-002 / FR-014 / FR-015. Unset (or empty) means the circuit
+    breaker is inactive. Must be set paired with SACP_PROVIDER_FAILURE_THRESHOLD
+    (both set or both unset); cross-validator below enforces pairing.
+    """
+    val = os.environ.get("SACP_PROVIDER_FAILURE_WINDOW_S")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_PROVIDER_FAILURE_WINDOW_S",
+            f"must be integer (seconds); got {val!r}",
+        )
+    if not 30 <= num <= 3600:
+        return ValidationFailure(
+            "SACP_PROVIDER_FAILURE_WINDOW_S",
+            f"must be in [30, 3600] (30 seconds to 1 hour); got {num}",
+        )
+    return None
+
+
+def validate_sacp_tool_defer_index_max_tokens() -> ValidationFailure | None:
+    """SACP_TOOL_DEFER_INDEX_MAX_TOKENS: int in [64, 1024], default 256. 018 §FR-013.
+
+    Cap on the deferred-index size emitted into the system prompt.
+    At 256 tokens (default), ~20 deferred tools fit before truncation;
+    beyond, tools.list_deferred pagination delivers the rest. Below 64,
+    even a handful of tools cannot fit; above 1024, the index itself
+    dominates the budget the partition is supposed to protect.
+    """
+    val = os.environ.get("SACP_TOOL_DEFER_INDEX_MAX_TOKENS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_TOOL_DEFER_INDEX_MAX_TOKENS",
+            f"must be integer; got {val!r}",
+        )
+    if not 64 <= num <= 1024:
+        return ValidationFailure(
+            "SACP_TOOL_DEFER_INDEX_MAX_TOKENS",
+            f"must be in [64, 1024] tokens; got {num}",
+        )
+    return None
+
+
+def validate_sacp_tool_defer_load_timeout_s() -> ValidationFailure | None:
+    """SACP_TOOL_DEFER_LOAD_TIMEOUT_S: int in [1, 30]. 018 §FR-013.
+
+    Per-call timeout for tools.load_deferred. Unset means the load
+    inherits the existing MCP client request timeout. Bounded at 30s
+    because deferred-load latency MUST stay within the participant's
+    turn_timeout_seconds budget (SC-003).
+    """
+    val = os.environ.get("SACP_TOOL_DEFER_LOAD_TIMEOUT_S")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_TOOL_DEFER_LOAD_TIMEOUT_S",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 30:
+        return ValidationFailure(
+            "SACP_TOOL_DEFER_LOAD_TIMEOUT_S",
+            f"must be in [1, 30] seconds; got {num}",
+        )
+    return None
+
+
+_PROBE_BACKOFF_VAR = "SACP_PROVIDER_RECOVERY_PROBE_BACKOFF"
+
+
+def _check_probe_backoff_entry(entry: str) -> ValidationFailure | None:
+    """Validate one comma-separated backoff entry; return failure or None."""
+    try:
+        num = int(entry)
+    except ValueError:
+        return ValidationFailure(
+            _PROBE_BACKOFF_VAR, f"each entry must be an integer; got {entry!r}"
+        )
+    if not 1 <= num <= 600:
+        return ValidationFailure(_PROBE_BACKOFF_VAR, f"each entry must be in [1, 600]; got {num}")
+    return None
+
+
+def validate_provider_recovery_probe_backoff() -> ValidationFailure | None:
+    """SACP_PROVIDER_RECOVERY_PROBE_BACKOFF: comma-separated ints, each in [1, 600], 1-10 entries.
+
+    Per spec 015 FR-006 / FR-009 / FR-014. Unset means no auto-recovery --
+    breaker stays open until session restart or update_api_key fast-close.
+    The final entry is repeated (cycle-on-last) when the schedule exhausts.
+    """
+    val = os.environ.get(_PROBE_BACKOFF_VAR)
+    if val is None or val.strip() == "":
+        return None
+    entries = [e.strip() for e in val.split(",") if e.strip()]
+    if not entries:
+        return ValidationFailure(_PROBE_BACKOFF_VAR, "at least one entry required")
+    if len(entries) > 10:
+        return ValidationFailure(
+            _PROBE_BACKOFF_VAR, f"at most 10 entries allowed; got {len(entries)}"
+        )
+    for entry in entries:
+        failure = _check_probe_backoff_entry(entry)
+        if failure is not None:
+            return failure
+    return None
+
+
+def validate_provider_probe_timeout_s() -> ValidationFailure | None:
+    """SACP_PROVIDER_PROBE_TIMEOUT_S: int in [1, 30], unset inherits LiteLLM timeout.
+
+    Per spec 015 FR-006 / FR-014. Unset means probe calls inherit the
+    configured LiteLLM call timeout. Out-of-range values exit at startup per V16.
+    """
+    val = os.environ.get("SACP_PROVIDER_PROBE_TIMEOUT_S")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_PROVIDER_PROBE_TIMEOUT_S",
+            f"must be integer (seconds); got {val!r}",
+        )
+    if not 1 <= num <= 30:
+        return ValidationFailure(
+            "SACP_PROVIDER_PROBE_TIMEOUT_S",
+            f"must be in [1, 30]; got {num}",
+        )
+    return None
+
+
+def validate_provider_failure_paired_vars() -> ValidationFailure | None:
+    """Cross-validator: THRESHOLD and WINDOW_S must be set together or not at all.
+
+    Per spec 015 FR-015 / research.md SS6. If exactly one is set and the other
+    is unset, the breaker is in an indeterminate state and the operator is
+    likely misconfigured. Fail at startup rather than silently using one var.
+    """
+    threshold = os.environ.get("SACP_PROVIDER_FAILURE_THRESHOLD")
+    window = os.environ.get("SACP_PROVIDER_FAILURE_WINDOW_S")
+    threshold_set = bool(threshold and threshold.strip())
+    window_set = bool(window and window.strip())
+    if threshold_set and not window_set:
+        return ValidationFailure(
+            "SACP_PROVIDER_FAILURE_WINDOW_S",
+            "SACP_PROVIDER_FAILURE_THRESHOLD is set but SACP_PROVIDER_FAILURE_WINDOW_S is unset"
+            " -- both must be set together or both left unset",
+        )
+    if window_set and not threshold_set:
+        return ValidationFailure(
+            "SACP_PROVIDER_FAILURE_THRESHOLD",
+            "SACP_PROVIDER_FAILURE_WINDOW_S is set but SACP_PROVIDER_FAILURE_THRESHOLD is unset"
+            " -- both must be set together or both left unset",
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Spec 016 -- Prometheus-format metrics
+# ---------------------------------------------------------------------------
+
+
+def validate_metrics_enabled() -> ValidationFailure | None:
+    """SACP_METRICS_ENABLED: bool, default false. 016 FR-001 / FR-007.
+
+    Master switch for the Prometheus metrics surface. When unset or 'false',
+    the /metrics endpoint is NOT registered and no metric collection overhead
+    is incurred. Accepts 'true'/'false' (case-insensitive) or '1'/'0' per the
+    existing validator convention.
+    """
+    val = os.environ.get("SACP_METRICS_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val.strip().lower() not in ("true", "false", "1", "0"):
+        return ValidationFailure(
+            "SACP_METRICS_ENABLED",
+            f"must be 'true'/'false' (case-insensitive) or '1'/'0'; got {val!r}",
+        )
+    return None
+
+
+def validate_metrics_session_grace_s() -> ValidationFailure | None:
+    """SACP_METRICS_SESSION_GRACE_S: int in [5, 300], default 30. 016 FR-006.
+
+    Grace window in seconds before terminated-session metric series are evicted
+    from the registry. Default 30 (one standard Prometheus scrape interval).
+    Values below 5 may not allow a final scrape; values above 300 hold cardinality
+    open for too long. Out-of-range exits at startup per V16.
+    """
+    val = os.environ.get("SACP_METRICS_SESSION_GRACE_S")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_METRICS_SESSION_GRACE_S",
+            f"must be integer; got {val!r}",
+        )
+    if not 5 <= num <= 300:
+        return ValidationFailure(
+            "SACP_METRICS_SESSION_GRACE_S",
+            f"must be in [5, 300]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_tool_refresh_poll_interval_s() -> ValidationFailure | None:
+    """SACP_TOOL_REFRESH_POLL_INTERVAL_S: int [15, 3600], unset means polling disabled. 017 §FR-002.
+
+    Polling interval in seconds for per-participant MCP tool-list refreshes.
+    Unset (default) means polling is disabled and tool lists are captured once at
+    registration (pre-feature behavior per FR-014). Out-of-range values exit at
+    startup per V16. 15s minimum bounds MCP server load; 3600s maximum bounds
+    worst-case staleness window.
+    """
+    val = os.environ.get("SACP_TOOL_REFRESH_POLL_INTERVAL_S")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_TOOL_REFRESH_POLL_INTERVAL_S",
+            f"must be integer (seconds); got {val!r}",
+        )
+    if not 15 <= num <= 3600:
+        return ValidationFailure(
+            "SACP_TOOL_REFRESH_POLL_INTERVAL_S",
+            f"must be in [15, 3600] (15 seconds to 1 hour); got {num}",
+        )
+    return None
+
+
+def validate_sacp_tool_refresh_timeout_s() -> ValidationFailure | None:
+    """SACP_TOOL_REFRESH_TIMEOUT_S: int [1, 30], unset means inherit adapter timeout. 017 §FR-011.
+
+    Timeout in seconds for each MCP tools/list call. Unset means the refresh
+    inherits the configured MCP client request timeout (30s fallback). Out-of-range
+    values exit at startup per V16.
+    """
+    val = os.environ.get("SACP_TOOL_REFRESH_TIMEOUT_S")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_TOOL_REFRESH_TIMEOUT_S",
+            f"must be integer (seconds); got {val!r}",
+        )
+    if not 1 <= num <= 30:
+        return ValidationFailure(
+            "SACP_TOOL_REFRESH_TIMEOUT_S",
+            f"must be in [1, 30]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_tool_list_max_bytes() -> ValidationFailure | None:
+    """SACP_TOOL_LIST_MAX_BYTES: int [1024, 1048576], unset means 65536 default. 017 §FR-010.
+
+    Maximum total byte size of a participant's tool list. Unset means a default
+    of 65536 bytes (64 KiB) is applied in code. Overflow truncates the list to
+    the first N tools that fit and emits an audit entry. Out-of-range values exit
+    at startup per V16.
+    """
+    val = os.environ.get("SACP_TOOL_LIST_MAX_BYTES")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_TOOL_LIST_MAX_BYTES",
+            f"must be integer (bytes); got {val!r}",
+        )
+    if not 1024 <= num <= 1048576:
+        return ValidationFailure(
+            "SACP_TOOL_LIST_MAX_BYTES",
+            f"must be in [1024, 1048576] (1 KiB to 1 MiB); got {num}",
+        )
+    return None
+
+
+def validate_sacp_tool_refresh_push_enabled() -> ValidationFailure | None:
+    """SACP_TOOL_REFRESH_PUSH_ENABLED: bool, default false. 017 §FR-007.
+
+    When false (default, Phase 1), the orchestrator does not attempt to subscribe
+    to notifications/tools/list_changed at participant registration. When true
+    (Phase 2), a subscription attempt is made and the outcome is audited.
+    Accepts 'true'/'false' (case-insensitive) or '1'/'0'. Unparseable values
+    exit at startup per V16.
+    """
+    val = os.environ.get("SACP_TOOL_REFRESH_PUSH_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val.strip().lower() not in ("true", "false", "1", "0"):
+        return ValidationFailure(
+            "SACP_TOOL_REFRESH_PUSH_ENABLED",
+            f"must be 'true'/'false' (case-insensitive) or '1'/'0'; got {val!r}",
+        )
+    return None
+
+
+def validate_metrics_bind_path() -> ValidationFailure | None:
+    """SACP_METRICS_BIND_PATH: URL path string, default '/metrics'. 016 FR-001.
+
+    Must start with '/'. After the leading slash, only alphanumeric characters
+    and dashes are allowed. An empty string is treated as the default '/metrics'.
+    A path that is literally '/' or that starts with '/health' exits at startup
+    per V16 to prevent collision with existing routes.
+    """
+    val = os.environ.get("SACP_METRICS_BIND_PATH")
+    if val is None or val.strip() == "":
+        return None
+    val = val.strip()
+    if not val.startswith("/"):
+        return ValidationFailure(
+            "SACP_METRICS_BIND_PATH",
+            f"must start with '/'; got {val!r}",
+        )
+    if val == "/health" or val == "/healthz":
+        return ValidationFailure(
+            "SACP_METRICS_BIND_PATH",
+            f"collides with existing route {val!r}; choose a different path",
+        )
+    # After the leading slash: alphanumeric and dashes only
+    suffix = val[1:]
+    if suffix and not all(c.isalnum() or c == "-" for c in suffix):
+        return ValidationFailure(
+            "SACP_METRICS_BIND_PATH",
+            f"path suffix must be alphanumeric + dashes; got {val!r}",
+        )
+    return None
+
+
 VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_database_url,
     validate_encryption_key,
@@ -2312,6 +2732,21 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_standby_filler_detection_turns,
     validate_standby_pivot_timeout_seconds,
     validate_standby_pivot_rate_cap_per_session,
+    # ── spec 015 (provider failure detection -- circuit breaker) ── FR-014 ──
+    validate_provider_failure_threshold,
+    validate_provider_failure_window_s,
+    validate_provider_recovery_probe_backoff,
+    validate_provider_probe_timeout_s,
+    validate_provider_failure_paired_vars,  # cross-validator: must be last of the five
+    # ── spec 016 (Prometheus-format metrics) ── FR-012 ─────────────────────
+    validate_metrics_enabled,
+    validate_metrics_session_grace_s,
+    validate_metrics_bind_path,
+    # ── spec 017 (tool-list freshness) ── FR-013 ────────────────────────────
+    validate_sacp_tool_refresh_poll_interval_s,
+    validate_sacp_tool_refresh_timeout_s,
+    validate_sacp_tool_list_max_bytes,
+    validate_sacp_tool_refresh_push_enabled,
     # ── spec 030 Phase 2 (MCP protocol) ── FR-034 ──────────────────────────
     validate_sacp_mcp_protocol_enabled,
     validate_sacp_mcp_session_idle_timeout_seconds,
@@ -2346,6 +2781,11 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_sacp_oauth_cimd_allowed_hosts,
     validate_sacp_mcp_token_cache_ttl_seconds,
     validate_sacp_oauth_previous_signing_key_path,
+    # ── spec 018 (deferred tool loading) ── FR-013 ──────────────────────────
+    validate_sacp_tool_defer_enabled,
+    validate_sacp_tool_loaded_token_budget,
+    validate_sacp_tool_defer_index_max_tokens,
+    validate_sacp_tool_defer_load_timeout_s,
 )
 
 

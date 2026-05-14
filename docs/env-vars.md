@@ -1009,6 +1009,148 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Source spec(s)**: 030 Phase 4 FR-088 (key rotation fallback)
 - **Note**: Optional path to the previous ES256 PEM private key used as a fallback verification key during key rotation. Not required; validated only when set.
 
+### `SACP_TOOL_DEFER_ENABLED`
+
+- **Default**: `false` (off — opt-in master switch ships disabled; Phase-1 design-hooks cut state)
+- **Type**: boolean (`true` or `false`, case-insensitive)
+- **Valid range**: exactly `true` or `false`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_tool_defer_enabled`
+- **Source spec(s)**: 018 §FR-013 (master switch for deferred tool loading)
+- **Note**: When `false` (default), the partition module returns an empty `DeferredToolIndex` and the two discovery MCP tools (`tools.list_deferred`, `tools.load_deferred`) return a documented `deferred_loading_disabled` stub. When `true`, the working partition + discovery activate and the system prompt carries the loaded subset's full schemas + the deferred subset's compact index entries.
+
+### `SACP_TOOL_LOADED_TOKEN_BUDGET`
+
+- **Default**: `1500` (tokens; applied at consumer when unset)
+- **Type**: positive integer (tokens)
+- **Valid range**: `512 <= value <= 8192`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_tool_loaded_token_budget`
+- **Source spec(s)**: 018 §FR-013 (loaded-subset token budget)
+- **Note**: Caps the loaded subset of a participant's tool definitions. Below 512, no realistic tool fits; above 8192, the partition commitment dominates the system prompt budget per Constitution §6.1. Selection policy in v1 is registration order. When `SACP_TOOL_DEFER_ENABLED=false`, this value is ignored.
+
+### `SACP_TOOL_DEFER_INDEX_MAX_TOKENS`
+
+- **Default**: `256` (tokens; applied at consumer when unset)
+- **Type**: positive integer (tokens)
+- **Valid range**: `64 <= value <= 1024`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_tool_defer_index_max_tokens`
+- **Source spec(s)**: 018 §FR-013 (deferred-index size cap)
+- **Note**: Caps the deferred-tool index emitted into the system prompt. At 256 (default), ~20 deferred tools fit before the index truncates with a pagination banner pointing the model at `tools.list_deferred` for the rest. Below 64, even a handful of tools cannot fit; above 1024, the index itself dominates the budget the partition is supposed to protect. When `SACP_TOOL_DEFER_ENABLED=false`, this value is ignored.
+
+### `SACP_TOOL_DEFER_LOAD_TIMEOUT_S`
+
+- **Default**: unset (inherits the existing MCP client request timeout)
+- **Type**: positive integer (seconds), or empty
+- **Valid range**: `1 <= value <= 30` when set
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_tool_defer_load_timeout_s`
+- **Source spec(s)**: 018 §FR-013 (discovery-load timeout)
+- **Note**: Per-call timeout for `tools.load_deferred`. Unset means the load inherits the existing MCP client request timeout. Bounded at 30s because deferred-load latency MUST stay within the participant's `turn_timeout_seconds` budget (SC-003). When `SACP_TOOL_DEFER_ENABLED=false`, this value is ignored.
+### `SACP_PROVIDER_FAILURE_THRESHOLD`
+
+- **Default**: unset (breaker inactive)
+- **Type**: positive integer
+- **Valid range**: `2 <= value <= 100`. Lower bound of 2 prevents tripping on any single isolated failure; upper bound of 100 exceeds any credible per-window failure count.
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports; out-of-range value exits with message naming this var
+- **Validation rule**: `validators.validate_provider_failure_threshold`
+- **Source spec(s)**: 015 §FR-002, §FR-014, §FR-015
+- **Note**: Must be set paired with `SACP_PROVIDER_FAILURE_WINDOW_S` (both set or both unset). When both are unset, dispatch behavior is byte-identical to the pre-feature baseline (SC-005). Cross-validator `validate_provider_failure_paired_vars` enforces pairing.
+
+### `SACP_PROVIDER_FAILURE_WINDOW_S`
+
+- **Default**: unset (breaker inactive)
+- **Type**: positive integer (seconds)
+- **Valid range**: `30 <= value <= 3600` (30 seconds to 1 hour)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_provider_failure_window_s`
+- **Source spec(s)**: 015 §FR-002, §FR-014, §FR-015
+- **Note**: Must be set paired with `SACP_PROVIDER_FAILURE_THRESHOLD`. The rolling window within which failures are counted toward the threshold.
+
+### `SACP_PROVIDER_RECOVERY_PROBE_BACKOFF`
+
+- **Default**: unset (no auto-recovery; breaker stays open until session restart or `update_api_key` fast-close)
+- **Type**: composite — comma-separated list of positive integers, each a delay in seconds (e.g., `5,10,30,60`)
+- **Valid range**: each entry in `[1, 600]`; 1 to 10 entries
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports; any unparseable or out-of-range entry exits at startup
+- **Validation rule**: `validators.validate_provider_recovery_probe_backoff`
+- **Source spec(s)**: 015 §FR-006, §FR-009, §FR-014
+- **Note**: The final entry is repeated (cycle-on-last) when the schedule exhausts, per FR-009 no-unbounded-growth requirement. Independent of `SACP_PROVIDER_FAILURE_THRESHOLD` / `SACP_PROVIDER_FAILURE_WINDOW_S` — the breaker can be active without auto-recovery.
+
+### `SACP_PROVIDER_PROBE_TIMEOUT_S`
+
+- **Default**: unset (probe call inherits the configured LiteLLM call timeout)
+- **Type**: positive integer (seconds)
+- **Valid range**: `1 <= value <= 30`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_provider_probe_timeout_s`
+- **Source spec(s)**: 015 §FR-006, §FR-014
+- **Note**: Wraps the `validate_credentials()` probe call with `asyncio.wait_for`. A probe that exceeds this timeout counts as a failed probe and keeps the breaker open (conservative / fail-closed). Independent of the two threshold/window vars.
+
+### `SACP_METRICS_ENABLED`
+
+- **Default**: `false` (metrics endpoint not registered)
+- **Type**: boolean (`true`/`false` case-insensitive, or `1`/`0`)
+- **Valid range**: `true`, `false`, `1`, `0` (case-insensitive)
+- **Fail-closed semantics**: unset or `false` means the `/metrics` route is absent and no metric collection overhead occurs. Unparseable values cause startup exit per V16.
+- **Validation rule**: `validators.validate_metrics_enabled`
+- **Source spec(s)**: 016 §FR-001, §FR-007
+
+### `SACP_METRICS_SESSION_GRACE_S`
+
+- **Default**: `30` (one standard Prometheus scrape interval)
+- **Type**: positive integer (seconds)
+- **Valid range**: `5 <= value <= 300`
+- **Fail-closed semantics**: unset means default 30. Out-of-range values cause startup exit per V16. Values below 5 may not allow a final scrape before eviction; values above 300 hold cardinality open too long.
+- **Validation rule**: `validators.validate_metrics_session_grace_s`
+- **Source spec(s)**: 016 §FR-006
+
+### `SACP_METRICS_BIND_PATH`
+
+- **Default**: `/metrics`
+- **Type**: string (URL path)
+- **Valid range**: must start with `/`; after the leading slash, only alphanumeric characters and dashes are allowed; must not collide with existing routes (`/health`, `/healthz`)
+- **Fail-closed semantics**: unset means `/metrics`. Path colliding with an existing route causes startup exit per V16.
+- **Validation rule**: `validators.validate_metrics_bind_path`
+- **Source spec(s)**: 016 §FR-001
+
+### `SACP_TOOL_REFRESH_POLL_INTERVAL_S`
+
+- **Default**: unset (polling disabled; tool lists captured once at registration)
+- **Type**: positive integer (seconds)
+- **Valid range**: `15 <= value <= 3600` (15 seconds to 1 hour)
+- **Fail-closed semantics**: unset means polling is disabled and pre-feature behavior is preserved byte-identically (FR-014). Out-of-range values cause startup exit per V16.
+- **Validation rule**: `validators.validate_sacp_tool_refresh_poll_interval_s`
+- **Source spec(s)**: 017 §FR-002, §FR-013, §FR-014
+
+### `SACP_TOOL_REFRESH_TIMEOUT_S`
+
+- **Default**: unset (inherits the configured MCP client request timeout; 30s fallback)
+- **Type**: positive integer (seconds)
+- **Valid range**: `1 <= value <= 30`
+- **Fail-closed semantics**: unset means each refresh call inherits the adapter timeout. Out-of-range values cause startup exit per V16.
+- **Validation rule**: `validators.validate_sacp_tool_refresh_timeout_s`
+- **Source spec(s)**: 017 §FR-011, §FR-013
+
+### `SACP_TOOL_LIST_MAX_BYTES`
+
+- **Default**: unset (code applies 65536 bytes / 64 KiB default per `/speckit.plan` §Storage)
+- **Type**: positive integer (bytes)
+- **Valid range**: `1024 <= value <= 1048576` (1 KiB to 1 MiB)
+- **Fail-closed semantics**: unset means the 65536-byte default is applied in code. Overflow truncates the list and emits an audit entry. Out-of-range values cause startup exit per V16.
+- **Validation rule**: `validators.validate_sacp_tool_list_max_bytes`
+- **Source spec(s)**: 017 §FR-010, §FR-013
+
+### `SACP_TOOL_REFRESH_PUSH_ENABLED`
+
+- **Default**: `false` (push subscription not attempted; Phase 1 polling-only)
+- **Type**: boolean (`true`/`false` case-insensitive, or `1`/`0`)
+- **Valid range**: `true`, `false`, `1`, `0` (case-insensitive)
+- **Fail-closed semantics**: unset or `false` means no push subscription attempt at participant registration (Phase 1 floor). When `true` (Phase 2), the orchestrator attempts `notifications/tools/list_changed` subscription and audits the outcome. Unparseable values cause startup exit per V16.
+- **Validation rule**: `validators.validate_sacp_tool_refresh_push_enabled`
+- **Source spec(s)**: 017 §FR-007, §FR-013
+
 ## CI enforcement
 
 `scripts/check_env_vars.py` (per spec 012 FR-005):
