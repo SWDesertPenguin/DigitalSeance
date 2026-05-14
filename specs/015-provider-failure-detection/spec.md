@@ -2,7 +2,7 @@
 
 **Feature Branch**: `015-provider-failure-detection`
 **Created**: 2026-05-06
-**Status**: Draft
+**Status**: Implemented 2026-05-13
 **Input**: User description: "Provider failure detection and isolation for SACP's bridge layer. When a participant's configured provider becomes unhealthy — returning errors, timing out, or otherwise failing repeatedly — SACP must detect the condition, stop sending requests to that provider for a cooldown period, and recover automatically when the provider becomes healthy again. This protects participants from cascading failures and prevents wasted token spend on calls that will fail. The mechanism must respect SACP's BYOK/sovereignty model: one participant's failures must not affect other participants, and SACP must never transparently fall back to a different provider — each participant's identity is tied to their declared model. Failures and recoveries must be visible in the audit log and in the metrics surface. Phase 1 scope. Cross-references §7 of sacp-design.md (security/reliability) and the constitution's participant-sovereignty principles."
 
 ## Overview
@@ -66,25 +66,28 @@ trigger the existing auto-pause path.
   exists today per §6.6 but is not surfaced through SACP's audit
   log or metrics); (b) "Phase 1" was shorthand for "minimum-viable
   scope, no dynamic-controller layering on top." Defaulted to (a)
-  in this draft. [NEEDS CLARIFICATION: confirm phase placement and
-  whether this lands on a `015-*` branch under current Phase-3
-  declaration or under a retroactive Phase-1 patch path.]
+  in this draft.
 - **Failure-counting semantics.** Description says "errors, timing
   out, or otherwise failing repeatedly." Drafted as: a sliding-window
   count of (HTTP 5xx | timeout | auth failure | §6.6 quality-failure
   detection) where the threshold is a count-within-window rather than
   raw consecutive failures, so an intermittent flap does not trip
-  the breaker on a single bad turn. [NEEDS CLARIFICATION: confirm
-  preference for window-based count vs. consecutive-failure count;
-  affects FR-002.]
+  the breaker on a single bad turn.
 - **Relationship to LiteLLM's existing cooldown.** `sacp-design.md`
   §6.6 already cites "LiteLLM provides ordered model fallback lists,
   context window fallbacks, and cooldown management." Drafted as:
   SACP wraps a thin per-participant breaker layer *above* LiteLLM,
   observing LiteLLM's call outcomes; LiteLLM's own fallback list is
-  configured to empty or to same-identity-only entries. [NEEDS
-  CLARIFICATION: confirm we do not want to delegate the breaker
-  itself to LiteLLM and instead surface SACP-owned state.]
+  configured to empty or to same-identity-only entries.
+
+### Session 2026-05-13
+
+All four NEEDS CLARIFICATION markers resolved autonomously per user authorization.
+
+- **Phase labeling resolved**: Phase 1 back-fill confirmed. This spec formalizes and surfaces the reliability story that §6.6 cited but left SACP-opaque (the existing `CircuitBreaker` class tracks consecutive failures but emits no audit rows, uses no sliding window, and has no probe-recovery path). Implementation lands on the `015-provider-failure-detection` branch under the current Phase 3 work stream — no retroactive Phase 1 patch path; no sub-phase split.
+- **Failure-counting semantics resolved**: Sliding-window count confirmed over consecutive-failure count. The existing implementation uses consecutive; this spec formalizes the position drafted in the initial assumptions. A sliding window prevents a single isolated bad turn from tripping the breaker during an otherwise-healthy session; the ring-buffer approach per FR-002 and the `FailureRecord` entity is the implementation shape.
+- **LiteLLM delegation resolved**: SACP owns the breaker state. No delegation to LiteLLM's internal cooldown or fallback machinery. LiteLLM's ordered-fallback list is configured to empty or same-identity-only entries; SACP observes call outcomes via the `CanonicalError` categories from `src/api_bridge/litellm/errors.py` and manages transitions independently. Confirmed per FR-011.
+- **Manual clear tool resolved**: Out of scope for v1. The two supported recovery paths are auto-recovery via the probe backoff schedule (US2) and the `update_api_key` fast-close path (FR-016). An operator-accessible manual-clear admin tool is a potential follow-up not tracked in this spec.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -248,10 +251,7 @@ the open state. Query the audit log and verify the
 - **Participant uses local proxy mode (per §3 sovereignty).**
   Same per-participant breaker semantics; the proxy is the
   effective provider endpoint for failure detection.
-- **Operator manually clears the breaker.** Out of scope for this
-  spec — the auto-recovery path (US2) and `update_api_key`
-  fast-close path are the two supported recovery paths.
-  [NEEDS CLARIFICATION: confirm no manual-clear admin tool in v1.]
+- **Operator manually clears the breaker.** Out of scope for v1 — the auto-recovery path (US2) and `update_api_key` fast-close path are the two supported recovery paths. Resolved: Session 2026-05-13.
 - **Breaker open at session boundary.** Circuit state is
   session-local and not persisted across restart. On restart, the
   breaker starts closed for every participant and re-evaluates

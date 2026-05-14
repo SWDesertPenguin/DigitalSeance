@@ -738,6 +738,45 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Validation rule**: `validators.validate_sacp_tool_defer_load_timeout_s`
 - **Source spec(s)**: 018 §FR-013 (discovery-load timeout)
 - **Note**: Per-call timeout for `tools.load_deferred`. Unset means the load inherits the existing MCP client request timeout. Bounded at 30s because deferred-load latency MUST stay within the participant's `turn_timeout_seconds` budget (SC-003). When `SACP_TOOL_DEFER_ENABLED=false`, this value is ignored.
+### `SACP_PROVIDER_FAILURE_THRESHOLD`
+
+- **Default**: unset (breaker inactive)
+- **Type**: positive integer
+- **Valid range**: `2 <= value <= 100`. Lower bound of 2 prevents tripping on any single isolated failure; upper bound of 100 exceeds any credible per-window failure count.
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports; out-of-range value exits with message naming this var
+- **Validation rule**: `validators.validate_provider_failure_threshold`
+- **Source spec(s)**: 015 §FR-002, §FR-014, §FR-015
+- **Note**: Must be set paired with `SACP_PROVIDER_FAILURE_WINDOW_S` (both set or both unset). When both are unset, dispatch behavior is byte-identical to the pre-feature baseline (SC-005). Cross-validator `validate_provider_failure_paired_vars` enforces pairing.
+
+### `SACP_PROVIDER_FAILURE_WINDOW_S`
+
+- **Default**: unset (breaker inactive)
+- **Type**: positive integer (seconds)
+- **Valid range**: `30 <= value <= 3600` (30 seconds to 1 hour)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_provider_failure_window_s`
+- **Source spec(s)**: 015 §FR-002, §FR-014, §FR-015
+- **Note**: Must be set paired with `SACP_PROVIDER_FAILURE_THRESHOLD`. The rolling window within which failures are counted toward the threshold.
+
+### `SACP_PROVIDER_RECOVERY_PROBE_BACKOFF`
+
+- **Default**: unset (no auto-recovery; breaker stays open until session restart or `update_api_key` fast-close)
+- **Type**: composite — comma-separated list of positive integers, each a delay in seconds (e.g., `5,10,30,60`)
+- **Valid range**: each entry in `[1, 600]`; 1 to 10 entries
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports; any unparseable or out-of-range entry exits at startup
+- **Validation rule**: `validators.validate_provider_recovery_probe_backoff`
+- **Source spec(s)**: 015 §FR-006, §FR-009, §FR-014
+- **Note**: The final entry is repeated (cycle-on-last) when the schedule exhausts, per FR-009 no-unbounded-growth requirement. Independent of `SACP_PROVIDER_FAILURE_THRESHOLD` / `SACP_PROVIDER_FAILURE_WINDOW_S` — the breaker can be active without auto-recovery.
+
+### `SACP_PROVIDER_PROBE_TIMEOUT_S`
+
+- **Default**: unset (probe call inherits the configured LiteLLM call timeout)
+- **Type**: positive integer (seconds)
+- **Valid range**: `1 <= value <= 30`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_provider_probe_timeout_s`
+- **Source spec(s)**: 015 §FR-006, §FR-014
+- **Note**: Wraps the `validate_credentials()` probe call with `asyncio.wait_for`. A probe that exceeds this timeout counts as a failed probe and keeps the breaker open (conservative / fail-closed). Independent of the two threshold/window vars.
 
 ## CI enforcement
 

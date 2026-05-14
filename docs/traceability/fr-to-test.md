@@ -97,6 +97,9 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-057 | untested | Spec 027 amendment: layout tolerance for combined badge presence + 24-char truncation; trigger: spec 027 UI implementation Phase F Playwright |
 | FR-058 | tests/test_027_architectural.py | Spec 027 amendment: wait_mode + wait_mode_metadata extension on participant_update WS payload — backstopped by `_participant_payload` extension in `src/web_ui/events.py` and architectural test asserting the contract |
 | FR-059 | tests/test_027_architectural.py | Spec 027 amendment: five new audit-action labels registered in both audit_labels.py + frontend mirror; parity-gate enforced via architectural test |
+| FR-060 | untested | Spec 026 amendment: Compression Metrics menu item gated by SACP_COMPRESSION_PHASE2_ENABLED + FR-009; trigger: spec 026 Phase 3 UI implementation Phase F |
+| FR-061 | untested | Spec 026 amendment: per-session cache hit rate + compression ratio + density flagged-turn count rendering; trigger: spec 026 Phase 3 UI implementation Phase F |
+| FR-062 | untested | Spec 026 amendment: drill-down to compression_log rows using spec 022 detail-row pattern; trigger: spec 026 Phase 3 UI implementation Phase F |
 | SR-001 | tests/test_web_ui_app.py, tests/test_011_testability.py | Security headers present; CSP report-uri; per-directive coverage (14 fragments) |
 | SR-001a | untested | WS frame cap (256KB); WS layer max_size not yet wired; trigger: Phase E ops |
 | SR-002 | tests/test_web_ui_app.py | Strict-Transport-Security header present |
