@@ -469,6 +469,7 @@ class ConversationLoop:
             session_id, pause_reason="auto_pause_on_cap", summarizer_outcome=outcome
         )
         self._conclude_started_turn.pop(session_id, None)
+        _schedule_metrics_eviction(session_id)
 
     def _session_repo(self) -> SessionRepository:
         """Lazy SessionRepository handle so ConversationLoop owns one shared instance."""
@@ -533,6 +534,10 @@ class ConversationLoop:
             speaker_id=speaker_id,
         )
         await _emit_convergence(session_id, turn_number, similarity, diverge)
+        # Spec 016 FR-009 / US3-T011: convergence gauge sourced from spec 004
+        # engine; updates at most once per turn (engine's own computation cadence).
+        # Fail-soft: instrumentation MUST NOT abort the delay computation (V6).
+        _set_convergence_metric(session_id, similarity)
         if diverge:
             await self._enqueue_divergence(session_id)
         preset = self._cadence_presets.get(session_id, "cruise")
@@ -1071,15 +1076,27 @@ async def _assemble_and_dispatch(
         log.info("Skipping %s: last message was same speaker", speaker.id)
         return None, None, "no_new_input"
     messages = to_provider_messages(context)
+    return await _call_provider_and_record(ctx, breaker, speaker, messages)
+
+
+async def _call_provider_and_record(
+    ctx: _TurnContext,
+    breaker: CircuitBreaker,
+    speaker: object,
+    messages: list[dict[str, str]],
+) -> tuple[ProviderResponse | None, list[dict[str, str]] | None, str | None]:
+    """Dispatch to provider; record metrics on success or failure (spec 016 US2)."""
     try:
         response = await _dispatch_to_provider(
             speaker, messages, ctx.encryption_key, session_id=ctx.session_id
         )
+        _inc_provider_metric(speaker, "success")
         return response, messages, None
     except _DISPATCH_FAILURE_TYPES as e:
         log.warning("%s for %s: %s", _DISPATCH_FAILURE_LABEL[type(e)], speaker.id, e)
         await _record_failure_and_announce(ctx, breaker, speaker, exc=e)
         await _broadcast_provider_error(ctx.session_id, speaker, e)
+        _inc_provider_metric(speaker, _PROVIDER_OUTCOME_BY_FAILURE[type(e)])
         return None, None, _DISPATCH_FAILURE_REASON[type(e)]
 
 
@@ -1099,6 +1116,64 @@ _DISPATCH_FAILURE_TYPES = (
     CompoundRetryExhaustedError,
     ProviderDispatchError,
 )
+
+# Spec 016 US2-T010: map exception type to sacp_provider_request_total outcome label.
+_PROVIDER_OUTCOME_BY_FAILURE: dict[type, str] = {
+    ContextWindowOverflowError: "error_4xx",
+    CompoundRetryExhaustedError: "timeout",
+    ProviderDispatchError: "error_5xx",
+}
+
+
+def _inc_routing_metric(*, session_id: str, routing_mode: str, skip_reason: str) -> None:
+    """Spec 016: increment sacp_routing_decision_total (fail-soft per V6)."""
+    try:
+        from src.observability.metrics_registry import inc_routing_decision
+
+        inc_routing_decision(
+            session_id=session_id,
+            routing_mode=routing_mode,
+            skip_reason=skip_reason,
+        )
+    except Exception:  # noqa: BLE001 -- instrumentation MUST NOT fail-open
+        log.debug("metrics_routing_failed", exc_info=True)
+
+
+def _set_convergence_metric(session_id: str, similarity: float) -> None:
+    """Spec 016: set sacp_session_convergence_similarity gauge (fail-soft per V6)."""
+    try:
+        from src.observability.metrics_registry import set_convergence_similarity
+
+        set_convergence_similarity(session_id=session_id, similarity=similarity)
+    except Exception:  # noqa: BLE001 -- instrumentation MUST NOT fail-open
+        log.debug("metrics_convergence_failed", exc_info=True)
+
+
+def _inc_provider_metric(speaker: object, outcome: str) -> None:
+    """Spec 016: increment sacp_provider_request_total (fail-soft per V6)."""
+    try:
+        from src.observability.metrics_registry import (
+            inc_provider_request,
+            normalize_provider_kind,
+        )
+
+        provider = getattr(speaker, "provider", None) or ""
+        inc_provider_request(
+            provider_kind=normalize_provider_kind(provider),
+            outcome=outcome,
+        )
+    except Exception:  # noqa: BLE001 -- instrumentation MUST NOT fail-open
+        log.debug("metrics_provider_request_failed", exc_info=True)
+
+
+def _schedule_metrics_eviction(session_id: str) -> None:
+    """Spec 016 FR-006: schedule eviction of session metric series (fail-soft)."""
+    try:
+        from src.observability.metrics_registry import schedule_session_eviction
+
+        schedule_session_eviction(session_id)
+    except Exception:  # noqa: BLE001
+        log.debug("metrics_eviction_schedule_failed session=%s", session_id, exc_info=True)
 
 
 async def _record_failure_and_announce(
@@ -1466,7 +1541,7 @@ async def _persist_turn(
         shaping_metadata=shaping_metadata,
     )
     await _emit_cache_marker(ctx.log_repo, ctx.session_id, msg.turn_number, speaker, response)
-    await _log_usage(ctx.log_repo, speaker, msg.turn_number, response)
+    await _log_usage(ctx.log_repo, speaker, msg.turn_number, response, session_id=ctx.session_id)
     await _sync_current_turn(ctx.pool, ctx.session_id, msg.turn_number)
     await _emit_persist_signals(
         ctx,
@@ -1914,6 +1989,16 @@ async def _log_routing(
         shaping_retry_delta_text=meta.shaping_retry_delta_text if meta else None,
         shaping_reason=meta.shaping_reason if meta else None,
     )
+    _inc_routing_decision_metric(session_id, decision)
+
+
+def _inc_routing_decision_metric(session_id: str, decision: object) -> None:
+    """Spec 016 FR-010: routing counter at the routing_log write point (fail-soft)."""
+    _inc_routing_metric(
+        session_id=session_id,
+        routing_mode=getattr(decision, "action", "dispatched"),
+        skip_reason="",
+    )
 
 
 async def _log_skip_entry(
@@ -1932,6 +2017,13 @@ async def _log_skip_entry(
         complexity="n/a",
         domain_match=False,
         reason=reason,
+    )
+    # Spec 016 FR-010 / US3-T012: routing counter for skip decisions (fail-soft).
+    _known_reasons = ("circuit_open", "budget_exceeded", "skipped")
+    _inc_routing_metric(
+        session_id=session_id,
+        routing_mode="skipped",
+        skip_reason=reason if reason in _known_reasons else "skipped",
     )
 
 
@@ -1973,8 +2065,10 @@ async def _log_usage(
     speaker: object,
     turn_number: int,
     response: ProviderResponse,
+    *,
+    session_id: str = "",
 ) -> None:
-    """Log token usage for the turn."""
+    """Log token usage for the turn (spec 016: also increments metrics counters)."""
     await log_repo.log_usage(
         participant_id=speaker.id,
         turn_number=turn_number,
@@ -1982,6 +2076,31 @@ async def _log_usage(
         output_tokens=response.output_tokens,
         cost_usd=response.cost_usd,
     )
+    if session_id:
+        _inc_spend_metrics(session_id, speaker.id, response)
+
+
+def _inc_spend_metrics(session_id: str, participant_id: str, response: ProviderResponse) -> None:
+    """Spec 016 FR-008: increment token/cost counters from cost tracker (fail-soft)."""
+    try:
+        from src.observability.metrics_registry import (
+            inc_participant_cost,
+            inc_participant_tokens,
+        )
+
+        inc_participant_tokens(
+            session_id=session_id,
+            participant_id=participant_id,
+            prompt_tokens=response.input_tokens,
+            completion_tokens=response.output_tokens,
+        )
+        cost = response.cost_usd or 0.0
+        if cost > 0:
+            inc_participant_cost(
+                session_id=session_id, participant_id=participant_id, cost_usd=cost
+            )
+    except Exception:  # noqa: BLE001 -- instrumentation MUST NOT fail-open
+        log.debug("metrics_log_usage_failed", exc_info=True)
 
 
 def _turn_result(

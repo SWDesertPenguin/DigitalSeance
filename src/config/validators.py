@@ -1797,6 +1797,88 @@ def validate_provider_failure_paired_vars() -> ValidationFailure | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Spec 016 -- Prometheus-format metrics
+# ---------------------------------------------------------------------------
+
+
+def validate_metrics_enabled() -> ValidationFailure | None:
+    """SACP_METRICS_ENABLED: bool, default false. 016 FR-001 / FR-007.
+
+    Master switch for the Prometheus metrics surface. When unset or 'false',
+    the /metrics endpoint is NOT registered and no metric collection overhead
+    is incurred. Accepts 'true'/'false' (case-insensitive) or '1'/'0' per the
+    existing validator convention.
+    """
+    val = os.environ.get("SACP_METRICS_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val.strip().lower() not in ("true", "false", "1", "0"):
+        return ValidationFailure(
+            "SACP_METRICS_ENABLED",
+            f"must be 'true'/'false' (case-insensitive) or '1'/'0'; got {val!r}",
+        )
+    return None
+
+
+def validate_metrics_session_grace_s() -> ValidationFailure | None:
+    """SACP_METRICS_SESSION_GRACE_S: int in [5, 300], default 30. 016 FR-006.
+
+    Grace window in seconds before terminated-session metric series are evicted
+    from the registry. Default 30 (one standard Prometheus scrape interval).
+    Values below 5 may not allow a final scrape; values above 300 hold cardinality
+    open for too long. Out-of-range exits at startup per V16.
+    """
+    val = os.environ.get("SACP_METRICS_SESSION_GRACE_S")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_METRICS_SESSION_GRACE_S",
+            f"must be integer; got {val!r}",
+        )
+    if not 5 <= num <= 300:
+        return ValidationFailure(
+            "SACP_METRICS_SESSION_GRACE_S",
+            f"must be in [5, 300]; got {num}",
+        )
+    return None
+
+
+def validate_metrics_bind_path() -> ValidationFailure | None:
+    """SACP_METRICS_BIND_PATH: URL path string, default '/metrics'. 016 FR-001.
+
+    Must start with '/'. After the leading slash, only alphanumeric characters
+    and dashes are allowed. An empty string is treated as the default '/metrics'.
+    A path that is literally '/' or that starts with '/health' exits at startup
+    per V16 to prevent collision with existing routes.
+    """
+    val = os.environ.get("SACP_METRICS_BIND_PATH")
+    if val is None or val.strip() == "":
+        return None
+    val = val.strip()
+    if not val.startswith("/"):
+        return ValidationFailure(
+            "SACP_METRICS_BIND_PATH",
+            f"must start with '/'; got {val!r}",
+        )
+    if val == "/health" or val == "/healthz":
+        return ValidationFailure(
+            "SACP_METRICS_BIND_PATH",
+            f"collides with existing route {val!r}; choose a different path",
+        )
+    # After the leading slash: alphanumeric and dashes only
+    suffix = val[1:]
+    if suffix and not all(c.isalnum() or c == "-" for c in suffix):
+        return ValidationFailure(
+            "SACP_METRICS_BIND_PATH",
+            f"path suffix must be alphanumeric + dashes; got {val!r}",
+        )
+    return None
+
+
 VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_database_url,
     validate_encryption_key,
@@ -1875,6 +1957,10 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_provider_recovery_probe_backoff,
     validate_provider_probe_timeout_s,
     validate_provider_failure_paired_vars,  # cross-validator: must be last of the five
+    # ── spec 016 (Prometheus-format metrics) ── FR-012 ─────────────────────
+    validate_metrics_enabled,
+    validate_metrics_session_grace_s,
+    validate_metrics_bind_path,
     # ── spec 030 Phase 2 (MCP protocol) ── FR-034 ──────────────────────────
     # validate_sacp_mcp_protocol_enabled,
     # validate_sacp_mcp_session_idle_timeout_seconds,
