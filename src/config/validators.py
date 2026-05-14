@@ -2668,6 +2668,48 @@ def validate_sacp_tool_refresh_push_enabled() -> ValidationFailure | None:
     return None
 
 
+def validate_sacp_capcom_enabled() -> ValidationFailure | None:
+    """SACP_CAPCOM_ENABLED: bool, default false. 028 §FR-021.
+
+    Master switch for the CAPCOM-like routing scope and visibility
+    partitioning surface. When false (default), the three CAPCOM endpoints
+    are unmounted (HTTP 404), `messages.visibility` is forced `public` at
+    write time, and `participants.routing_preference='capcom'` is rejected.
+    Accepts 'true'/'false' (case-insensitive) or '1'/'0'. Unparseable values
+    exit at startup per V16.
+    """
+    val = os.environ.get("SACP_CAPCOM_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val.strip().lower() not in ("true", "false", "1", "0"):
+        return ValidationFailure(
+            "SACP_CAPCOM_ENABLED",
+            f"must be 'true'/'false' (case-insensitive) or '1'/'0'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_capcom_default_on_human_join() -> ValidationFailure | None:
+    """SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN: bool, default false. 028 §FR-015.
+
+    Controls the default `messages.visibility` for human-emitted messages
+    when a CAPCOM is assigned. With the default false, humans publish
+    `public` unless they explicitly opt the message into `capcom_only`.
+    With true, humans default to `capcom_only` and explicitly opt OUT to
+    `public`. Accepts 'true'/'false' (case-insensitive) or '1'/'0'.
+    Unparseable values exit at startup per V16.
+    """
+    val = os.environ.get("SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN")
+    if val is None or val.strip() == "":
+        return None
+    if val.strip().lower() not in ("true", "false", "1", "0"):
+        return ValidationFailure(
+            "SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN",
+            f"must be 'true'/'false' (case-insensitive) or '1'/'0'; got {val!r}",
+        )
+    return None
+
+
 def validate_metrics_bind_path() -> ValidationFailure | None:
     """SACP_METRICS_BIND_PATH: URL path string, default '/metrics'. 016 FR-001.
 
@@ -2827,6 +2869,9 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_sacp_tool_loaded_token_budget,
     validate_sacp_tool_defer_index_max_tokens,
     validate_sacp_tool_defer_load_timeout_s,
+    # ── spec 028 (CAPCOM-like routing scope) ── FR-020 ──────────────────────
+    validate_sacp_capcom_enabled,
+    validate_sacp_capcom_default_on_human_join,
 )
 
 

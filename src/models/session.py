@@ -35,6 +35,7 @@ class Session:
     conclude_phase_started_at: datetime | None = None
     active_seconds_accumulator: int | None = None
     active_phase_started_at: datetime | None = None
+    capcom_participant_id: str | None = None
 
     @classmethod
     def from_record(cls, record: Any) -> Session:
@@ -62,6 +63,7 @@ class Session:
             conclude_phase_started_at=_field(record, "conclude_phase_started_at", None),
             active_seconds_accumulator=_field(record, "active_seconds_accumulator", None),
             active_phase_started_at=_field(record, "active_phase_started_at", None),
+            capcom_participant_id=_field(record, "capcom_participant_id", None),
         )
 
 

@@ -166,6 +166,7 @@ class AuthService:
         await require_facilitator(self._pool, session_id, facilitator_id)
         await require_target_in_session(self._pool, participant_id, session_id)
         require_not_self(facilitator_id, participant_id)
+        await self._maybe_cascade_capcom_departure(session_id, participant_id, facilitator_id)
         await self._participant_repo.depart_participant(participant_id)
         await self._log_repo.log_admin_action(
             session_id=session_id,
@@ -173,6 +174,37 @@ class AuthService:
             action="remove_participant",
             target_id=participant_id,
             new_value=reason,
+            broadcast_session_id=session_id,
+        )
+
+    async def _maybe_cascade_capcom_departure(
+        self,
+        session_id: str,
+        participant_id: str,
+        facilitator_id: str,
+    ) -> None:
+        """Spec 028 §FR-022 — if the departing participant is the CAPCOM,
+        NULL the session column and emit ``capcom_departed_no_replacement``.
+        """
+        async with self._pool.acquire() as conn:
+            current = await conn.fetchval(
+                "SELECT capcom_participant_id FROM sessions WHERE id = $1",
+                session_id,
+            )
+        if current != participant_id:
+            return
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE sessions SET capcom_participant_id = NULL WHERE id = $1",
+                session_id,
+            )
+        await self._log_repo.log_admin_action(
+            session_id=session_id,
+            facilitator_id=facilitator_id,
+            action="capcom_departed_no_replacement",
+            target_id=participant_id,
+            previous_value="capcom",
+            new_value="null",
             broadcast_session_id=session_id,
         )
 

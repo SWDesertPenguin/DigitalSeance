@@ -2,7 +2,7 @@
 
 **Feature Branch**: `028-capcom-routing-scope`
 **Created**: 2026-05-07
-**Status**: Draft (Phase 3 — sits above 013/014 routing modes; clarify/plan/tasks pass pending)
+**Status**: Draft (clarify session 2026-05-14 complete; plan/tasks pending)
 **Input**: User description: "CAPCOM-like routing scope. Modeled on Mission Control's CAPCOM (Capsule Communicator), a single AI plus the humans share a channel that the rest of the AIs cannot see; CAPCOM relays summarized / curated input to the larger AI panel. SIGNIFICANT routing-model expansion — adds a 9th routing scope and introduces visibility partitioning across the participant set. New routing scope `capcom`; new message subtypes `capcom_relay` (CAPCOM forwarding curated human content to the panel) and `capcom_query` (CAPCOM asking the human on behalf of the panel); message visibility scope (`public` / `capcom_only`). Single CAPCOM per session; facilitator-rotatable. The CAPCOM AI's outputs reaching the panel are subject to standard inter-AI trust tier; rotation does NOT inherit prior CAPCOM's capcom_only context. Applies to topologies 1-6 (orchestrator-mediated visibility partitioning); incompatible with topology 7. Primary use cases: research co-authorship (§2), consulting (§3), decision-making under asymmetric expertise (§6)."
 
 ## Overview
@@ -115,98 +115,69 @@ scope refinement. The spec stays scaffold state until
 
 ## Clarifications
 
+### Session 2026-05-14
+
+- Q: When CAPCOM is active, do humans' messages default to `public` or `capcom_only`? → A: Facilitator-configurable per deployment via `SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN` (boolean, default `false`). With the default, humans publish directly to `public` and explicitly opt messages into `capcom_only` via the UI toggle. Operators whose use case favors CAPCOM-by-default flip the var. Public-default chosen because it preserves pre-feature symmetry as the safe fallback and makes the privilege channel an explicit human action.
+- Q: Can panel AIs emit `capcom_only` messages? → A: No. The `capcom_only` scope is reserved for humans and the active CAPCOM AI. Panel AI outputs are always `public`; humans see them because the human visibility tier is CAPCOM-or-broader. A panel AI cannot route around CAPCOM by emitting privileged-scope content. Validated at write time: any panel-AI emission carrying `visibility='capcom_only'` is rejected with HTTP 422.
+- Q: With CAPCOM on, can a human still publish directly to `public` (bypassing CAPCOM)? → A: Yes, always. CAPCOM is a default routing channel, not a hard gate. The human UI exposes both options per-message and the default follows `SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN`. This preserves human agency: humans are never structurally prevented from speaking to the panel directly.
+- Q: What happens when the designated CAPCOM AI is removed mid-session without rotation? → A: Null-CAPCOM degenerate state. `sessions.capcom_participant_id` is set to NULL; future messages default to `public`; the `capcom_only` UI option is greyed; existing `capcom_only` history remains attributed to the departed CAPCOM in the audit trail and stays invisible to all AIs (FR-011 invariant). `admin_audit_log` records `capcom_departed_no_replacement`. Auto-disable was rejected because it conflates two operator intents (revoke privilege vs. disable mediation entirely); blocking departure-without-rotation was rejected as too rigid for emergency removal flows.
+- Q: When CAPCOM emits a `capcom_query` to humans, the human's response defaults to which scope? → A: `capcom_only` by default. The response is structurally a reply to a CAPCOM query, so CAPCOM curates and relays. The human can override per-message to `public` via the UI toggle. The default flips to `capcom_only` regardless of `SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN` because the query establishes the conversational context for the next message — the env var governs unsolicited human messages, not direct replies to CAPCOM.
+- Q: A `capcom_query` is in flight when rotation happens — which CAPCOM owns the human's eventual response? → A: Arrival-time attribution. The human's response is attributed to the CAPCOM-of-record at the time the response arrives (B), not the CAPCOM that emitted the query (A). The audit trail makes the cross-rotation chain inspectable (query attributed to A; response attributed to B). Emission-time attribution was rejected because rotation transfers the entire privilege channel: routing a response to a now-non-CAPCOM AI would leak `capcom_only` content to a participant who has lost the privilege.
+- Q: How is single-CAPCOM-per-session enforced? → A: DB-level unique partial index — `CREATE UNIQUE INDEX ON participants(session_id) WHERE routing_scope='capcom'`. Application-level invariants are insufficient under concurrent facilitator actions. Rotation is a transactional swap (old → non-capcom; new → capcom; both within one `BEGIN/COMMIT`) so the unique index never trips on the rotation itself.
+- Q: Does CAPCOM get a special context-budget tier? → A: No. The CAPCOM AI's larger view (public + `capcom_only`) consumes more context per turn, but per-participant context-assembly priorities (spec 003 §FR-001+) already scale to each participant's declared context window. Compression (spec 026 Layer 4) applies to CAPCOM overflow the same as any other participant. Operators select a wider-context model for CAPCOM if needed; the orchestrator does not bake a separate budget tier.
+- Q: Is CAPCOM identity participant-bound or account-bound (spec 023)? → A: Participant-bound in v1. `sessions.capcom_participant_id` references `participants.id` directly. Cross-session CAPCOM persistence (a returning expert AI auto-resuming as CAPCOM in subsequent engagements) is a v2 follow-up requiring its own design (account-level routing-scope binding, persistence on archive, restore-on-resume).
+
 ### Initial draft assumptions requiring confirmation
 
-- **Default human routing direction.** When CAPCOM is active,
-  do humans' messages default to `public` or `capcom_only`?
-  Drafted as: facilitator-configurable per session via
-  `SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN`. Default `false` —
-  humans default to `public` (direct to panel) and explicitly
-  opt their messages into `capcom_only` via a UI toggle when
-  they want CAPCOM-mediated relay. Operators with use cases
-  preferring CAPCOM-by-default flip the env var. [NEEDS
-  CLARIFICATION: confirm public-default vs. capcom_only-default
-  vs. always-explicit.]
-- **Panel AI direct-to-human message.** A panel AI emits a
-  question or a comment intended for the human. With CAPCOM
-  active, does the panel AI's output flow to humans directly
-  (bypassing CAPCOM) or stay panel-public-only (humans see it
-  too because they have CAPCOM-tier visibility)? Drafted as:
-  panel AI outputs are always `public`; humans see them
-  alongside the panel because the human visibility tier is
-  CAPCOM-or-broader. Panel AIs cannot emit `capcom_only`
-  messages — that scope is for humans and CAPCOM only.
-  [NEEDS CLARIFICATION: confirm panel-can't-emit-capcom_only
-  vs. panel-can-emit-with-explicit-routing.]
-- **Human direct-to-panel bypass.** Even with CAPCOM on, can
-  a human publish a message directly to `public` scope
-  (bypassing CAPCOM)? Drafted as: yes. Humans always have the
-  option to publish directly; CAPCOM is a default routing
-  channel, not a hard gate. The UI exposes both options
-  per-message. [NEEDS CLARIFICATION: confirm human-direct-bypass
-  always-allowed vs. session-configurable-block.]
-- **CAPCOM departure during session.** The designated CAPCOM
-  AI is removed (facilitator removes them, or their
-  participant record is deleted). Drafted as: the session's
-  `capcom_participant_id` is set to NULL; visibility
-  partitioning becomes degenerate (no AI can see
-  `capcom_only` content; humans alone see it). The
-  `routing_log` records `capcom_departed`. Future messages
-  default to `public` until a new CAPCOM is assigned OR the
-  facilitator explicitly disables CAPCOM mode. [NEEDS
-  CLARIFICATION: confirm null-capcom-degenerate-state vs.
-  auto-disable-capcom-on-departure vs. block-departure-without-
-  rotation.]
-- **`capcom_query` response default scope.** When CAPCOM
-  emits a `capcom_query` to humans, the human's response
-  defaults to which scope? Drafted as: `capcom_only` by
-  default — the response is structurally a reply to a CAPCOM
-  query, so the panel doesn't need to see it directly; CAPCOM
-  curates and relays. The human can override per-message to
-  publish to `public`. [NEEDS CLARIFICATION: confirm
-  capcom_only-default-on-query-response.]
-- **In-flight messages during rotation.** A `capcom_query` is
-  in flight (CAPCOM has emitted it; the human is composing a
-  reply) when rotation happens. Drafted as: the in-flight
-  query is preserved; the human's eventual response is
-  attributed to the new CAPCOM (since the message arrives
-  after rotation) — but this means a different AI receives
-  the response than the one that asked. Operator-side this is
-  visible in the audit trail. [NEEDS CLARIFICATION: confirm
-  arrival-time-attribution vs. emission-time-attribution.]
-- **Single-CAPCOM enforcement.** Drafted as: a unique partial
-  index on `participants(session_id) WHERE routing_scope='capcom'`
-  enforces single-CAPCOM-per-session at the DB level. Rotation
-  is a transactional swap (set old to non-capcom; set new to
-  capcom; both within one transaction). [NEEDS CLARIFICATION:
-  confirm DB-level uniqueness vs. application-level invariant.]
-- **CAPCOM context budget.** The CAPCOM AI sees more than the
-  panel (full `capcom_only` history + all public content), so
-  their context budget consumption per turn is higher.
-  Drafted as: spec 028 documents the asymmetry; per-participant
-  context-assembly priorities (spec 003 §FR-001+) already
-  scale to the participant's actual context window.
-  Compression (spec 026 Layer 4) applies to CAPCOM's overflow
-  the same as any other participant. [NEEDS CLARIFICATION:
-  confirm the no-special-treatment stance vs. special CAPCOM
-  context-budget tier.]
-- **Persistence across archived sessions.** User input notes
-  CAPCOM-assignment persistence across archived sessions for
-  recurring panels is out-of-scope for v1. Confirmed
+- **Default human routing direction.** Resolved 2026-05-14
+  (Session above): facilitator-configurable per deployment
+  via `SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN` (boolean, default
+  `false` — humans default to `public`). The CAPCOM-by-default
+  posture remains available via the env var.
+- **Panel AI direct-to-human message.** Resolved 2026-05-14
+  (Session above): panel AIs are structurally forbidden from
+  emitting `capcom_only`. The scope is reserved for humans and
+  the active CAPCOM AI. Write-time validation rejects panel-AI
+  emissions carrying `visibility='capcom_only'` with HTTP 422.
+- **Human direct-to-panel bypass.** Resolved 2026-05-14
+  (Session above): humans always have the option to publish
+  directly to `public` even with CAPCOM active. UI exposes
+  both options per-message; default follows the env var.
+- **CAPCOM departure during session.** Resolved 2026-05-14
+  (Session above): null-CAPCOM degenerate state.
+  `sessions.capcom_participant_id` becomes NULL; future
+  messages default `public`; historical `capcom_only` content
+  stays attributed to the departed CAPCOM and invisible to
+  all AIs (FR-011 invariant).
+- **`capcom_query` response default scope.** Resolved
+  2026-05-14 (Session above): `capcom_only` by default. The
+  query establishes the conversational context for the reply;
+  the env var (which governs unsolicited human messages)
+  does not override this default.
+- **In-flight messages during rotation.** Resolved 2026-05-14
+  (Session above): arrival-time attribution. The human's
+  response is attributed to the CAPCOM-of-record at response
+  arrival time, not query emission time.
+- **Single-CAPCOM enforcement.** Resolved 2026-05-14
+  (Session above): DB-level unique partial index. Rotation is
+  a transactional swap so the unique index never trips on the
+  rotation itself.
+- **CAPCOM context budget.** Resolved 2026-05-14 (Session
+  above): no special treatment. Per-participant context
+  priorities and compression apply uniformly; operators pick
+  a wider-context model for CAPCOM if the use case demands it.
+- **Persistence across archived sessions.** Confirmed
   out-of-scope; flagged as a v2 follow-up. The
   `sessions.capcom_participant_id` column is per-session, no
   cross-session bind in v1.
-- **CAPCOM seeing facilitator scratch (spec 024).** User
-  input notes this as out-of-scope v1, v2 follow-up.
-  Confirmed: spec 028 v1 does NOT extend CAPCOM visibility
-  into facilitator scratch. CAPCOM sees only the session
+- **CAPCOM seeing facilitator scratch (spec 024).** Confirmed
+  out-of-scope v1, v2 follow-up. CAPCOM sees only the session
   message history (filtered by visibility). Scratch remains
   facilitator-private even in CAPCOM-active sessions.
 - **Conflict with spec 023 user accounts when humans rotate
-  through sessions.** v1 doesn't cross-bind CAPCOM identity
-  to user accounts. CAPCOM is a per-session role bound to a
-  participant id, not an account. [NEEDS CLARIFICATION:
-  confirm participant-bound vs. account-bound.]
+  through sessions.** Resolved 2026-05-14 (Session above):
+  participant-bound in v1. Cross-session CAPCOM persistence
+  is a v2 follow-up requiring its own design.
 
 ## User Scenarios & Testing *(mandatory)*
 

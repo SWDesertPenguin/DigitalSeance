@@ -264,6 +264,109 @@ class SessionRepository(BaseRepository):
             session_id,
         )
 
+    async def assign_capcom(
+        self,
+        session_id: str,
+        participant_id: str,
+    ) -> str | None:
+        """Spec 028 §FR-007 — assign a CAPCOM transactionally.
+
+        Returns the prior routing_preference of the target participant so
+        the caller can persist it on the audit row (rotation/disable needs
+        the value to restore the participant's pre-CAPCOM scope).
+
+        Raises :class:`asyncpg.UniqueViolationError` when a CAPCOM is
+        already assigned for the session — the partial unique index
+        ``ux_participants_session_capcom`` rejects the second assign.
+        """
+        async with self._pool.acquire() as conn, conn.transaction():
+            prior = await conn.fetchval(
+                "SELECT routing_preference FROM participants WHERE id = $1",
+                participant_id,
+            )
+            await conn.execute(
+                "UPDATE participants SET routing_preference = 'capcom' WHERE id = $1",
+                participant_id,
+            )
+            await conn.execute(
+                "UPDATE sessions SET capcom_participant_id = $1 WHERE id = $2",
+                participant_id,
+                session_id,
+            )
+            return prior
+
+    async def rotate_capcom(
+        self,
+        session_id: str,
+        new_participant_id: str,
+        *,
+        prior_routing_preference: str,
+    ) -> tuple[str, str | None]:
+        """Spec 028 §FR-008 — transactional CAPCOM rotation.
+
+        Returns (outgoing_participant_id, outgoing_new_routing_preference)
+        for the audit row. The outgoing participant's routing_preference
+        reverts to ``prior_routing_preference`` (read from the prior
+        assign audit row by the caller; defaults to ``'always'``).
+
+        Sequential UPDATEs satisfy ``ux_participants_session_capcom`` at
+        each statement boundary (research.md §14).
+        """
+        async with self._pool.acquire() as conn, conn.transaction():
+            outgoing_id = await conn.fetchval(
+                "SELECT capcom_participant_id FROM sessions WHERE id = $1",
+                session_id,
+            )
+            new_prior = await conn.fetchval(
+                "SELECT routing_preference FROM participants WHERE id = $1",
+                new_participant_id,
+            )
+            if outgoing_id is not None:
+                await conn.execute(
+                    "UPDATE participants SET routing_preference = $1 WHERE id = $2",
+                    prior_routing_preference,
+                    outgoing_id,
+                )
+            await conn.execute(
+                "UPDATE participants SET routing_preference = 'capcom' WHERE id = $1",
+                new_participant_id,
+            )
+            await conn.execute(
+                "UPDATE sessions SET capcom_participant_id = $1 WHERE id = $2",
+                new_participant_id,
+                session_id,
+            )
+            return (outgoing_id or "", new_prior)
+
+    async def disable_capcom(
+        self,
+        session_id: str,
+        *,
+        prior_routing_preference: str,
+    ) -> str | None:
+        """Spec 028 §FR-009 — transactional CAPCOM disable.
+
+        Returns the outgoing CAPCOM participant id (or None when CAPCOM
+        was already unassigned — the caller treats that as a no-op).
+        """
+        async with self._pool.acquire() as conn, conn.transaction():
+            outgoing_id = await conn.fetchval(
+                "SELECT capcom_participant_id FROM sessions WHERE id = $1",
+                session_id,
+            )
+            if outgoing_id is None:
+                return None
+            await conn.execute(
+                "UPDATE participants SET routing_preference = $1 WHERE id = $2",
+                prior_routing_preference,
+                outgoing_id,
+            )
+            await conn.execute(
+                "UPDATE sessions SET capcom_participant_id = NULL WHERE id = $1",
+                session_id,
+            )
+            return outgoing_id
+
 
 def _generate_ids() -> dict[str, str]:
     """Generate unique IDs for session creation."""

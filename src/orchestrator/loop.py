@@ -1577,25 +1577,59 @@ async def _append_message_timed(
     decision: object,
     response: ProviderResponse,
 ) -> object:
-    """Append AI turn message; capture persist + advisory_lock_wait timings."""
+    """Append AI turn message; capture persist + advisory_lock_wait timings.
+
+    Spec 028 §FR-012 / §FR-013 — when the speaker is the active CAPCOM
+    AI for the session, the persist path parses structured markers in
+    the response content (``<capcom_relay>`` / ``<capcom_query>``) and
+    threads the resulting kind + visibility into the INSERT.
+    """
     persist_start = time.monotonic()
     branch_id = await get_main_branch_id(ctx.pool, ctx.session_id)
     lock_out: dict[str, int] = {}
+    kind, visibility, content = await _classify_capcom_output(ctx, speaker, response.content)
     msg = await ctx.msg_repo.append_message(
         session_id=ctx.session_id,
         branch_id=branch_id,
         speaker_id=speaker.id,
         speaker_type="ai",
-        content=response.content,
+        content=content,
         token_count=response.input_tokens + response.output_tokens,
         complexity_score=decision.complexity,
         cost_usd=response.cost_usd,
+        kind=kind,
+        visibility=visibility,
         _lock_wait_ms_out=lock_out,
     )
     record_stage("persist", int((time.monotonic() - persist_start) * 1000))
     if "lock_wait_ms" in lock_out:
         record_stage("advisory_lock_wait", lock_out["lock_wait_ms"])
     return msg
+
+
+async def _classify_capcom_output(
+    ctx: _TurnContext,
+    speaker: object,
+    raw_content: str,
+) -> tuple[str, str, str]:
+    """Return (kind, visibility, content) for an AI turn.
+
+    Panel AIs always persist as ``utterance`` / ``public`` regardless of
+    embedded markers (INV-4). Only the active CAPCOM AI's markers are
+    honored.
+    """
+    from src.orchestrator.capcom_relay import parse_capcom_marker
+
+    capcom_id = None
+    async with ctx.pool.acquire() as conn:
+        capcom_id = await conn.fetchval(
+            "SELECT capcom_participant_id FROM sessions WHERE id = $1",
+            ctx.session_id,
+        )
+    if capcom_id is None or speaker.id != capcom_id:
+        return "utterance", "public", raw_content
+    marker = parse_capcom_marker(raw_content)
+    return marker.kind, marker.visibility, marker.content
 
 
 async def _emit_persist_signals(

@@ -1161,6 +1161,26 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Validation rule**: `validators.validate_sacp_tool_refresh_push_enabled`
 - **Source spec(s)**: 017 §FR-007, §FR-013
 
+### `SACP_CAPCOM_ENABLED`
+
+- **Default**: `false`
+- **Type**: boolean (string `"true"`/`"false"`, case-insensitive; `"1"`/`"0"` accepted)
+- **Valid range**: exactly `true` or `false` (after case-folding) — equivalently `1` or `0`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_capcom_enabled`
+- **Source spec(s)**: 028 §FR-021 (master switch for CAPCOM-like routing scope and visibility partitioning)
+- **Note**: When `false` (the default), the three CAPCOM endpoints (`POST /sessions/:id/capcom/assign`, `POST /sessions/:id/capcom/rotate`, `DELETE /sessions/:id/capcom`) are NOT mounted and ALL callers receive `HTTP 404` per FR-021. The `messages.visibility` column is always `public` regardless of inputs (writes carrying `visibility='capcom_only'` are rejected with `HTTP 409`), and `participants.routing_preference='capcom'` is rejected at write time. The schema columns exist after the 024 migration but are inert. The three lifecycle WebSocket events (`capcom_assigned`, `capcom_rotated`, `capcom_disabled`) remain dormant. Setting to `true` mounts the routes, admits the new `routing_preference` value, and activates the visibility filter at context-assembly time.
+
+### `SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN`
+
+- **Default**: `false` (humans default to `public` scope on every message)
+- **Type**: boolean (string `"true"`/`"false"`, case-insensitive; `"1"`/`"0"` accepted)
+- **Valid range**: exactly `true` or `false` (after case-folding) — equivalently `1` or `0`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_capcom_default_on_human_join`
+- **Source spec(s)**: 028 §FR-015 (human-message visibility default when CAPCOM is assigned)
+- **Note**: Controls the default `messages.visibility` for human-emitted messages when a CAPCOM is assigned for the session. With the default `false`, humans publish to `public` (direct to panel) unless they explicitly opt the message into `capcom_only` via the UI toggle. With `true`, humans default to `capcom_only` (CAPCOM-mediated) and explicitly opt OUT to `public`. The var is only consulted when `SACP_CAPCOM_ENABLED=true` AND `sessions.capcom_participant_id IS NOT NULL`; otherwise every human message defaults to `public` regardless. Reply scope for `capcom_query` responses does NOT consult this var — those default to `capcom_only` per FR-014 irrespective.
+
 ## CI enforcement
 
 `scripts/check_env_vars.py` (per spec 012 FR-005):

@@ -49,6 +49,7 @@ const ROUTING_PREFERENCES = [
   "observer",
   "addressed_only",
   "human_only",
+  "capcom",
 ];
 
 // Float noise from Postgres REAL columns (e.g. 0.18000000715255737) looked
@@ -262,6 +263,13 @@ function initialState() {
     scratchEnabled: null,
     scratchPanelOpen: false,
     scratchPayload: null,  // { scope, account_id, notes, summaries, review_gate_events }
+    // Spec 028 CAPCOM master switch (FR-021 / spec 011 FR-065). Null = not
+    // yet probed; true/false reflects the route-mount state. The probe
+    // is a side-effect-free GET /tools/session/capcom — 200 means the
+    // master switch is on; 404 means it's off. The response payload
+    // also seeds capcom_participant_id so the SPA renders the current
+    // assignment without a separate session-snapshot refresh.
+    capcomEnabled: null,
   };
 }
 
@@ -483,6 +491,37 @@ function reducer(state, action) {
       return { ...state, auditLogPanelOpen: !!action.value };
     case "scratch_enabled":
       return { ...state, scratchEnabled: !!action.value };
+    case "capcom_status_loaded":
+      return {
+        ...state,
+        capcomEnabled: !!action.enabled,
+        session: state.session
+          ? { ...state.session, capcom_participant_id: action.capcom_participant_id || null }
+          : state.session,
+      };
+    case "capcom_assigned":
+    case "capcom_rotated":
+      // Spec 028 FR-007 / FR-008 — WS event carries the new participant id.
+      return {
+        ...state,
+        session: state.session
+          ? {
+              ...state.session,
+              capcom_participant_id: action.event?.participant_id
+                ?? action.participant_id
+                ?? null,
+            }
+          : state.session,
+      };
+    case "capcom_disabled":
+    case "capcom_departed_no_replacement":
+      // Spec 028 FR-009 / FR-022 — clear the assignment.
+      return {
+        ...state,
+        session: state.session
+          ? { ...state.session, capcom_participant_id: null }
+          : state.session,
+      };
     case "scratch_panel_set_open":
       return { ...state, scratchPanelOpen: !!action.value };
     case "scratch_payload_loaded":
@@ -1525,6 +1564,9 @@ function ParticipantCard({
         ) : isAI ? (
           <span className="routing">{p.routing_preference}</span>
         ) : null}
+        {p.routing_preference === "capcom" ? (
+          <span className="capcom-badge" title="Spec 028 — CAPCOM-mediated visibility partition active for this AI">CAPCOM</span>
+        ) : null}
       </div>
     </div>
   );
@@ -1592,14 +1634,28 @@ function Transcript({ messages, participants }) {
         const speakerLabel = m.speaker_type === "system"
           ? "System"
           : (speaker?.display_name || m.speaker_id);
+        const isCapcomOnly = m.visibility === "capcom_only";
+        const kindLabel = m.kind === "capcom_relay" ? "CAPCOM relay"
+          : m.kind === "capcom_query" ? "CAPCOM query"
+          : null;
         return (
           <article
             key={`${m.turn_number}-${m.speaker_id}`}
-            className={`msg msg-${m.speaker_type}`}
+            className={`msg msg-${m.speaker_type} ${isCapcomOnly ? "msg-capcom-only" : ""}`}
           >
             <header>
               <strong>{speakerLabel}</strong>
               <span className="msg-type">{m.speaker_type}</span>
+              {kindLabel && (
+                <span className="msg-capcom-kind" title="Spec 028 — CAPCOM-mediated message kind">
+                  {kindLabel}
+                </span>
+              )}
+              {isCapcomOnly && (
+                <span className="msg-visibility-private" title="Spec 028 — private to CAPCOM channel; not visible to panel AIs">
+                  Private to CAPCOM
+                </span>
+              )}
               {hiddenCount > 0 && (
                 <span
                   className="invisible-count"
@@ -2239,7 +2295,7 @@ function ReviewGateEditor({ draft, onSave, onClose }) {
   );
 }
 
-function AdminPanel({ participants, session, auditEntries, auditViewerEnabled, detectionHistoryEnabled, scratchEnabled, onApprove, onReject, onInvite, onTransfer, onConfig, onCapSet, onOpenAuditLog, onOpenDetectionHistory, onOpenScratch }) {
+function AdminPanel({ participants, session, auditEntries, auditViewerEnabled, detectionHistoryEnabled, scratchEnabled, capcomEnabled, onApprove, onReject, onInvite, onTransfer, onConfig, onCapSet, onOpenAuditLog, onOpenDetectionHistory, onOpenScratch, onAssignCapcom, onRotateCapcom, onDisableCapcom }) {
   // US6 T120–T125.
   const [open, setOpen] = useState(false);
   const [invite, setInvite] = useState(null);
@@ -2415,9 +2471,93 @@ function AdminPanel({ participants, session, auditEntries, auditViewerEnabled, d
               </button>
             )}
           </details>
+          {capcomEnabled && (
+            <CapcomControls
+              participants={participants}
+              session={session}
+              onAssign={onAssignCapcom}
+              onRotate={onRotateCapcom}
+              onDisable={onDisableCapcom}
+            />
+          )}
         </>
       )}
     </section>
+  );
+}
+
+
+function CapcomControls({ participants, session, onAssign, onRotate, onDisable }) {
+  // Spec 011 FR-065 / spec 028 — facilitator-only assign/rotate/disable
+  // controls. The CAPCOM-eligible pool excludes humans and (for rotate)
+  // the currently-assigned CAPCOM itself.
+  const currentCapcom = session?.capcom_participant_id || null;
+  const eligibleAi = useMemo(
+    () => participants.filter(
+      (p) => p.provider !== "human" && p.status === "active" && p.role !== "pending"
+    ),
+    [participants],
+  );
+  const rotationTargets = useMemo(
+    () => eligibleAi.filter((p) => p.id !== currentCapcom),
+    [eligibleAi, currentCapcom],
+  );
+  const [assignPick, setAssignPick] = useState("");
+  const [rotatePick, setRotatePick] = useState("");
+
+  const submitAssign = async () => {
+    if (!assignPick) return;
+    try { await onAssign(assignPick); setAssignPick(""); }
+    catch (e) { alert(`CAPCOM assign failed: ${e.message}`); }
+  };
+  const submitRotate = async () => {
+    if (!rotatePick) return;
+    try { await onRotate(rotatePick); setRotatePick(""); }
+    catch (e) { alert(`CAPCOM rotate failed: ${e.message}`); }
+  };
+  const submitDisable = async () => {
+    try { await onDisable(); }
+    catch (e) { alert(`CAPCOM disable failed: ${e.message}`); }
+  };
+
+  return (
+    <details>
+      <summary>
+        CAPCOM {currentCapcom ? `(active: ${participants.find((p) => p.id === currentCapcom)?.display_name || currentCapcom})` : "(unassigned)"}
+      </summary>
+      {!currentCapcom && (
+        <div className="kv">
+          <span className="dim">Assign</span>
+          <select value={assignPick} onChange={(ev) => setAssignPick(ev.target.value)}>
+            <option value="">Pick an AI…</option>
+            {eligibleAi.map((p) => (
+              <option key={p.id} value={p.id}>{p.display_name}</option>
+            ))}
+          </select>
+          <button type="button" onClick={submitAssign} disabled={!assignPick}>Assign</button>
+        </div>
+      )}
+      {currentCapcom && (
+        <>
+          <div className="kv">
+            <span className="dim">Rotate to</span>
+            <select value={rotatePick} onChange={(ev) => setRotatePick(ev.target.value)}>
+              <option value="">Pick a different AI…</option>
+              {rotationTargets.map((p) => (
+                <option key={p.id} value={p.id}>{p.display_name}</option>
+              ))}
+            </select>
+            <button type="button" onClick={submitRotate} disabled={!rotatePick}>Rotate</button>
+          </div>
+          <div className="kv">
+            <span className="dim">Disable</span>
+            <button type="button" className="danger" onClick={submitDisable}>
+              Disable CAPCOM mode
+            </button>
+          </div>
+        </>
+      )}
+    </details>
   );
 }
 
@@ -3473,9 +3613,14 @@ function ProposalCreator({ onClose, onCreate }) {
 
 const MAX_MSG_CHARS = 2_000; // mirrors server-side MAX_MESSAGE_CONTENT_CHARS
 
-function MessageInput({ onSend, disabled }) {
+function MessageInput({ onSend, disabled, capcomAssigned }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  // Spec 028 FR-066 — visibility toggle visible only when a CAPCOM is assigned
+  // for the session. Resets to undefined on every send so the next message
+  // re-evaluates against the env-var default rather than sticking on the
+  // operator's last explicit choice.
+  const [visibility, setVisibility] = useState(undefined);
 
   const remaining = MAX_MSG_CHARS - text.length;
   const counterClass = remaining <= 100 ? "char-counter danger"
@@ -3488,8 +3633,9 @@ function MessageInput({ onSend, disabled }) {
     if (!trimmed || busy || atLimit) return;
     setBusy(true);
     try {
-      await onSend(trimmed);
+      await onSend(trimmed, visibility);
       setText("");
+      setVisibility(undefined);
     } catch (e) {
       alert(`Send failed: ${e.message}`);
     } finally {
@@ -3516,6 +3662,18 @@ function MessageInput({ onSend, disabled }) {
         rows={3}
       />
       <div className="input-actions">
+        {capcomAssigned ? (
+          <select
+            className="capcom-visibility"
+            value={visibility ?? "default"}
+            onChange={(ev) => setVisibility(ev.target.value === "default" ? undefined : ev.target.value)}
+            title="Spec 028 — choose message visibility scope"
+          >
+            <option value="default">Visibility: default</option>
+            <option value="public">Visibility: public (every AI sees it)</option>
+            <option value="capcom_only">Visibility: capcom_only (private to CAPCOM)</option>
+          </select>
+        ) : null}
         <span className="dim">Ctrl+Enter to send</span>
         <span className={counterClass}>{remaining.toLocaleString()} / {MAX_MSG_CHARS.toLocaleString()}</span>
         <button onClick={send} className={busy ? "busy" : ""} disabled={disabled || busy || !text.trim() || atLimit}>
@@ -4130,10 +4288,14 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   // stream. Fall back to auth.role only during the snapshot-arrival window.
   const isFacilitator = (state.me?.role || auth.role) === "facilitator";
 
-  const sendMessage = async (content) => {
+  const sendMessage = async (content, visibility) => {
+    const body = { content, priority: 1 };
+    if (visibility === "capcom_only" || visibility === "public") {
+      body.visibility = visibility;
+    }
     await mcpCall("/tools/participant/inject_message", {
       method: "POST",
-      body: { content, priority: 1 },
+      body,
     });
   };
 
@@ -4371,6 +4533,23 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     }
   };
 
+  // Spec 028 FR-007 / FR-008 / FR-009 — CAPCOM lifecycle calls.
+  const assignCapcom = async (participantId) => {
+    await mcpCall("/tools/session/capcom/assign", {
+      method: "POST",
+      body: { participant_id: participantId },
+    });
+  };
+  const rotateCapcom = async (newParticipantId) => {
+    await mcpCall("/tools/session/capcom/rotate", {
+      method: "POST",
+      body: { new_participant_id: newParticipantId },
+    });
+  };
+  const disableCapcom = async () => {
+    await mcpCall("/tools/session/capcom", { method: "DELETE" });
+  };
+
   // Spec 025 FR-003/FR-026: set length cap with disambiguation handling.
   const setLengthCap = async (preset, customValues, interpretation) => {
     if (typeof buildCapPayload !== "function") return;
@@ -4499,6 +4678,28 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
       .then(() => dispatch({ type: "detection_history_enabled", value: true }))
       .catch(() => dispatch({ type: "detection_history_enabled", value: false }));
   }, [isFacilitator, auth.session_id, state.detectionHistoryEnabled]);
+
+  // Spec 028 CAPCOM master-switch probe (spec 011 FR-065). Side-effect-
+  // free GET /tools/session/capcom — 200 carries the current assignment
+  // payload; 404 means SACP_CAPCOM_ENABLED=false and the controls stay
+  // hidden. The probe doubles as a session-state seed for
+  // capcom_participant_id without a separate snapshot refresh.
+  useEffect(() => {
+    if (!isFacilitator || !auth.session_id) return;
+    if (state.capcomEnabled !== null) return;
+    mcpCall("/tools/session/capcom")
+      .then((payload) => dispatch({
+        type: "capcom_status_loaded",
+        enabled: true,
+        capcom_participant_id: payload?.capcom_participant_id || null,
+      }))
+      .catch(() => dispatch({
+        type: "capcom_status_loaded",
+        enabled: false,
+        capcom_participant_id: null,
+      }));
+  }, [isFacilitator, auth.session_id, state.capcomEnabled]);
+
 
   const fetchDetectionHistoryPage = async () => {
     try {
@@ -4742,6 +4943,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                 auditViewerEnabled={state.auditViewerEnabled === true}
                 detectionHistoryEnabled={state.detectionHistoryEnabled === true}
                 scratchEnabled={state.scratchEnabled === true}
+                capcomEnabled={state.capcomEnabled === true}
                 onApprove={approveParticipant}
                 onReject={rejectParticipant}
                 onInvite={createInvite}
@@ -4751,6 +4953,9 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                 onOpenAuditLog={openAuditLogPanel}
                 onOpenDetectionHistory={openDetectionHistoryPanel}
                 onOpenScratch={openScratchPanel}
+                onAssignCapcom={assignCapcom}
+                onRotateCapcom={rotateCapcom}
+                onDisableCapcom={disableCapcom}
               />
               {state.auditLogPanelOpen && (
                 <AuditLogPanel
@@ -4798,7 +5003,11 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
         </aside>
         <main className="center-column">
           <Transcript messages={state.messages} participants={state.participants} />
-          <MessageInput onSend={sendMessage} disabled={wsState !== "open"} />
+          <MessageInput
+            onSend={sendMessage}
+            disabled={wsState !== "open"}
+            capcomAssigned={!!state.session?.capcom_participant_id}
+          />
         </main>
         <aside className="sidebar-right">
           <ReviewGateQueue

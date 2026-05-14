@@ -77,17 +77,19 @@ class ContextAssembler:
         Spec 027 FR-015: when ``always_mode_wait_active=True`` the system
         prompt picks up the Tier 4 wait-acknowledgment delta as the third
         additive fragment (after register + conclude).
+
+        Spec 028 §FR-006: when CAPCOM is assigned for the session, the
+        message-load path applies ``_filter_visibility`` so panel AIs
+        receive only ``visibility='public'`` rows. Loaded once per
+        ``assemble`` from ``sessions.capcom_participant_id``.
         """
-        budget = _available_budget(participant)
-        context: list[ContextMessage] = []
-        register_delta = await self._resolve_register_delta(session_id, participant.id)
-        await self._maybe_trigger_deferred_partition(session_id, participant)
-        used = _add_system_prompt(
-            context,
+        capcom_id = await self._fetch_capcom_id(session_id)
+        context, used = await self._build_prompt_header(
+            session_id,
             participant,
-            phase=phase,
-            register_delta_text=register_delta,
-            always_mode_wait_active=always_mode_wait_active,
+            phase,
+            always_mode_wait_active,
+            capcom_id,
         )
         roster = await self._fetch_roster(session_id)
         used = _add_participant_roster(context, roster, participant.id, used)
@@ -95,12 +97,47 @@ class ContextAssembler:
             context,
             session_id,
             used,
-            budget,
+            _available_budget(participant),
             participant=participant,
             interjections=interjections,
             roster=roster,
+            capcom_id=capcom_id,
         )
         return _reorder_chronologically(context)
+
+    async def _build_prompt_header(
+        self,
+        session_id: str,
+        participant: Participant,
+        phase: str,
+        always_mode_wait_active: bool,
+        capcom_id: str | None,
+    ) -> tuple[list[ContextMessage], int]:
+        register_delta = await self._resolve_register_delta(session_id, participant.id)
+        await self._maybe_trigger_deferred_partition(session_id, participant)
+        context: list[ContextMessage] = []
+        used = _add_system_prompt(
+            context,
+            participant,
+            phase=phase,
+            register_delta_text=register_delta,
+            always_mode_wait_active=always_mode_wait_active,
+            capcom_id=capcom_id,
+        )
+        return context, used
+
+    async def _fetch_capcom_id(self, session_id: str) -> str | None:
+        """Read ``sessions.capcom_participant_id`` once per assemble.
+
+        Returns ``None`` when CAPCOM is not assigned for the session
+        (the visibility filter then passes through every message
+        unchanged — pre-feature behavior).
+        """
+        async with self._pool.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT capcom_participant_id FROM sessions WHERE id = $1",
+                session_id,
+            )
 
     async def _maybe_trigger_deferred_partition(
         self,
@@ -202,6 +239,7 @@ class ContextAssembler:
         participant: Participant,
         interjections: list | None = None,
         roster: dict[str, dict[str, str]] | None = None,
+        capcom_id: str | None = None,
     ) -> int:
         """Add P2-P6 content in priority order."""
         bid = await get_main_branch_id(self._pool, session_id)
@@ -211,9 +249,11 @@ class ContextAssembler:
         proposals = await self._prop_repo.get_open_proposals(session_id)
         used = _add_proposals(context, proposals, used)
         all_recent = await self._msg_repo.get_recent(session_id, bid, _history_turns())
+        all_recent = _filter_visibility(all_recent, participant, capcom_id)
         floor = all_recent[:MVC_FLOOR_TURNS]
         used = _add_messages(context, floor, used, budget, speaker_id=participant.id, roster=roster)
         summaries = await self._msg_repo.get_summaries(session_id, bid)
+        summaries = _filter_visibility(summaries, participant, capcom_id)
         if summaries:
             used = _add_summary(context, summaries[-1], used, budget)
         if used < budget:
@@ -227,6 +267,46 @@ class ContextAssembler:
                 roster=roster,
             )
         return used
+
+
+def _filter_visibility(
+    messages: list[Message],
+    participant: Participant,
+    capcom_id: str | None,
+) -> list[Message]:
+    """Spec 028 §FR-006 — last context-assembly step before security wrap.
+
+    - Humans see every message (humans hold CAPCOM-or-broader visibility).
+    - The currently-assigned CAPCOM AI sees every message.
+    - Every other AI participant (the panel) sees ``visibility='public'``
+      messages only. This holds even when ``capcom_id`` is ``None`` so
+      historical ``capcom_only`` rows from a prior CAPCOM-active period
+      stay invisible after disable per FR-011 (no retroactive promotion).
+
+    Pre-feature behaviour is preserved by the migration default: every
+    existing row migrated as ``visibility='public'`` so panel AIs see
+    every legacy message unchanged.
+
+    Spec 028 §FR-023 — when at least one message is excluded for a
+    panel-AI assembly, the filter emits a structured INFO-level log
+    line ``message_filtered_capcom_scope:participant=<id>:excluded=<N>``
+    so operators have per-turn observability over the partition's
+    effect. The line is keyed by participant id so a forensic review
+    can join it back to the dispatch turn.
+    """
+    if participant.provider == "human":
+        return messages
+    if capcom_id is not None and participant.id == capcom_id:
+        return messages
+    filtered = [m for m in messages if m.visibility == "public"]
+    excluded = len(messages) - len(filtered)
+    if excluded > 0:
+        log.info(
+            "message_filtered_capcom_scope:participant=%s:excluded=%d",
+            participant.id,
+            excluded,
+        )
+    return filtered
 
 
 def _reorder_chronologically(context: list[ContextMessage]) -> list[ContextMessage]:
@@ -329,6 +409,7 @@ def _add_system_prompt(
     phase: str = "running",
     register_delta_text: str | None = None,
     always_mode_wait_active: bool = False,
+    capcom_id: str | None = None,
 ) -> int:
     """Add tiered system prompt as first context message.
 
@@ -353,6 +434,7 @@ def _add_system_prompt(
     from src.orchestrator.deferred_tool_index import (
         get_deferred_index_for_participant,
     )
+    from src.prompts.capcom_delta import capcom_delta_for
     from src.prompts.conclude_delta import conclude_delta
     from src.prompts.standby_ack_delta import standby_ack_delta
 
@@ -368,6 +450,7 @@ def _add_system_prompt(
         conclude_delta=delta,
         standby_ack_delta=standby_delta,
         deferred_index_entries=deferred_entries or None,
+        capcom_delta=capcom_delta_for(capcom_id is not None and participant.id == capcom_id),
     )
     ctx = ContextMessage("system", prompt, None)
     context.append(ctx)

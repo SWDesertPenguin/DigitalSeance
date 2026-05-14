@@ -33,6 +33,8 @@ class MessageRepository(BaseRepository):
         parent_turn: int | None = None,
         delegated_from: str | None = None,
         summary_epoch: int | None = None,
+        kind: str = "utterance",
+        visibility: str = "public",
         _lock_wait_ms_out: dict[str, int] | None = None,
     ) -> Message:
         """Append a message, auto-assigning the next turn number.
@@ -62,6 +64,8 @@ class MessageRepository(BaseRepository):
                 parent_turn=parent_turn,
                 delegated_from=delegated_from,
                 summary_epoch=summary_epoch,
+                kind=kind,
+                visibility=visibility,
             )
         if _lock_wait_ms_out is not None:
             _lock_wait_ms_out["lock_wait_ms"] = lock_wait_ms
@@ -161,6 +165,8 @@ async def _append_locked(
     parent_turn: int | None,
     delegated_from: str | None,
     summary_epoch: int | None,
+    kind: str = "utterance",
+    visibility: str = "public",
 ) -> tuple[asyncpg.Record, int]:
     """Verify session, lock branch, insert row; return (record, lock_wait_ms)."""
     await _verify_session_active(conn, session_id)
@@ -180,6 +186,8 @@ async def _append_locked(
         parent_turn=parent_turn,
         delegated_from=delegated_from,
         summary_epoch=summary_epoch,
+        kind=kind,
+        visibility=visibility,
     )
     record = await conn.fetchrow(_SELECT_MESSAGE_SQL, turn, session_id, branch_id)
     return record, lock_wait_ms
@@ -234,6 +242,8 @@ async def _insert_message(
     parent_turn: int | None,
     delegated_from: str | None,
     summary_epoch: int | None,
+    kind: str = "utterance",
+    visibility: str = "public",
 ) -> None:
     """Insert a message record."""
     await conn.execute(
@@ -250,6 +260,8 @@ async def _insert_message(
         token_count,
         cost_usd,
         summary_epoch,
+        kind,
+        visibility,
     )
 
 
@@ -258,8 +270,8 @@ _INSERT_MESSAGE_SQL = """
         (turn_number, session_id, branch_id, parent_turn,
          speaker_id, speaker_type, delegated_from,
          complexity_score, content, token_count,
-         cost_usd, summary_epoch)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         cost_usd, summary_epoch, kind, visibility)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 """
 
 _SELECT_MESSAGE_SQL = """
