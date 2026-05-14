@@ -86,30 +86,67 @@ async def _build_dump(
     requester_id: str,
 ) -> dict:
     """Collect all session data into a single JSON-safe dict."""
+    sections = await _collect_dump_sections(state, session, session_id)
+    return _assemble_dump(sections, session, requester_id)
+
+
+async def _collect_dump_sections(state: Any, session: Any, session_id: str) -> dict:
+    """Pull every per-session collection in one place."""
     branch_id = await get_main_branch_id(state.pool, session_id)
     participants = await state.participant_repo.list_participants(session_id)
     messages = await state.message_repo.get_recent(session_id, branch_id, 10_000)
     interrupts = await _fetch_all_interrupts(state.pool, session_id)
     logs = await _fetch_logs(state.pool, session_id, participants)
     spend = await _fetch_spend(state.pool, participants)
-    # Spec 010 FR-10 (amendment 2026-05-12 paired with spec 022 pass 2) —
-    # surface the dedicated detection_events table so the forensic export
-    # stays consistent with the live spec 022 panel.
     detection_events = await _fetch_detection_events(state, session_id)
+    return {
+        "branch_id": branch_id,
+        "participants": participants,
+        "messages": messages,
+        "interrupts": interrupts,
+        "logs": logs,
+        "spend": spend,
+        "detection_events": detection_events,
+    }
+
+
+def _assemble_dump(sections: dict, session: Any, requester_id: str) -> dict:
+    participants = sections["participants"]
+    messages = sections["messages"]
     name_by_id = {p.id: p.display_name for p in participants}
     return {
         "exported_at": format_iso(datetime.now(tz=UTC)),
         "exported_by": requester_id,
         "session": _serialize(session),
-        "branch_id": branch_id,
+        "branch_id": sections["branch_id"],
         "participants": [_scrub(_serialize(p)) for p in participants],
         "messages": [_with_speaker_name(_serialize(m), name_by_id) for m in messages],
-        "interrupts": [_serialize(i) for i in interrupts],
-        "logs": logs,
-        "detection_events": detection_events,
-        "spend": spend,
+        "visibility_partition": _visibility_partition(messages, participants, session),
+        "interrupts": [_serialize(i) for i in sections["interrupts"]],
+        "logs": sections["logs"],
+        "detection_events": sections["detection_events"],
+        "spend": sections["spend"],
         "config_snapshot": _config_snapshot(),
     }
+
+
+def _visibility_partition(messages: list, participants: list, session: Any) -> dict:
+    """Spec 028 §FR-024 — per-participant visibility view for forensics.
+
+    Returns a mapping ``{participant_id: [turn_numbers visible to them]}``
+    so a reviewer can reconstruct each participant's effective transcript
+    view without re-implementing the runtime filter. Humans see every
+    turn; the active CAPCOM AI sees every turn; every other AI sees only
+    ``visibility='public'`` turns.
+    """
+    capcom_id = getattr(session, "capcom_participant_id", None)
+    out: dict[str, list[int]] = {}
+    for p in participants:
+        if p.provider == "human" or p.id == capcom_id:
+            out[p.id] = [m.turn_number for m in messages]
+        else:
+            out[p.id] = [m.turn_number for m in messages if m.visibility == "public"]
+    return out
 
 
 async def _fetch_detection_events(state: Any, session_id: str) -> list:
