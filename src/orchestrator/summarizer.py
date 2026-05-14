@@ -111,13 +111,46 @@ class SummarizationManager:
         not session.current_turn — summary appends don't advance
         current_turn, so using it leaves last_summary_turn frozen and
         the next checkpoint re-reads the same range (Test06-Web06 loop).
+
+        Spec 028 §FR-018 — when CAPCOM is assigned, emit two summaries:
+        one over ``visibility='public'`` rows stored as ``public`` (the
+        panel summary) and one over the full corpus stored as
+        ``capcom_only`` (the CAPCOM summary). The visibility filter in
+        context.py routes the right summary to the right participant.
         """
-        turns = await _fetch_turns_since(
-            self._msg_repo, self._pool, session_id, session.last_summary_turn
+        capcom_id = getattr(session, "capcom_participant_id", None)
+        turns_public = await _fetch_turns_since(
+            self._msg_repo,
+            self._pool,
+            session_id,
+            session.last_summary_turn,
+            visibility="public",
         )
+        if not turns_public:
+            return
+        watermark = max(t.source_turn for t in turns_public)
+        await self._emit_summary(
+            session_id, session, candidates, (turns_public, watermark, "public")
+        )
+        if capcom_id is not None:
+            turns_full = await _fetch_turns_since(
+                self._msg_repo, self._pool, session_id, session.last_summary_turn
+            )
+            await self._emit_summary(
+                session_id, session, candidates, (turns_full, watermark, "capcom_only")
+            )
+        await _update_session_turn(self._pool, session_id, watermark)
+
+    async def _emit_summary(
+        self,
+        session_id: str,
+        session: object,
+        candidates: list[Participant],
+        spec: tuple[list[ContextMessage], int, str],
+    ) -> None:
+        turns, watermark, visibility = spec
         if not turns:
             return
-        watermark = max(t.source_turn for t in turns)
         summary_json = await _generate_summary(turns, candidates, self._encryption_key)
         await _store_summary(
             self._msg_repo,
@@ -126,8 +159,8 @@ class SummarizationManager:
             summary_json,
             watermark,
             speaker_id=session.facilitator_id,
+            visibility=visibility,
         )
-        await _update_session_turn(self._pool, session_id, watermark)
         await _emit_summary_created(session_id, summary_json, watermark)
 
 
@@ -161,6 +194,7 @@ async def _fetch_turns_since(
     pool: asyncpg.Pool,
     session_id: str,
     last_summary_turn: int,
+    visibility: str | None = None,
 ) -> list[ContextMessage]:
     """Fetch turns since the last checkpoint as context messages.
 
@@ -171,6 +205,11 @@ async def _fetch_turns_since(
     rolling summary never accumulates content-free verbosity. The
     filter is observational-positive — flagged turns SHOULD have been
     excluded.
+
+    Spec 028 §FR-018 — ``visibility`` (when set) restricts the corpus
+    to rows whose ``messages.visibility`` matches; ``visibility='public'``
+    yields the panel-summary corpus. Unset returns the full corpus
+    (used for the CAPCOM-summary path).
     """
     bid = await get_main_branch_id(pool, session_id)
     messages = await msg_repo.get_range(
@@ -190,7 +229,7 @@ async def _fetch_turns_since(
             source_turn=m.turn_number,
         )
         for m in messages
-        if m.turn_number not in flagged
+        if m.turn_number not in flagged and (visibility is None or m.visibility == visibility)
     ]
 
 
@@ -337,6 +376,7 @@ async def _store_summary(
     current_turn: int,
     *,
     speaker_id: str,
+    visibility: str = "public",
 ) -> None:
     """Store summary as an immutable message.
 
@@ -350,6 +390,11 @@ async def _store_summary(
     and amplifies indirect injection. Treating summary content as
     untrusted AI output (because it IS untrusted AI output) closes
     the gap.
+
+    Spec 028 §FR-018 — ``visibility`` carries the two-tier
+    discriminator. Panel summary persists as ``public``; CAPCOM
+    summary as ``capcom_only``. Pre-feature behaviour is the
+    default ``'public'``.
     """
     cleaned_json = _sanitize_summary_content(summary_json)
     bid = await get_main_branch_id(pool, session_id)
@@ -362,6 +407,7 @@ async def _store_summary(
         token_count=default_estimator().count_tokens(cleaned_json),
         complexity_score="low",
         summary_epoch=current_turn,
+        visibility=visibility,
     )
 
 
