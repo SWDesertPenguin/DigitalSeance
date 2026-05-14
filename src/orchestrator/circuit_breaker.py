@@ -10,10 +10,10 @@ Session-local in-memory only; no persistence across restart.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import os
 import time
+import zlib
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -135,12 +135,11 @@ def _compute_api_key_fingerprint(api_key_encrypted: str) -> str:
     against a credential, never persisted as an authenticator, never used in
     a verification path. The input is already an opaque ciphertext from the
     encryption layer; this function only derives a short stable label so the
-    breaker state survives rotation. BLAKE2 is used with an explicit
-    `digest_size=4` so the 8-hex-char identifier is the entire output rather
-    than a truncation of a credential-grade hash.
+    breaker state survives rotation. CRC32 is a non-cryptographic checksum
+    appropriate for in-memory dict keying — the 8-hex-char output is the
+    entire identifier, not a truncation of a credential-grade hash.
     """
-    digest = hashlib.blake2b(api_key_encrypted.encode(), digest_size=4)
-    return digest.hexdigest()
+    return f"{zlib.crc32(api_key_encrypted.encode()) & 0xFFFFFFFF:08x}"
 
 
 def _get_or_create_state(
