@@ -42,10 +42,10 @@ _ALLOWLIST: dict[str, str] = {
     # Facilitator-only read APIs (visibility-aware via spec 028 FR-024).
     "participant_api/tools/debug.py": "spec 010 debug export — emits visibility_partition (FR-024)",
     "participant_api/tools/session.py": "facilitator session tools — md/JSON export rendering",
-    # Self-scoped read API. Transcript-API visibility filter is a tracked follow-up.
-    "participant_api/tools/participant.py": "participant /history — caller-scoped read",
-    # Web UI state_snapshot — primary consumer is the human SPA.
-    "web_ui/snapshot.py": "state_snapshot for the Web UI — human consumer",
+    # /history + /summary call _filter_visibility per FR-006.
+    "participant_api/tools/participant.py": "/history + /summary apply _filter_visibility",
+    # State snapshot is per-subscriber and routes raw rows through _filter_visibility.
+    "web_ui/snapshot.py": "state_snapshot — per-recipient; applies _filter_visibility",
     # AST disambiguation incidentals (kept for defense-in-depth).
     "web_ui/proxy.py": "HTTP proxy — upstream.content is the response body, not a Message",
     "api_bridge/litellm/dispatch.py": "provider response — choice.message.content from the LLM",

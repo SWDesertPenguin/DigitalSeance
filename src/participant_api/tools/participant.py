@@ -179,7 +179,14 @@ async def get_history(
     limit: int = 20,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Get recent conversation history."""
+    """Get recent conversation history.
+
+    Spec 028 §FR-006 — the read is caller-scoped: a panel AI receives
+    only ``visibility='public'`` rows. Humans and the active CAPCOM AI
+    receive the unfiltered list. Mirrors the dispatch-path filter so a
+    panel AI can't bypass the visibility partition by polling
+    ``/history`` instead of waiting for an assembled context turn.
+    """
     msg_repo = request.app.state.message_repo
     branch_id = await _get_branch_id(request, participant.session_id)
     messages = await msg_repo.get_recent(
@@ -187,7 +194,8 @@ async def get_history(
         branch_id,
         limit,
     )
-    return {"messages": [_format_message(m) for m in messages]}
+    visible = await _apply_visibility(request, participant, messages)
+    return {"messages": [_format_message(m) for m in visible]}
 
 
 @router.get("/summary")
@@ -195,16 +203,36 @@ async def get_summary(
     request: Request,
     participant: Participant = Depends(get_current_participant),
 ) -> dict:
-    """Get latest summarization checkpoint."""
+    """Get latest summarization checkpoint.
+
+    Spec 028 §FR-018 — when a CAPCOM is assigned the summarizer emits
+    twin summaries (panel + CAPCOM); the visibility filter routes the
+    matching scope to the caller. Panel AIs see the public-scope
+    summary; the CAPCOM AI and humans see the privileged-scope summary.
+    """
     msg_repo = request.app.state.message_repo
     branch_id = await _get_branch_id(request, participant.session_id)
     summaries = await msg_repo.get_summaries(
         participant.session_id,
         branch_id,
     )
-    if not summaries:
+    visible = await _apply_visibility(request, participant, summaries)
+    if not visible:
         return {"summary": None}
-    return {"summary": summaries[-1].content}
+    return {"summary": visible[-1].content}
+
+
+async def _apply_visibility(
+    request: Request,
+    participant: Participant,
+    messages: list,
+) -> list:
+    """Run the spec 028 visibility filter against a caller-scoped read."""
+    from src.orchestrator.context import _filter_visibility
+
+    session = await request.app.state.session_repo.get_session(participant.session_id)
+    capcom_id = session.capcom_participant_id if session else None
+    return _filter_visibility(messages, participant, capcom_id)
 
 
 async def _get_branch_id(request: Request, session_id: str) -> str:

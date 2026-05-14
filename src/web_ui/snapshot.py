@@ -27,21 +27,52 @@ async def build_state_snapshot(
     session_id: str,
     me_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """Build a state_snapshot event; pending role gets a redacted view."""
+    """Build a state_snapshot event; pending role gets a redacted view.
+
+    Spec 028 §FR-006 — the snapshot is per-subscriber and the messages
+    + latest_summary collections are filtered against the recipient's
+    visibility scope. A panel-AI subscriber receives only
+    ``visibility='public'`` rows; the active CAPCOM AI and humans
+    receive the full set. Mirrors the dispatch-path filter so a panel
+    AI can't bypass the partition via the WS reconnect path.
+    """
     session = await _session_row(app_state, session_id)
     session["loop_running"] = _loop_running(session_id)
     if (me_payload or {}).get("role") == "pending":
         return await _pending_snapshot(app_state, session_id, me_payload, session)
+    recipient = await _resolve_recipient(app_state, me_payload)
+    capcom_id = await _resolve_capcom_id(app_state, session_id)
     return state_snapshot_event(
         session=session,
         me=me_payload,
         participants=await _participants(app_state, session_id),
-        messages=await _recent_messages(app_state, session_id),
+        messages=await _recent_messages(app_state, session_id, recipient, capcom_id),
         pending_drafts=await _pending_drafts(app_state, session_id),
         open_proposals=await _open_proposals(app_state, session_id),
-        latest_summary=await _latest_summary(app_state, session_id),
+        latest_summary=await _latest_summary(app_state, session_id, recipient, capcom_id),
         convergence_scores=await _recent_convergence(app_state, session_id),
     )
+
+
+async def _resolve_recipient(app_state: Any, me_payload: dict[str, Any]) -> Any:
+    """Look up the Participant row for the connecting subscriber, if any.
+
+    Returns ``None`` when the subscriber isn't a participant (e.g., an
+    unauthenticated browser tab). The visibility filter defaults to
+    panel-AI semantics in that case — the safer side.
+    """
+    pid = (me_payload or {}).get("participant_id")
+    if not pid:
+        return None
+    return await app_state.participant_repo.get_participant(pid)
+
+
+async def _resolve_capcom_id(app_state: Any, session_id: str) -> str | None:
+    async with app_state.pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT capcom_participant_id FROM sessions WHERE id = $1",
+            session_id,
+        )
 
 
 async def _pending_snapshot(
@@ -141,10 +172,21 @@ def _participant_dict(p: Any) -> dict[str, Any]:
     }
 
 
-async def _recent_messages(app_state: Any, session_id: str) -> list[dict[str, Any]]:
-    """Most recent N messages in chronological order."""
+async def _recent_messages(
+    app_state: Any,
+    session_id: str,
+    recipient: Any = None,
+    capcom_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Most recent N messages in chronological order, scoped to recipient."""
+    from src.orchestrator.context import _filter_visibility
+
     branch_id = await get_main_branch_id(app_state.pool, session_id)
     rows = await app_state.message_repo.get_recent(session_id, branch_id, _RECENT_MESSAGES_CAP)
+    if recipient is not None:
+        rows = _filter_visibility(rows, recipient, capcom_id)
+    else:
+        rows = [m for m in rows if m.visibility == "public"]
     return [_message_dict(m) for m in rows]
 
 
@@ -201,10 +243,26 @@ async def _open_proposals(app_state: Any, session_id: str) -> list[dict[str, Any
     ]
 
 
-async def _latest_summary(app_state: Any, session_id: str) -> dict[str, Any] | None:
-    """Most recent summarization checkpoint, if any."""
+async def _latest_summary(
+    app_state: Any,
+    session_id: str,
+    recipient: Any = None,
+    capcom_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Most recent summarization checkpoint, scoped to the recipient.
+
+    Spec 028 §FR-018 — when a CAPCOM is assigned, two summaries exist
+    per checkpoint (panel + capcom). The filter routes the matching
+    scope to the caller; the public summary survives for panel AIs.
+    """
+    from src.orchestrator.context import _filter_visibility
+
     branch_id = await get_main_branch_id(app_state.pool, session_id)
     summaries = await app_state.message_repo.get_summaries(session_id, branch_id)
+    if recipient is not None:
+        summaries = _filter_visibility(summaries, recipient, capcom_id)
+    else:
+        summaries = [m for m in summaries if m.visibility == "public"]
     if not summaries:
         return None
     latest = summaries[-1]
