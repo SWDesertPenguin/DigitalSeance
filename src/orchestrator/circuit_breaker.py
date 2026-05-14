@@ -129,8 +129,15 @@ def _circuit_key(
 
 
 def _compute_api_key_fingerprint(api_key_encrypted: str) -> str:
-    """First 8 hex chars of SHA-256(api_key_encrypted.encode())."""
-    return hashlib.sha256(api_key_encrypted.encode()).hexdigest()[:8]
+    """Opaque 8-char identifier for circuit-breaker keying.
+
+    Input is the already-encrypted api key; output is a truncated digest
+    used solely as a dict key to differentiate breaker state across api
+    key rotations. Not a credential hash. `usedforsecurity=False` signals
+    this non-security use to scanners.
+    """
+    digest = hashlib.sha256(api_key_encrypted.encode(), usedforsecurity=False)
+    return digest.hexdigest()[:8]
 
 
 def _get_or_create_state(
