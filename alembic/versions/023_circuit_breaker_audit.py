@@ -85,6 +85,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DROP TABLE IF EXISTS provider_circuit_close_log")
-    op.execute("DROP TABLE IF EXISTS provider_circuit_probe_log")
-    op.execute("DROP TABLE IF EXISTS provider_circuit_open_log")
+    """Forward-only migration per spec 001 §FR-017."""
+    pass

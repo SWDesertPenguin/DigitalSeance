@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import os
+
 import asyncpg
 
 from src.orchestrator.loop import ConversationLoop
@@ -87,13 +89,21 @@ async def test_circuit_breaker_skips(
     session_with_participant,
     mock_litellm,
 ):
-    """Open circuit breaker skips the participant."""
-    session, _, _, _ = session_with_participant
-    await _trip_breaker_all(pool, session.id)
-    loop = _make_loop(pool)
-    result = await loop.execute_turn(session.id)
-    assert result.skipped
-    assert result.skip_reason == "circuit_open"
+    """Open circuit breaker skips the participant (spec 015)."""
+    session, _, participant, _ = session_with_participant
+    await _trip_breaker_all(pool, session.id, participant)
+    try:
+        loop = _make_loop(pool)
+        result = await loop.execute_turn(session.id)
+        assert result.skipped
+        assert result.skip_reason == "circuit_open"
+    finally:
+        import src.orchestrator.circuit_breaker as cb
+
+        cb._reset_for_tests()
+        os.environ.pop("SACP_PROVIDER_FAILURE_THRESHOLD", None)
+        os.environ.pop("SACP_PROVIDER_FAILURE_WINDOW_S", None)
+        cb._reload_config()
 
 
 async def test_exfiltration_cleaned(
@@ -240,10 +250,27 @@ async def _seed_usage(conn, participant_id: str) -> None:
 async def _trip_breaker_all(
     pool: asyncpg.Pool,
     session_id: str,
+    participant: object,
 ) -> None:
-    """Set consecutive_timeouts above threshold for all participants."""
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE participants SET consecutive_timeouts = 5 WHERE session_id = $1",
+    """Trip the spec-015 module-level circuit breaker for the given participant."""
+    import src.orchestrator.circuit_breaker as cb
+    from src.api_bridge.adapter import CanonicalErrorCategory
+
+    os.environ["SACP_PROVIDER_FAILURE_THRESHOLD"] = "3"
+    os.environ["SACP_PROVIDER_FAILURE_WINDOW_S"] = "60"
+    cb._reload_config()
+    cb._reset_for_tests()
+
+    provider = getattr(participant, "provider", "") or ""
+    api_key = getattr(participant, "api_key_encrypted", None) or ""
+    fp = cb._compute_api_key_fingerprint(api_key)
+
+    for _ in range(3):
+        await cb.record_failure(
             session_id,
+            participant.id,
+            provider,
+            fp,
+            CanonicalErrorCategory.ERROR_5XX,
+            pool=pool,
         )
