@@ -31,6 +31,7 @@ class _InjectMessageBody(BaseModel):
 
     content: str = Field(..., min_length=1, max_length=MAX_MESSAGE_CONTENT_CHARS)
     priority: int = 1
+    visibility: str | None = Field(default=None, pattern="^(public|capcom_only)$")
 
 
 @router.post("/inject_message")
@@ -73,6 +74,7 @@ async def _try_persist_injection(
     msg_repo = request.app.state.message_repo
     pool = request.app.state.pool
     branch_id = await get_main_branch_id(pool, participant.session_id)
+    visibility = await _resolve_inject_visibility(request, participant, body)
     try:
         msg = await msg_repo.append_message(
             session_id=participant.session_id,
@@ -82,11 +84,57 @@ async def _try_persist_injection(
             content=body.content,
             token_count=max(default_estimator().count_tokens(body.content), 1),
             complexity_score="n/a",
+            visibility=visibility,
         )
     except SessionNotActiveError:
         return False
     await _broadcast_human_message(participant.session_id, msg)
     return True
+
+
+async def _resolve_inject_visibility(
+    request: Request,
+    participant: Participant,
+    body: _InjectMessageBody,
+) -> str:
+    """Spec 028 §FR-014/§FR-015/§FR-016 — visibility default + invariant checks.
+
+    Defaults to ``public`` unless ``SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN=true``
+    AND CAPCOM is assigned for the session. Explicit body value overrides.
+    Rejects ``capcom_only`` when no CAPCOM is assigned (INV-3) and when
+    the speaker is a panel AI (INV-4) with HTTP 409 / 422.
+    """
+    import os as _os
+
+    session = await request.app.state.session_repo.get_session(participant.session_id)
+    capcom_id = session.capcom_participant_id if session else None
+    requested = body.visibility
+    if requested == "capcom_only":
+        _enforce_capcom_only_invariants(participant, capcom_id)
+        return "capcom_only"
+    if requested == "public":
+        return "public"
+    default_on_join = _os.environ.get("SACP_CAPCOM_DEFAULT_ON_HUMAN_JOIN", "").strip().lower()
+    if (
+        default_on_join in ("true", "1")
+        and capcom_id is not None
+        and participant.provider == "human"
+    ):
+        return "capcom_only"
+    return "public"
+
+
+def _enforce_capcom_only_invariants(
+    participant: Participant,
+    capcom_id: str | None,
+) -> None:
+    if capcom_id is None:
+        raise HTTPException(409, "capcom_only scope unavailable — no CAPCOM assigned")
+    if participant.provider != "human" and participant.id != capcom_id:
+        raise HTTPException(
+            422,
+            "Panel AI participants cannot emit capcom_only messages (spec 028 INV-4)",
+        )
 
 
 async def _broadcast_human_message(session_id: str, msg) -> None:  # type: ignore[no-untyped-def]

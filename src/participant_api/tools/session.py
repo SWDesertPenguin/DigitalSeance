@@ -7,9 +7,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import secrets
 from typing import Literal
 
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, field_validator
 
@@ -963,3 +965,228 @@ def _format_json_message(msg: object, name_by_id: dict[str, str]) -> dict:
         "type": msg.speaker_type,
         "content": msg.content,
     }
+
+
+# ── Spec 028: CAPCOM-like routing scope endpoints ─────────────────────────
+
+
+def _capcom_enabled() -> bool:
+    """Spec 028 §FR-021 — master switch consult."""
+    raw = os.environ.get("SACP_CAPCOM_ENABLED", "").strip().lower()
+    return raw in ("true", "1")
+
+
+def _require_capcom_master_switch() -> None:
+    if not _capcom_enabled():
+        raise HTTPException(404, "CAPCOM surface disabled")
+
+
+def _require_facilitator(participant: Participant) -> None:
+    if participant.role != "facilitator":
+        raise HTTPException(403, "Only the facilitator can perform this action")
+
+
+def _prior_routing_preference_from_audit(
+    rows: list,
+    target_participant_id: str,
+) -> str:
+    """Walk audit rows to find the pre-CAPCOM routing scope.
+
+    Searches for the matching ``capcom_assigned`` row carrying the prior
+    value in ``previous_value``. Defaults to ``'always'`` (the column
+    default) when no prior assignment is on record.
+    """
+    for row in rows:
+        if (
+            row.action == "capcom_assigned"
+            and row.target_id == target_participant_id
+            and row.previous_value
+        ):
+            return str(row.previous_value)
+    return "always"
+
+
+class _CapcomAssignBody(BaseModel):
+    participant_id: str
+
+
+class _CapcomRotateBody(BaseModel):
+    new_participant_id: str
+
+
+@router.post("/capcom/assign")
+async def capcom_assign(
+    request: Request,
+    body: _CapcomAssignBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Spec 028 §FR-007 — assign a CAPCOM. Facilitator only."""
+    _require_capcom_master_switch()
+    _require_facilitator(participant)
+    session_repo = request.app.state.session_repo
+    log_repo = request.app.state.log_repo
+    target = await request.app.state.participant_repo.get_participant(body.participant_id)
+    if target is None or target.session_id != participant.session_id:
+        raise HTTPException(404, "Unknown participant")
+    if target.provider == "human":
+        raise HTTPException(422, "CAPCOM target must be an AI participant")
+    try:
+        prior = await session_repo.assign_capcom(participant.session_id, body.participant_id)
+    except asyncpg.UniqueViolationError as e:
+        raise HTTPException(409, "Another CAPCOM is already assigned") from e
+    await log_repo.log_admin_action(
+        session_id=participant.session_id,
+        facilitator_id=participant.id,
+        action="capcom_assigned",
+        target_id=body.participant_id,
+        previous_value=prior,
+        new_value="capcom",
+        broadcast_session_id=participant.session_id,
+    )
+    await _broadcast_capcom_event(request, "capcom_assigned", body.participant_id)
+    return {"capcom_participant_id": body.participant_id}
+
+
+@router.post("/capcom/rotate")
+async def capcom_rotate(
+    request: Request,
+    body: _CapcomRotateBody,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Spec 028 §FR-008 — rotate the CAPCOM. Facilitator only."""
+    _require_capcom_master_switch()
+    _require_facilitator(participant)
+    await _validate_rotate_target(request, body.new_participant_id, participant.session_id)
+    out_id, prior_new = await _execute_rotate(request, body.new_participant_id, participant)
+    await _broadcast_capcom_event(request, "capcom_rotated", body.new_participant_id)
+    return {
+        "previous_capcom_id": out_id,
+        "new_capcom_id": body.new_participant_id,
+        "new_prior_routing_preference": prior_new,
+    }
+
+
+async def _validate_rotate_target(
+    request: Request,
+    new_participant_id: str,
+    session_id: str,
+) -> None:
+    target = await request.app.state.participant_repo.get_participant(new_participant_id)
+    if target is None or target.session_id != session_id:
+        raise HTTPException(404, "Unknown participant")
+    if target.provider == "human":
+        raise HTTPException(422, "CAPCOM target must be an AI participant")
+
+
+async def _execute_rotate(
+    request: Request,
+    new_participant_id: str,
+    participant: Participant,
+) -> tuple[str, str | None]:
+    session_repo = request.app.state.session_repo
+    log_repo = request.app.state.log_repo
+    audit_rows = await log_repo.get_audit_log(participant.session_id)
+    session = await session_repo.get_session(participant.session_id)
+    outgoing_id = session.capcom_participant_id if session else None
+    if outgoing_id is None:
+        raise HTTPException(409, "No CAPCOM is currently assigned to rotate")
+    prior_outgoing = _prior_routing_preference_from_audit(audit_rows, outgoing_id)
+    try:
+        out_id, prior_new = await session_repo.rotate_capcom(
+            participant.session_id,
+            new_participant_id,
+            prior_routing_preference=prior_outgoing,
+        )
+    except asyncpg.UniqueViolationError as e:
+        raise HTTPException(409, "Rotation conflict") from e
+    await _audit_rotate(log_repo, participant, new_participant_id, out_id, prior_new)
+    return out_id, prior_new
+
+
+async def _audit_rotate(
+    log_repo,
+    participant: Participant,
+    new_participant_id: str,
+    out_id: str,
+    prior_new: str | None,
+) -> None:
+    await log_repo.log_admin_action(
+        session_id=participant.session_id,
+        facilitator_id=participant.id,
+        action="capcom_rotated",
+        target_id=new_participant_id,
+        previous_value=out_id,
+        new_value=prior_new or "always",
+        broadcast_session_id=participant.session_id,
+    )
+
+
+@router.delete("/capcom")
+async def capcom_disable(
+    request: Request,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Spec 028 §FR-009 — disable CAPCOM mode. Facilitator only."""
+    _require_capcom_master_switch()
+    _require_facilitator(participant)
+    session_repo = request.app.state.session_repo
+    log_repo = request.app.state.log_repo
+    audit_rows = await log_repo.get_audit_log(participant.session_id)
+    session = await session_repo.get_session(participant.session_id)
+    outgoing_id = session.capcom_participant_id if session else None
+    if outgoing_id is None:
+        raise HTTPException(404, "No CAPCOM is currently assigned")
+    prior_outgoing = _prior_routing_preference_from_audit(audit_rows, outgoing_id)
+    out_id = await session_repo.disable_capcom(
+        participant.session_id,
+        prior_routing_preference=prior_outgoing,
+    )
+    await log_repo.log_admin_action(
+        session_id=participant.session_id,
+        facilitator_id=participant.id,
+        action="capcom_disabled",
+        target_id=out_id or "",
+        previous_value="capcom",
+        new_value=prior_outgoing,
+        broadcast_session_id=participant.session_id,
+    )
+    await _broadcast_capcom_event(request, "capcom_disabled", out_id)
+    return {"previous_capcom_id": out_id}
+
+
+async def _broadcast_capcom_event(
+    request: Request,
+    event_type: str,
+    participant_id: str | None,
+) -> None:
+    """Emit a CAPCOM lifecycle WS event to every session subscriber.
+
+    The companion ``audit_entry`` push fires from ``log_admin_action`` so
+    facilitator audit panels also see the row. This helper carries the
+    structured CAPCOM-specific payload (display name + id) for clients
+    that key off the typed event name.
+    """
+    from src.web_ui.events import iso
+    from src.web_ui.websocket import broadcast_to_session
+
+    display_name = None
+    if participant_id:
+        p = await request.app.state.participant_repo.get_participant(participant_id)
+        display_name = p.display_name if p else None
+    sid = None
+    p_repo = request.app.state.participant_repo
+    if participant_id:
+        p = await p_repo.get_participant(participant_id)
+        sid = p.session_id if p else None
+    from datetime import UTC, datetime
+
+    await broadcast_to_session(
+        sid or "",
+        {
+            "v": 1,
+            "type": event_type,
+            "participant_id": participant_id,
+            "display_name": display_name,
+            "timestamp": iso(datetime.now(UTC)),
+        },
+    )
