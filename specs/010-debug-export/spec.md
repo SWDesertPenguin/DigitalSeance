@@ -1,6 +1,6 @@
 # Feature Specification: Debug Export
 
-**Feature Branch**: `fix/live-test-feedback` (bundled fix; would be `010-debug-export` as its own feature)
+**Feature Branch**: `010-debug-export` (bundled into `fix/live-test-feedback` historically)
 **Created**: 2026-04-15
 **Status**: Implemented (Phase 1 closed 2026-04-20); Amended 2026-05-12 (paired with spec 022 pass 2 — adds `detection_events` section to the export envelope; see Clarifications §Session 2026-05-12 + FR-10)
 **Input**: User description: "Add an option to dump everything about a session in one JSON blob for troubleshooting — session + participants + messages + interrupts + logs + config, including nulls/empties."
