@@ -11,7 +11,7 @@ def _make_test_app() -> object:
     """Create a minimal test app with auth middleware."""
     from fastapi import Depends, FastAPI
 
-    from src.mcp_server.middleware import get_current_participant
+    from src.participant_api.middleware import get_current_participant
 
     app = FastAPI()
 

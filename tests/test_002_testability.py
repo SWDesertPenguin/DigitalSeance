@@ -23,7 +23,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 from src.auth.service import AuthService
-from src.mcp_server.middleware import _get_client_ip
+from src.participant_api.middleware import _get_client_ip
 from src.repositories.errors import (
     IPBindingMismatchError,
     NotFacilitatorError,

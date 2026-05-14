@@ -2,7 +2,7 @@
 
 """Unit coverage for the spec 029 admin endpoint resolver helpers.
 
-The endpoint route in ``src/mcp_server/tools/admin.py`` reads three env
+The endpoint route in ``src/participant_api/tools/admin.py`` reads three env
 vars at call time. These tests validate the parsers without spinning up
 a FastAPI app or hitting the DB:
 
@@ -19,7 +19,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from src.mcp_server.tools import admin
+from src.participant_api.tools import admin
 
 
 @pytest.fixture(autouse=True)

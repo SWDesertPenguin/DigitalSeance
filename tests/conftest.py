@@ -49,7 +49,7 @@ os.environ.setdefault(
 def _spec_020_register_adapters() -> None:
     """Spec 020: ensure both adapters are registered for the test session.
 
-    Production-path init runs in `src/mcp_server/app.py:_lifespan`. Tests
+    Production-path init runs in `src/participant_api/app.py:_lifespan`. Tests
     that exercise dispatch outside of the FastAPI lifespan (e.g.,
     `test_loop_integration.py`'s direct `loop.execute_turn(...)` calls
     via `mock_litellm`) need the LiteLLM adapter registered so
@@ -161,6 +161,11 @@ def _get_schema_sql() -> list[str]:
         _compression_log_ddl(),
         _detection_events_ddl(),
         _facilitator_notes_ddl(),
+        _oauth_clients_ddl(),
+        _oauth_token_families_ddl(),
+        _oauth_authorization_codes_ddl(),
+        _oauth_refresh_tokens_ddl(),
+        _oauth_access_tokens_ddl(),
         _provider_circuit_open_log_ddl(),
         _provider_circuit_probe_log_ddl(),
         _provider_circuit_close_log_ddl(),
@@ -259,7 +264,8 @@ _PARTICIPANTS_TABLE_DDL = """
         bound_ip TEXT,
         wait_mode TEXT NOT NULL DEFAULT 'wait_for_human',
         standby_cycle_count INTEGER NOT NULL DEFAULT 0,
-        wait_mode_metadata TEXT NOT NULL DEFAULT '{}'
+        wait_mode_metadata TEXT NOT NULL DEFAULT '{}',
+        mcp_oauth_migration_prompted_at TIMESTAMPTZ
     )
 """
 
@@ -652,6 +658,38 @@ def _detection_events_ddl() -> str:
     """
 
 
+def _oauth_clients_ddl() -> str:
+    """spec 030 Phase 4 — alembic 022 mirror; per-MCP-client CIMD registrations."""
+    return """
+        CREATE TABLE oauth_clients (
+            client_id TEXT PRIMARY KEY,
+            cimd_url TEXT NOT NULL,
+            cimd_content JSONB NOT NULL,
+            redirect_uris TEXT[] NOT NULL DEFAULT '{}',
+            allowed_scopes TEXT[] NOT NULL DEFAULT '{}',
+            registration_status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (registration_status IN ('pending', 'approved', 'revoked')),
+            registered_at TIMESTAMPTZ NOT NULL,
+            revoked_at TIMESTAMPTZ,
+            CONSTRAINT oauth_clients_cimd_url_uniq UNIQUE (cimd_url)
+        )
+    """
+
+
+def _oauth_token_families_ddl() -> str:
+    """spec 030 Phase 4 — alembic 022 mirror; family tracking for replay detection."""
+    return """
+        CREATE TABLE oauth_token_families (
+            family_id TEXT PRIMARY KEY,
+            participant_id TEXT NOT NULL,
+            client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+            root_token_hash TEXT NOT NULL,
+            started_at TIMESTAMPTZ NOT NULL,
+            revoked_at TIMESTAMPTZ
+        )
+    """
+
+
 def _provider_circuit_open_log_ddl() -> str:
     # spec 015 alembic 023: circuit open audit rows (FR-012, US3 AS1).
     # Append-only; no FK constraints (audit survives session deletion per 007 pattern).
@@ -684,6 +722,61 @@ def _provider_circuit_probe_log_ddl() -> str:
             probe_latency_ms INTEGER NOT NULL,
             schedule_position INTEGER NOT NULL,
             schedule_exhausted BOOLEAN NOT NULL DEFAULT FALSE
+        )
+    """
+
+
+def _oauth_authorization_codes_ddl() -> str:
+    """spec 030 Phase 4 — alembic 022 mirror; short-lived PKCE-bound authorization codes."""
+    return """
+        CREATE TABLE oauth_authorization_codes (
+            code_hash TEXT PRIMARY KEY,
+            client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+            participant_id TEXT NOT NULL,
+            redirect_uri TEXT NOT NULL,
+            code_challenge TEXT NOT NULL,
+            code_challenge_method TEXT NOT NULL DEFAULT 'S256'
+                CHECK (code_challenge_method = 'S256'),
+            scope TEXT[] NOT NULL DEFAULT '{}',
+            issued_at TIMESTAMPTZ NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            redeemed_at TIMESTAMPTZ
+        )
+    """
+
+
+def _oauth_refresh_tokens_ddl() -> str:
+    """spec 030 Phase 4 — alembic 022 mirror; Fernet-encrypted opaque refresh tokens."""
+    return """
+        CREATE TABLE oauth_refresh_tokens (
+            token_hash TEXT PRIMARY KEY,
+            encrypted_token BYTEA NOT NULL,
+            participant_id TEXT NOT NULL,
+            client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+            scope TEXT[] NOT NULL DEFAULT '{}',
+            issued_at TIMESTAMPTZ NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            rotated_at TIMESTAMPTZ,
+            revoked_at TIMESTAMPTZ,
+            family_id TEXT NOT NULL REFERENCES oauth_token_families(family_id) ON DELETE CASCADE,
+            parent_token_hash TEXT REFERENCES oauth_refresh_tokens(token_hash)
+        )
+    """
+
+
+def _oauth_access_tokens_ddl() -> str:
+    """spec 030 Phase 4 — alembic 022 mirror; per-JTI revocation pointers for JWT tokens."""
+    return """
+        CREATE TABLE oauth_access_tokens (
+            jti TEXT PRIMARY KEY,
+            participant_id TEXT NOT NULL,
+            client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+            scope TEXT[] NOT NULL DEFAULT '{}',
+            issued_at TIMESTAMPTZ NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            revoked_at TIMESTAMPTZ,
+            family_id TEXT NOT NULL REFERENCES oauth_token_families(family_id) ON DELETE CASCADE,
+            auth_time TIMESTAMPTZ NOT NULL
         )
     """
 
@@ -850,8 +943,12 @@ async def _truncate_all(pool: asyncpg.Pool) -> None:
             " session_register, participant_register_override,"
             " account_participants, accounts,"
             " messages, branches,"
+            " oauth_access_tokens, oauth_refresh_tokens,"
+            " oauth_authorization_codes, oauth_token_families,"
+            " oauth_clients,"
             " provider_circuit_open_log, provider_circuit_probe_log,"
-            " provider_circuit_close_log"
+            " provider_circuit_close_log,"
+            " facilitator_notes"
             " CASCADE"
         )
         await conn.execute("UPDATE sessions SET facilitator_id = NULL")
@@ -980,7 +1077,7 @@ def mcp_app() -> object:
     recurring middleware-state-leak bug class in feature 012 US7
     (FR-009).
     """
-    from src.mcp_server.app import create_app
+    from src.participant_api.app import create_app
 
     return create_app()
 

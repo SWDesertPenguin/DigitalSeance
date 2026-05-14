@@ -206,7 +206,7 @@ def test_discovery_handler_returns_stub_when_disabled(monkeypatch) -> None:
     per US1 AS3.
     """
     monkeypatch.delenv("SACP_TOOL_DEFER_ENABLED", raising=False)
-    from src.mcp_server.tools.deferred_tools import _STUB_RESPONSE
+    from src.participant_api.tools.deferred_tools import _STUB_RESPONSE
 
     # Validate the stub shape — handlers return a dict-copy of this constant.
     assert _STUB_RESPONSE["status"] == "deferred_loading_disabled"

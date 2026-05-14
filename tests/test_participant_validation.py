@@ -7,12 +7,12 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from src.mcp_server.tools.facilitator import (
+from src.participant_api.tools.facilitator import (
     _MAX_FACILITATOR_EDIT_CHARS,
     _AddParticipantBody,
     _EditDraftBody,
 )
-from src.mcp_server.tools.participant import (
+from src.participant_api.tools.participant import (
     MAX_MESSAGE_CONTENT_CHARS,
     _AddAIBody,
     _InjectMessageBody,
@@ -108,7 +108,7 @@ def test_edit_draft_accepts_above_inject_cap():
 def test_set_routing_body_accepts_optional_reason():
     """The Honor-exit button passes reason='honored_exit' so the backend can
     decide whether to post a transcript notice."""
-    from src.mcp_server.tools.facilitator import _SetRoutingBody
+    from src.participant_api.tools.facilitator import _SetRoutingBody
 
     body_no_reason = _SetRoutingBody(participant_id="p1", preference="observer")
     assert body_no_reason.reason is None
@@ -149,7 +149,7 @@ def test_add_ai_rejects_unknown_provider():
 
 # --- Reset AI credentials body — empty-swap guard ----------------------------
 
-from src.mcp_server.tools.facilitator import _ResetAICredentialsBody  # noqa: E402
+from src.participant_api.tools.facilitator import _ResetAICredentialsBody  # noqa: E402
 
 
 def test_reset_credentials_accepts_keep_current_via_none():

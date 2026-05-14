@@ -32,7 +32,7 @@ def _make_app(*, enabled: bool) -> object:
     """Build a minimal FastAPI app with the metrics router conditionally included."""
     from fastapi import FastAPI
 
-    from src.mcp_server.metrics_router import router as metrics_router
+    from src.participant_api.metrics_router import router as metrics_router
 
     app = FastAPI()
     if enabled:

@@ -699,6 +699,316 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Source spec(s)**: 027 §FR-019 (per-session pivot cap)
 - **Note**: When the cap is exhausted, subsequent would-have-pivoted conditions log `routing_log.reason='pivot_skipped_rate_cap'` and the participant remains in standby without the long-term-observer transition firing automatically (FR-020 sub-state requires the pivot to actually fire). Resolved per Session 2026-05-12 Q6 — per-session scope, not per-participant; per-participant capping is a future amendment.
 
+### `SACP_MCP_PROTOCOL_ENABLED`
+
+- **Default**: `false`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_protocol_enabled`
+- **Source spec(s)**: 030 Phase 2 FR-034 (MCP Streamable HTTP master switch)
+- **Note**: When `'false'` (default), POST /mcp returns HTTP 404. The discovery endpoint `/.well-known/mcp-server` remains active and responds with `{"enabled": false}` per FR-024 + SC-023 so clients can discover the switch state without assuming availability.
+
+### `SACP_MCP_SESSION_IDLE_TIMEOUT_SECONDS`
+
+- **Default**: `1800` (30 minutes)
+- **Type**: positive integer (seconds)
+- **Valid range**: `60 <= value <= 86400` (inclusive — 1 minute to 1 day)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_session_idle_timeout_seconds`
+- **Source spec(s)**: 030 Phase 2 FR-034 (MCP session idle expiry)
+- **Note**: When a session has received no requests for this many seconds, the next request returns HTTP 404 with JSON-RPC error -32003 and `data.reason = "mcp_session_expired"`. Clients must re-initialize. The 60s floor prevents impractically short windows; the 86400s ceiling prevents idle sessions from accumulating indefinitely past the hard max-lifetime cap.
+
+### `SACP_MCP_SESSION_MAX_LIFETIME_SECONDS`
+
+- **Default**: `86400` (24 hours)
+- **Type**: positive integer (seconds)
+- **Valid range**: `600 <= value <= 604800` (inclusive — 10 minutes to 7 days)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_session_max_lifetime_seconds`
+- **Source spec(s)**: 030 Phase 2 FR-034 (MCP session hard lifetime cap)
+- **Note**: Hard cap enforced regardless of activity. Even a continuously active session is evicted after this many seconds from its `created_at`. Prevents indefinite accumulation of in-memory session state across long-running client connections. Server restart always evicts all sessions; this cap governs within-process accumulation.
+
+### `SACP_MCP_MAX_CONCURRENT_SESSIONS`
+
+- **Default**: `100`
+- **Type**: positive integer
+- **Valid range**: `1 <= value <= 10000` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_max_concurrent_sessions`
+- **Source spec(s)**: 030 Phase 2 FR-034 (MCP concurrent-session cap)
+- **Note**: Per-instance in-memory cap. When the active session count reaches this value, subsequent `initialize` requests return HTTP 503 with a `Retry-After: 30` header (FR-027). Clients should back off and retry. Scale by increasing this value if the workload legitimately exceeds the default; note that each session consumes heap memory proportional to its metadata.
+
+### `SACP_MCP_TOOL_SESSION_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_session_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — session)
+- **Note**: When `'false'`, session.* tools are absent from tools/list and any tools/call for a session.* tool returns SACP_E_NOT_FOUND per FR-061.
+
+### `SACP_MCP_TOOL_PARTICIPANT_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_participant_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — participant)
+- **Note**: When `'false'`, participant.* tools are absent from tools/list and return SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_PROPOSAL_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_proposal_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — proposal)
+- **Note**: When `'false'`, proposal.* tools are absent from tools/list and return SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_REVIEW_GATE_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_review_gate_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — review_gate)
+- **Note**: When `'false'`, review_gate.* tools are absent from tools/list and return SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_DEBUG_EXPORT_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_debug_export_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — debug_export)
+- **Note**: When `'false'`, debug.* tools are absent from tools/list and return SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_AUDIT_LOG_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_audit_log_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — audit_log)
+- **Note**: When `'false'`, admin.get_audit_log is absent from tools/list and returns SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_DETECTION_EVENTS_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_detection_events_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — detection_events)
+- **Note**: When `'false'`, detection_events.* tools are absent from tools/list and return SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_SCRATCH_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_scratch_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — scratch)
+- **Note**: When `'false'`, scratch.* tools are absent from tools/list and return SACP_E_NOT_FOUND on call. Scratch tools return stub errors when spec 024 is not implemented.
+
+### `SACP_MCP_TOOL_PROVIDER_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_provider_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — provider)
+- **Note**: When `'false'`, provider.* tools are absent from tools/list and return SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_ADMIN_ENABLED`
+
+- **Default**: `true`
+- **Type**: bool-string enum (`'true'` / `'false'`, case-sensitive)
+- **Valid range**: `'true'` or `'false'` only; any other value exits at startup
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_admin_enabled`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool category switch — admin)
+- **Note**: When `'false'`, admin.list_sessions, admin.list_participants, admin.transfer_facilitator, and admin.archive_session are absent from tools/list and return SACP_E_NOT_FOUND on call.
+
+### `SACP_MCP_TOOL_IDEMPOTENCY_RETENTION_HOURS`
+
+- **Default**: `24`
+- **Type**: positive integer (hours)
+- **Valid range**: `1 <= value <= 168` (inclusive — 1 hour to 7 days)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_idempotency_retention_hours`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool idempotency window)
+- **Note**: Idempotency keys are stored in admin_audit_log. Re-submissions within this window return the original result without re-executing the tool. After this window, a re-submission with the same key is treated as a fresh call.
+
+### `SACP_MCP_TOOL_DEPRECATION_HORIZON_DAYS`
+
+- **Default**: `90`
+- **Type**: positive integer (days)
+- **Valid range**: `7 <= value <= 365` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_deprecation_horizon_days`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool deprecation window)
+- **Note**: Tools with a `deprecatedAt` timestamp remain in the registry for this many days after deprecation. After the window closes, the tool is removed from the registry entirely. Clients should migrate before the horizon.
+
+### `SACP_MCP_TOOL_PAGINATION_DEFAULT_SIZE`
+
+- **Default**: `50`
+- **Type**: positive integer
+- **Valid range**: `1 <= value <= 1000` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_pagination_default_size`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool pagination default)
+- **Note**: Applied when a caller invokes a paginated tool without specifying page_size. Bounded by SACP_MCP_TOOL_PAGINATION_MAX_SIZE.
+
+### `SACP_MCP_TOOL_PAGINATION_MAX_SIZE`
+
+- **Default**: `500`
+- **Type**: positive integer
+- **Valid range**: `10 <= value <= 10000` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_tool_pagination_max_size`
+- **Source spec(s)**: 030 Phase 3 FR-069 (MCP tool pagination ceiling)
+- **Note**: Hard ceiling for page_size on any paginated MCP tool response. Callers requesting more receive the ceiling value, not an error.
+
+### `SACP_OAUTH_ENABLED`
+
+- **Default**: `false`
+- **Type**: boolean (`true`/`false`)
+- **Valid range**: `true` or `false`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_enabled`
+- **Source spec(s)**: 030 Phase 4 FR-088 (OAuth 2.1 master switch)
+- **Note**: Master switch for the OAuth 2.1 + PKCE authorization server. When `true`, `SACP_OAUTH_SIGNING_KEY_PATH` must point to a readable ES256 PEM private key or startup exits.
+
+### `SACP_OAUTH_ACCESS_TOKEN_TTL_MINUTES`
+
+- **Default**: `60`
+- **Type**: positive integer (minutes)
+- **Valid range**: `5 <= value <= 1440` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_access_token_ttl_minutes`
+- **Source spec(s)**: 030 Phase 4 FR-088 (JWT access token lifetime)
+- **Note**: Lifetime of issued JWT access tokens. Shorter values limit blast radius of compromised tokens.
+
+### `SACP_OAUTH_REFRESH_TOKEN_TTL_DAYS`
+
+- **Default**: `30`
+- **Type**: positive integer (days)
+- **Valid range**: `1 <= value <= 365` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_refresh_token_ttl_days`
+- **Source spec(s)**: 030 Phase 4 FR-088 (opaque refresh token lifetime)
+- **Note**: Lifetime of issued opaque refresh tokens. Refresh tokens are Fernet-encrypted at rest and indexed by SHA-256 hash.
+
+### `SACP_OAUTH_AUTH_CODE_TTL_SECONDS`
+
+- **Default**: `60`
+- **Type**: positive integer (seconds)
+- **Valid range**: `10 <= value <= 600` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_auth_code_ttl_seconds`
+- **Source spec(s)**: 030 Phase 4 FR-088 (PKCE authorization code lifetime)
+- **Note**: Lifetime of short-lived PKCE authorization codes. Codes are single-use; this TTL prevents stale codes from replay.
+
+### `SACP_OAUTH_CLIENT_REGISTRATION_MODE`
+
+- **Default**: `allowlist`
+- **Type**: enum
+- **Valid range**: `open`, `allowlist`, or `closed`
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_client_registration_mode`
+- **Source spec(s)**: 030 Phase 4 FR-088 (CIMD client registration policy)
+- **Note**: Controls CIMD-based client registration. `open` accepts all, `allowlist` restricts to `SACP_OAUTH_CIMD_ALLOWED_HOSTS` domains, `closed` rejects all new registrations.
+
+### `SACP_OAUTH_STATIC_TOKEN_GRACE_DAYS`
+
+- **Default**: `90`
+- **Type**: non-negative integer (days)
+- **Valid range**: `0 <= value <= 365` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_static_token_grace_days`
+- **Source spec(s)**: 030 Phase 4 FR-088 (static token migration grace period)
+- **Note**: Days after first migration-prompt before static bearer tokens on the MCP endpoint are hard-rejected. 0 means immediate rejection after first prompt. The participant_api static token path is unaffected.
+
+### `SACP_OAUTH_STEP_UP_FRESHNESS_SECONDS`
+
+- **Default**: `300`
+- **Type**: positive integer (seconds)
+- **Valid range**: `30 <= value <= 3600` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_step_up_freshness_seconds`
+- **Source spec(s)**: 030 Phase 4 FR-088 (step-up auth freshness window)
+- **Note**: Freshness window for step-up authentication on destructive tools (admin.transfer_facilitator, admin.archive_session, admin.mass_revoke_tokens, session.delete). If auth_time in the JWT is older than this value, step-up is required.
+
+### `SACP_OAUTH_REVOCATION_PROPAGATION_SECONDS`
+
+- **Default**: `5`
+- **Type**: positive integer (seconds)
+- **Valid range**: `1 <= value <= 60` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_revocation_propagation_seconds`
+- **Source spec(s)**: 030 Phase 4 FR-088 (revocation propagation SLA)
+- **Note**: Aspirational SLA for revocation events to propagate to active MCP transport connections. Bounded by `SACP_MCP_TOKEN_CACHE_TTL_SECONDS`.
+
+### `SACP_OAUTH_SIGNING_KEY_PATH`
+
+- **Default**: (none — required when `SACP_OAUTH_ENABLED=true`)
+- **Type**: filesystem path
+- **Valid range**: readable file when set
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_signing_key_path`
+- **Source spec(s)**: 030 Phase 4 FR-088 (ES256 signing key)
+- **Note**: Path to the ES256 PEM private key used to sign JWT access tokens. Required when OAuth is enabled. Startup exits with a clear error if the path is unset or unreadable.
+
+### `SACP_OAUTH_FAILED_PKCE_THRESHOLD`
+
+- **Default**: `10`
+- **Type**: positive integer
+- **Valid range**: `1 <= value <= 1000` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_failed_pkce_threshold`
+- **Source spec(s)**: 030 Phase 4 FR-088 (PKCE brute-force protection)
+- **Note**: Per-client threshold for failed PKCE verifier attempts before a temporary block is applied. Protects against brute-force code_challenge enumeration per FR-072.
+
+### `SACP_OAUTH_CIMD_ALLOWED_HOSTS`
+
+- **Default**: `""` (empty — all hosts permitted in open mode)
+- **Type**: comma-separated list of hostnames
+- **Valid range**: valid hostname labels
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_cimd_allowed_hosts`
+- **Source spec(s)**: 030 Phase 4 FR-088 (CIMD allowlist)
+- **Note**: Allowlist of hostname labels for CIMD URL validation when `SACP_OAUTH_CLIENT_REGISTRATION_MODE=allowlist`. Empty means all hosts are allowed in `open` mode. Irrelevant in `closed` mode.
+
+### `SACP_MCP_TOKEN_CACHE_TTL_SECONDS`
+
+- **Default**: `5`
+- **Type**: positive integer (seconds)
+- **Valid range**: `1 <= value <= 30` (inclusive)
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_mcp_token_cache_ttl_seconds`
+- **Source spec(s)**: 030 Phase 4 FR-094 (JWT validation cache TTL)
+- **Note**: Per-instance JWT validation cache TTL. Revocations propagate within this window. Lower values reduce revocation latency at the cost of more DB lookups on cache miss.
+
+### `SACP_OAUTH_PREVIOUS_SIGNING_KEY_PATH`
+
+- **Default**: (none — optional)
+- **Type**: filesystem path
+- **Valid range**: readable file if set
+- **Blast radius on invalid**: V16 startup validator refuses to bind ports
+- **Validation rule**: `validators.validate_sacp_oauth_previous_signing_key_path`
+- **Source spec(s)**: 030 Phase 4 FR-088 (key rotation fallback)
+- **Note**: Optional path to the previous ES256 PEM private key used as a fallback verification key during key rotation. Not required; validated only when set.
+
 ### `SACP_TOOL_DEFER_ENABLED`
 
 - **Default**: `false` (off — opt-in master switch ships disabled; Phase-1 design-hooks cut state)

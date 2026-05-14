@@ -1555,6 +1555,665 @@ def validate_scratch_note_max_kb() -> ValidationFailure | None:
     return None
 
 
+def validate_sacp_mcp_protocol_enabled() -> ValidationFailure | None:
+    """SACP_MCP_PROTOCOL_ENABLED: bool, default 'false'. 030 Phase 2 FR-034.
+
+    Master switch for the MCP Streamable HTTP protocol surface. When 'false'
+    (default), POST /mcp returns HTTP 404 and the transport router is not
+    mounted. The discovery endpoint at /.well-known/mcp-server remains
+    available and responds with {"enabled": false}. Accepts only 'true' or
+    'false' (case-sensitive); any other value exits at startup.
+    """
+    val = os.environ.get("SACP_MCP_PROTOCOL_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_PROTOCOL_ENABLED",
+            f"must be 'true' or 'false' (case-sensitive); got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_session_idle_timeout_seconds() -> ValidationFailure | None:
+    """SACP_MCP_SESSION_IDLE_TIMEOUT_SECONDS: int [60, 86400], default 1800. 030 Phase 2 FR-034.
+
+    Idle timeout for an MCP session. When a session has received no requests
+    for this many seconds, the next request carrying its Mcp-Session-Id header
+    receives HTTP 404 with JSON-RPC error -32003. Below 60s is impractically
+    short for any real client; above 86400s (1 day) exceeds the max lifetime
+    floor and is rejected.
+    """
+    val = os.environ.get("SACP_MCP_SESSION_IDLE_TIMEOUT_SECONDS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_SESSION_IDLE_TIMEOUT_SECONDS",
+            f"must be integer; got {val!r}",
+        )
+    if not 60 <= num <= 86400:
+        return ValidationFailure(
+            "SACP_MCP_SESSION_IDLE_TIMEOUT_SECONDS",
+            f"must be in [60, 86400]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_mcp_session_max_lifetime_seconds() -> ValidationFailure | None:
+    """SACP_MCP_SESSION_MAX_LIFETIME_SECONDS: int [600, 604800], default 86400. 030 Phase 2 FR-034.
+
+    Hard lifetime cap for an MCP session regardless of activity. When a
+    session exceeds this age, the next request returns HTTP 404 with JSON-RPC
+    error -32003. Minimum 600s (10 minutes) ensures the session is long enough
+    to be useful; maximum 604800s (7 days) prevents indefinite accumulation of
+    in-memory session state.
+    """
+    val = os.environ.get("SACP_MCP_SESSION_MAX_LIFETIME_SECONDS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_SESSION_MAX_LIFETIME_SECONDS",
+            f"must be integer; got {val!r}",
+        )
+    if not 600 <= num <= 604800:
+        return ValidationFailure(
+            "SACP_MCP_SESSION_MAX_LIFETIME_SECONDS",
+            f"must be in [600, 604800]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_mcp_max_concurrent_sessions() -> ValidationFailure | None:
+    """SACP_MCP_MAX_CONCURRENT_SESSIONS: int [1, 10000], default 100. 030 Phase 2 FR-034.
+
+    Per-instance cap on simultaneous active MCP sessions. When the in-memory
+    session store reaches this count, subsequent initialize requests return
+    HTTP 503 with a Retry-After header. Below 1 would disable the MCP surface
+    entirely; above 10000 risks unbounded memory growth on underpowered hosts.
+    """
+    val = os.environ.get("SACP_MCP_MAX_CONCURRENT_SESSIONS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_MAX_CONCURRENT_SESSIONS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 10000:
+        return ValidationFailure(
+            "SACP_MCP_MAX_CONCURRENT_SESSIONS",
+            f"must be in [1, 10000]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_session_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_SESSION_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069.
+
+    Category switch for session management tools in the MCP tool registry.
+    When 'false', session.* tools are absent from tools/list and tools/call
+    returns SACP_E_NOT_FOUND per FR-061.
+    """
+    val = os.environ.get("SACP_MCP_TOOL_SESSION_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_SESSION_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_participant_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_PARTICIPANT_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_PARTICIPANT_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_PARTICIPANT_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_proposal_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_PROPOSAL_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_PROPOSAL_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_PROPOSAL_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_review_gate_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_REVIEW_GATE_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_REVIEW_GATE_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_REVIEW_GATE_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_debug_export_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_DEBUG_EXPORT_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_DEBUG_EXPORT_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_DEBUG_EXPORT_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_audit_log_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_AUDIT_LOG_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_AUDIT_LOG_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_AUDIT_LOG_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_detection_events_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_DETECTION_EVENTS_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_DETECTION_EVENTS_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_DETECTION_EVENTS_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_scratch_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_SCRATCH_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_SCRATCH_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_SCRATCH_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_provider_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_PROVIDER_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_PROVIDER_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_PROVIDER_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_admin_enabled() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_ADMIN_ENABLED: bool-string, default 'true'. 030 Phase 3 FR-069."""
+    val = os.environ.get("SACP_MCP_TOOL_ADMIN_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_MCP_TOOL_ADMIN_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_idempotency_retention_hours() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_IDEMPOTENCY_RETENTION_HOURS: int [1, 168], default 24. 030 Phase 3 FR-069.
+
+    How long idempotency keys are retained in admin_audit_log for deduplication.
+    168 hours = 7 days is the maximum sensible window; 1 hour is the minimum
+    that provides any meaningful deduplication across a real client session.
+    """
+    val = os.environ.get("SACP_MCP_TOOL_IDEMPOTENCY_RETENTION_HOURS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_IDEMPOTENCY_RETENTION_HOURS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 168:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_IDEMPOTENCY_RETENTION_HOURS",
+            f"must be in [1, 168]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_deprecation_horizon_days() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_DEPRECATION_HORIZON_DAYS: int [7, 365], default 90. 030 Phase 3 FR-069.
+
+    Number of days a tool remains in the registry after its deprecatedAt date
+    before being removed. Clients have this window to migrate to the replacement.
+    """
+    val = os.environ.get("SACP_MCP_TOOL_DEPRECATION_HORIZON_DAYS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_DEPRECATION_HORIZON_DAYS",
+            f"must be integer; got {val!r}",
+        )
+    if not 7 <= num <= 365:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_DEPRECATION_HORIZON_DAYS",
+            f"must be in [7, 365]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_pagination_default_size() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_PAGINATION_DEFAULT_SIZE: int [1, 1000], default 50. 030 Phase 3 FR-069.
+
+    Default page size for paginated MCP tool responses when the caller does not
+    supply a cursor or page_size parameter.
+    """
+    val = os.environ.get("SACP_MCP_TOOL_PAGINATION_DEFAULT_SIZE")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_PAGINATION_DEFAULT_SIZE",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 1000:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_PAGINATION_DEFAULT_SIZE",
+            f"must be in [1, 1000]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_mcp_tool_pagination_max_size() -> ValidationFailure | None:
+    """SACP_MCP_TOOL_PAGINATION_MAX_SIZE: int [10, 10000], default 500. 030 Phase 3 FR-069.
+
+    Hard ceiling for page_size on any paginated MCP tool. Callers requesting
+    more than this value receive the ceiling, not an error.
+    """
+    val = os.environ.get("SACP_MCP_TOOL_PAGINATION_MAX_SIZE")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_PAGINATION_MAX_SIZE",
+            f"must be integer; got {val!r}",
+        )
+    if not 10 <= num <= 10000:
+        return ValidationFailure(
+            "SACP_MCP_TOOL_PAGINATION_MAX_SIZE",
+            f"must be in [10, 10000]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_enabled() -> ValidationFailure | None:
+    """SACP_OAUTH_ENABLED: bool, default 'false'. 030 Phase 4 FR-088.
+
+    Master switch for the OAuth 2.1 + PKCE authorization server. When 'true',
+    SACP_OAUTH_SIGNING_KEY_PATH must point to a readable ES256 PEM private key.
+    """
+    val = os.environ.get("SACP_OAUTH_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val.lower() not in ("true", "false"):
+        return ValidationFailure(
+            "SACP_OAUTH_ENABLED",
+            f"must be 'true' or 'false'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_oauth_access_token_ttl_minutes() -> ValidationFailure | None:
+    """SACP_OAUTH_ACCESS_TOKEN_TTL_MINUTES: int [5, 1440], default 60. 030 Phase 4 FR-088.
+
+    Lifetime of issued JWT access tokens in minutes. Shorter values limit
+    the blast radius of a compromised token; longer values reduce client
+    refresh frequency.
+    """
+    val = os.environ.get("SACP_OAUTH_ACCESS_TOKEN_TTL_MINUTES")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_OAUTH_ACCESS_TOKEN_TTL_MINUTES",
+            f"must be integer; got {val!r}",
+        )
+    if not 5 <= num <= 1440:
+        return ValidationFailure(
+            "SACP_OAUTH_ACCESS_TOKEN_TTL_MINUTES",
+            f"must be in [5, 1440]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_refresh_token_ttl_days() -> ValidationFailure | None:
+    """SACP_OAUTH_REFRESH_TOKEN_TTL_DAYS: int [1, 365], default 30. 030 Phase 4 FR-088.
+
+    Lifetime of issued opaque refresh tokens in days.
+    """
+    val = os.environ.get("SACP_OAUTH_REFRESH_TOKEN_TTL_DAYS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_OAUTH_REFRESH_TOKEN_TTL_DAYS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 365:
+        return ValidationFailure(
+            "SACP_OAUTH_REFRESH_TOKEN_TTL_DAYS",
+            f"must be in [1, 365]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_auth_code_ttl_seconds() -> ValidationFailure | None:
+    """SACP_OAUTH_AUTH_CODE_TTL_SECONDS: int [10, 600], default 60. 030 Phase 4 FR-088.
+
+    Lifetime of short-lived PKCE authorization codes in seconds. Codes are
+    single-use; this TTL prevents stale codes from being replayed.
+    """
+    val = os.environ.get("SACP_OAUTH_AUTH_CODE_TTL_SECONDS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_OAUTH_AUTH_CODE_TTL_SECONDS",
+            f"must be integer; got {val!r}",
+        )
+    if not 10 <= num <= 600:
+        return ValidationFailure(
+            "SACP_OAUTH_AUTH_CODE_TTL_SECONDS",
+            f"must be in [10, 600]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_client_registration_mode() -> ValidationFailure | None:
+    """SACP_OAUTH_CLIENT_REGISTRATION_MODE: enum, default 'allowlist'. 030 Phase 4 FR-088.
+
+    Controls how CIMD-based client registrations are accepted:
+    'open' accepts all, 'allowlist' restricts to operator-configured domains,
+    'closed' rejects all new registrations.
+    """
+    val = os.environ.get("SACP_OAUTH_CLIENT_REGISTRATION_MODE")
+    if val is None or val.strip() == "":
+        return None
+    if val not in ("open", "allowlist", "closed"):
+        return ValidationFailure(
+            "SACP_OAUTH_CLIENT_REGISTRATION_MODE",
+            f"must be 'open', 'allowlist', or 'closed'; got {val!r}",
+        )
+    return None
+
+
+def validate_sacp_oauth_static_token_grace_days() -> ValidationFailure | None:
+    """SACP_OAUTH_STATIC_TOKEN_GRACE_DAYS: int [0, 365], default 90. 030 Phase 4 FR-088.
+
+    Days after first migration-prompt before static tokens on the MCP endpoint
+    are hard-rejected. 0 means immediate rejection after first prompt.
+    """
+    val = os.environ.get("SACP_OAUTH_STATIC_TOKEN_GRACE_DAYS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_OAUTH_STATIC_TOKEN_GRACE_DAYS",
+            f"must be integer; got {val!r}",
+        )
+    if not 0 <= num <= 365:
+        return ValidationFailure(
+            "SACP_OAUTH_STATIC_TOKEN_GRACE_DAYS",
+            f"must be in [0, 365]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_step_up_freshness_seconds() -> ValidationFailure | None:
+    """SACP_OAUTH_STEP_UP_FRESHNESS_SECONDS: int [30, 3600], default 300. 030 Phase 4 FR-088.
+
+    Freshness window in seconds for step-up authentication on destructive tools.
+    If auth_time in the JWT is older than this value, step-up is required.
+    """
+    val = os.environ.get("SACP_OAUTH_STEP_UP_FRESHNESS_SECONDS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_OAUTH_STEP_UP_FRESHNESS_SECONDS",
+            f"must be integer; got {val!r}",
+        )
+    if not 30 <= num <= 3600:
+        return ValidationFailure(
+            "SACP_OAUTH_STEP_UP_FRESHNESS_SECONDS",
+            f"must be in [30, 3600]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_revocation_propagation_seconds() -> ValidationFailure | None:
+    """SACP_OAUTH_REVOCATION_PROPAGATION_SECONDS: int [1, 60], default 5. 030 Phase 4 FR-088.
+
+    Target SLA in seconds for revocation events to propagate to active MCP
+    transport connections. Bounded by the JWT cache TTL.
+    """
+    val = os.environ.get("SACP_OAUTH_REVOCATION_PROPAGATION_SECONDS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_OAUTH_REVOCATION_PROPAGATION_SECONDS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 60:
+        return ValidationFailure(
+            "SACP_OAUTH_REVOCATION_PROPAGATION_SECONDS",
+            f"must be in [1, 60]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_signing_key_path() -> ValidationFailure | None:
+    """SACP_OAUTH_SIGNING_KEY_PATH: path, no default. Required when OAUTH_ENABLED=true. 030 Phase 4.
+
+    Filesystem path to the ES256 PEM private key used to sign JWT access tokens.
+    Required when SACP_OAUTH_ENABLED=true; must be a readable file.
+    """
+    oauth_enabled = os.environ.get("SACP_OAUTH_ENABLED", "false").lower() == "true"
+    val = os.environ.get("SACP_OAUTH_SIGNING_KEY_PATH")
+    if not oauth_enabled:
+        return None
+    if val is None or val.strip() == "":
+        return ValidationFailure(
+            "SACP_OAUTH_SIGNING_KEY_PATH",
+            "required when SACP_OAUTH_ENABLED=true; no path set",
+        )
+    import pathlib
+
+    p = pathlib.Path(val.strip())
+    if not p.exists():
+        return ValidationFailure(
+            "SACP_OAUTH_SIGNING_KEY_PATH",
+            f"file does not exist: {val!r}",
+        )
+    if not p.is_file():
+        return ValidationFailure(
+            "SACP_OAUTH_SIGNING_KEY_PATH",
+            f"path is not a regular file: {val!r}",
+        )
+    try:
+        p.read_bytes()
+    except OSError as exc:
+        return ValidationFailure(
+            "SACP_OAUTH_SIGNING_KEY_PATH",
+            f"not readable: {exc}",
+        )
+    return None
+
+
+def validate_sacp_oauth_failed_pkce_threshold() -> ValidationFailure | None:
+    """SACP_OAUTH_FAILED_PKCE_THRESHOLD: int [1, 1000], default 10. 030 Phase 4 FR-088.
+
+    Per-client threshold for failed PKCE verifier attempts before a temporary
+    block is applied. Protects against brute-force code_challenge enumeration.
+    """
+    val = os.environ.get("SACP_OAUTH_FAILED_PKCE_THRESHOLD")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_OAUTH_FAILED_PKCE_THRESHOLD",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 1000:
+        return ValidationFailure(
+            "SACP_OAUTH_FAILED_PKCE_THRESHOLD",
+            f"must be in [1, 1000]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_cimd_allowed_hosts() -> ValidationFailure | None:
+    """SACP_OAUTH_CIMD_ALLOWED_HOSTS: csv-of-hostnames, default '' (empty=all). 030 Phase 4 FR-088.
+
+    Comma-separated list of allowed hostname labels for CIMD URL validation
+    when registration mode is 'allowlist'. Empty means all hosts are permitted
+    in 'open' mode; irrelevant in 'closed' mode.
+    """
+    val = os.environ.get("SACP_OAUTH_CIMD_ALLOWED_HOSTS")
+    if val is None or val.strip() == "":
+        return None
+    import re as _re
+
+    _hostname_re = _re.compile(
+        r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?"
+        r"(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$"
+    )
+    for raw in val.split(","):
+        host = raw.strip()
+        if not host:
+            continue
+        if not _hostname_re.match(host):
+            return ValidationFailure(
+                "SACP_OAUTH_CIMD_ALLOWED_HOSTS",
+                f"invalid hostname in list: {host!r}",
+            )
+    return None
+
+
+def validate_sacp_mcp_token_cache_ttl_seconds() -> ValidationFailure | None:
+    """SACP_MCP_TOKEN_CACHE_TTL_SECONDS: int [1, 30], default 5. 030 Phase 4 FR-094.
+
+    Per-instance JWT validation cache TTL in seconds. Revocations propagate
+    within this window; lower values reduce revocation latency at the cost of
+    more DB round-trips.
+    """
+    val = os.environ.get("SACP_MCP_TOKEN_CACHE_TTL_SECONDS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_MCP_TOKEN_CACHE_TTL_SECONDS",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 30:
+        return ValidationFailure(
+            "SACP_MCP_TOKEN_CACHE_TTL_SECONDS",
+            f"must be in [1, 30]; got {num}",
+        )
+    return None
+
+
+def validate_sacp_oauth_previous_signing_key_path() -> ValidationFailure | None:
+    """SACP_OAUTH_PREVIOUS_SIGNING_KEY_PATH: path, optional. 030 Phase 4 FR-088.
+
+    Filesystem path to the previous ES256 PEM private key for verification
+    during key rotation. Used as a fallback verification key when the primary
+    key cannot verify a token. Not required; only validated when set.
+    """
+    val = os.environ.get("SACP_OAUTH_PREVIOUS_SIGNING_KEY_PATH")
+    if val is None or val.strip() == "":
+        return None
+    import pathlib
+
+    p = pathlib.Path(val.strip())
+    if not p.exists():
+        return ValidationFailure(
+            "SACP_OAUTH_PREVIOUS_SIGNING_KEY_PATH",
+            f"file does not exist: {val!r}",
+        )
+    if not p.is_file():
+        return ValidationFailure(
+            "SACP_OAUTH_PREVIOUS_SIGNING_KEY_PATH",
+            f"path is not a regular file: {val!r}",
+        )
+    try:
+        p.read_bytes()
+    except OSError as exc:
+        return ValidationFailure(
+            "SACP_OAUTH_PREVIOUS_SIGNING_KEY_PATH",
+            f"not readable: {exc}",
+        )
+    return None
+
+
 def validate_scratch_retention_days_after_archive() -> ValidationFailure | None:
     """SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE: empty OR int in [1, 36500]. 024 §FR-018 / FR-022.
 
@@ -2089,39 +2748,39 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_sacp_tool_list_max_bytes,
     validate_sacp_tool_refresh_push_enabled,
     # ── spec 030 Phase 2 (MCP protocol) ── FR-034 ──────────────────────────
-    # validate_sacp_mcp_protocol_enabled,
-    # validate_sacp_mcp_session_idle_timeout_seconds,
-    # validate_sacp_mcp_session_max_lifetime_seconds,
-    # validate_sacp_mcp_max_concurrent_sessions,
+    validate_sacp_mcp_protocol_enabled,
+    validate_sacp_mcp_session_idle_timeout_seconds,
+    validate_sacp_mcp_session_max_lifetime_seconds,
+    validate_sacp_mcp_max_concurrent_sessions,
     # ── spec 030 Phase 3 (MCP tool mapping) ── FR-069 ──────────────────────
-    # validate_sacp_mcp_tool_session_enabled,
-    # validate_sacp_mcp_tool_participant_enabled,
-    # validate_sacp_mcp_tool_proposal_enabled,
-    # validate_sacp_mcp_tool_review_gate_enabled,
-    # validate_sacp_mcp_tool_debug_export_enabled,
-    # validate_sacp_mcp_tool_audit_log_enabled,
-    # validate_sacp_mcp_tool_detection_events_enabled,
-    # validate_sacp_mcp_tool_scratch_enabled,
-    # validate_sacp_mcp_tool_provider_enabled,
-    # validate_sacp_mcp_tool_admin_enabled,
-    # validate_sacp_mcp_tool_idempotency_retention_hours,
-    # validate_sacp_mcp_tool_deprecation_horizon_days,
-    # validate_sacp_mcp_tool_pagination_default_size,
-    # validate_sacp_mcp_tool_pagination_max_size,
+    validate_sacp_mcp_tool_session_enabled,
+    validate_sacp_mcp_tool_participant_enabled,
+    validate_sacp_mcp_tool_proposal_enabled,
+    validate_sacp_mcp_tool_review_gate_enabled,
+    validate_sacp_mcp_tool_debug_export_enabled,
+    validate_sacp_mcp_tool_audit_log_enabled,
+    validate_sacp_mcp_tool_detection_events_enabled,
+    validate_sacp_mcp_tool_scratch_enabled,
+    validate_sacp_mcp_tool_provider_enabled,
+    validate_sacp_mcp_tool_admin_enabled,
+    validate_sacp_mcp_tool_idempotency_retention_hours,
+    validate_sacp_mcp_tool_deprecation_horizon_days,
+    validate_sacp_mcp_tool_pagination_default_size,
+    validate_sacp_mcp_tool_pagination_max_size,
     # ── spec 030 Phase 4 (OAuth 2.1 + PKCE) ── FR-088, FR-094 ─────────────
-    # validate_sacp_oauth_enabled,
-    # validate_sacp_oauth_access_token_ttl_minutes,
-    # validate_sacp_oauth_refresh_token_ttl_days,
-    # validate_sacp_oauth_auth_code_ttl_seconds,
-    # validate_sacp_oauth_client_registration_mode,
-    # validate_sacp_oauth_static_token_grace_days,
-    # validate_sacp_oauth_step_up_freshness_seconds,
-    # validate_sacp_oauth_revocation_propagation_seconds,
-    # validate_sacp_oauth_signing_key_path,
-    # validate_sacp_oauth_failed_pkce_threshold,
-    # validate_sacp_oauth_cimd_allowed_hosts,
-    # validate_sacp_mcp_token_cache_ttl_seconds,          # FR-094 analysis I1
-    # validate_sacp_oauth_previous_signing_key_path,      # optional rotation key
+    validate_sacp_oauth_enabled,
+    validate_sacp_oauth_access_token_ttl_minutes,
+    validate_sacp_oauth_refresh_token_ttl_days,
+    validate_sacp_oauth_auth_code_ttl_seconds,
+    validate_sacp_oauth_client_registration_mode,
+    validate_sacp_oauth_static_token_grace_days,
+    validate_sacp_oauth_step_up_freshness_seconds,
+    validate_sacp_oauth_revocation_propagation_seconds,
+    validate_sacp_oauth_signing_key_path,
+    validate_sacp_oauth_failed_pkce_threshold,
+    validate_sacp_oauth_cimd_allowed_hosts,
+    validate_sacp_mcp_token_cache_ttl_seconds,
+    validate_sacp_oauth_previous_signing_key_path,
     # ── spec 018 (deferred tool loading) ── FR-013 ──────────────────────────
     validate_sacp_tool_defer_enabled,
     validate_sacp_tool_loaded_token_budget,

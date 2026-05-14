@@ -62,7 +62,7 @@ description: "Task list for spec 030 MCP Build implementation"
 - [ ] T019 [P] [US2] Audit repo-side `compose.yaml` for `mcp_server` path references; update any hits (FR-006)
 - [ ] T020 [P] [US2] Audit `.env` (if checked in) for `mcp_server` references; update any hits
 - [ ] T021 [P] [US2] Audit `scripts/` and `docker/` directories for `mcp_server` references; update any hits
-- [ ] T022 [US2] Add deployment-side migration note to PR description: TrueNAS Dockge stack at `/mnt/.ix-apps/app_mounts/dockge/stacks/sacp/compose.yaml` requires separate manual update (per memory `project_deploy_dockge_truenas`)
+- [ ] T022 [US2] Add deployment-side migration note to PR description: the deployment stack at `<deployment-stack-path>/compose.yaml` requires separate manual update
 
 ### Post-refactor verification
 

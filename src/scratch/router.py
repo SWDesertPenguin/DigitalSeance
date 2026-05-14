@@ -49,8 +49,8 @@ def _note_max_bytes() -> int:
 
 
 def _get_current_participant():
-    """Lazy import to break circular dependency with mcp_server package."""
-    from src.mcp_server.middleware import get_current_participant
+    """Lazy import to break circular dependency with participant_api package."""
+    from src.participant_api.middleware import get_current_participant
 
     return get_current_participant
 
@@ -317,7 +317,7 @@ def _register_summaries_route(target_router: APIRouter, participant_dep) -> None
 
 
 def register_routes(target_router: APIRouter) -> None:
-    """Attach all CRUD routes; called from mcp_server.app to avoid circular import."""
+    """Attach all CRUD routes; called from participant_api.app to avoid circular import."""
     participant_dep = Depends(_get_current_participant())
     _register_get_route(target_router, participant_dep)
     _register_create_route(target_router, participant_dep)

@@ -25,8 +25,8 @@ import inspect
 import os
 import re
 
-from src.mcp_server.tools import debug as debug_module
-from src.mcp_server.tools.debug import (
+from src.participant_api.tools import debug as debug_module
+from src.participant_api.tools.debug import (
     _CONFIG_KEYS,
     _LOG_QUERIES,
     _SECRET_NAME_PATTERN,
@@ -296,7 +296,7 @@ def test_fr10_detection_events_section_referenced_in_export_builder() -> None:
     """
     src = inspect.getsource(debug_module)
     assert "_fetch_detection_events" in src, (
-        "src/mcp_server/tools/debug.py MUST include _fetch_detection_events "
+        "src/participant_api/tools/debug.py MUST include _fetch_detection_events "
         "per spec 010 FR-10 (amendment 2026-05-12)"
     )
     assert (

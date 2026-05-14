@@ -22,8 +22,8 @@ import time
 import pytest
 from fastapi import HTTPException
 
-from src.mcp_server import rate_limiter as rate_limiter_module
-from src.mcp_server.rate_limiter import (
+from src.participant_api import rate_limiter as rate_limiter_module
+from src.participant_api.rate_limiter import (
     DEFAULT_MAX_BUCKETS,
     RateLimiter,
 )
@@ -140,7 +140,7 @@ def test_fr010_limiter_only_invoked_via_authenticated_dependency() -> None:
     """Rate limiting is gated on get_current_participant — unauth paths bypass.
 
     The limiter is invoked exclusively from get_current_participant in
-    src/mcp_server/middleware.py. Endpoints that do NOT depend on
+    src/participant_api/middleware.py. Endpoints that do NOT depend on
     get_current_participant (/healthz, /docs, /openapi.json,
     /redoc, the login surface) bypass the limiter by construction.
     This test pins the integration shape: any change that calls
@@ -148,7 +148,7 @@ def test_fr010_limiter_only_invoked_via_authenticated_dependency() -> None:
     """
     import inspect
 
-    from src.mcp_server import middleware
+    from src.participant_api import middleware
 
     src = inspect.getsource(middleware)
     # Exactly one call site for limiter.check; it lives inside

@@ -67,7 +67,7 @@ async def _pending_snapshot(
 
 def _loop_running(session_id: str) -> bool:
     """Late import to avoid circulars; mirrors session.is_loop_running."""
-    from src.mcp_server.tools.session import is_loop_running
+    from src.participant_api.tools.session import is_loop_running
 
     return is_loop_running(session_id)
 

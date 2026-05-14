@@ -2,15 +2,15 @@
 
 """FastAPI app factory for the SACP Web UI (port 8751).
 
-Separate from the MCP server on 8750 so it can run a stricter security
-posture (no wildcard CORS, tight CSP, HttpOnly cookies). Shares the
-same database pool and service objects as the MCP app via
+Separate from the participant API server on 8750 so it can run a stricter
+security posture (no wildcard CORS, tight CSP, HttpOnly cookies). Shares the
+same database pool and service objects as the participant API app via
 ``src/web_ui/shared.py``.
 
 Lifespan behavior:
   - If the app is launched via ``src/run_apps.py`` in the same process
-    as the MCP server, ``prime_from_mcp_app`` attaches shared services
-    BEFORE uvicorn starts serving.
+    as the participant API server, ``prime_from_participant_api_app`` attaches
+    shared services BEFORE uvicorn starts serving.
   - Standalone (e.g. ``uvicorn src.web_ui.app:create_web_app --factory``)
     the lifespan provisions its own pool + services.
   - Under pytest TestClient with no injected services the lifespan

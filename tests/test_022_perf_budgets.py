@@ -42,8 +42,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.mcp_server.tools.detection_events import _decorate_event
 from src.observability import instrumentation
+from src.participant_api.tools.detection_events import _decorate_event
 from src.web_ui import cross_instance_broadcast as cib
 
 # ---------------------------------------------------------------------------
@@ -154,7 +154,7 @@ async def test_page_load_stage_emits_when_endpoint_called() -> None:
     """The page endpoint wraps the repo call with the page_load stage."""
     from types import SimpleNamespace
 
-    from src.mcp_server.tools import detection_events as endpoint
+    from src.participant_api.tools import detection_events as endpoint
 
     log_repo = SimpleNamespace(
         get_detection_events_page=AsyncMock(return_value=[]),

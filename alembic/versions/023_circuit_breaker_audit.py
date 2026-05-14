@@ -8,14 +8,14 @@ Backs spec 015 (provider failure detection). Three append-only audit tables:
   - provider_circuit_close_log -- closed (FR-012, US3 AS3)
 
 No changes to existing tables.
-down_revision = "021" (spec 030 Phase 4 pre-allocates 022; this spec uses 023
-per data-model.md migration-chain note).
+down_revision chains 023 → 022 (spec 030 Phase 4 OAuth state tables) → 021
+(spec 027 standby modes). Chain order locked at 030-mcp-build merge.
 """
 
 from alembic import op
 
 revision = "023"
-down_revision = "021"
+down_revision = "022"
 branch_labels = None
 depends_on = None
 

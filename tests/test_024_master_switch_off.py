@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.mcp_server.app import create_app
+from src.participant_api.app import create_app
 from src.scratch.router import is_scratch_enabled
 
 _SCRATCH_PREFIX = "/tools/facilitator/scratch"

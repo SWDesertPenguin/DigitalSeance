@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import asyncio
 
-from src.mcp_server.app import create_app
-from src.mcp_server.sse import ConnectionManager
+from src.participant_api.app import create_app
+from src.participant_api.sse import ConnectionManager
 
 
 def test_create_app_returns_fastapi() -> None:
@@ -54,7 +54,7 @@ def test_unhandled_exception_returns_generic_500() -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from src.mcp_server.app import _add_exception_handlers
+    from src.participant_api.app import _add_exception_handlers
 
     app = FastAPI()
     _add_exception_handlers(app)
@@ -101,8 +101,8 @@ def test_sensitive_fields_cover_obvious_patterns() -> None:
     """
     from dataclasses import fields
 
-    from src.mcp_server.tools.debug import _SENSITIVE_FIELDS
     from src.models.participant import Participant
+    from src.participant_api.tools.debug import _SENSITIVE_FIELDS
 
     suspicious = {
         f.name
@@ -120,7 +120,7 @@ def test_config_snapshot_drops_secret_name_pattern(monkeypatch) -> None:
     """010 CHK005: secret-named env vars are filtered out of the snapshot
     even if they sneak into the allowlist.
     """
-    from src.mcp_server.tools import debug
+    from src.participant_api.tools import debug
 
     monkeypatch.setattr(
         debug,
