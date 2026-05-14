@@ -49,6 +49,7 @@ const ROUTING_PREFERENCES = [
   "observer",
   "addressed_only",
   "human_only",
+  "capcom",
 ];
 
 // Float noise from Postgres REAL columns (e.g. 0.18000000715255737) looked
@@ -1524,6 +1525,9 @@ function ParticipantCard({
           </select>
         ) : isAI ? (
           <span className="routing">{p.routing_preference}</span>
+        ) : null}
+        {p.routing_preference === "capcom" ? (
+          <span className="capcom-badge" title="Spec 028 — CAPCOM-mediated visibility partition active for this AI">CAPCOM</span>
         ) : null}
       </div>
     </div>
@@ -3473,9 +3477,14 @@ function ProposalCreator({ onClose, onCreate }) {
 
 const MAX_MSG_CHARS = 2_000; // mirrors server-side MAX_MESSAGE_CONTENT_CHARS
 
-function MessageInput({ onSend, disabled }) {
+function MessageInput({ onSend, disabled, capcomAssigned }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  // Spec 028 FR-066 — visibility toggle visible only when a CAPCOM is assigned
+  // for the session. Resets to undefined on every send so the next message
+  // re-evaluates against the env-var default rather than sticking on the
+  // operator's last explicit choice.
+  const [visibility, setVisibility] = useState(undefined);
 
   const remaining = MAX_MSG_CHARS - text.length;
   const counterClass = remaining <= 100 ? "char-counter danger"
@@ -3488,8 +3497,9 @@ function MessageInput({ onSend, disabled }) {
     if (!trimmed || busy || atLimit) return;
     setBusy(true);
     try {
-      await onSend(trimmed);
+      await onSend(trimmed, visibility);
       setText("");
+      setVisibility(undefined);
     } catch (e) {
       alert(`Send failed: ${e.message}`);
     } finally {
@@ -3516,6 +3526,18 @@ function MessageInput({ onSend, disabled }) {
         rows={3}
       />
       <div className="input-actions">
+        {capcomAssigned ? (
+          <select
+            className="capcom-visibility"
+            value={visibility ?? "default"}
+            onChange={(ev) => setVisibility(ev.target.value === "default" ? undefined : ev.target.value)}
+            title="Spec 028 — choose message visibility scope"
+          >
+            <option value="default">Visibility: default</option>
+            <option value="public">Visibility: public (every AI sees it)</option>
+            <option value="capcom_only">Visibility: capcom_only (private to CAPCOM)</option>
+          </select>
+        ) : null}
         <span className="dim">Ctrl+Enter to send</span>
         <span className={counterClass}>{remaining.toLocaleString()} / {MAX_MSG_CHARS.toLocaleString()}</span>
         <button onClick={send} className={busy ? "busy" : ""} disabled={disabled || busy || !text.trim() || atLimit}>
@@ -4130,10 +4152,14 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
   // stream. Fall back to auth.role only during the snapshot-arrival window.
   const isFacilitator = (state.me?.role || auth.role) === "facilitator";
 
-  const sendMessage = async (content) => {
+  const sendMessage = async (content, visibility) => {
+    const body = { content, priority: 1 };
+    if (visibility === "capcom_only" || visibility === "public") {
+      body.visibility = visibility;
+    }
     await mcpCall("/tools/participant/inject_message", {
       method: "POST",
-      body: { content, priority: 1 },
+      body,
     });
   };
 
@@ -4798,7 +4824,11 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
         </aside>
         <main className="center-column">
           <Transcript messages={state.messages} participants={state.participants} />
-          <MessageInput onSend={sendMessage} disabled={wsState !== "open"} />
+          <MessageInput
+            onSend={sendMessage}
+            disabled={wsState !== "open"}
+            capcomAssigned={!!state.session?.capcom_participant_id}
+          />
         </main>
         <aside className="sidebar-right">
           <ReviewGateQueue
