@@ -7,6 +7,15 @@
 
 ## Clarifications
 
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: `SACP_AUDIT_RETENTION_DAYS` has no documented V16 type, valid range, or startup-validator entry in spec.md. → A: Added a "Configuration (V16)" section below listing the var with type, valid range, and fail-closed semantics. The authoritative V16 entry already exists in `docs/env-vars.md`; this section cross-references it and states the Phase 1 deferral explicitly within FR-019's context.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only.
+- Q: Spec 001 has no V18 derivation-metadata statement for summary messages (speaker_type='summary'). → A: Added a "V18 Derivation Metadata" section. Spec 005 owns the summarization logic; spec 001 owns the schema. The statement here declares what derivation metadata spec 001 requires the storage layer to carry; spec 005 §FR-005 governs the runtime attribution.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only.
+- Q: FR-016 "deterministic-looking placeholder" is misleading — uuid4 is random. → A: Replaced "deterministic-looking placeholder" with "random placeholder" in the Edge Cases section with a clarifying note.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only.
+
 ### Session 2026-05-02 (audit fix/001-operations — Phase E)
 
 - Q: Does the orchestrator enforce `sslmode=require` for DB connections at startup? → A: No. Phase 1 leaves transport-encryption to the operator's connection string; production deployments MUST set it correctly. Phase 3 trigger: any deployment with regulatory transport-encryption requirements (HIPAA, PCI-DSS).
@@ -181,7 +190,7 @@ Participants can create proposals for group decisions and cast votes. Each propo
 ### Edge Cases
 
 - What happens when a session is deleted while participants are connected? All associated data is atomically removed; connected participants receive disconnection.
-- What happens when a participant departs? Their API key is overwritten with `uuid.uuid4().hex` (a deterministic-looking placeholder, not a null), auth token is invalidated, status set to 'offline', but their messages remain in the transcript. The placeholder ensures decrypt attempts fail cleanly rather than returning leftover plaintext.
+- What happens when a participant departs? Their API key is overwritten with `uuid.uuid4().hex` (a random placeholder, not a null — `uuid4` is cryptographically random, not deterministic), auth token is invalidated, status set to 'offline', but their messages remain in the transcript. The placeholder ensures decrypt attempts fail cleanly rather than returning leftover plaintext.
 - What happens when turn numbers collide on the same branch? The composite primary key (turn_number, session_id, branch_id) prevents duplicates — the insert is rejected. The turn-loop engine serializes via PostgreSQL advisory lock on `hashtext(branch_id)` to avoid the collision window (see 003 §Clarifications 2026-04-15).
 - What happens when a session has no 'main' branch? Session creation MUST atomically create the 'main' branch to prevent orphaned messages.
 - What happens when the encryption key is unavailable at startup? The system MUST fail closed — no API key decryption, no provider dispatch, clear error surfaced via process exit before the FastAPI app binds its port.
@@ -401,6 +410,30 @@ backup tests.** All four are DB-backed and require a Postgres fixture.
 Skipped markers in `tests/test_migration_safety.py` pin the activation
 triggers; the cross-spec integration audit (Batch 4) is the natural home
 once it ships its Postgres fixture catalog.
+
+## Configuration (V16)
+
+Per Constitution §12 V16, every `SACP_*` env var owned by this spec must have a documented type, valid range, and fail-closed behavior. The authoritative catalog lives in `docs/env-vars.md`; entries below are spec-local cross-references.
+
+### `SACP_AUDIT_RETENTION_DAYS`
+
+- **Type**: positive integer (days), or empty / unset
+- **Valid range**: `>= 1` when set; unset means indefinite retention
+- **Fail-closed semantics**: values < 1 MUST cause startup exit. In Phase 1 the purge enforcer is deferred (see FR-019 and Operations §Audit-log purge enforcer); the var is reserved. The V16 startup validator MUST reject negative or zero values even though the purge job itself does not yet run.
+- **Source spec**: 001 §FR-019
+- **Authoritative catalog entry**: `docs/env-vars.md` (cross-reference; that file is the single source of truth for range and validator function name).
+
+## V18 Derivation Metadata
+
+Per Constitution V18, derived content stored in the database requires a derivation-metadata declaration covering source range, derivation method, and timestamp.
+
+Summary messages (`speaker_type='summary'`) are derived artifacts: their content is derived from a contiguous range of AI-turn messages. The storage layer MUST carry the following fields to satisfy V18:
+
+- **Source range**: the `(last_summary_turn, current_turn)` turn-number range consumed by the summarization call. This is implicit in the `(session.last_summary_turn_before, message.turn_number)` pair — no separate column is required; the two existing fields jointly define the source range.
+- **Derivation method**: `speaker_type='summary'` is the derivation-method marker. The runtime method (summarization model, prompt version) is owned by spec 005; this spec owns the schema shape.
+- **Timestamp**: `messages.created_at` carries the derivation timestamp.
+
+Spec 005 §FR-005 governs the runtime attribution (facilitator-id speaker_id, speaker_type='summary'). This section declares the schema-level V18 obligations spec 001 carries; the runtime-level V18 obligations (which model, which prompt) are spec 005's concern.
 
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 

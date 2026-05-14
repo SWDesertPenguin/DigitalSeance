@@ -74,7 +74,12 @@ Implemented status.
 
 ## Clarifications
 
-### Session 2026-05-11 (Pass 1 closeout clarifications)
+### Session 2026-05-14 (Performance Budgets prose-drift fix per `/speckit.analyze` 22-D1)
+
+- Q: The 2026-05-11 amendment said "**Performance Budgets** simplified: panel-load query is now a single indexed `SELECT` rather than a three-source UNION-ALL," but the Performance Budgets section itself still described the pre-amendment cross-table read pattern. Why? → A: The amendment Clarifications recorded the architectural reversal but the prose at the Performance Budgets surface was not rewritten in lockstep — a known post-amendment-drift pattern flagged across the Phase 3 cohort by the 2026-05-13 `/speckit.analyze` sweep (finding 22-D1). The Performance Budgets first bullet has been rewritten to describe the actual single-table `detection_events` query that ships and the LEFT JOIN to `participants` for the display-name resolution; the other three bullets were already amendment-consistent.
+- Q: Does this amendment change the persisted contract or the implementation? → A: No. Doc-consistency fix only; `src/web_ui/detection_events.py` already executes the single-table query that the amended prose now describes.
+- Q: FR-001 lists the endpoint columns as "event id, event type, participant id, trigger snippet, detector score (nullable), timestamp, disposition" — but the Key Entities shape and plan.md both include `turn_number` and `last_disposition_change_at`. Were those omitted intentionally? → A: No. Both columns are part of the `detection_events` table shape and the plan.md endpoint summary. The FR-001 column list was an incomplete transcription from the scaffold era. Added `turn_number (nullable for mode events)` and `last_disposition_change_at` to FR-001's column list. No behavioral change — the endpoint already returns these columns; the FR was lagging. Finding 22-F1.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only.
 
 - Q: What happens to a detection event when the dual-write INSERT fails but the WS broadcast already fired (FR-017's fail-soft path)? Is there a recovery or backfill story, or is the gap accepted? → A: Accept the gap. The security-event log is the only recovery surface. No automatic backfill, no retry queue, no synthetic placeholder. Operators correlate the security-event log to detect coverage gaps; the panel will show fewer events than fired during DB outages. FR-017 wording updated to make this explicit. Rationale: the banner UX already worked pre-022 (broadcast-only), so the gap is "missing from history panel," not "missed event"; backfill machinery is disproportionate to a rare DB-failure window.
 - Q: Should spec 010 debug-export include rows from the new `detection_events` table? The pre-amendment Assumptions claimed spec 010 "already includes these events" — but that was true under the read-side-join model and is now stale. → A: Yes, add `detection_events` to spec 010's payload. The Session 2026-05-11 amendment made `detection_events` the source-of-truth for the five-class taxonomy; spec 010 is the existing forensic surface; the two surfaces must stay consistent so operators using either get the same answers. Work is bounded (one query + one section in the export envelope). Spec 010 amendment lands paired with spec 022 pass 2 implementation. Spec 022 Assumptions item §4 updated to reflect the new state.
@@ -441,7 +446,8 @@ all filters and verify the full event set returns.
   `/tools/admin/*` patterns). The response MUST include every
   detection event for the session with the columns: event id,
   event type, participant id, trigger snippet, detector score
-  (nullable), timestamp, disposition.
+  (nullable), turn number (nullable for mode events), timestamp,
+  disposition, last disposition change at.
 - **FR-002**: The endpoint MUST be facilitator-only (mirrors
   spec 010 §FR-2 controller-only access). Non-facilitator
   callers MUST receive HTTP 403 with the same error code
@@ -724,12 +730,18 @@ V14 mandates per-stage latency budgets as enforceable contracts.
 This spec contributes three budgets:
 
 - **Panel load (initial fetch)**: P95 ≤ 500ms for sessions
-  with up to 1,000 detection events. The query is a bounded
-  read-side join over `routing_log`, `convergence_log`, and
-  `admin_audit_log` filtered by `session_id` (indexed). No
-  cross-session joins. Budget enforcement: per-request timing
-  captured in the existing access-log path (spec 006 §FR-018
-  per-tool latency logs).
+  with up to 1,000 detection events. Per the 2026-05-11
+  amendment (Session §1), the query is a single indexed
+  `SELECT ... FROM detection_events WHERE session_id = $1
+  ORDER BY id DESC LIMIT N` against the dedicated table — NOT
+  a UNION-ALL across `routing_log` / `convergence_log` /
+  `admin_audit_log` as the pre-amendment draft described.
+  Re-surface rows derive `triggered_by_user_id` display name
+  via a single LEFT JOIN to `participants`. No cross-session
+  joins. Budget enforcement: per-request timing captured in
+  the existing access-log path (spec 006 §FR-018 per-tool
+  latency logs). The single-table shape is what makes the
+  500ms P95 holdable at 1,000 events.
 - **WS push latency on event emission**: P95 ≤ 100ms from
   source-table INSERT to client-rendered row. Reuses spec 011's
   existing per-session broadcast — no new hot-path overhead.

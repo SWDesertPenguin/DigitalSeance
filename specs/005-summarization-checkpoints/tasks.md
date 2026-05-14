@@ -31,7 +31,7 @@
 
 ## Phase 4: US3 — Storage (P1)
 
-- [X] T007 [US3] Implement store_summary — persists as message (speaker_type='summary', speaker_id='system'), updates session.last_summary_turn via SessionRepository
+- [X] T007 [US3] Implement store_summary — persists as message (speaker_type='summary', speaker_id=<session facilitator's participant id> — NOT the literal string 'system'; see FR-005), updates session.last_summary_turn via SessionRepository
 - [X] T008 [US3] Add update_last_summary_turn method to SessionRepository in `src/repositories/session_repo.py`
 
 ---

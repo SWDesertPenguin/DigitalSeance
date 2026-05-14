@@ -137,6 +137,10 @@ description: "Task list for spec 030 MCP Build implementation"
 
 - [ ] T056 [US4] Add `admin_audit_log` row emission to every `tools/call` invocation per FR-029 — Phase 2 action code `mcp_tool_called` (generic; per FR-029 this is intentional until the ToolRegistry lands in Phase 3), includes tool name, MCP session id, SACP session id, participant id, dispatch result (SC-018, SC-027)
 
+### JSON-RPC notification acknowledgment (US7) — PR #375 hotfix coverage
+
+- [ ] T213 [US7] Add acceptance test to `tests/test_mcp_protocol_errors.py` asserting that server-initiated JSON-RPC notifications receive HTTP 202 with no body; covers the behavior shipped in PR #375 (hotfix: ack JSON-RPC notifications with 202 per Streamable HTTP spec §FR-014). Previously untracked task gap per finding 030-C1.
+
 ### MCP error-path use case verification (US7)
 
 - [ ] T057 [P] [US7] Add error-path test cases to `tests/test_mcp_protocol_errors.py` covering each row of contracts/mcp-tools-call.md error table

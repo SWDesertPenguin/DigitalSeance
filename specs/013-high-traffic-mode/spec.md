@@ -2,7 +2,7 @@
 
 **Feature Branch**: `013-high-traffic-mode`
 **Created**: 2026-05-02
-**Status**: Implemented (Phase 3 declaration: 2026-05-05; tasks landed: 2026-05-07; FR-011 broadening amendment: 2026-05-07)
+**Status**: Implemented (Phase 3 declaration: 2026-05-05; tasks landed: 2026-05-07; FR-011 broadening amendment: 2026-05-07). Accepted residuals: T026 batch_open_ts/batch_close_ts instrumentation deferred to Phase 6 polish; V14 batching P95 contract verifiable manually until T026 lands.
 **Input**: User description: "Phase 3 high-traffic session mode (broadcast mode) — concretizes Constitution §10 broadcast-mode capability via three orthogonal mechanisms: human-boundary batching cadence, convergence-threshold override, and observer-downgrade. Applies to topologies 1–6 (orchestrator-driven); incompatible with topology 7 per V12. Primary use cases: consulting and research co-authorship per V13."
 
 ## Overview
@@ -42,13 +42,16 @@ value on its own without the others. They compose when more than one
 threshold is crossed simultaneously.
 
 This spec **scaffolds only**. Implementation begins when the
-facilitator declares Phase 3 started per Constitution §10. The spec
-remains at Status: Draft until that declaration. **Phase 3 declaration
-recorded 2026-05-05; this gate is satisfied. The spec stays Draft
-until tasks land and implementation reaches the Implemented status
-checkpoint.**
+facilitator declares Phase 3 started per Constitution §10. **Phase 3
+declaration recorded 2026-05-05; this gate is satisfied. Tasks landed
+2026-05-07; spec is Implemented.**
 
 ## Clarifications
+
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: The V14 P95 batching contract (SC-002) has no instrumentation backing while T026 is deferred — how is this surfaced? (finding 013-A1) → A: Accepted residual added to the Status line: T026 batch_open_ts/batch_close_ts instrumentation is deferred to Phase 6 polish; the V14 P95 contract is verifiable manually (scheduler tick logs) until T026 lands. The stale "Status remains Draft" scaffold footer in Assumptions has been removed; the spec is Implemented.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only.
 
 ### Session 2026-05-05 (Phase 3 framework / scaffolding landings)
 
@@ -565,6 +568,3 @@ valid range, and fail-closed semantics documented in
   initial budget; it may be tuned during instrumentation rollout in
   `/speckit.plan`. Any tightening of the slack must keep the budget
   observable in `routing_log`.
-- Status remains Draft until the facilitator declares Phase 3
-  started per Constitution §10. No implementation work proceeds
-  before that declaration.

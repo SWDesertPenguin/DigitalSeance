@@ -125,6 +125,13 @@ that triggers that deferred work — and this spec delivers it.
 
 4. **Single `change_kind` enum confirmed.** The five values are `added`, `removed`, `description_changed`, `schema_changed`, `refresh_failed`. All five reuse the single `tool_list_changed` action type in `admin_audit_log` (one action family, multiple `change_kind` discriminators in the JSONB payload). This is consistent with the existing pattern (e.g., spec 014 reuses `admin_audit_log` with multiple action types but a single table).
 
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: The edge-case and FR-011 both used "MAY trip a separate breaker" for MCP-unreachable repeated failures, with no gating condition — ambiguous scope for v1 (017-B1 HIGH). → A: Resolved as option (b): tool-list freshness MAY consume spec 015 circuit-breaker state for MCP-unreachable detection in a Phase 3 follow-up; v1 ships without this coupling. FR-011 and edge-case text updated to state "v1 MUST NOT couple" and defer to Phase 3 explicitly.
+- Q: The V14 budget for the cache hash check was stated as "O(tools)" (a complexity class, not a latency contract) with no numeric P95 ceiling (017-§V14 HIGH). → A: Budget restated as "less than 5ms P95 at 100 tools" — enforceable numeric SLO. SC-004 contract test is the enforcement path.
+- Q: The Assumptions section ended with "Status remains Draft until the four flagged clarifications resolve and the user accepts the scaffolding" — all clarifications resolved in Session 2026-05-13 and Status is Implemented (017-C2). → A: Sentence replaced with confirmation note referencing the Session 2026-05-13 resolution.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fixes only.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Polling detects a tool removed mid-session before the AI calls it (Priority: P1)
@@ -295,12 +302,12 @@ within network RTT and that manual-refresh tools are exposed.
 - **MCP server is unreachable at refresh time.** The refresh MUST
   fail gracefully — the cached list is preserved, an audit entry
   with `change_kind=refresh_failed` is emitted, and the next
-  refresh interval is attempted. Repeated failures interact with
-  spec 015 provider-failure-detection: an unreachable MCP server
-  is functionally equivalent to a failed dispatch attempt and
-  MAY trip a separate breaker. [NEEDS CLARIFICATION: confirm we
-  reuse spec 015's breaker abstraction or define a parallel
-  MCP-server breaker.]
+  refresh interval is attempted. Tool-list freshness MAY consume
+  spec 015 circuit-breaker state for MCP-unreachable detection
+  in a Phase 3 follow-up; v1 ships without this coupling. The
+  in-registry `consecutive_failures` counter (Key Entities:
+  ParticipantToolRegistry) provides the v1 retry signal without
+  integrating with the provider-failure breaker.
 - **Tool list larger than the configured size cap.** §7.5
   hardening caps tool-call content at 2000 tokens; an analogous
   cap should apply to tool-list size to prevent a misbehaving
@@ -386,9 +393,10 @@ within network RTT and that manual-refresh tools are exposed.
 - **FR-011**: When a refresh fails (MCP server unreachable, malformed
   response, timeout), the cached list MUST be preserved, the
   failure MUST be audited with `change_kind=refresh_failed`, and
-  the next refresh interval MUST proceed. Repeated failures MAY
-  interact with spec 015's provider-failure-detection per the
-  edge-case clarification.
+  the next refresh interval MUST proceed. Spec 015 circuit-breaker
+  integration for MCP-server unreachability is explicitly deferred
+  to a Phase 3 follow-up; v1 MUST NOT couple the tool-refresh
+  failure path to the provider-failure breaker.
 - **FR-012**: When a tool-set change invalidates the participant's
   provider-native prompt-cache prefix, the audit entry MUST
   set `prompt_cache_invalidated=true` so token-spend spikes are
@@ -517,11 +525,12 @@ correctness for participant-registered MCP integration.
 V14 mandates per-stage latency budgets as enforceable contracts. This
 spec contributes three budgets:
 
-- **Cache hash check on every turn-prep**: Constant-time (`O(tools)`
-  amortized — typically O(10) for realistic tool counts). The
-  check is a hash comparison against the previously cached hash,
-  not a re-fetch. Budget enforcement: routing log MUST NOT show
-  a per-turn freshness-check stage exceeding O(tools) cost.
+- **Cache hash check on every turn-prep**: Hash comparison against the
+  previously cached hash (not a re-fetch). The comparison MUST
+  complete in less than 5ms P95 at 100 tools per participant.
+  Budget enforcement: routing log MUST NOT show a per-turn
+  freshness-check stage exceeding this ceiling; SC-004 contract
+  test captures per-turn timing.
 - **Polling refresh latency**: Refresh is OUT-OF-BAND from the turn
   loop and MUST NOT block any other participant's dispatch.
   Budget enforcement: refresh duration captured in the
@@ -637,7 +646,5 @@ valid range, and fail-closed semantics documented in
 - "Phase 1 minimum (polling-only) is acceptable" in the user
   description is interpreted as: ship polling + Phase-2 stub
   interfaces in this spec; Phase-2 push completion is a separate
-  spec. Confirmation pending per Clarifications §"Polling-only
-  Phase 1".
-- Status remains Draft until the four flagged clarifications
-  resolve and the user accepts the scaffolding.
+  spec. Confirmed per Clarifications Session 2026-05-13
+  §"Polling-only v1 confirmed".

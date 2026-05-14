@@ -56,6 +56,12 @@ trigger the existing auto-pause path.
 
 ## Clarifications
 
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: FR-011 "cross-identity" startup check was undefined at spec level — what constitutes a cross-identity fallback? (finding 015-C1) → A: FR-011 now defines cross-identity as any ordered-fallback list entry whose top-level LiteLLM provider key differs from the participant's declared `provider` field. Same-provider model aliases are permitted. The startup check logs `cross_identity_change_detected` and exits before port bind on mismatch.
+- Q: The Assumptions block said `admin_audit_log` reuse but plan/tasks shipped three dedicated audit tables — which is authoritative? (finding 015-F1) → A: The three dedicated tables (`provider_circuit_open_log`, `provider_circuit_probe_log`, `provider_circuit_close_log`) are what shipped. The Assumptions block has been updated to match. The stale "Status remains Draft" scaffold footer has also been removed; the spec is Implemented 2026-05-13.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fixes only.
+
 ### Initial draft assumptions requiring confirmation
 
 - **Phase labeling.** The user description says "Phase 1 scope." Per
@@ -311,6 +317,17 @@ the open state. Query the audit log and verify the
   ordered-fallback feature MUST be configured to empty or
   same-identity-only entries; this MUST be enforced as a startup
   check that fails closed if a cross-identity fallback is detected.
+  A **cross-identity fallback** is any ordered-fallback list entry
+  whose `provider` value (the top-level key in the LiteLLM model
+  alias config, e.g. `openai`, `anthropic`, `azure`) differs from
+  the participant's declared `provider` field in the `participants`
+  table. Same-provider model aliases (e.g., `gpt-4o` → `gpt-4o-mini`
+  under the same `openai` provider key) are same-identity and are
+  permitted. The startup check iterates every registered participant's
+  LiteLLM router config entry; if any fallback entry carries a
+  different top-level provider key than the participant's declared
+  provider, the check MUST log `cross_identity_change_detected` and
+  exit the orchestrator process before binding any port.
 - **FR-012**: Every breaker state transition (open, probe attempted,
   close, exhausted) MUST emit an `admin_audit_log` entry with the
   field set defined in US3.
@@ -545,11 +562,15 @@ valid range, and fail-closed semantics documented in
   convention is settled in `/speckit.plan`. If no current metrics
   surface meets FR-013's requirements, `/speckit.plan` will scope
   the minimal surface needed.
-- `admin_audit_log` already supports adding the four new action
-  types (`provider_circuit_open`, `provider_circuit_probe`,
-  `provider_circuit_close`, plus the exhaustion entry from FR-009)
-  without schema changes (matches the spec 014 pattern). If schema
-  changes are needed they will be scoped during `/speckit.plan`.
+- Three dedicated append-only audit tables ship with this spec:
+  `provider_circuit_open_log`, `provider_circuit_probe_log`, and
+  `provider_circuit_close_log`. These are added via one alembic
+  migration (revision 022) and their DDL is mirrored in
+  `tests/conftest.py` per `feedback_test_schema_mirror`. This
+  supersedes the initial draft assumption that `admin_audit_log`
+  would accept the four new action types without schema changes;
+  the plan.md Technical Context and tasks.md are authoritative for
+  the final storage shape.
 - "Phase 1 scope" in the user description is interpreted as
   back-fill into the Phase 1 reliability story (LiteLLM cooldown is
   cited in §6.6 but its state is not currently surfaced through
@@ -560,6 +581,3 @@ valid range, and fail-closed semantics documented in
   multi-session breaker memory (e.g., "this provider has been bad
   for this participant across the last 3 sessions") is a
   potential follow-up, out of scope here.
-- Status remains Draft until the Phase-labeling clarification
-  resolves and the user accepts the scaffolding. No
-  implementation work proceeds before that resolution.

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `019-network-rate-limiting`
 **Created**: 2026-05-06
-**Status**: Implemented 2026-05-08 (Phase 1 hardening; implementation + tests landed via PR #324; pre-auth audit rows carry the `"__network_layer__"` sentinel in `session_id` / `facilitator_id` per [research.md "Network-layer audit row identity"](./research.md))
+**Status**: Implemented 2026-05-08 (Phase 1 hardening; implementation + tests landed via PR #324; pre-auth audit rows carry the `"__network_layer__"` sentinel in `session_id` / `facilitator_id` per [research.md "Network-layer audit row identity"](./research.md)). Accepted residuals: T051 operational walkthrough requires a deployed orchestrator and is accepted-deferred; no behavior gap.
 **Input**: User description: "Network-layer abuse protection via per-IP rate limiting. SACP exposes HTTP/SSE endpoints — the MCP server on port 8750 in Phase 1, the Web UI on port 8751 in Phase 2. Both surfaces need protection against abuse. Bcrypt-protected token validation paths are particularly sensitive: unbounded request rates can enable CPU-DoS via repeated bcrypt validation even before authentication succeeds. The rate limiter must coexist with the existing auth layer, exempt operational endpoints (/health, /metrics), and remain architecturally distinct from per-participant cost tracking, which is an application-layer concern. The two layers do not share state and do not interact. Rejected requests must be auditable and visible in the metrics surface. Phase 1 scope. Cross-references §7 of sacp-design.md."
 
 ## Overview
@@ -77,6 +77,14 @@ All five initial-draft questions resolved. Five matched the drafted defaults wit
 - **Exempt path list.** Fixed at `/health` + `/metrics`, GET-only. Not operator-configurable in v1. A future spec may introduce a configurable set if observability tooling expands; for now, the limited surface is part of the contract. Other methods on those paths fall through to normal handling and ARE rate-limited. Codified by FR-006.
 - **Limiter algorithm.** Token bucket. Steady-state requests-per-minute (`SACP_NETWORK_RATELIMIT_RPM`) plus burst capacity (`SACP_NETWORK_RATELIMIT_BURST`). Smooth burst handling and simpler operator tuning won over fixed-window's sharper rejections. Codified by FR-003.
 - **IPv6 keying.** IPv6 keyed at `/64` prefix; IPv4 keyed at full `/32` (the full address). IPv6 hosts often use dynamic privacy addresses within their /64, so per-address keying would let an attacker rotate around the limiter inside a single subnet. The keyed form (not the raw IPv6 address) is what appears in audit entries. Codified by FR-004.
+
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: T051 (operational walkthrough) is the only unchecked task in an Implemented spec — unclear whether accepted-deferred or genuinely outstanding (019-D1 HIGH). → A: T051 is an accepted residual; it requires a deployed orchestrator that does not exist in CI. Status line updated with an explicit "Accepted residuals" annotation. No behavior gap.
+- Q: FR-011 used "rightmost entry of the Forwarded header per RFC 7239" which is ambiguous — RFC 7239 literal rightmost is the client-controlled end, not the trusted-proxy entry (019-B1 HIGH). → A: FR-011 rewritten to state "rightmost-trusted-by-`SACP_TRUSTED_PROXY_DEPTH` semantic per research.md §4 — NOT the literal RFC 7239 rightmost which is client-controlled." The raw RFC 7239 rightmost MUST NOT be used as the trusted source IP.
+- Q: IPv4-mapped IPv6 addresses (e.g., `::ffff:192.168.1.1`) were unaddressed — a client connecting over IPv4-mapped IPv6 would be incorrectly keyed at /64 of the `::ffff:0:0/96` range (019-E1). → A: Edge case added specifying `ipaddress.IPv6Address.ipv4_mapped` canonicalization before keying.
+- Q: The Assumptions section ended with "Status remains Draft until the five flagged clarifications resolve and the user accepts the scaffolding" — all clarifications resolved in Session 2026-05-08 and Status is Implemented (019-A1). → A: Sentence removed.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fixes only.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -277,6 +285,13 @@ NOT carry the rejected request's headers, query string, or body.
   limiting — that traffic is application-layer and §7.5 / spec
   002 application-layer limits apply per-participant. (Note:
   Phase-2 wiring for `/ws/*` paths described in Assumptions.)
+- **IPv4-mapped IPv6 address** (e.g., `::ffff:192.168.1.1`). The
+  middleware MUST canonicalize IPv4-mapped IPv6 addresses to their
+  IPv4 representation via `ipaddress.IPv6Address.ipv4_mapped` before
+  applying keying logic (FR-004). Without canonicalization, a client
+  connecting over IPv4-mapped IPv6 would be keyed at `/64` of the
+  `::ffff:0:0/96` range instead of at its true IPv4 address, causing
+  incorrect per-IP grouping.
 - **Bcrypt validation succeeds but the auth path then fails for
   some other reason** (token expired, participant suspended).
   The limiter has already incremented for the request; the
@@ -330,7 +345,7 @@ NOT carry the rejected request's headers, query string, or body.
   with labels `(endpoint_class="network_per_ip",
   exempt_match=false)`. The metric MUST NOT include source IP,
   query string, headers, or body content in any label.
-- **FR-011**: When `SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS=false` (the default), the middleware MUST use the immediate peer IP. When set to `true`, the middleware MUST parse the rightmost entry of the `Forwarded` header per RFC 7239 (in v1 there is no proxy-trust whitelist per C1 resolution; the operator's responsibility for sanitizing upstream-supplied headers makes "trusted" equivalent to "rightmost"; see [research.md §4](./research.md)) — or `X-Forwarded-For` rightmost as fallback — and use that as the source IP.
+- **FR-011**: When `SACP_NETWORK_RATELIMIT_TRUST_FORWARDED_HEADERS=false` (the default), the middleware MUST use the immediate peer IP. When set to `true`, the middleware MUST extract the source IP using the rightmost-trusted-by-`SACP_TRUSTED_PROXY_DEPTH` semantic per [research.md §4](./research.md) — NOT the literal RFC 7239 rightmost `for=` directive, which is client-controlled. In v1 with no proxy-depth env var, the operator's responsibility for proxy sanitization makes "trusted" equivalent to "rightmost non-internal entry"; the fallback for `X-Forwarded-For` applies the same rightmost-trusted semantic. Raw RFC 7239 rightmost (the client-controlled end) MUST NOT be used as the trusted source IP.
 - **FR-012**: When the source IP cannot be determined for a
   request, the middleware MUST reject with HTTP 400 and audit as
   `source_ip_unresolvable`. The rejection counter MUST increment
@@ -580,5 +595,3 @@ in `docs/env-vars.md` BEFORE `/speckit.tasks` is run for this spec
   default settled in `/speckit.plan` to bound worst-case
   memory under flood.
 - Multi-worker FastAPI deployments (e.g., uvicorn `--workers N`, gunicorn) result in EACH worker holding its own independent `PerIPBudget` map; the per-IP budget is therefore effectively `RPM × N` for an N-worker deployment. Operators tuning `SACP_NETWORK_RATELIMIT_RPM` for multi-worker deployments MUST account for this; v1 ships single-worker semantics as the spec contract and treats multi-worker as an operator-tuning concern. A future amendment may introduce shared-state mechanisms (Redis, shared-memory) to consolidate per-IP budgets across workers.
-- Status remains Draft until the five flagged clarifications
-  resolve and the user accepts the scaffolding.

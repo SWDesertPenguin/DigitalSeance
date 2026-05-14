@@ -45,8 +45,9 @@ beyond that.
    register; cite sources for non-obvious claims"), 5 (Academic,
    "Use formal academic register; structured argumentation;
    citations expected"). Each participant inherits the session
-   slider but can override it for their own AI; overrides are
-   audit-logged.
+   slider; the facilitator may set a per-participant override on
+   any participant's behalf — participants cannot self-override (see
+   FR-008). All overrides are audit-logged.
 
 **Compression boundary.** Spec 021 attacks the *generation* side —
 what gets produced in each turn. Spec 026 (context compression)
@@ -57,11 +58,9 @@ goal of reducing token cost. This spec MUST NOT introduce
 compression of stored content. Any work touching stored-content
 representation belongs to spec 026.
 
-This spec **scaffolds only**. Implementation begins when the
-facilitator schedules tasks per Constitution §14.1. The Phase 3
-declaration recorded 2026-05-05 satisfies the phase gate; this
-spec stays scaffold-only until tasks land and implementation
-reaches Implemented status.
+Implementation is complete (Status: Implemented 2026-05-09;
+T001–T058 + T060 landed; T059 spec 011 register-slider UI
+alignment deferred per memory `reminder_spec_011_amendments_at_impl_time`).
 
 ### Glossary
 
@@ -71,6 +70,11 @@ reaches Implemented status.
 - **Register slider**: the facilitator-controlled selector (1-5) that emits canonical Tier 4 prompt deltas. Distinct from the filler scorer; the two operate on orthogonal dimensions (verbosity vs register).
 
 ## Clarifications
+
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: The Overview says each participant "can override" the session slider for their own AI, but FR-008 restricts override authority to the facilitator. Which is authoritative? → A: FR-008 is authoritative. The Overview wording was imprecise scaffold-era prose that implied participant self-service. Rewritten to state that the facilitator sets per-participant overrides on each participant's behalf; participants cannot self-override. No behavioral change — FR-008 was correct throughout; this is a doc-consistency fix. Finding 21-F1.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only.
 
 ### 2026-05-07 — Resolutions
 

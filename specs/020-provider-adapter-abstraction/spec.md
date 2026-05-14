@@ -2,7 +2,7 @@
 
 **Feature Branch**: `020-provider-adapter-abstraction`
 **Created**: 2026-05-06
-**Status**: Implemented 2026-05-08 (Phase 3 declared 2026-05-05; scaffold + clarifications resolved; LiteLLM + mock adapters + cutover landed; FR-005 architectural test green; SC-001 byte-identical regression confirmed via CI matrix)
+**Status**: Implemented 2026-05-08 (Phase 3 declared 2026-05-05; scaffold + clarifications resolved; LiteLLM + mock adapters + cutover landed; FR-005 architectural test green; SC-001 byte-identical regression confirmed via CI matrix). Accepted residuals: T067/T068 V14 budget verification deferred to Phase 6 polish; budgets enforceable via per-request timing, manual verification until tasks land.
 **Input**: User description: "Pluggable provider adapter abstraction for SACP's bridge layer. SACP Phase 1 uses LiteLLM as the bridge layer for provider translation across Anthropic, OpenAI, OpenAI-compatible endpoints, Ollama, and vLLM. External dependencies at the network boundary of a multi-tenant orchestrator carry inherent supply-chain risk; SACP needs a clean abstraction layer that could swap LiteLLM for in-house provider adapters if the dependency ever needs to be replaced. Designing the interface now — without building in-house adapters — costs little and provides a swap path. The adapter interface defines SACP's internal message format (stable across all adapters) and normalizes provider-specific tool-calling formats, streaming protocols, error taxonomies, token counting, and cache-control directives at the API boundary. Phase 1 ships a single LiteLLM-backed adapter behind the interface plus a mock adapter for testing. Future phases may introduce provider-specific adapters one at a time, feature-flag gated. Phase 1 scope: interface definition, LiteLLM-backed implementation, mock for testing. Cross-references §6 of sacp-design.md (provider abstraction) and the circuit-breaker feature (error-taxonomy integration)."
 
 ## Overview
@@ -48,7 +48,7 @@ This spec defines a **pluggable provider adapter abstraction**:
    boundary. The orchestrator never sees provider-native shapes;
    the adapter never sees orchestrator internals.
 2. A **`ProviderAdapter` interface** with a small, opinionated
-   method surface: `complete()`, `stream()`, `count_tokens()`,
+   method surface: `dispatch_with_retry()`, `stream()`, `count_tokens()`,
    `validate_credentials()`, `capabilities()`,
    `normalize_error()`. Every provider-specific detail lives
    below the interface.
@@ -123,6 +123,15 @@ and would each be their own spec.
   window. FR-005's architectural test enforces the cutover; FR-014's
   byte-identical regression contract closes the loop in the same
   PR. Resolved 2026-05-08.
+
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: FR-008 framed "the circuit breaker MUST consume only the canonical type, never the raw exception" in a way that implies the breaker catches exceptions, contradicting the plan where the loop-level handler catches and the breaker only receives canonical categories (020-B1 HIGH). → A: FR-008 rewritten to state "the loop-level exception handler MUST call `adapter.normalize_error(exc)` and pass the resulting canonical category to the circuit breaker; the circuit breaker itself does not catch raw exceptions."
+- Q: FR-001 listed `complete()` as the interface method but the implementation in `src/api_bridge/adapter.py` uses `dispatch_with_retry()` — spec/implementation gap (020-C1 HIGH). → A: FR-001 updated to list `dispatch_with_retry(request) -> ProviderResponse` as the primary dispatch method. Overview section updated to match.
+- Q: T067/T068 V14 budget verification tasks are unchecked while spec is Implemented — V14 is a constitutional requirement (020-D1 HIGH). → A: Status line annotated with "Accepted residuals: T067/T068 V14 budget verification deferred to Phase 6 polish; budgets enforceable via per-request timing, manual verification until tasks land."
+- Q: FR-011's `Capabilities` field list omitted `provider_family` added during planning — spec/implementation gap (020-C2). → A: `provider_family` added as the seventh field in FR-011 and in the Key Entities `Capabilities` definition.
+- Q: The Assumptions section carried stale "Confirmation pending across the family of Phase-1-back-fill specs" language — all confirmed and Status is Implemented (020-F2). → A: Sentence updated to reflect confirmed status.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fixes only.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -332,12 +341,15 @@ fails-closed at startup.
 - **FR-001**: A `ProviderAdapter` interface MUST be defined as the
   sole boundary between the dispatch path and any underlying
   provider library. The interface MUST contain at minimum:
-  `complete(request) -> Response`,
+  `dispatch_with_retry(request) -> ProviderResponse`,
   `stream(request) -> AsyncIterator[StreamEvent]`,
   `count_tokens(messages, model) -> int`,
   `validate_credentials(api_key, model) -> ValidationResult`,
   `capabilities(model) -> Capabilities`,
   `normalize_error(exc) -> CanonicalError`.
+  (`dispatch_with_retry` is the primary dispatch method as
+  shipped in `src/api_bridge/adapter.py`; non-streaming and
+  streaming share the retry-aware dispatch surface.)
 - **FR-002**: The orchestrator MUST select an adapter at startup
   via `SACP_PROVIDER_ADAPTER` (default `litellm`). The selection
   MUST be process-wide and immutable for the process lifetime.
@@ -363,8 +375,12 @@ fails-closed at startup.
   is dispatched, naming the missing fixture key.
 - **FR-008**: Every adapter MUST implement `normalize_error(exc)`
   to return a canonical error matching the spec 015 FR-003
-  enumeration. Spec 015's circuit breaker MUST consume only the
-  canonical type, never the raw exception. The adapter is the
+  enumeration. The canonical-error mapping happens at the adapter
+  layer: the loop-level exception handler MUST call
+  `adapter.normalize_error(exc)` and pass the resulting canonical
+  category to the circuit breaker. The circuit breaker itself
+  does not catch raw exceptions — it receives only the already-
+  canonical type from the loop-level handler. The adapter is the
   authoritative source for "is this a 5xx vs. timeout vs. auth
   failure."
 - **FR-009**: Streaming events surfaced from the adapter MUST
@@ -380,7 +396,11 @@ fails-closed at startup.
   object including at minimum:
   `supports_streaming, supports_tool_calling,
   supports_prompt_caching, max_context_tokens,
-  tokenizer_name, recommended_temperature_range`. Specs 015,
+  tokenizer_name, recommended_temperature_range,
+  provider_family`. `provider_family` is the normalized provider
+  category string (e.g., `openai`, `anthropic`, `google`,
+  `local`, `other`) consumed by spec 016's
+  `sacp_provider_request_total` metric label. Specs 015,
   016, 017, and 018 MUST consult `capabilities()` for any
   behavior gated on model capability.
 - **FR-012**: `count_tokens()` MUST use the participant's model
@@ -412,7 +432,7 @@ fails-closed at startup.
 - **Capabilities** — structured object returned by
   `capabilities(model)`: `supports_streaming, supports_tool_calling,
   supports_prompt_caching, max_context_tokens, tokenizer_name,
-  recommended_temperature_range`.
+  recommended_temperature_range, provider_family`.
 - **CanonicalError** — enumeration matching spec 015 FR-003:
   `error_5xx, error_4xx, auth_error, rate_limit, timeout,
   quality_failure, unknown`.
@@ -625,8 +645,6 @@ and fail-closed semantics documented in `docs/env-vars.md` BEFORE
   same back-fill framing as specs 015, 016, 017, 018, 019 —
   Phase 1 closed 2026-04-20 per memory; this spec retroactively
   adds the interface layer that Phase 1 should arguably have
-  shipped with. Confirmation pending across the family of
-  Phase-1-back-fill specs.
-- Five draft-assumption clarifications resolved 2026-05-08; spec
-  status advanced to Clarified. `/speckit.plan` and `/speckit.tasks`
-  remain deferred to user invocation.
+  shipped with. Confirmed across the Phase-1-back-fill spec
+  family; spec Status is Implemented.
+- Five draft-assumption clarifications resolved 2026-05-08.

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `018-deferred-tool-loading`
 **Created**: 2026-05-06
-**Status**: Implemented 2026-05-13 (Phase 1 + Phase 2 — design hooks + working partition + discovery capability + audit emission. Live wiring of the partition to a participant tool-list source is the spec 017 integration point; the `set_tool_list_provider` hook is in place awaiting spec 017's `ParticipantToolRegistry` reaching main.)
+**Status**: Implemented 2026-05-13 (Phase 1 + Phase 2 — design hooks + working partition + discovery capability + audit emission. Spec 017 `ParticipantToolRegistry` reached main on the same date; `set_tool_list_provider` wiring is complete.)
 **Input**: User description: "Deferred tool loading for participants with large MCP tool counts. When a participant registers multiple MCP servers each exposing several tools, the combined tool definitions can dominate the system prompt budget, crowding out conversation history and current-turn content. This is a different problem from the [NEED:] proxy mechanism (which addresses low-capability models that cannot do tool calling at all): deferred loading addresses high-capability models that can do tool calling but should not have to carry every tool definition in every turn. The mechanism should defer tool definitions above a measured threshold and provide a discovery capability the model invokes when it needs an unloaded tool. Per-participant scoping is required — each participant's deferred set is private. The loaded subset participates in the cached prefix for that participant, so tool-set changes interact with the freshness mechanism. Phase 2 scope for the working implementation. Phase 1 ships only the design hooks (system-prompt assembly knows about deferral, the index interface is defined, no-op default). Cross-references the MCP tool-list freshness feature."
 
 ## Overview
@@ -141,6 +141,13 @@ All seven open questions resolved per operator direction:
   (`len(s) / 4` rounded up, matching the estimate used elsewhere
   for budget enforcement). The fallback case MUST be logged at
   partition time at WARN level so operators can investigate.
+
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: FR-012 presents "MUST be disabled for that participant" for no-tool-calling models, but tasks.md T034 explicitly accepted-deferred this for v1 — a spec-to-tasks discrepancy with no annotation in the spec (018-C1 HIGH). → A: FR-012 downgraded from MUST to SHOULD and annotated as accepted-deferred for v1 with rationale (every v1-supported model supports native function calling; the check lands when the first no-tool-calling model is added). Tasks.md T034 rationale preserved in the annotation.
+- Q: The Status line carried a parenthetical caveat about spec 017 `set_tool_list_provider` wiring awaiting spec 017 to reach main — both specs landed on main 2026-05-13, so the caveat is stale (018-D2). → A: Status line updated to confirm wiring is complete.
+- Q: The Assumptions section ended with "Status remains Draft until the five flagged clarifications resolve and the user accepts the scaffolding" — all clarifications resolved in Session 2026-05-13 and Status is Implemented. → A: Sentence replaced with confirmation note.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fixes only.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -412,9 +419,14 @@ invalidation event).
   deferred state.
 - **FR-012**: When a participant is registered with a model that
   does not support native function calling, deferred loading
-  MUST be disabled for that participant — they use the §6.3
-  `[NEED:]` proxy instead. The disabling MUST be audited at
-  registration time.
+  SHOULD be disabled for that participant — they use the §6.3
+  `[NEED:]` proxy instead. The disabling SHOULD be audited at
+  registration time. [Accepted-deferred for v1: every currently-
+  supported model in the v1 deployment scope supports native
+  function calling, so this path is unreachable in practice;
+  the check ships in a future spec when a no-tool-calling model
+  is first added to the supported set. Rationale per tasks.md
+  T034.]
 - **FR-013**: All four new `SACP_TOOL_DEFER_*` env vars MUST have
   validator functions in `src/config/validators.py` registered in
   the `VALIDATORS` tuple, and corresponding sections in
@@ -663,7 +675,5 @@ working-implementation cut (per V16 deliverable gate).
   only the design hooks." in the user description is interpreted
   as: this spec ships the Phase-1 hooks; the Phase-2 working
   implementation is a follow-up cut of this same spec OR a
-  separate spec. Confirmation pending per Clarifications §"Phase
-  split structure".
-- Status remains Draft until the five flagged clarifications
-  resolve and the user accepts the scaffolding.
+  separate spec. Confirmed per Clarifications Session 2026-05-13
+  §"Phase split structure".

@@ -54,9 +54,8 @@ Technical approach: introduce `src/scratch/` as the new feature module containin
 | **V17 Transcript canonicity respected** | PASS | Notes are operator-private workspace state; promote creates a normal human turn via the existing path. |
 | **V18 Derived artifacts traceable** | PASS | The promote audit row captures `previous_value=<prior note content post-ScrubFilter>` + `new_value=<resulting message id>`. |
 | **V19 Evidence and judgment markers** | PASS | Spec uses [JUDGMENT] / drafted-as / [NEEDS CLARIFICATION] markers consistently; clarify session resolved all eleven markers. |
-| **V20 Sub-25-line bodies** | PASS | New helpers in `src/scratch/` keep function bodies under 25 lines. |
 
-No violations. Complexity Tracking section below remains empty.
+No violations. (Note: a "V20 Sub-25-line bodies" row was removed on 2026-05-14 — V20 does not exist in the Constitution v0.9.0; the 25-line limit is covered by V7.) Complexity Tracking section below remains empty.
 
 ## Project Structure
 

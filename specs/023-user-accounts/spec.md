@@ -73,10 +73,16 @@ This spec is **Phase 3+ scope** — explicitly NOT a Phase 3
 prerequisite. No active Phase 3 work (013, 014, 015–022) depends
 on it. It IS a prerequisite for spec 024 (facilitator scratch
 notes) per the user's roadmap — scratch notes need a persistent
-identity to attach to. This spec **scaffolds only**: implementation
-begins when the facilitator schedules tasks per Constitution §14.1.
+identity to attach to. Implementation is complete (Status: Implemented
+2026-05-12; PRs #345 + #347); the account surface is live.
 
 ## Clarifications
+
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: FR-012 says the account-deletion endpoint emits an automated debug-export to the registered email, but tasks.md notes the export payload is a placeholder pending the email-transport implementation. Does the spec accurately reflect the implementation state? → A: Partially. The call site fires correctly and the email-transport call is wired; the full session-row payload content is a placeholder pending the email-transport implementation. FR-012 is partially implemented — the trigger and call site are correct; the payload content finalizes when the transport ships. Added a residuals annotation to FR-012. Finding 23-B1.
+- Q: V16 fail-open on `SACP_EMAIL_TRANSPORT`? → A: Fixed. The original design routed startup enforcement through `select_transport()` at the factory layer, but no production call path invoked the factory at startup — so `smtp`/`ses`/`sendgrid` passed V16 syntactically and the process booted without any real transport, deferring the crash to first email send. `validate_email_transport()` in `src/config/validators.py` now rejects `smtp`/`ses`/`sendgrid` directly as "reserved for a follow-up email-transport spec," exiting the process before binding ports. The factory's `EmailTransportNotImplemented` raise is retained as a belt-and-braces guard. Contract doc `contracts/email-transport.md` and `tests/test_023_validators.py` updated; 10/10 tests pass. Finding 23-F1.
+- Q: Does this amendment change behavior? → A: 23-B1 is doc-only; 23-F1 is a behavior change — `SACP_EMAIL_TRANSPORT={smtp,ses,sendgrid}` now exits at startup instead of booting and deferring the crash to first email send. Operationally this is the documented intent of the original design; the V16 layer is just doing the work the factory was supposed to do.
 
 ### Session 2026-05-09 (Resolved)
 
@@ -566,7 +572,11 @@ does.
   registered email containing every session the account
   joined; zero the email + password fields; flip status to
   `deleted`. The account row MUST remain (no DELETE) to
-  preserve participant-audit linkage.
+  preserve participant-audit linkage. **[RESIDUAL]** FR-012's
+  email payload is currently a placeholder pending the
+  email-transport implementation (deferred per 023-F1 V16
+  fix-in-progress); the call site fires correctly, the payload
+  content is finalized when transport ships.
 - **FR-013**: A grace period after account deletion MUST
   reserve the email; new account creation with the same email
   is rejected during the grace window. After the window, the

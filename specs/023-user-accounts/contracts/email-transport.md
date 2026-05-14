@@ -105,7 +105,7 @@ The "plaintext blob" handling above is the only place the plaintext code touches
 
 ## Reserved adapters: `smtp`, `ses`, `sendgrid`
 
-These three enum values pass syntactic validation (`SACP_EMAIL_TRANSPORT in {'noop', 'smtp', 'ses', 'sendgrid'}`) but fail at adapter instantiation time. The factory raises:
+These three enum values are syntactically valid members of the `SACP_EMAIL_TRANSPORT` enum but are unimplemented in v1. Per `/speckit.analyze` finding 23-F1 (2026-05-13, fix 2026-05-14), the V16 validator rejects them at startup so the process exits before binding ports rather than booting and crashing on the first email send — a fail-open hole that opened when the original "factory raises at startup" plan was not wired into any production call path. The factory in `src/accounts/email_transport.py` retains the `EmailTransportNotImplemented` raise as a belt-and-braces guard for any code path that bypasses the validator. The factory raises:
 
 ```python
 class EmailTransportNotImplemented(RuntimeError):
@@ -126,7 +126,7 @@ def make_email_transport(name: str) -> EmailTransport:
     raise ValueError(f"Unknown SACP_EMAIL_TRANSPORT value: {name!r}")
 ```
 
-The factory is called once at startup; the `EmailTransportNotImplemented` propagates as a process exit before binding ports (V15 fail-closed). Operators see the ERROR in startup logs.
+Startup enforcement happens at the V16 validator layer (`validate_email_transport()` in `src/config/validators.py`): an unimplemented value yields a `ValidationFailure` from `validate_all()`, which `src/run_apps.py:_run_validation()` reports and exits on before binding ports. The factory's `EmailTransportNotImplemented` raise is retained as a belt-and-braces guard for any code path that bypasses the validator. Operators see the ERROR in startup logs either way.
 
 ### Future implementation (follow-up spec)
 
@@ -169,5 +169,5 @@ This privacy-preserving default is locked by the spec edge cases and clarify Q3 
 - `test_023_account_create.py` covers `NoopEmailTransport.send(purpose='verification', ...)`: asserts the audit-log row is written with the documented shape, body NOT logged, plaintext code retrievable via the cross-row read.
 - `test_023_email_change.py` covers `NoopEmailTransport.send(purpose='email_change_new', ...)` AND `purpose='email_change_old_notify', ...)` — both rows present.
 - `test_023_account_delete.py` covers `NoopEmailTransport.send(purpose='account_delete_export', ...)` — body length matches export payload size; deletion proceeds on transport success AND on transport failure (separate tests).
-- `test_023_validators.py` covers the `smtp`/`ses`/`sendgrid` startup-error path: `SACP_EMAIL_TRANSPORT=smtp` is syntactically valid but instantiation raises `EmailTransportNotImplemented` with the documented message.
+- `test_023_validators.py` covers the `smtp`/`ses`/`sendgrid` V16-rejection path: `SACP_EMAIL_TRANSPORT=smtp` (or `ses` / `sendgrid`) yields a `ValidationFailure` from `validate_email_transport()` whose reason string includes "follow-up". The factory-level `EmailTransportNotImplemented` raise is covered by `tests/test_023_email_transport.py` as the belt-and-braces guard.
 - `test_023_scrub_filter.py` covers `body` content scrubbing — emit a code via `NoopEmailTransport.send`, assert the body's plaintext does NOT appear in any log line outside the audit-log INSERT.

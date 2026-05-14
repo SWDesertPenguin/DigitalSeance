@@ -73,14 +73,19 @@ The fallback is explicit, advertised in the panel UI, so the
 facilitator knows their notes are ephemeral when the
 account layer is off.
 
-This spec **scaffolds only**. Implementation begins when
-the facilitator schedules tasks per Constitution §14.1
-AND spec 023 reaches Status: Implemented (for the
-account-scoped path). The session-scoped fallback can ship
-without 023; the production target is the account-scoped
-path.
+Implementation is complete (Status: Implemented 2026-05-12;
+phases 0–3 + SPA wiring shipped). DB-gated integration
+and Playwright e2e are scheduled per tasks.md Phase F
+triggers. The account-scoped path requires spec 023
+(Status: Implemented 2026-05-12); both are live.
 
 ## Clarifications
+
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: FR-013 carries an unresolved parenthetical — "(or the security_events / review_gate table per spec 007 §FR-005's storage decision in /speckit.plan)". Which table is authoritative for review-gate-staged events? → A: `admin_audit_log`. Spec 007 §FR-005 routes every approve / edit / reject / override action through `admin_audit_log` rows; there is no dedicated `review_gate` table. `security_events` carries the pipeline detection record (blocked=true rows), not the review-gate decision audit trail. The parenthetical was a scaffold-era open question; the storage decision was made implicitly by spec 007's implementation. FR-013 rewritten to name `admin_audit_log` as the sole source. Finding 24-B1.
+- Q: The plan.md Constitution Check table has a "V20 Sub-25-line bodies" row, but V20 does not exist in the Constitution (v0.9.0 defines V1 through V19). Is V20 a valid validator? → A: No. V20 was a local spec-author extension beyond the constitutional validation rules. The 25-line function-body limit is already covered by V7 (Coding standards met per §6.10). V20 row removed from plan.md Constitution Check table. Finding 24-D1.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only.
 
 ### Session 2026-05-12 (Resolved)
 
@@ -608,10 +613,12 @@ US2 acceptance scenario.
   entries per page with offset-based navigation, ordered
   by turn number descending by default.
 - **FR-013**: The review-gate history sub-panel MUST read
-  the review-gate-staged events from
-  `admin_audit_log` (or the security_events / review_gate
-  table per spec 007 §FR-005's storage decision in
-  `/speckit.plan`).
+  the review-gate-staged events from `admin_audit_log`.
+  Spec 007 §FR-005 routes every approve / edit / reject /
+  override action through `admin_audit_log` rows; there is
+  no separate `review_gate` table. The `security_events` table
+  carries the pipeline detection record (FR-015 of spec 007),
+  not the review-gate decision audit trail.
 - **FR-014**: The diff renderer for the review-gate sub-panel MUST reuse spec 029's inline `DiffRenderer` React component from `frontend/app.jsx` and the locked threshold constants from `frontend/diff_engine.js` (`MAIN_THREAD_BYTE_THRESHOLD = 50_000`, `WORKER_BYTE_THRESHOLD = 500_000`) per spec 029 contracts/shared-module-contracts.md §3 + §4. Spec 024 MUST NOT redeclare these constants and MUST NOT reimplement Myers-diff helpers; the spec 029 FR-020 architectural test enforces. The thresholds drive a three-mode contract: diffs ≤ 50KB render synchronously on the main thread; diffs in (50KB, 500KB] compute via the inline-blob Web Worker bootstrap; diffs > 500KB display the raw original + edited values without a computed diff plus an explanatory info bar.
 - **FR-015**: When spec 023 is in place AND
   `SACP_ACCOUNTS_ENABLED=true` AND the facilitator is

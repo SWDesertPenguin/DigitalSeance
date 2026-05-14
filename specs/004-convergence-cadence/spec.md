@@ -8,6 +8,13 @@
 
 ## Clarifications
 
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: FR-004 exposes `SACP_CONVERGENCE_THRESHOLD` as a Phase 3 env var but does not define fail-closed semantics for out-of-range values. → A: Added an explicit fail-closed clause to FR-004: any value outside `(0.0, 1.0]` MUST cause startup exit per Constitution V16. The Phase 3+ env-var surface must implement this validator before shipping.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only.
+- Q: SACP_CONVERGENCE_THRESHOLD has no V16 catalog entry in spec.md. → A: Added a "Configuration (V16)" section below. The var is reserved (not yet wired) so it has no authoritative `docs/env-vars.md` entry yet; this section pre-declares the V16 contract for when Phase 3 wires it.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only.
+
 ### Session 2026-04-14
 
 - Q: Cruise cadence ceiling? → A: 60s (reduced from 300s via PR #47; 5-minute freezes unusable in active conversation)
@@ -132,7 +139,7 @@ Beyond embedding similarity, the convergence detector checks for nonsense output
 - **FR-001**: System MUST compute text embeddings for each AI response asynchronously after the response is persisted.
 - **FR-002**: System MUST store embeddings in the convergence log with the similarity score and turn reference.
 - **FR-003**: System MUST compute cosine similarity between the current embedding and a configurable sliding window of recent embeddings (default 5 turns). Similarity MUST be reported as 0.0 until the window contains at least 3 prior turns — with fewer turns the signal reflects topicality, not convergence.
-- **FR-004**: System MUST detect convergence when similarity exceeds a configurable threshold (default 0.75 — see `DEFAULT_THRESHOLD` in `src/orchestrator/convergence.py`) across the entire sliding window. The threshold is set at `ConvergenceDetector` construction; runtime / env-var override is not exposed in Phase 1 (modify the constant or pass via constructor for tests). Phase 3+ may expose it as `SACP_CONVERGENCE_THRESHOLD`.
+- **FR-004**: System MUST detect convergence when similarity exceeds a configurable threshold (default 0.75 [JUDGMENT] — see `DEFAULT_THRESHOLD` in `src/orchestrator/convergence.py`) across the entire sliding window. The threshold is set at `ConvergenceDetector` construction; runtime / env-var override is not exposed in Phase 1 (modify the constant or pass via constructor for tests). Phase 3+ may expose it as `SACP_CONVERGENCE_THRESHOLD`. **Fail-closed clause**: when `SACP_CONVERGENCE_THRESHOLD` is wired in Phase 3+, any value outside the range `(0.0, 1.0]` (exclusive lower bound, inclusive upper bound) MUST cause startup exit with a clear error before binding any port, per Constitution V16. A threshold of 0.0 would flag every turn as converging; a threshold > 1.0 can never be exceeded by cosine similarity and would silently disable convergence detection — both are operator errors that must be caught at startup, not silently accepted.
 - **FR-005**: System MUST inject a divergence prompt into the next turn's context when sustained convergence is detected.
 - **FR-006**: System MUST escalate to human review when convergence persists after a divergence prompt.
 - **FR-007**: System MUST record convergence events in the convergence log including divergence_prompted and escalated_to_human flags.
@@ -277,6 +284,36 @@ get poked even when conversation is genuinely productive); raising
 toward 0.85 risks missing slow-drift convergence. Tuning is per-
 deployment via the `threshold=` constructor kwarg; Phase 3+ may expose
 `SACP_CONVERGENCE_THRESHOLD`.
+
+## Configuration (V16)
+
+Per Constitution §12 V16, every `SACP_*` env var owned by this spec must have a documented type, valid range, and fail-closed behavior. The following vars are owned by spec 004:
+
+### `SACP_DENSITY_ANOMALY_RATIO` (active)
+
+- **Type**: float
+- **Valid range**: `[1.0, 5.0]` inclusive
+- **Fail-closed semantics**: values outside `[1.0, 5.0]` MUST cause startup exit before binding any port.
+- **Source spec**: 004 §FR-020
+- **Authoritative catalog entry**: `docs/env-vars.md` (cross-reference).
+
+### `SACP_CONVERGENCE_THRESHOLD` (reserved — Phase 3+)
+
+- **Type**: float
+- **Valid range**: `(0.0, 1.0]` — exclusive lower bound (0.0 would flag every turn), inclusive upper bound (1.0 means only identical embeddings trigger convergence)
+- **Fail-closed semantics**: when wired in Phase 3+, any value outside `(0.0, 1.0]` MUST cause startup exit per Constitution V16. See FR-004 for the rationale.
+- **Source spec**: 004 §FR-004
+- **Phase 1 status**: reserved only; no startup validator exists yet. The constant `DEFAULT_THRESHOLD=0.75` is hardcoded.
+
+## V19 Judgment Markers
+
+Per Constitution v0.9.0 V19, numeric SLO targets that are engineering judgments rather than measured values require `[JUDGMENT]` markers. The following values in this spec are engineering judgments:
+
+- **FR-004 DEFAULT_THRESHOLD = 0.75** [JUDGMENT] — empirically derived during Phase 1 shakedowns; not calibrated against a labeled convergence dataset. Lowering toward 0.6 increases false-positive rate; raising toward 0.85 risks missing slow-drift convergence.
+- **FR-011 DEFAULT_INTERVAL = 12 turns** [JUDGMENT] — engineering estimate for a "reasonable cadence" for adversarial injection in a typical 2-participant session. Not derived from groupthink-prevention research.
+- **SC-001 "~80ms on CPU"** [JUDGMENT] — measured on a mid-range x86 CPU with all-MiniLM-L6-v2 on short English texts; varies with text length, model cache warmth, and CPU generation.
+- **SC-003 "at least 20% reduction"** [JUDGMENT] — illustrative target from informal testing; not measured against a labeled corpus.
+- **FR-020 SACP_DENSITY_ANOMALY_RATIO default 1.5** [JUDGMENT] — Phase 1 ships a default that minimizes false-positive noise at the cost of missing mild anomalies; re-calibration target is `tests/calibration/density_distribution.json` once production data accumulates.
 
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 

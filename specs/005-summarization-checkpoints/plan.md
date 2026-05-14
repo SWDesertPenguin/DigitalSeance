@@ -8,7 +8,7 @@ Add periodic summarization checkpoints to the turn loop: trigger every N turns, 
 
 ## Technical Context
 
-**Language/Version**: Python 3.11+ (existing)
+**Language/Version**: Python 3.14.4 (constitution §6.8 slim-bookworm)
 **Primary Dependencies**: N/A
 **Storage**: PostgreSQL 16 (existing)
 **Project Type**: Single project

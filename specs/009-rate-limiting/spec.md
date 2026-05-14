@@ -157,6 +157,14 @@ or a token-bucket counter on a shared store. No partial migration
 exists; the in-memory implementation is correct under its assumptions
 and any swap is a complete rewrite of the bucket data layer.
 
+## Clarifications (2026-05-14)
+
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: What is the concurrency contract between an in-progress eviction sweep and concurrent `check()` calls, and what is the spec-level latency budget for the sweep? (finding 009-C1) → A: Under CPython's single-threaded asyncio event loop the sweep runs synchronously with no `await` points; concurrent `check()` calls cannot interleave mid-sweep — each call awaits the event loop turn. The once-per-second gate (FR-013) is the primary defence against event-loop stall. SR-001 below codifies the numeric budget.
+- **SR-001 (sweep latency budget)**: The eviction sweep MUST complete in <50ms P95 at `DEFAULT_MAX_BUCKETS=10000`. A sweep exceeding this threshold MUST emit a `rate_limit_sweep_slow` row to `security_events` so capacity pressure is observable without inspecting application logs. The 50ms figure is already cited as an advisory threshold in the Operational notes "Eviction-sweep alerting" block; this SR promotes it to a spec-level enforceable contract.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only; the 50ms advisory threshold existed in Operational notes; SR-001 promotes it and adds the `security_events` emit obligation.
+
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 
 **Topologies** (per constitution §3): Topologies 1–6 only (orchestrator-driven). Rate limits apply to MCP tool calls routed through the orchestrator's `/tools/*` endpoints. Topology 7 (client-side peer AI with local MCP) has no orchestrator to enforce uniform limits; peer-side rate limiting is deferred to Phase 2+.
