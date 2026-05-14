@@ -6,7 +6,7 @@
 
 ## Schema additions
 
-All additions ship in one alembic revision `024_capcom_routing_scope.py` (the next sequential slot after 023). The `tests/conftest.py` raw-DDL schema mirror updates in lockstep per `feedback_test_schema_mirror`.
+All additions ship in one alembic revision `024_capcom_routing_scope.py` (the next sequential slot after 023). The `tests/conftest.py` raw-DDL schema mirror updates in lockstep per `feedback_test_schema_mirror`. The two-tier summarizer (FR-018) requires no schema additions — see the Phase 7 note below.
 
 ### `messages.kind` (new column)
 
@@ -85,24 +85,14 @@ WHERE routing_preference = 'capcom';
 
 Enforces single-CAPCOM-per-session at the DB layer per FR-005. The unique index is partial — only rows where `routing_preference='capcom'` are constrained. Rotation transactions update the outgoing CAPCOM's `routing_preference` BEFORE the incoming participant's, so the unique constraint is satisfied at each statement boundary inside the transaction (research.md §14).
 
-### `checkpoint_summaries.summary_scope` (new column on spec 005's table)
+### Two-tier summarizer storage (Phase 7, no migration)
 
-| field | value |
-|---|---|
-| type | `TEXT NOT NULL DEFAULT 'panel'` |
-| constraint | `CHECK (summary_scope IN ('panel', 'capcom'))` |
-| spec ref | FR-018 |
+Per [research.md §5](./research.md) (revised 2026-05-14 after implementation discovery), spec 005 stores summaries as messages with `speaker_type='summary'` — there is no separate `checkpoint_summaries` table. The two-tier summarizer therefore re-uses the existing `messages.visibility` column:
 
-Discriminator for the two-tier summarizer output. `'panel'` — summary computed over `visibility='public'` messages only. `'capcom'` — summary computed over `visibility='public' OR visibility='capcom_only'` messages.
+- Panel summary: `speaker_type='summary'`, `visibility='public'`, covers public source rows.
+- CAPCOM summary: `speaker_type='summary'`, `visibility='capcom_only'`, covers public + capcom_only source rows.
 
-Supporting unique index:
-
-```sql
-CREATE UNIQUE INDEX ux_checkpoint_summaries_scope
-ON checkpoint_summaries(session_id, checkpoint_turn, summary_scope);
-```
-
-Enforces one summary row per scope per checkpoint.
+The visibility filter (FR-006) routes the matching summary to the participant's context automatically. No additional schema column or unique index is required.
 
 ## Invariants
 
@@ -116,7 +106,7 @@ Enforces one summary row per scope per checkpoint.
 
 **INV-5 (Historical attribution preserved)**: Rotation/disable does NOT rewrite the `speaker_id` of pre-rotation `capcom_only` messages. The audit trail attributes every `capcom_only` row to the CAPCOM-of-record at emission time (FR-010, FR-011).
 
-**INV-6 (Summary-scope consistency)**: For any `checkpoint_summaries(session_id, checkpoint_turn)` pair, at most one row exists per scope. Enforced by `ux_checkpoint_summaries_scope`. When CAPCOM is unassigned at a checkpoint, only the `panel` row exists (one row per checkpoint). When CAPCOM is assigned, both `panel` and `capcom` rows exist (two rows per checkpoint).
+**INV-6 (Summary-scope consistency)**: For any `(session_id, checkpoint_turn)` pair where summaries are emitted, the summarizer writes at most one `summary` message per visibility scope. Enforced by an application-side existence check before each summary write (no DB unique index needed because the message PK `(turn_number, session_id, branch_id)` already prevents duplicate rows at the turn level — the summarizer reuses distinct turn numbers for panel vs CAPCOM summaries via its existing summary-checkpoint cadence).
 
 ## Audit-log action vocabulary
 

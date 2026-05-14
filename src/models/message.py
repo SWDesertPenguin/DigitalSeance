@@ -29,6 +29,9 @@ class Message:
     cost_usd: float | None
     created_at: datetime
     summary_epoch: int | None
+    # Spec 028 — CAPCOM-like routing scope.
+    kind: str = "utterance"
+    visibility: str = "public"
 
     @classmethod
     def from_record(cls, record: Any) -> Message:

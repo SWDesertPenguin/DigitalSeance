@@ -80,6 +80,13 @@ LABELS: dict[str, dict[str, Any]] = {
     "pivot_injected": {"label": "Orchestrator injected pivot message"},
     "standby_observer_marked": {"label": "Participant marked long-term observer"},
     "wait_mode_changed": {"label": "Participant wait_mode changed"},
+    # Spec 028 — CAPCOM-like routing scope lifecycle.
+    "capcom_assigned": {"label": "Facilitator assigned CAPCOM"},
+    "capcom_rotated": {"label": "Facilitator rotated CAPCOM"},
+    "capcom_disabled": {"label": "Facilitator disabled CAPCOM"},
+    "capcom_departed_no_replacement": {
+        "label": "CAPCOM participant removed without replacement",
+    },
 }
 
 

@@ -61,6 +61,10 @@
     "pivot_injected": { label: "Orchestrator injected pivot message" },
     "standby_observer_marked": { label: "Participant marked long-term observer" },
     "wait_mode_changed": { label: "Participant wait_mode changed" },
+    "capcom_assigned": { label: "Facilitator assigned CAPCOM" },
+    "capcom_rotated": { label: "Facilitator rotated CAPCOM" },
+    "capcom_disabled": { label: "Facilitator disabled CAPCOM" },
+    "capcom_departed_no_replacement": { label: "CAPCOM participant removed without replacement" },
   };
 
   // Return the registered label for `action`, or the

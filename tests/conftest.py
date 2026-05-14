@@ -211,7 +211,8 @@ _SESSIONS_TABLE_DDL = """
         active_phase_started_at TIMESTAMPTZ,
         compression_mode TEXT NOT NULL DEFAULT 'auto'
             CHECK (compression_mode IN ('auto', 'off', 'noop', 'llmlingua2_mbert',
-                                        'selective_context', 'provence', 'layer6'))
+                                        'selective_context', 'provence', 'layer6')),
+        capcom_participant_id TEXT REFERENCES participants(id)
     )
 """
 
@@ -310,6 +311,10 @@ def _messages_ddl() -> str:
             cost_usd REAL,
             created_at TIMESTAMP DEFAULT NOW(),
             summary_epoch INTEGER,
+            kind TEXT NOT NULL DEFAULT 'utterance'
+                CHECK (kind IN ('utterance', 'capcom_relay', 'capcom_query')),
+            visibility TEXT NOT NULL DEFAULT 'public'
+                CHECK (visibility IN ('public', 'capcom_only')),
             PRIMARY KEY (turn_number, session_id, branch_id)
         )
     """
@@ -807,6 +812,7 @@ def _index_ddls() -> list[str]:
         *_detection_events_index_ddls(),
         *_facilitator_notes_index_ddls(),
         *_circuit_breaker_index_ddls(),
+        *_capcom_index_ddls(),
     ]
 
 
@@ -903,6 +909,16 @@ def _circuit_breaker_index_ddls() -> list[str]:
         " ON provider_circuit_probe_log (session_id, probe_at DESC)",
         "CREATE INDEX idx_circuit_close_session"
         " ON provider_circuit_close_log (session_id, closed_at DESC)",
+    ]
+
+
+def _capcom_index_ddls() -> list[str]:
+    """spec 028 alembic 024 mirror; visibility filter + single-CAPCOM-per-session."""
+    return [
+        "CREATE UNIQUE INDEX ux_participants_session_capcom"
+        " ON participants (session_id) WHERE routing_preference = 'capcom'",
+        "CREATE INDEX idx_messages_visibility"
+        " ON messages (session_id, visibility, turn_number DESC)",
     ]
 
 

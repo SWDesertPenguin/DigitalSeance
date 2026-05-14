@@ -77,16 +77,23 @@ The scan looks for two AST patterns: `Attribute(value=Name(...), attr='content')
 
 ## §5 — Two-tier summarizer storage (spec 005 coordination)
 
-**Decision**: Spec 005's existing `checkpoint_summaries` table gains a discriminator column `summary_scope TEXT NOT NULL DEFAULT 'panel' CHECK (summary_scope IN ('panel', 'capcom'))`. When CAPCOM is assigned, the spec 005 summarizer runs twice per checkpoint: once over `visibility='public'` messages producing a `panel` summary, once over `visibility='public' OR visibility='capcom_only'` producing a `capcom` summary. Context assembly delivers the matching scope: panel AIs see the `panel` row, the CAPCOM AI sees the `capcom` row. When CAPCOM is unassigned, only `panel` rows are produced (preserves pre-feature behavior).
+**Implementation discovery (2026-05-14)**: Spec 005 does NOT use a separate `checkpoint_summaries` table — summaries persist as messages with `speaker_type='summary'` (see `src/repositories/message_repo.py::_SUMMARIES_SQL`). The drafted "discriminator column on `checkpoint_summaries`" approach therefore does not apply.
 
-The schema addition is part of migration `024_capcom_routing_scope.py` (single revision, §2); the spec 005 SUMMARIZER code change is in the spec 028 task list. The migration ALSO adds a unique index `ux_checkpoint_summaries_scope ON checkpoint_summaries(session_id, checkpoint_turn, summary_scope)` enforcing one row per scope per checkpoint.
+**Revised decision (Phase 7 scope)**: The two-tier summarizer reuses spec 028's existing `messages.visibility` column. When CAPCOM is assigned at a checkpoint:
+- The summarizer emits TWO summary messages with `speaker_type='summary'`.
+- The PANEL summary persists with `visibility='public'` and covers `visibility='public'` source rows only.
+- The CAPCOM summary persists with `visibility='capcom_only'` and covers `visibility='public' OR visibility='capcom_only'` source rows.
 
-**Rationale**: Discriminator column is simpler than splitting into two tables. The summary record shape (text, embedding, token-count, timestamp) is identical; only the source-message filter differs. A discriminator preserves all existing spec 005 queries (default scope='panel' filter is one WHERE clause addition) and keeps the migration footprint small.
+Context assembly already filters by visibility (§3, §FR-006): panel AIs receive the `public` summary; the CAPCOM AI receives both summaries (panel + CAPCOM) and is expected to prefer the CAPCOM one. To enforce single-summary-per-checkpoint-per-scope, the summarizer code path checks for existing rows at the checkpoint turn before writing.
+
+**No additional migration** is required for two-tier summarizer storage. The Phase 7 work is purely in `src/orchestrator/summarizer.py`.
+
+**Rationale**: Reusing the existing `visibility` column avoids a second migration and aligns the summary partition with the underlying message partition — the same routing-time invariant covers both. The CAPCOM AI seeing both summaries is acceptable because the CAPCOM-summary subsumes the panel-summary (panel is a strict subset). A code-side discriminator preference (CAPCOM summary preferred when both exist) lives in `_add_summary`.
 
 **Alternatives considered**:
-- Two summary tables (`checkpoint_summaries_panel`, `checkpoint_summaries_capcom`). Rejected: forks the read path; doubles the test fixture surface; the scope dimension is logically the same entity at different filter scopes.
-- Summary JSON column carrying both scopes per row. Rejected: complicates spec 005's existing summarizer (which writes one row per call); a discriminator with one row per scope keeps the writer's contract one-row-per-invocation.
-- Defer to spec 005 amendment landing later. Rejected: spec 028 needs the spec 005 surface at implementation time; co-shipping the discriminator with the migration eliminates the cross-spec ordering hazard.
+- Introduce a new `checkpoint_summaries` table (the original drafted approach). Rejected: forks the storage shape from spec 005's existing pattern; adds a migration; requires a query path change.
+- Visibility-bound summaries (the chosen revision). Selected: zero new schema, reuses the same filter, single-source-of-truth.
+- Single summary row with discriminator metadata. Rejected: forces summarizer to emit a tuple-shaped row that doesn't match the message schema.
 
 ---
 

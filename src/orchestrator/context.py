@@ -77,9 +77,15 @@ class ContextAssembler:
         Spec 027 FR-015: when ``always_mode_wait_active=True`` the system
         prompt picks up the Tier 4 wait-acknowledgment delta as the third
         additive fragment (after register + conclude).
+
+        Spec 028 §FR-006: when CAPCOM is assigned for the session, the
+        message-load path applies ``_filter_visibility`` so panel AIs
+        receive only ``visibility='public'`` rows. Loaded once per
+        ``assemble`` from ``sessions.capcom_participant_id``.
         """
         budget = _available_budget(participant)
         context: list[ContextMessage] = []
+        capcom_id = await self._fetch_capcom_id(session_id)
         register_delta = await self._resolve_register_delta(session_id, participant.id)
         await self._maybe_trigger_deferred_partition(session_id, participant)
         used = _add_system_prompt(
@@ -99,8 +105,22 @@ class ContextAssembler:
             participant=participant,
             interjections=interjections,
             roster=roster,
+            capcom_id=capcom_id,
         )
         return _reorder_chronologically(context)
+
+    async def _fetch_capcom_id(self, session_id: str) -> str | None:
+        """Read ``sessions.capcom_participant_id`` once per assemble.
+
+        Returns ``None`` when CAPCOM is not assigned for the session
+        (the visibility filter then passes through every message
+        unchanged — pre-feature behavior).
+        """
+        async with self._pool.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT capcom_participant_id FROM sessions WHERE id = $1",
+                session_id,
+            )
 
     async def _maybe_trigger_deferred_partition(
         self,
@@ -202,6 +222,7 @@ class ContextAssembler:
         participant: Participant,
         interjections: list | None = None,
         roster: dict[str, dict[str, str]] | None = None,
+        capcom_id: str | None = None,
     ) -> int:
         """Add P2-P6 content in priority order."""
         bid = await get_main_branch_id(self._pool, session_id)
@@ -211,9 +232,11 @@ class ContextAssembler:
         proposals = await self._prop_repo.get_open_proposals(session_id)
         used = _add_proposals(context, proposals, used)
         all_recent = await self._msg_repo.get_recent(session_id, bid, _history_turns())
+        all_recent = _filter_visibility(all_recent, participant, capcom_id)
         floor = all_recent[:MVC_FLOOR_TURNS]
         used = _add_messages(context, floor, used, budget, speaker_id=participant.id, roster=roster)
         summaries = await self._msg_repo.get_summaries(session_id, bid)
+        summaries = _filter_visibility(summaries, participant, capcom_id)
         if summaries:
             used = _add_summary(context, summaries[-1], used, budget)
         if used < budget:
@@ -227,6 +250,27 @@ class ContextAssembler:
                 roster=roster,
             )
         return used
+
+
+def _filter_visibility(
+    messages: list[Message],
+    participant: Participant,
+    capcom_id: str | None,
+) -> list[Message]:
+    """Spec 028 §FR-006 — last context-assembly step before security wrap.
+
+    - Humans see every message (humans hold CAPCOM-or-broader visibility).
+    - The active CAPCOM AI sees every message.
+    - When no CAPCOM is assigned (capcom_id is None) every participant sees
+      every message — pre-feature behavior preserved.
+    - Every other AI participant (the panel) sees ``visibility='public'``
+      messages only; ``capcom_only`` rows are filtered out.
+    """
+    if capcom_id is None or participant.provider == "human":
+        return messages
+    if participant.id == capcom_id:
+        return messages
+    return [m for m in messages if m.visibility == "public"]
 
 
 def _reorder_chronologically(context: list[ContextMessage]) -> list[ContextMessage]:
