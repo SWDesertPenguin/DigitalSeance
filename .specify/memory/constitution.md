@@ -1,6 +1,65 @@
 <!--
 Sync Impact Report (most recent first)
 
+  Version change: 0.9.0 → 0.10.0 (2026-05-14)
+  Change type: MINOR — §4.13 lifted from PROVISIONAL; principle sharpened; two
+    new forbidden items added; operator-published-schema carve-out introduced;
+    content-vs-transport scope distinction made explicit.
+  Modified principles:
+    - §4.13 No negotiated inter-AI shorthand: PROVISIONAL marker removed.
+      Five edge-case angles resolved as follows:
+        (1) Protocol-evolution mechanisms (MCP capability negotiation,
+            tool-schema updates per the public MCP spec, JSON-RPC version
+            handshakes, OAuth scope exchanges) → PERMITTED. Rule applies to
+            content semantics, not transport mechanism. Anti-evasion clause
+            added: a tool whose semantics constitute a private inter-AI
+            vocabulary is caught by the core rule even when wrapped in a
+            public-protocol surface.
+        (2) Lightweight conventions (emoji status indicators, agreed-upon
+            prefixes) → PERMITTED if publicly decodable from standard
+            references; FORBIDDEN if AI-negotiated with proprietary
+            semantics. The "lightweight" framing is not a separate test —
+            the decoding test is the test.
+        (3) Mid-session structured-format adoption (Markdown tables, JSON,
+            named-language code blocks) → PERMITTED. Negotiation about
+            which public format to use is coordination, not shorthand;
+            content remains publicly decodable. Steganographic exploitation
+            of format features remains caught by the existing forbidden-
+            list item.
+        (4) Optimized tool-call payloads at scale (compact JSON keys,
+            abbreviated parameter names, numeric identifiers) → PERMITTED
+            when grounded in an operator-published or public schema (with
+            stable public location and version); FORBIDDEN when
+            AI-negotiated mid-session. AI-proposed + operator-published is
+            the permitted pathway for schema evolution — human review is a
+            precondition of use, not a post-hoc audit.
+        (5) Covert-channel cases beyond the enumerated list → forbidden-
+            list reframed as illustrative-not-exhaustive with an explicit
+            catch-all clause. Two new items added: timing/length channels
+            and cross-turn structural patterns (acrostics, header-level
+            encoding, citation-selection patterns).
+  Added sections: none (all changes are within §4.13)
+  Removed sections: none
+  Project-memory companion updated:
+    - project_4_13_shorthand_review_queued.md replaced by
+      project_4_13_shorthand_settled.md recording the resolution and the
+      new triggers (operator-published-schema lifecycle, red-team-driven
+      covert-channel category expansion).
+  Cross-spec re-evaluation:
+    - Phase 3+ inter-AI-coordination specs (013 broadcast, 014 dynamic
+      mode, 028 CAPCOM routing scope, future relevance-routing) SHOULD
+      carry a one-paragraph §4.13-compatibility note in their plan.md.
+      No code changes required by this amendment; §4.13 is a design-time
+      gate, not a runtime enforcement.
+  Templates verified:
+    - .specify/templates/plan-template.md ✅ — generic Constitution Check
+      gate remains valid; no §4.13-specific reference to update.
+    - .specify/templates/spec-template.md ✅ — no constitution-specific
+      content; no changes needed.
+    - .specify/templates/tasks-template.md ✅ — no constitution-specific
+      content; no changes needed.
+    - .specify/templates/checklist-template.md ✅ — generic; no changes.
+
   Version change: 0.8.0 → 0.9.0 (2026-05-06)
   Change type: MINOR — constitution-vs-design reconciliation pass; six new
     principles added (one PROVISIONAL); three new validation rules; existing
@@ -207,7 +266,7 @@ Sync Impact Report (most recent first)
 
 # SACP Constitution
 
-**Version**: 0.9.0 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-05-06
+**Version**: 0.10.0 | **Ratified**: 2026-04-11 | **Last Amended**: 2026-05-14
 
 ---
 
@@ -295,35 +354,36 @@ These resolve ambiguity when the design doc doesn't have a specific answer.
 
 **4.12 — Per-participant pre-bridge processing only.** All participant-specific transformation of conversation content (context assembly, spotlighting, sanitization, trust-tier wrapping, MVC trimming) happens in the bridge layer between the canonical transcript and a single participant's provider call. Server-side rewrites that affect what other participants see are forbidden. This is the operational corollary of §4.10.
 
-**4.13 — No negotiated inter-AI shorthand at any phase. [PROVISIONAL — under deeper review]**
+**4.13 — No negotiated inter-AI shorthand at any phase.**
 
-**Status.** This principle is provisionally in force but its scope and edge cases require further analysis before it can be considered settled. The rationale (three load-bearing purposes, below) is stable; what is under review is the *boundary* of the rule. Known angles still being examined:
+**Core rule.** Participants communicate in human-readable natural language at the orchestrator-side wire. The orchestrator MUST refuse, and feature specs MUST NOT propose, any mechanism that lets two AIs negotiate a compressed, encoded, or otherwise opaque-to-humans inter-AI protocol — whether for efficiency, capability extension, or "private" channel.
 
-1. **Protocol-evolution mechanisms.** MCP capability negotiation, tool-schema updates, and other infrastructure-layer protocol exchanges may need an explicit carve-out separate from the inter-AI-content scope already noted.
-2. **Lightweight conventions.** Emoji-as-status-indicator, agreed-upon prefixes ("PROPOSAL:", "QUESTION:"), and similar lightweight conventions are technically negotiable — does the rule reach them, or only schemes that obscure meaning?
-3. **Mid-session structured-format adoption.** If two AIs decide mid-session to start exchanging Markdown tables or JSON for clarity, the structure is public but the *adoption decision* is negotiated. Permitted or forbidden?
-4. **Optimized tool-call payloads at scale.** As tool-call traffic grows, pressure to compress or de-duplicate payloads will surface. Where does "permitted optimization" end and "shorthand" begin?
-5. **Covert-channel cases beyond the enumerated forbidden-list.** The list below is not exhaustive; other cases may emerge from red-team work.
-
-**Interim posture (binding until review concludes).** Apply the rule conservatively. Feature specs that clearly violate it (negotiated cipher, embedding-based exchange, steganographic encoding) are rejected as drafted. Feature specs that bump into ambiguity escalate to a `§4.13-review` work item rather than acting on the ambiguity unilaterally. The principle may be sharpened, narrowed, or rewritten when the deeper review concludes; consumers of this rule should expect details to shift.
-
-**Core rule (provisional).** Participants communicate in human-readable natural language at the orchestrator-side wire. The orchestrator MUST refuse, and feature specs MUST NOT propose, any mechanism that lets two AIs negotiate a compressed, encoded, or otherwise opaque-to-humans inter-AI protocol — whether for efficiency, capability extension, or "private" channel.
-
-**The test for whether content is permitted.** A non-expert human reader, with reasonable effort and access to public references (dictionaries, documentation, code repos), MUST be able to decode the meaning of what one AI says to another. If decoding requires a key, a learned model, a statistical decoder, or a privately negotiated convention not present in any public source, the content is shorthand and forbidden.
+**The test for whether content is permitted.** A non-expert human reader, with reasonable effort and access to public references (dictionaries, documentation, code repos, this constitution's §13 reference registry, operator-published schemas), MUST be able to decode the meaning of what one AI says to another. If decoding requires a key, a learned model, a statistical decoder, or a privately negotiated convention not present in any public source, the content is shorthand and forbidden.
 
 **What is permitted.**
 - Domain jargon (terms a non-expert can look up).
-- Structured payloads in published formats (JSON tool-call arguments, Markdown, code blocks in named languages, MCP envelopes per the public spec) — the structure is documented and decodable.
+- Structured payloads in **published formats** (JSON tool-call arguments, Markdown, code blocks in named languages, MCP envelopes per the public MCP spec) — the structure is documented and decodable.
 - Cross-AI quoting and reference (one AI quoting another's prior turn verbatim).
+- **Publicly-conventional prefixes and indicators** that map to standard meanings (`PROPOSAL:`, `QUESTION:`, `NOTE:`, `TODO:`, widely-recognized status emoji ✅⚠️❌🟢🟡🔴). The convention must be publicly decodable, not session-negotiated.
+- **Mid-session adoption of public structured formats** (two AIs starting to exchange Markdown tables for clarity). Negotiating about *which public format to use* is coordination, not shorthand; the content remains publicly decodable.
+- **Operator-published payload schemas**, including abbreviated JSON keys and compact wire formats, when the schema is documented in a stable public location (this constitution's §13, `docs/`, the operator's published API reference) **before** any AI begins using it. The schema's author MAY be an AI (e.g., an AI proposes an optimization in the transcript and the facilitator approves and publishes it); the *gate* must be human. AIs MAY NOT evolve their own optimization schemas mid-session without that human-publication step.
 
-**What is forbidden.**
-- Negotiated abbreviation schemes ("from now on, X means Y").
+**What is forbidden** (the following list is **illustrative, not exhaustive** — any encoding that fails the decoding test above is forbidden regardless of whether it appears here).
+- Negotiated abbreviation schemes between AIs ("from now on, X means Y").
+- AI-negotiated prefixes or indicators with proprietary semantics (`[BLOCK]` meaning "hard veto" by session-local agreement; emoji whose meanings drift from public conventions to private ones).
 - Compressed text passed between AIs where the compression carries semantic load beyond the surface text (cross-references the 14th attack vector, compression as covert-channel substrate; see §8 introduction and design doc §7.6).
 - Embedding-based or token-id-based exchanges intended to be read by another AI but not by humans.
 - Steganographic encoding (capitalization patterns, whitespace patterns, zero-width characters, homoglyph variation) carrying meaning beyond surface text.
+- **Timing and length channels** — message latency, response-length variance, send-order patterns used as a meta-signal beyond the surface content.
+- **Cross-turn structural patterns** — first-letter acrostics, header-level encoding, citation-selection patterns, sentence-count patterns agreed-upon to carry meta-signals beyond the surface text.
 - Any "private" inter-AI side channel that bypasses the canonical transcript.
+- Any other negotiated or systematic encoding that carries semantic load beyond the surface text and is not decodable from public references.
 
-**Scope.** This rule governs *inter-AI content* — what AIs say to each other through the orchestrator. It does not govern *orchestrator-side metadata* (routing modes, topic tags, capability registries, signal-driven controller decisions per spec 014, audit-log entries) — that machinery is infrastructure, not inter-AI communication. A signal-driven controller adjusting a participant's routing mode is metadata; a participant's AI producing a turn that another participant's AI consumes is content, and the content path is governed by this principle.
+**Scope: content vs. transport.** This rule governs *inter-AI content* — what AIs say to each other through the orchestrator. It does not govern *transport-layer protocol exchanges* conforming to public specifications: MCP capability negotiation, tool-schema updates per the public MCP spec, JSON-RPC version handshakes, OAuth scope exchanges, routing-mode metadata, audit-log entries, signal-driven controller decisions per spec 014. That machinery is infrastructure, not inter-AI communication. A signal-driven controller adjusting a participant's routing mode is metadata; a participant's AI producing a turn that another participant's AI consumes is content, and the content path is governed by this principle.
+
+**Anti-evasion.** A tool, capability, or MCP envelope whose *semantics* constitute a private vocabulary or encoding scheme between AIs (e.g., a registered tool whose parameter `concept_id` resolves only via session-local context, or an MCP capability whose payload format is itself a negotiated abbreviation) is caught by the core rule even when wrapped in a public-protocol surface. The transport carve-out does not launder forbidden content.
+
+**Why the operator/AI asymmetry.** Operator-published schemas pass review by a human *before* any AI uses them. AI-negotiated schemas collapse negotiation and use into the same motion: the schema is established and exercised in the same turns. The three load-bearing purposes below interact differently with those two cases — operator-published lives in a stable, named, versioned location an auditor or dropping-in human can find in one step; AI-negotiated lives wherever in the transcript the AIs happened to negotiate it, possibly distributed across turns or established implicitly through example usage. Most importantly, in-band negotiation is the specific mechanism by which covert channels bootstrap themselves: a jailbroken AI can propose a schema that looks benign but whose semantics encode forbidden content, and the proposal itself may be steganographic. The asymmetry is not about authority or trust — it is about *when* human review happens.
 
 **Why this rule exists.** Three load-bearing purposes, all of which fail if shorthand is permitted:
 
