@@ -76,11 +76,22 @@ def _participant(pid: str, provider: str = "anthropic") -> Participant:
     return Participant(id=pid, display_name=pid, provider=provider, **_PARTICIPANT_DEFAULTS)
 
 
-def test_no_capcom_assigned_returns_messages_unchanged():
-    """When capcom_id is None, no filtering occurs (pre-feature behavior)."""
-    msgs = [_msg(1, "p1"), _msg(2, "p2", visibility="capcom_only")]
-    out = _filter_visibility(msgs, _participant("p1"), capcom_id=None)
+def test_pre_feature_messages_still_visible_when_no_capcom():
+    """Pre-feature default visibility=public preserves panel-AI visibility."""
+    msgs = [_msg(1, "p1"), _msg(2, "p2")]
+    out = _filter_visibility(msgs, _participant("panel1"), capcom_id=None)
     assert out == msgs
+
+
+def test_historical_capcom_only_stays_invisible_after_disable():
+    """FR-011 — disable does NOT retroactively promote capcom_only to public."""
+    msgs = [
+        _msg(1, "p1", visibility="public"),
+        _msg(2, "p2", visibility="capcom_only"),
+        _msg(3, "p3", visibility="public"),
+    ]
+    out = _filter_visibility(msgs, _participant("panel1"), capcom_id=None)
+    assert [m.turn_number for m in out] == [1, 3]
 
 
 def test_capcom_participant_sees_all_messages():

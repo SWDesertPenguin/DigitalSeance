@@ -260,15 +260,19 @@ def _filter_visibility(
     """Spec 028 §FR-006 — last context-assembly step before security wrap.
 
     - Humans see every message (humans hold CAPCOM-or-broader visibility).
-    - The active CAPCOM AI sees every message.
-    - When no CAPCOM is assigned (capcom_id is None) every participant sees
-      every message — pre-feature behavior preserved.
+    - The currently-assigned CAPCOM AI sees every message.
     - Every other AI participant (the panel) sees ``visibility='public'``
-      messages only; ``capcom_only`` rows are filtered out.
+      messages only. This holds even when ``capcom_id`` is ``None`` so
+      historical ``capcom_only`` rows from a prior CAPCOM-active period
+      stay invisible after disable per FR-011 (no retroactive promotion).
+
+    Pre-feature behaviour is preserved by the migration default: every
+    existing row migrated as ``visibility='public'`` so panel AIs see
+    every legacy message unchanged.
     """
-    if capcom_id is None or participant.provider == "human":
+    if participant.provider == "human":
         return messages
-    if participant.id == capcom_id:
+    if capcom_id is not None and participant.id == capcom_id:
         return messages
     return [m for m in messages if m.visibility == "public"]
 
