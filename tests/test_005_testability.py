@@ -299,8 +299,16 @@ def test_fr005_store_summary_uses_facilitator_id_not_literal_system() -> None:
 
 
 def test_fr005_run_checkpoint_passes_facilitator_id_to_storage() -> None:
-    """The caller (`_generate_and_store`) passes `session.facilitator_id`."""
-    src = inspect.getsource(summarizer_module.SummarizationManager._generate_and_store)
+    """The summary emission path threads ``session.facilitator_id`` to storage.
+
+    Spec 028 Phase 7 (FR-018) split the storage call out of
+    ``_generate_and_store`` into ``_emit_summary`` so the two-tier
+    panel + CAPCOM path can call it twice. The invariant is preserved
+    — both passes attribute the summary to the session facilitator —
+    but the literal ``speaker_id=session.facilitator_id`` token now
+    lives in ``_emit_summary``.
+    """
+    src = inspect.getsource(summarizer_module.SummarizationManager._emit_summary)
     assert "speaker_id=session.facilitator_id" in src
 
 
