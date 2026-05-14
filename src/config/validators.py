@@ -2156,6 +2156,34 @@ def validate_sacp_oauth_cimd_allowed_hosts() -> ValidationFailure | None:
     return None
 
 
+_CIMD_ALLOW_HTTP_TRUTHY = frozenset({"1", "true", "yes"})
+_CIMD_ALLOW_HTTP_FALSY = frozenset({"", "0", "false", "no"})
+
+
+def validate_sacp_oauth_cimd_allow_http() -> ValidationFailure | None:
+    """SACP_OAUTH_CIMD_ALLOW_HTTP: relaxed-boolean, default off. 030 Phase 4 FR-088 (SSRF defence).
+
+    Test-only escape hatch that permits `http://` CIMD URLs alongside the
+    default `https://`-only set. Production deployments leave this unset
+    so the SSRF-defence path in
+    `src/mcp_protocol/auth/client_registration.py:fetch_and_validate_cimd`
+    rejects every non-https scheme. Acceptable values (case-insensitive):
+    truthy `1` / `true` / `yes`; falsy `0` / `false` / `no` / empty.
+    Anything else is rejected at startup so operators see a clear ERROR
+    rather than silently falling back to the safe `https`-only default.
+    """
+    val = os.environ.get("SACP_OAUTH_CIMD_ALLOW_HTTP")
+    if val is None:
+        return None
+    lowered = val.strip().lower()
+    if lowered in _CIMD_ALLOW_HTTP_TRUTHY or lowered in _CIMD_ALLOW_HTTP_FALSY:
+        return None
+    return ValidationFailure(
+        "SACP_OAUTH_CIMD_ALLOW_HTTP",
+        f"must be one of {{1,true,yes,0,false,no,''}} (case-insensitive); got {val!r}",
+    )
+
+
 def validate_sacp_mcp_token_cache_ttl_seconds() -> ValidationFailure | None:
     """SACP_MCP_TOKEN_CACHE_TTL_SECONDS: int [1, 30], default 5. 030 Phase 4 FR-094.
 
@@ -2779,6 +2807,7 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     validate_sacp_oauth_signing_key_path,
     validate_sacp_oauth_failed_pkce_threshold,
     validate_sacp_oauth_cimd_allowed_hosts,
+    validate_sacp_oauth_cimd_allow_http,
     validate_sacp_mcp_token_cache_ttl_seconds,
     validate_sacp_oauth_previous_signing_key_path,
     # ── spec 018 (deferred tool loading) ── FR-013 ──────────────────────────
