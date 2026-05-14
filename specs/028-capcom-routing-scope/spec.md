@@ -2,8 +2,8 @@
 
 **Feature Branch**: `028-capcom-routing-scope`
 **Created**: 2026-05-07
-**Status**: Draft (Phase 4 — sits above 013/014 routing modes; gated on Phase 4 declaration; NOT Phase 3 in-scope)
-**Input**: User description: "Phase 4 CAPCOM-like routing scope. Modeled on Mission Control's CAPCOM (Capsule Communicator), a single AI plus the humans share a channel that the rest of the AIs cannot see; CAPCOM relays summarized / curated input to the larger AI panel. SIGNIFICANT routing-model expansion — adds a 9th routing scope and introduces visibility partitioning across the participant set. New routing scope `capcom`; new message subtypes `capcom_relay` (CAPCOM forwarding curated human content to the panel) and `capcom_query` (CAPCOM asking the human on behalf of the panel); message visibility scope (`public` / `capcom_only`). Single CAPCOM per session; facilitator-rotatable. The CAPCOM AI's outputs reaching the panel are subject to standard inter-AI trust tier; rotation does NOT inherit prior CAPCOM's capcom_only context. Applies to topologies 1-6 (orchestrator-mediated visibility partitioning); incompatible with topology 7. Primary use cases: research co-authorship (§2), consulting (§3), decision-making under asymmetric expertise (§6)."
+**Status**: Draft (Phase 3 — sits above 013/014 routing modes; clarify/plan/tasks pass pending)
+**Input**: User description: "CAPCOM-like routing scope. Modeled on Mission Control's CAPCOM (Capsule Communicator), a single AI plus the humans share a channel that the rest of the AIs cannot see; CAPCOM relays summarized / curated input to the larger AI panel. SIGNIFICANT routing-model expansion — adds a 9th routing scope and introduces visibility partitioning across the participant set. New routing scope `capcom`; new message subtypes `capcom_relay` (CAPCOM forwarding curated human content to the panel) and `capcom_query` (CAPCOM asking the human on behalf of the panel); message visibility scope (`public` / `capcom_only`). Single CAPCOM per session; facilitator-rotatable. The CAPCOM AI's outputs reaching the panel are subject to standard inter-AI trust tier; rotation does NOT inherit prior CAPCOM's capcom_only context. Applies to topologies 1-6 (orchestrator-mediated visibility partitioning); incompatible with topology 7. Primary use cases: research co-authorship (§2), consulting (§3), decision-making under asymmetric expertise (§6)."
 
 ## Overview
 
@@ -105,14 +105,13 @@ The security envelope is non-trivial:
   CAPCOM-of-record at the time of writing; rotation transfers
   the role, not the historical view.
 
-This spec is **Phase 4 scope**. It is the ONLY Phase 4 spec in
-the current scaffold sequence (specs 021-027 are Phase 3 or
-Phase 3+). Spec 028 introduces a routing-model shift more
-significant than any single Phase 3 mechanism — adding a
-visibility partition across the participant set is a category
-change rather than a scope refinement. Implementation begins
-when the facilitator declares Phase 4 per Constitution §10.
-This spec **scaffolds only** until Phase 4 is declared.
+This spec is **Phase 3 scope**, sequenced after the other
+routing-related Phase 3 specs (013, 014, 027). Spec 028
+introduces a routing-model shift more significant than any
+single prior Phase 3 mechanism — adding a visibility partition
+across the participant set is a category change rather than a
+scope refinement. The spec stays scaffold state until
+`/speckit.clarify` runs.
 
 ## Clarifications
 
@@ -194,11 +193,11 @@ This spec **scaffolds only** until Phase 4 is declared.
 - **Persistence across archived sessions.** User input notes
   CAPCOM-assignment persistence across archived sessions for
   recurring panels is out-of-scope for v1. Confirmed
-  out-of-scope; flagged as Phase 4+ follow-up. The
+  out-of-scope; flagged as a v2 follow-up. The
   `sessions.capcom_participant_id` column is per-session, no
   cross-session bind in v1.
 - **CAPCOM seeing facilitator scratch (spec 024).** User
-  input notes this as out-of-scope v1, Phase 4 follow-up.
+  input notes this as out-of-scope v1, v2 follow-up.
   Confirmed: spec 028 v1 does NOT extend CAPCOM visibility
   into facilitator scratch. CAPCOM sees only the session
   message history (filtered by visibility). Scratch remains
@@ -850,11 +849,10 @@ spec (per V16 deliverable gate).
   additions to 011 once 028's tasks are scheduled.
 - **Spec 023 (user-accounts)** — CAPCOM is participant-
   bound in v1, NOT account-bound. Cross-session CAPCOM
-  persistence for recurring panels is a Phase 4+
-  follow-up.
+  persistence for recurring panels is a v2 follow-up.
 - **Spec 024 (facilitator-scratch)** — CAPCOM does NOT see
   facilitator scratch in v1. Extending CAPCOM visibility
-  to scratch is a Phase 4+ follow-up.
+  to scratch is a v2 follow-up.
 - **Spec 026 (context-compression)** — compression is
   per-participant pre-bridge; the CAPCOM's overflow
   compresses the same as any participant. Trust-tier
@@ -874,9 +872,9 @@ spec (per V16 deliverable gate).
   partial index on `participants(session_id) WHERE
   routing_scope='capcom'` is the structural enforcement of
   single-CAPCOM-per-session.
-- **Constitution §10** — Phase 4 deliverables. Spec 028
-  is the only Phase 4 spec in the current scaffold
-  sequence.
+- **Constitution §10** — phased delivery model. Spec 028
+  is sequenced into Phase 3 alongside the other routing-related
+  specs.
 - **Constitution §14.1** — Feature work workflow.
 - **Constitution V12** — topology applicability. Spec 028
   applies to topologies 1-6; incompatible with topology 7.
@@ -894,8 +892,7 @@ spec (per V16 deliverable gate).
   expansion since the project's eight-scope routing system
   shipped. It introduces visibility partitioning across the
   participant set — a category change rather than a scope
-  refinement. Phase 4 placement reflects this scale of
-  change.
+  refinement.
 - Single-CAPCOM-per-session is enforced at the DB layer via
   a unique partial index. Application-level invariants are
   insufficient under concurrent facilitator actions; the DB
@@ -931,17 +928,12 @@ spec (per V16 deliverable gate).
 - CAPCOM is participant-bound in v1, NOT account-bound.
   Cross-session CAPCOM persistence (a returning expert
   AI auto-resuming as CAPCOM in subsequent engagements) is
-  a Phase 4+ follow-up.
+  a v2 follow-up.
 - CAPCOM does NOT see facilitator scratch (spec 024) in v1.
-  Extending CAPCOM visibility to scratch is a Phase 4+
-  follow-up that requires its own security review (the
-  CAPCOM AI is not the same trust tier as the facilitator).
-- Phase 4 declaration is required before implementation
-  begins. The user has not declared Phase 4 as of spec
-  creation; this spec stays scaffold-only until that
-  declaration. Phase 3 active work (013, 014, 022, 025,
-  027) does not block Phase 4 work; Phase 4 is sequenced
-  after Phase 3 stabilises.
-- Status remains Draft until Phase 4 is declared AND
+  Extending CAPCOM visibility to scratch is a v2 follow-up
+  that requires its own security review (the CAPCOM AI is
+  not the same trust tier as the facilitator).
+- Spec 028 is eligible for the standard Phase 3
+  clarify/plan/tasks pass. Status remains Draft until
   clarifications resolve AND the user accepts the
   scaffolding.
