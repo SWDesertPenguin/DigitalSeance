@@ -129,15 +129,18 @@ def _circuit_key(
 
 
 def _compute_api_key_fingerprint(api_key_encrypted: str) -> str:
-    """Opaque 8-char identifier for circuit-breaker keying.
+    """Opaque 8-char identifier for circuit-breaker dict keying.
 
-    Input is the already-encrypted api key; output is a truncated digest
-    used solely as a dict key to differentiate breaker state across api
-    key rotations. Not a credential hash. `usedforsecurity=False` signals
-    this non-security use to scanners.
+    Purely a per-rotation discriminator inside `_CIRCUITS` — never compared
+    against a credential, never persisted as an authenticator, never used in
+    a verification path. The input is already an opaque ciphertext from the
+    encryption layer; this function only derives a short stable label so the
+    breaker state survives rotation. BLAKE2 is used with an explicit
+    `digest_size=4` so the 8-hex-char identifier is the entire output rather
+    than a truncation of a credential-grade hash.
     """
-    digest = hashlib.sha256(api_key_encrypted.encode(), usedforsecurity=False)
-    return digest.hexdigest()[:8]
+    digest = hashlib.blake2b(api_key_encrypted.encode(), digest_size=4)
+    return digest.hexdigest()
 
 
 def _get_or_create_state(

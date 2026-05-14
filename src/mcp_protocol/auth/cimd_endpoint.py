@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import APIRouter, Request
@@ -16,6 +17,7 @@ from src.mcp_protocol.auth.client_registration import (
 )
 
 cimd_router = APIRouter(tags=["oauth"])
+_log = logging.getLogger(__name__)
 
 
 class _CIMDRequest(BaseModel):
@@ -47,10 +49,17 @@ async def register_cimd(request: Request, body: _CIMDRequest) -> JSONResponse:
 
     try:
         cimd_content = await fetch_and_validate_cimd(body.cimd_url, allowed_hosts)
-    except ValueError as exc:
+    except ValueError:
+        # Full validator detail is logged server-side; the response carries a
+        # fixed-form description so internal hostnames, resolver state, and
+        # exception types never reach the caller.
+        _log.warning("CIMD registration rejected", exc_info=True)
         return JSONResponse(
             status_code=400,
-            content={"error": "invalid_request", "error_description": str(exc)},
+            content={
+                "error": "invalid_request",
+                "error_description": "CIMD URL rejected by validation",
+            },
         )
 
     async with pool.acquire() as conn:

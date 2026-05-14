@@ -67,3 +67,71 @@ async def test_non_allowlisted_host_rejected() -> None:
 
     with pytest.raises(ValueError, match="not in allowed list"):
         await fetch_and_validate_cimd("https://bad.example.com/cimd.json", ["allowed.example.com"])
+
+
+# ---------------------------------------------------------------------------
+# SSRF defence
+# ---------------------------------------------------------------------------
+
+
+def _addrinfo(ip: str, family: int) -> tuple:
+    return (family, 1, 6, "", (ip, 443) if family == 2 else (ip, 443, 0, 0))
+
+
+@pytest.mark.asyncio
+async def test_http_scheme_rejected_by_default() -> None:
+    with pytest.raises(ValueError, match="must use https"):
+        await fetch_and_validate_cimd("http://example.com/cimd.json", [])
+
+
+@pytest.mark.asyncio
+async def test_loopback_ip_rejected() -> None:
+    with (
+        patch("socket.getaddrinfo", return_value=[_addrinfo("127.0.0.1", 2)]),
+        pytest.raises(ValueError, match="internal address"),
+    ):
+        await fetch_and_validate_cimd("https://attacker.example/cimd.json", [])
+
+
+@pytest.mark.asyncio
+async def test_rfc1918_ip_rejected() -> None:
+    with (
+        patch("socket.getaddrinfo", return_value=[_addrinfo("10.0.0.5", 2)]),
+        pytest.raises(ValueError, match="internal address"),
+    ):
+        await fetch_and_validate_cimd("https://attacker.example/cimd.json", [])
+
+
+@pytest.mark.asyncio
+async def test_link_local_ip_rejected() -> None:
+    with (
+        patch("socket.getaddrinfo", return_value=[_addrinfo("169.254.10.5", 2)]),
+        pytest.raises(ValueError, match="internal address"),
+    ):
+        await fetch_and_validate_cimd("https://attacker.example/cimd.json", [])
+
+
+@pytest.mark.asyncio
+async def test_cloud_metadata_literal_rejected() -> None:
+    with pytest.raises(ValueError, match="blocked address"):
+        await fetch_and_validate_cimd("https://169.254.169.254/cimd.json", [])
+
+
+@pytest.mark.asyncio
+async def test_ipv6_loopback_rejected() -> None:
+    with (
+        patch("socket.getaddrinfo", return_value=[_addrinfo("::1", 10)]),
+        pytest.raises(ValueError, match="internal address"),
+    ):
+        await fetch_and_validate_cimd("https://attacker.example/cimd.json", [])
+
+
+@pytest.mark.asyncio
+async def test_dns_failure_rejected() -> None:
+    import socket as _socket
+
+    with (
+        patch("socket.getaddrinfo", side_effect=_socket.gaierror("no resolve")),
+        pytest.raises(ValueError, match="does not resolve"),
+    ):
+        await fetch_and_validate_cimd("https://no-such-host.example/cimd.json", [])
