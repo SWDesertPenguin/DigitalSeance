@@ -529,6 +529,12 @@ The Constitution §10 Phase 3 roadmap names "OAuth 2.1 with PKCE replaces static
 
 ## Clarifications
 
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: PR #375 shipped JSON-RPC notification 202 acknowledgment behavior (Streamable HTTP spec requirement under FR-014) but no tasks.md entry covered it. Does this leave a traceability gap? → A: Yes. T213 added to Phase 3 (spec Phase 2) tasks under US7 to cover the PR #375 behavior: an acceptance test asserting server-initiated JSON-RPC notifications receive HTTP 202 with no body. Finding 030-C1.
+- Q: FR-084 references T084, T086, and T110 in tasks.md for sovereignty-enforcement implementation. Are those tasks actually present? → A: Yes. The /speckit.analyze sweep read only Phase 1 tasks (T001–T027) and concluded the Phase 4 tasks were absent; the tasks.md file was read truncated. T084 (AI-accessibility flag enforcement, Phase 4 T084 line), T086 (sponsor-scope grants, Phase 4 T086 line), and T110 (sovereignty remediation blocking task, Phase 5 T110 line) are all present and checked. Traceability is intact. Finding 030-D1.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only (T213 is a new test task, not a behavior change; the 202 behavior already ships).
+
 ### Session 2026-05-13
 
 - Q: Phase 1 target module name for the renamed `src/mcp_server/` — `participant_api` / `sacp_api` / `orchestrator_api` / `core_api`? → A: `participant_api`. Reads naturally for a contributor scanning `src/` for the first time, avoids overloading bare "api" (Web UI on 8751 also serves API), avoids `sacp_` prefix redundancy (every module under `src/` is SACP). Locks FR-001/003/004/007 + all related path references.

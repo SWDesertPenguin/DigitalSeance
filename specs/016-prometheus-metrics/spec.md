@@ -100,6 +100,11 @@ All four markers resolved as drafted:
 
 4. **Authentication on `/metrics`** — confirmed. No bearer token or scrape credential required at the application layer. The endpoint inherits the same TLS + network-exposure model as `/health` (§7.4). Operators control access via network policy; SACP adds no additional application-layer auth gate on the metrics path.
 
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: The Assumptions section ended with "Status remains Draft until the four flagged clarifications resolve and the user accepts the scaffolding" — all four clarifications resolved in Session 2026-05-13 and Status is Implemented; the sentence is stale artifact drift (016-D1 HIGH). → A: Sentence removed; Assumptions footer updated to note phase-labeling confirmation is complete per Session 2026-05-13.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Operator diagnoses a participant token-spend anomaly without reading audit logs (Priority: P1)
@@ -568,7 +573,5 @@ type, valid range, and fail-closed semantics documented in
 - "Phase 1 scope" in the user description is interpreted as
   back-fill into the Phase 1 operational story; the Phase 2 Web
   UI dashboard follow-up is captured in user-side memory rather
-  than this spec. Confirmation of this framing is pending per
-  Clarifications §"Phase labeling".
-- Status remains Draft until the four flagged clarifications
-  resolve and the user accepts the scaffolding.
+  than this spec. Confirmed per Clarifications Session 2026-05-13
+  §"Phase labeling".

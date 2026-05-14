@@ -113,13 +113,17 @@ soon" cases:
   prolonged human absence produces one pivot message, not a
   flood.
 
-This spec **scaffolds only**. Implementation begins when the
-facilitator schedules tasks per Constitution §14.1. The Phase 3
-declaration recorded 2026-05-05 satisfies the phase gate; this
-spec stays scaffold-only until tasks land and implementation
-reaches Implemented status.
+Implementation is complete (Status: Implemented 2026-05-12;
+full pass shipped in a single session including clarify,
+plan, tasks, and all T001–T040; spec 011 amendments
+FR-052..FR-059 landed alongside).
 
 ## Clarifications
+
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: The Overview says "This spec scaffolds only" but the Status header reads "Implemented 2026-05-12" and all 40 tasks are checked. Which is accurate? → A: The Status header and tasks.md are accurate. The "scaffolds only" sentence was scaffold-era boilerplate written before the full-pass session ran and was never updated after implementation completed. Overview prose updated to reflect Implemented status. Finding 027-F1.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only.
 
 ### Session 2026-05-12 (full-pass resolution)
 

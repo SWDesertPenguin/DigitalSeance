@@ -7,6 +7,13 @@
 
 ## Clarifications
 
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: FR-020 — is it a deliberate Phase 1 posture or an accepted gap that pending participants receive the same payload as approved participants? → A: It is a Phase 1 accepted residual. FR-020 explicitly states that "Phase 1 ships a single default ('transcript-only' semantics enforced by FR-015 / SC-005); per-session override of the visibility tier is deferred to Phase 3." The payload equivalence arises because the Phase 1 serializer does not yet implement the visibility-tier filter. The Phase 3 trigger is spec 011 SR-010 (web UI facilitator controls), which gates the per-session override surface. Until SR-010 ships, operators must rely on FR-015 / FR-021 (the endpoint-boundary zero-ability guard) rather than payload-level field filtering.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only.
+- Q: SACP_AUTH_LOOKUP_KEY lacks a spec-local V16 entry. → A: Added a "Configuration (V16)" section below. The authoritative entry already exists in `docs/env-vars.md` (added in the 2026-05-01 audit fix); this section cross-references it for spec-local traceability.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only.
+
 ### Session 2026-04-14
 
 - Q: Pending participant access scope? → A: Facilitator decides per session (configurable: transcript-only, transcript+list, minimal, or full observer)
@@ -342,6 +349,35 @@ The security-requirements quality audit (`checklists/security.md`) raised 45 fin
 **Spec amendments (this commit)**: CHK001 / CHK003 / CHK043 (FR-A1 token format + entropy + cost re-eval), CHK002 (FR-A1 bcrypt re-eval triggers), CHK004 (rotation race already covered in Edge Cases — confirmed), CHK005 / CHK006 (cross-session reuse / session-end token handling — clarified via FR-022's session-bound bearer), CHK008 / CHK009 / CHK010 / CHK011 (FR-023 X-Forwarded-For trust mechanism), CHK013 / CHK020 (FR-021 endpoint guard, FR-022 tokens-in-URLs forbidden), CHK016 / CHK024 / CHK034 / CHK043 (FR-024 brute-force OOS with re-eval trigger), CHK038 (Edge case for mid-session IP change), CHK040 (Edge case for malformed Authorization header), CHK041 (Threat-model traceability table), CHK042 (FR-014 audit log already covers all FR-010 actions — confirmed), CHK044 (Assumptions OAuth migration trigger).
 
 **Closed as cross-reference / accepted residual** (point to authoritative spec elsewhere): CHK007 (rotation response idempotency — covered by Edge Case "two concurrent rotations"), CHK012 (TOCTOU for role checks — endpoint-time check is sufficient given single-process), CHK014 (concurrent facilitator actions — single facilitator per session by design), CHK015 (WebSocket auth — token validated on handshake, then trusted for connection lifetime; revocation triggers `_close_ws_for_participant` via 4401 close code), CHK017 (anomaly detection — Phase 3+ deferred), CHK018 (CSRF — bearer-only auth makes traditional CSRF infeasible; cookie is indicator-only), CHK019 (session quarantine — facilitator can revoke all tokens via repeated `/revoke_token` calls; mass-revoke API deferred), CHK021 (1-second SC-001 — load profile is "single concurrent participant" given Phase 1 typical session size of 2-6), CHK022 / CHK025 / CHK027 (error shape uniformity — FastAPI HTTPException returns consistent JSON shape; `detail` field disambiguates), CHK023 (config knob — `SACP_TOKEN_EXPIRY_DAYS` env var, default 30), CHK026 (ScrubFilter alignment — same root-logger ScrubFilter from 007 §FR-012 covers token plaintext via the generic `(api_key|token|secret)` pattern), CHK028 / CHK036 (token-invalidation single source of truth — auth service's `update_auth_token`; idempotent revocation), CHK029 (transfer-then-leave is the documented escape hatch — FR-019 + FR-011), CHK031 (per-endpoint testability — covered by `tests/test_mcp_e2e.py::test_debug_export_rejects_non_facilitator` pattern), CHK032 / CHK033 (latency budgets / IP binding SC — observational, not enforced), CHK035 (concurrent removal — single facilitator constraint), CHK037 (token expiry mid-turn — covered in Edge Cases), CHK039 (forward-compat hash format — bcrypt's `$2b$12$...` self-describes the cost factor, allowing rolling upgrades), CHK045 (MCP-server forced disconnect — `_close_ws_for_participant` with 4401 close code is the contract, wired in revoke_token / remove_participant).
+
+## Configuration (V16)
+
+Per Constitution §12 V16, every `SACP_*` env var owned by this spec must have a documented type, valid range, and fail-closed behavior. The authoritative catalog lives in `docs/env-vars.md`; entries below are spec-local cross-references.
+
+### `SACP_AUTH_LOOKUP_KEY`
+
+- **Type**: high-entropy random string (>= 32 chars)
+- **Valid range**: `len() >= 32` AND not equal to any documented placeholder value
+- **Fail-closed semantics**: missing, short (< 32 chars), or placeholder value MUST cause startup exit before binding any port. A leaked HMAC key alone does not authenticate but narrows bcrypt-scan scope from O(N) rows to O(1); the startup guard treats it as equivalent in sensitivity to `SACP_ENCRYPTION_KEY`.
+- **Source spec**: 002 audit C-02 (HMAC-keyed token lookup, migration 009)
+- **Authoritative catalog entry**: `docs/env-vars.md` (cross-reference; that file is the single source of truth for validator function name).
+
+### `SACP_TRUST_PROXY`
+
+- **Type**: bool-string enum
+- **Valid range**: `"0"` or `"1"` only
+- **Fail-closed semantics**: any other value MUST cause startup exit.
+- **Source spec**: 002 §FR-023 (XFF rightmost-trusted IP opt-in)
+- **Authoritative catalog entry**: `docs/env-vars.md`.
+
+## V19 Judgment Markers
+
+Per Constitution v0.9.0 V19, numeric SLO targets that are engineering judgments rather than measured values require `[JUDGMENT]` markers. The following values in this spec are engineering judgments:
+
+- **SC-001 / SC-002 "1 second"** [JUDGMENT] — the 1-second token-validation SLO assumes bcrypt cost factor 12 (~200ms on Phase 1 hardware) plus normal asyncpg overhead. Not measured against production hardware; serves as a target for performance regression alerting.
+- **FR-A1 "bcrypt cost factor 12"** [JUDGMENT] — the OWASP-recommended floor as of the spec's authoring date. Re-evaluate when a single bcrypt verify exceeds 100ms on production hardware OR every 24 months.
+- **FR-A1 "~256 bits entropy" (32-byte URL-safe base64)** [JUDGMENT] — effective entropy is 256 bits assuming a CSPRNG, which is unverifiable at the spec layer; depends on the OS entropy pool being seeded.
+- **FR-024 "60-bit-plus token entropy"** [JUDGMENT] — conservative lower bound; actual entropy is ~256 bits per FR-A1. The 60-bit framing refers to the collision-resistance floor needed to make brute-force infeasible within the token-lifetime window.
 
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 

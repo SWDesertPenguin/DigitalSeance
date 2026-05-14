@@ -57,13 +57,17 @@ that sits above spec 013's mechanisms. The controller:
 This spec **scaffolds only**. Implementation begins when the
 facilitator declares Phase 3 started per Constitution §10, AND only
 after spec 013 (high-traffic-mode) reaches Status: Implemented.
-This spec remains at Status: Draft until both gates are satisfied.
 **Phase 3 declaration recorded 2026-05-05; the first gate is satisfied.
 The secondary gate was satisfied 2026-05-07 when spec 013 reached
-Status: Implemented (Phase 3 declaration: 2026-05-05; tasks landed:
-2026-05-07; FR-011 broadening amendment: 2026-05-07). Both gates are
-now green; this spec is ready for `/speckit.implement` on facilitator
-invocation.**
+Status: Implemented. Both gates are green; spec is Implemented
+2026-05-08.**
+
+## Clarifications
+
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: The stale "Status remains Draft" scaffold footer remained in the Assumptions section after the spec reached Implemented status — fix? → A: Removed. The spec is Implemented 2026-05-08 per the Status line; the scaffold gating sentence was a pre-implementation artifact.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -662,7 +666,3 @@ fail-closed semantics documented in `docs/env-vars.md` BEFORE
   per-deployment by operator opt-in only after advisory-mode
   observation has built confidence in the controller's signal
   interpretation.
-- Status remains Draft until the facilitator declares Phase 3
-  started per Constitution §10 AND spec 013 reaches Status:
-  Implemented. No implementation work proceeds before both gates
-  are satisfied.

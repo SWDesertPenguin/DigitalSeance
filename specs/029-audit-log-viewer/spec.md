@@ -81,13 +81,18 @@ renderers, three time formats. This spec ships the components
 first; 022's and 024's panels integrate them when those specs reach
 implementation.
 
-This spec **scaffolds only**. Implementation begins when the
-facilitator schedules tasks per Constitution §14.1. The Phase 3
-declaration recorded 2026-05-05 satisfies the phase gate. This spec
-ships AHEAD of 022 + 024 in the implementation sequence so the
-shared components exist before downstream specs need them.
+Implementation is complete (Status: Implemented 2026-05-12;
+pass 1 shared modules 2026-05-11; pass 2 viewer endpoint + SPA
+panel closed alongside spec 011 FR-025..FR-029). This spec
+shipped AHEAD of 022 + 024 in the implementation sequence so
+the shared components exist before downstream specs need them.
 
 ## Clarifications
+
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: The Overview still says "This spec scaffolds only" but the Status header reads "Implemented 2026-05-12" and tasks are complete. Which is accurate? → A: The Status header and tasks.md are accurate. The "scaffolds only" sentence was scaffold-era boilerplate never removed after pass 1 shipped on 2026-05-11. Overview prose updated to reflect Implemented status. Drift-sweep finding.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only.
 
 ### Initial draft assumptions requiring confirmation
 

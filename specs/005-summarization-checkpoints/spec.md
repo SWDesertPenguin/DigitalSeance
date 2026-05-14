@@ -7,6 +7,15 @@
 
 ## Clarifications
 
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: FR-001 states the default summarization threshold is 50 turns, but the Operational notes (Phase F amendment) and the actual implementation (`src/orchestrator/summarizer.py:DEFAULT_THRESHOLD = 10`) both use 10 turns. One of these is wrong. → A: The implementation is authoritative. FR-001 and User Story 1 acceptance scenario 1 both had a stale value of 50 from the original spec draft; the Operational notes section correctly reflects the shipped default of 10. FR-001 and the user story have been updated to 10.
+- Q: Does this amendment change behavior? → A: No. Spec-to-implementation alignment only; the code already uses 10.
+- Q: tasks.md T007 still says `speaker_id='system'` despite the post-audit FR-005 correction requiring the facilitator's participant id. → A: Updated T007 in tasks.md to reflect the corrected FR-005 speaker_id value (facilitator's participant id, not the literal string `'system'`).
+- Q: Does this amendment change behavior? → A: No. tasks.md is a historical implementation guide; the code already implements FR-005 correctly.
+- Q: Spec 005 has no V16 catalog entry for the summarization threshold env var, and no V18 derivation-metadata statement. → A: Added "Configuration (V16)" and "V18 Derivation Metadata" sections below.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fixes only.
+
 ### Session 2026-05-02 (audit fix/005-reliability — Phase E)
 
 - Q: What happens on SIGTERM if a summarization task is in flight? → A: Phase 1 abandoned. The fire-and-forget asyncio task (FR-010) is cancelled by uvicorn graceful-shutdown along with the loop coroutine; in-flight summarizations don't await completion. The next orchestrator startup re-evaluates the threshold via FR-001 — if the session has accumulated enough turns, the next eligible turn fires summarization again. No partial summary persists (transactional rollback).
@@ -34,7 +43,7 @@ The orchestrator monitors the turn count since the last summarization checkpoint
 
 **Acceptance Scenarios**:
 
-1. **Given** a session at turn 49 with last_summary_turn = 0 and threshold = 50, **When** turn 50 completes, **Then** a summarization is triggered.
+1. **Given** a session at turn 9 with last_summary_turn = 0 and threshold = 10, **When** turn 10 completes, **Then** a summarization is triggered.
 2. **Given** a summarization was just completed, **When** the next turn completes, **Then** no summarization is triggered until the threshold is reached again.
 3. **Given** a configurable threshold, **When** the session is configured for 30-turn checkpoints, **Then** summarization fires every 30 turns.
 
@@ -67,7 +76,7 @@ Completed summaries are stored as immutable messages in the transcript with spea
 
 **Acceptance Scenarios**:
 
-1. **Given** a completed summary, **When** it is stored, **Then** a message is created with speaker_type='summary', speaker_id='system', and content containing valid JSON.
+1. **Given** a completed summary, **When** it is stored, **Then** a message is created with speaker_type='summary', speaker_id set to the session facilitator's participant id (NOT the literal string 'system' — see FR-005), and content containing valid JSON.
 2. **Given** a stored summary, **When** retrieved via get_summaries, **Then** the JSON can be parsed into decisions, open_questions, key_positions, and narrative.
 3. **Given** a stored summary, **When** the session is queried, **Then** last_summary_turn reflects the turn number of the latest checkpoint.
 
@@ -120,7 +129,7 @@ Summaries are regular messages (speaker_type='summary') and follow the same immu
 
 ### Functional Requirements
 
-- **FR-001**: System MUST trigger summarization when (current_turn - last_summary_turn) reaches a configurable threshold (default 50).
+- **FR-001**: System MUST trigger summarization when (current_turn - last_summary_turn) reaches a configurable threshold (default 10 — `DEFAULT_THRESHOLD` in `src/orchestrator/summarizer.py`). The threshold is configurable via constructor argument; a Phase 3+ env var (`SACP_SUMMARIZATION_THRESHOLD`) MAY expose it as a deployment knob with V16 fail-closed semantics.
 - **FR-002**: System MUST send accumulated turns to the cheapest available AI model for summarization.
 - **FR-003**: System MUST request structured JSON output with four sections: decisions, open_questions, key_positions, narrative.
 - **FR-004**: System MUST retry up to 3 times on invalid JSON responses before falling back to narrative-only storage.
@@ -347,6 +356,31 @@ participant's window — but the threshold spacing makes this practically
 impossible for the default 10-turn threshold (one checkpoint per ~10
 turns is far below the rate ceiling). Operators with custom thresholds
 < 1 should verify the rate-limit interaction.
+
+## Configuration (V16)
+
+Per Constitution §12 V16, every `SACP_*` env var owned by this spec must have a documented type, valid range, and fail-closed behavior.
+
+### `SACP_SUMMARIZATION_THRESHOLD` (reserved — Phase 3+)
+
+- **Type**: positive integer (turns between checkpoints)
+- **Valid range**: `>= 1`; values < 1 MUST cause startup exit when wired in Phase 3+. A threshold of 0 would trigger summarization on every turn (infinite cost loop).
+- **Fail-closed semantics**: any value < 1 MUST cause startup exit per Constitution V16. When unset, the implementation constant `DEFAULT_THRESHOLD=10` applies.
+- **Source spec**: 005 §FR-001
+- **Phase 1 status**: reserved only; not wired in `docs/env-vars.md`. The constant is in `src/orchestrator/summarizer.py`.
+
+## V18 Derivation Metadata
+
+Per Constitution V18, derived content stored in the database requires a derivation-metadata declaration covering source range, derivation method, and timestamp.
+
+Summary messages (`speaker_type='summary'`) are derived artifacts whose content is produced by an AI model from a window of conversation turns. The derivation metadata is:
+
+- **Source range**: turns `(last_summary_turn + 1, current_turn)` inclusive — the two-value tuple is implicit in `(session.last_summary_turn_before_checkpoint, message.turn_number)`. Spec 001 §V18 declares the schema-level obligation; this section declares the runtime obligation.
+- **Derivation method**: AI-model summarization using `SUMMARIZATION_PROMPT` (a constant in `src/orchestrator/summarizer.py`). The specific model used is recorded in `routing_log` (the dispatch that produced the summary). The model is the cheapest active participant's model at the time of the checkpoint (FR-007).
+- **Timestamp**: `messages.created_at` carries the derivation timestamp.
+- **Attribution**: `messages.speaker_id` is set to the session facilitator's participant id (FR-005) — this identifies the operator-controlled entity responsible for the checkpoint, not the AI model that generated the content. The AI model identity is traceable via `routing_log`.
+
+No additional columns are required; the above fields are resolvable from existing schema via JOIN. Phase 3 may add a `messages.derivation_model_id` column for direct attribution without requiring a JOIN through `routing_log`.
 
 ## Topology and Use Case Coverage (V12/V13 retro-addendum, 2026-04-15)
 

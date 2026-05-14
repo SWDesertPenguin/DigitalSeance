@@ -8,6 +8,11 @@
 
 ## Clarifications
 
+### Session 2026-05-14 (/speckit.analyze findings)
+
+- Q: Do the cumulative FR-021..FR-062 amendments (across specs 022/023/024/025/026/027/029/030) contain internal contradictions? → A: No contradictions found. Ranges are non-overlapping: FR-021..FR-024 (025), FR-025..FR-029 (029), FR-030..FR-034 (023), FR-035..FR-041 (022), FR-042..FR-049 (024), FR-052..FR-059 (027), FR-060..FR-062 (026). FR-050..FR-051 are absent (sequencing gap, not a contradiction — two slots were skipped when spec 027 pre-allocated starting at FR-052). Each FR range is gated by its own master switch and scoped to its parent spec; no two FRs govern the same UI surface.
+- Q: Does this amendment change behavior? → A: No. Doc-consistency check only.
+
 ### Session 2026-05-13 (spec 030 mcp-build amendment)
 
 - Q: Does spec 030's Phase 1 rename (`src/mcp_server/` → `src/participant_api/`, `create_mcp_app` → `create_participant_api_app`) require updating spec 011's existing path references in `tasks.md`, `plan.md`, and `research.md`? → A: No. Spec 011 Phase 2 is Implemented and its task/plan/research docs are historical Phase 2 artifacts. Per spec 030's `quickstart.md` Phase A walkthrough, historical references to `src/mcp_server/` in Phase 2 spec docs read as the post-rename `src/participant_api/` location; blame is preserved via `git mv` so navigation from those docs to the code still resolves. Updating those docs in place would mutate frozen Phase 2 deliverables for cosmetic reasons; spec 011's `## Implementation Phases` "Phase 2" subsections are intentionally preserved as the historical record.

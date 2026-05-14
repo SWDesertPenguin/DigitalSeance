@@ -9,7 +9,7 @@ Implement the serialized conversation loop that orchestrates SACP sessions: turn
 
 ## Technical Context
 
-**Language/Version**: Python 3.11+
+**Language/Version**: Python 3.14.4 (constitution §6.8 slim-bookworm)
 **Primary Dependencies**: asyncpg (existing), litellm>=1.83.0 (NEW)
 **Storage**: PostgreSQL 16 (existing)
 **Testing**: pytest + pytest-asyncio (existing harness)

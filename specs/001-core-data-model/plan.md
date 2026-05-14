@@ -9,11 +9,11 @@ Implement the foundational data persistence layer for SACP Phase 1: 13 database 
 
 ## Technical Context
 
-**Language/Version**: Python 3.11+ (constitution §6.1)
+**Language/Version**: Python 3.14.4 (constitution §6.8 slim-bookworm)
 **Primary Dependencies**: FastAPI, asyncpg, Alembic, cryptography (Fernet), bcrypt
 **Storage**: PostgreSQL 16 via Docker Compose (constitution §6.2)
 **Testing**: pytest + pytest-asyncio (async database tests)
-**Target Platform**: Linux container (Alpine-based Docker image, constitution §6.8)
+**Target Platform**: Linux container (`python:3.14.4-slim-bookworm`, constitution §6.8)
 **Project Type**: Single project
 **Performance Goals**: 2 concurrent participants per session; prepared statements on hot-path queries (message append, turn fetch, interrupt check, routing log)
 **Constraints**: 25-line function cap, 5-argument positional limit, type hints on all signatures (constitution §6.10); append-only logs; message immutability; application-layer API key encryption
