@@ -101,8 +101,8 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-061 | untested | Spec 026 amendment: per-session cache hit rate + compression ratio + density flagged-turn count rendering; trigger: spec 026 Phase 3 UI implementation Phase F |
 | FR-062 | untested | Spec 026 amendment: drill-down to compression_log rows using spec 022 detail-row pattern; trigger: spec 026 Phase 3 UI implementation Phase F |
 | FR-063 | tests/test_028_capcom_endpoints.py | Spec 028 amendment: CAPCOM badge on participant card driven by routing_preference='capcom' — endpoint shape covered; SPA-side render covered by visual inspection (no e2e Playwright in scope) |
-| FR-064 | untested | Spec 028 amendment: per-message visibility indicator on transcript rows; trigger: SPA renderer follow-up after backend partition lands |
-| FR-065 | untested | Spec 028 amendment: facilitator assign/rotate/disable controls; trigger: SPA AdminPanel follow-up after backend endpoints land |
+| FR-064 | tests/test_028_visibility_filter.py | Spec 028 amendment: per-message visibility indicator on transcript rows; underlying visibility column emission covered. SPA render confirmed by visual inspection (no e2e Playwright in scope) |
+| FR-065 | tests/test_028_capcom_endpoints.py | Spec 028 amendment: facilitator assign/rotate/disable controls; CapcomControls component calls the same endpoints covered by the DB-bound endpoint tests |
 | FR-066 | tests/test_028_inject_handler.py | Spec 028 amendment: composer visibility toggle threads visibility into inject_message; validator covers HTTP 409/422 invariant checks |
 | SR-001 | tests/test_web_ui_app.py, tests/test_011_testability.py | Security headers present; CSP report-uri; per-directive coverage (14 fragments) |
 | SR-001a | untested | WS frame cap (256KB); WS layer max_size not yet wired; trigger: Phase E ops |

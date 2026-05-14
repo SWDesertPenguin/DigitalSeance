@@ -263,6 +263,17 @@ function initialState() {
     scratchEnabled: null,
     scratchPanelOpen: false,
     scratchPayload: null,  // { scope, account_id, notes, summaries, review_gate_events }
+    // Spec 028 CAPCOM master switch (FR-021 / spec 011 FR-065). Null = not
+    // yet probed; true/false reflects the route mount state. The probe
+    // sends a harmless DELETE that returns 404 when off (master switch
+    // gates the route) OR 409 when on but no CAPCOM is assigned —
+    // either response confirms the route is mounted; only a 404 with
+    // "CAPCOM surface disabled" detail means the master switch is off.
+    // Default true so the controls render; a master-switch-off deployment
+    // returns 404 from the assign/rotate/disable calls and the user sees
+    // an inline error on first use. A side-effect-free probe (e.g., a
+    // dedicated GET introspection endpoint) is a tracked follow-up.
+    capcomEnabled: true,
   };
 }
 
@@ -1596,14 +1607,28 @@ function Transcript({ messages, participants }) {
         const speakerLabel = m.speaker_type === "system"
           ? "System"
           : (speaker?.display_name || m.speaker_id);
+        const isCapcomOnly = m.visibility === "capcom_only";
+        const kindLabel = m.kind === "capcom_relay" ? "CAPCOM relay"
+          : m.kind === "capcom_query" ? "CAPCOM query"
+          : null;
         return (
           <article
             key={`${m.turn_number}-${m.speaker_id}`}
-            className={`msg msg-${m.speaker_type}`}
+            className={`msg msg-${m.speaker_type} ${isCapcomOnly ? "msg-capcom-only" : ""}`}
           >
             <header>
               <strong>{speakerLabel}</strong>
               <span className="msg-type">{m.speaker_type}</span>
+              {kindLabel && (
+                <span className="msg-capcom-kind" title="Spec 028 — CAPCOM-mediated message kind">
+                  {kindLabel}
+                </span>
+              )}
+              {isCapcomOnly && (
+                <span className="msg-visibility-private" title="Spec 028 — private to CAPCOM channel; not visible to panel AIs">
+                  Private to CAPCOM
+                </span>
+              )}
               {hiddenCount > 0 && (
                 <span
                   className="invisible-count"
@@ -2243,7 +2268,7 @@ function ReviewGateEditor({ draft, onSave, onClose }) {
   );
 }
 
-function AdminPanel({ participants, session, auditEntries, auditViewerEnabled, detectionHistoryEnabled, scratchEnabled, onApprove, onReject, onInvite, onTransfer, onConfig, onCapSet, onOpenAuditLog, onOpenDetectionHistory, onOpenScratch }) {
+function AdminPanel({ participants, session, auditEntries, auditViewerEnabled, detectionHistoryEnabled, scratchEnabled, capcomEnabled, onApprove, onReject, onInvite, onTransfer, onConfig, onCapSet, onOpenAuditLog, onOpenDetectionHistory, onOpenScratch, onAssignCapcom, onRotateCapcom, onDisableCapcom }) {
   // US6 T120–T125.
   const [open, setOpen] = useState(false);
   const [invite, setInvite] = useState(null);
@@ -2419,9 +2444,93 @@ function AdminPanel({ participants, session, auditEntries, auditViewerEnabled, d
               </button>
             )}
           </details>
+          {capcomEnabled && (
+            <CapcomControls
+              participants={participants}
+              session={session}
+              onAssign={onAssignCapcom}
+              onRotate={onRotateCapcom}
+              onDisable={onDisableCapcom}
+            />
+          )}
         </>
       )}
     </section>
+  );
+}
+
+
+function CapcomControls({ participants, session, onAssign, onRotate, onDisable }) {
+  // Spec 011 FR-065 / spec 028 — facilitator-only assign/rotate/disable
+  // controls. The CAPCOM-eligible pool excludes humans and (for rotate)
+  // the currently-assigned CAPCOM itself.
+  const currentCapcom = session?.capcom_participant_id || null;
+  const eligibleAi = useMemo(
+    () => participants.filter(
+      (p) => p.provider !== "human" && p.status === "active" && p.role !== "pending"
+    ),
+    [participants],
+  );
+  const rotationTargets = useMemo(
+    () => eligibleAi.filter((p) => p.id !== currentCapcom),
+    [eligibleAi, currentCapcom],
+  );
+  const [assignPick, setAssignPick] = useState("");
+  const [rotatePick, setRotatePick] = useState("");
+
+  const submitAssign = async () => {
+    if (!assignPick) return;
+    try { await onAssign(assignPick); setAssignPick(""); }
+    catch (e) { alert(`CAPCOM assign failed: ${e.message}`); }
+  };
+  const submitRotate = async () => {
+    if (!rotatePick) return;
+    try { await onRotate(rotatePick); setRotatePick(""); }
+    catch (e) { alert(`CAPCOM rotate failed: ${e.message}`); }
+  };
+  const submitDisable = async () => {
+    try { await onDisable(); }
+    catch (e) { alert(`CAPCOM disable failed: ${e.message}`); }
+  };
+
+  return (
+    <details>
+      <summary>
+        CAPCOM {currentCapcom ? `(active: ${participants.find((p) => p.id === currentCapcom)?.display_name || currentCapcom})` : "(unassigned)"}
+      </summary>
+      {!currentCapcom && (
+        <div className="kv">
+          <span className="dim">Assign</span>
+          <select value={assignPick} onChange={(ev) => setAssignPick(ev.target.value)}>
+            <option value="">Pick an AI…</option>
+            {eligibleAi.map((p) => (
+              <option key={p.id} value={p.id}>{p.display_name}</option>
+            ))}
+          </select>
+          <button type="button" onClick={submitAssign} disabled={!assignPick}>Assign</button>
+        </div>
+      )}
+      {currentCapcom && (
+        <>
+          <div className="kv">
+            <span className="dim">Rotate to</span>
+            <select value={rotatePick} onChange={(ev) => setRotatePick(ev.target.value)}>
+              <option value="">Pick a different AI…</option>
+              {rotationTargets.map((p) => (
+                <option key={p.id} value={p.id}>{p.display_name}</option>
+              ))}
+            </select>
+            <button type="button" onClick={submitRotate} disabled={!rotatePick}>Rotate</button>
+          </div>
+          <div className="kv">
+            <span className="dim">Disable</span>
+            <button type="button" className="danger" onClick={submitDisable}>
+              Disable CAPCOM mode
+            </button>
+          </div>
+        </>
+      )}
+    </details>
   );
 }
 
@@ -4397,6 +4506,23 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
     }
   };
 
+  // Spec 028 FR-007 / FR-008 / FR-009 — CAPCOM lifecycle calls.
+  const assignCapcom = async (participantId) => {
+    await mcpCall("/tools/session/capcom/assign", {
+      method: "POST",
+      body: { participant_id: participantId },
+    });
+  };
+  const rotateCapcom = async (newParticipantId) => {
+    await mcpCall("/tools/session/capcom/rotate", {
+      method: "POST",
+      body: { new_participant_id: newParticipantId },
+    });
+  };
+  const disableCapcom = async () => {
+    await mcpCall("/tools/session/capcom", { method: "DELETE" });
+  };
+
   // Spec 025 FR-003/FR-026: set length cap with disambiguation handling.
   const setLengthCap = async (preset, customValues, interpretation) => {
     if (typeof buildCapPayload !== "function") return;
@@ -4525,6 +4651,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
       .then(() => dispatch({ type: "detection_history_enabled", value: true }))
       .catch(() => dispatch({ type: "detection_history_enabled", value: false }));
   }, [isFacilitator, auth.session_id, state.detectionHistoryEnabled]);
+
 
   const fetchDetectionHistoryPage = async () => {
     try {
@@ -4768,6 +4895,7 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                 auditViewerEnabled={state.auditViewerEnabled === true}
                 detectionHistoryEnabled={state.detectionHistoryEnabled === true}
                 scratchEnabled={state.scratchEnabled === true}
+                capcomEnabled={state.capcomEnabled === true}
                 onApprove={approveParticipant}
                 onReject={rejectParticipant}
                 onInvite={createInvite}
@@ -4777,6 +4905,9 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
                 onOpenAuditLog={openAuditLogPanel}
                 onOpenDetectionHistory={openDetectionHistoryPanel}
                 onOpenScratch={openScratchPanel}
+                onAssignCapcom={assignCapcom}
+                onRotateCapcom={rotateCapcom}
+                onDisableCapcom={disableCapcom}
               />
               {state.auditLogPanelOpen && (
                 <AuditLogPanel

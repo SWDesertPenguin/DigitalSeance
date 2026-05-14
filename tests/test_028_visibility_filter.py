@@ -152,6 +152,34 @@ def test_empty_input_returns_empty():
     assert out == []
 
 
+def test_filter_emits_structured_log_when_excluding(caplog):
+    """FR-023 — exclusion count surfaces in structured logs for forensics."""
+    msgs = [
+        _msg(1, "p1", visibility="public"),
+        _msg(2, "p2", visibility="capcom_only"),
+        _msg(3, "p3", visibility="capcom_only"),
+    ]
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="src.orchestrator.context"):
+        _filter_visibility(msgs, _participant("panel1"), capcom_id="capcom1")
+    matching = [r for r in caplog.records if "message_filtered_capcom_scope" in r.getMessage()]
+    assert len(matching) == 1
+    assert "excluded=2" in matching[0].getMessage()
+    assert "participant=panel1" in matching[0].getMessage()
+
+
+def test_filter_does_not_log_when_nothing_excluded(caplog):
+    """No exclusion → no log line (so observers don't see noise on every turn)."""
+    msgs = [_msg(1, "p1", visibility="public"), _msg(2, "p2", visibility="public")]
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="src.orchestrator.context"):
+        _filter_visibility(msgs, _participant("panel1"), capcom_id="capcom1")
+    matching = [r for r in caplog.records if "message_filtered_capcom_scope" in r.getMessage()]
+    assert matching == []
+
+
 def test_default_message_visibility_is_public():
     """Spec 028 §FR-001 — default Message.visibility is 'public'.
 

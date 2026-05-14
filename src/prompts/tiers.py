@@ -91,6 +91,7 @@ def assemble_prompt(
     standby_ack_delta: str = "",
     shaping_retry_delta_text: str | None = None,
     deferred_index_entries: list[str] | None = None,
+    capcom_delta: str = "",
 ) -> str:
     """Assemble the full system prompt from tiers + custom content.
 
@@ -155,6 +156,8 @@ def assemble_prompt(
     if deferred_index_entries:
         header = "Available deferred tools (load via tools.load_deferred):"
         parts.append(header + "\n" + "\n".join(deferred_index_entries))
+    if capcom_delta:
+        parts.append(capcom_delta)
     return _embed_canaries(parts, _generate_canaries())
 
 

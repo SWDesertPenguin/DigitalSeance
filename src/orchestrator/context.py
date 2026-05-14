@@ -83,17 +83,13 @@ class ContextAssembler:
         receive only ``visibility='public'`` rows. Loaded once per
         ``assemble`` from ``sessions.capcom_participant_id``.
         """
-        budget = _available_budget(participant)
-        context: list[ContextMessage] = []
         capcom_id = await self._fetch_capcom_id(session_id)
-        register_delta = await self._resolve_register_delta(session_id, participant.id)
-        await self._maybe_trigger_deferred_partition(session_id, participant)
-        used = _add_system_prompt(
-            context,
+        context, used = await self._build_prompt_header(
+            session_id,
             participant,
-            phase=phase,
-            register_delta_text=register_delta,
-            always_mode_wait_active=always_mode_wait_active,
+            phase,
+            always_mode_wait_active,
+            capcom_id,
         )
         roster = await self._fetch_roster(session_id)
         used = _add_participant_roster(context, roster, participant.id, used)
@@ -101,13 +97,34 @@ class ContextAssembler:
             context,
             session_id,
             used,
-            budget,
+            _available_budget(participant),
             participant=participant,
             interjections=interjections,
             roster=roster,
             capcom_id=capcom_id,
         )
         return _reorder_chronologically(context)
+
+    async def _build_prompt_header(
+        self,
+        session_id: str,
+        participant: Participant,
+        phase: str,
+        always_mode_wait_active: bool,
+        capcom_id: str | None,
+    ) -> tuple[list[ContextMessage], int]:
+        register_delta = await self._resolve_register_delta(session_id, participant.id)
+        await self._maybe_trigger_deferred_partition(session_id, participant)
+        context: list[ContextMessage] = []
+        used = _add_system_prompt(
+            context,
+            participant,
+            phase=phase,
+            register_delta_text=register_delta,
+            always_mode_wait_active=always_mode_wait_active,
+            capcom_id=capcom_id,
+        )
+        return context, used
 
     async def _fetch_capcom_id(self, session_id: str) -> str | None:
         """Read ``sessions.capcom_participant_id`` once per assemble.
@@ -269,12 +286,27 @@ def _filter_visibility(
     Pre-feature behaviour is preserved by the migration default: every
     existing row migrated as ``visibility='public'`` so panel AIs see
     every legacy message unchanged.
+
+    Spec 028 §FR-023 — when at least one message is excluded for a
+    panel-AI assembly, the filter emits a structured INFO-level log
+    line ``message_filtered_capcom_scope:participant=<id>:excluded=<N>``
+    so operators have per-turn observability over the partition's
+    effect. The line is keyed by participant id so a forensic review
+    can join it back to the dispatch turn.
     """
     if participant.provider == "human":
         return messages
     if capcom_id is not None and participant.id == capcom_id:
         return messages
-    return [m for m in messages if m.visibility == "public"]
+    filtered = [m for m in messages if m.visibility == "public"]
+    excluded = len(messages) - len(filtered)
+    if excluded > 0:
+        log.info(
+            "message_filtered_capcom_scope:participant=%s:excluded=%d",
+            participant.id,
+            excluded,
+        )
+    return filtered
 
 
 def _reorder_chronologically(context: list[ContextMessage]) -> list[ContextMessage]:
@@ -377,6 +409,7 @@ def _add_system_prompt(
     phase: str = "running",
     register_delta_text: str | None = None,
     always_mode_wait_active: bool = False,
+    capcom_id: str | None = None,
 ) -> int:
     """Add tiered system prompt as first context message.
 
@@ -401,6 +434,7 @@ def _add_system_prompt(
     from src.orchestrator.deferred_tool_index import (
         get_deferred_index_for_participant,
     )
+    from src.prompts.capcom_delta import capcom_delta_for
     from src.prompts.conclude_delta import conclude_delta
     from src.prompts.standby_ack_delta import standby_ack_delta
 
@@ -416,6 +450,7 @@ def _add_system_prompt(
         conclude_delta=delta,
         standby_ack_delta=standby_delta,
         deferred_index_entries=deferred_entries or None,
+        capcom_delta=capcom_delta_for(capcom_id is not None and participant.id == capcom_id),
     )
     ctx = ContextMessage("system", prompt, None)
     context.append(ctx)
