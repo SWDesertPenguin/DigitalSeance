@@ -249,13 +249,27 @@ def test_email_transport_empty_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     assert validators.validate_email_transport() is None
 
 
-@pytest.mark.parametrize("value", ["noop", "smtp", "ses", "sendgrid"])
-def test_email_transport_in_set(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
-    """The four enum values pass syntactic validation. The smtp/ses/sendgrid
-    values pass HERE; the adapter factory in Phase 2 raises NotImplementedError
-    at startup for those three values per research.md §4 / §6."""
-    monkeypatch.setenv("SACP_EMAIL_TRANSPORT", value)
+def test_email_transport_noop_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """v1 ships only the noop adapter; it passes V16."""
+    monkeypatch.setenv("SACP_EMAIL_TRANSPORT", "noop")
     assert validators.validate_email_transport() is None
+
+
+@pytest.mark.parametrize("value", ["smtp", "ses", "sendgrid"])
+def test_email_transport_reserved_values_rejected(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """smtp/ses/sendgrid are syntactically valid but unimplemented in v1.
+
+    V16 rejects them at startup so the process exits before binding ports
+    rather than booting and crashing on first email send. Closes the
+    fail-open hole flagged by /speckit.analyze finding 23-F1.
+    """
+    monkeypatch.setenv("SACP_EMAIL_TRANSPORT", value)
+    failure = validators.validate_email_transport()
+    assert failure is not None
+    assert failure.var_name == "SACP_EMAIL_TRANSPORT"
+    assert "follow-up" in failure.reason
 
 
 @pytest.mark.parametrize("value", ["NOOP", "Smtp", "mailgun", "postmark", "any"])

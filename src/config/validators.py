@@ -1325,12 +1325,17 @@ _EMAIL_TRANSPORT_VALID = ("noop", "smtp", "ses", "sendgrid")
 def validate_email_transport() -> ValidationFailure | None:
     """SACP_EMAIL_TRANSPORT: enum noop|smtp|ses|sendgrid, default noop. 023 §FR-022.
 
-    Selects the EmailTransport adapter at startup. v1 ships only the
-    'noop' adapter; the other three values pass syntactic validation here
-    but the adapter factory raises NotImplementedError at startup with a
-    clear pointer to specs/023-user-accounts/contracts/email-transport.md
-    (research.md §4, §6). Operators needing real transport defer enabling
-    accounts until the follow-up email-transport spec ships.
+    v1 ships only the 'noop' adapter. The 'smtp' / 'ses' / 'sendgrid'
+    enum values are reserved for a follow-up email-transport spec and
+    have no implementation in this build; V16 rejects them at startup
+    so operators see a clear ERROR before ports bind, rather than a
+    deferred crash when the factory is first invoked. The
+    `select_transport()` factory in `src/accounts/email_transport.py`
+    retains its `EmailTransportNotImplemented` raise as a belt-and-braces
+    guard for any code path that bypasses the validator. Closes the
+    V16 fail-open hole flagged by `/speckit.analyze` finding 23-F1
+    (2026-05-13). Cross-ref
+    specs/023-user-accounts/contracts/email-transport.md.
     """
     val = os.environ.get("SACP_EMAIL_TRANSPORT")
     if val is None or val.strip() == "":
@@ -1339,6 +1344,13 @@ def validate_email_transport() -> ValidationFailure | None:
         return ValidationFailure(
             "SACP_EMAIL_TRANSPORT",
             f"must be one of {list(_EMAIL_TRANSPORT_VALID)}; got {val!r}",
+        )
+    if val != "noop":
+        return ValidationFailure(
+            "SACP_EMAIL_TRANSPORT",
+            f"value {val!r} is reserved for a follow-up email-transport spec; "
+            "v1 supports only 'noop'. See "
+            "specs/023-user-accounts/contracts/email-transport.md.",
         )
     return None
 
