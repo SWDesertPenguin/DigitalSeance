@@ -169,6 +169,9 @@ def _get_schema_sql() -> list[str]:
         _compression_log_ddl(),
         _detection_events_ddl(),
         _facilitator_notes_ddl(),
+        _provider_circuit_open_log_ddl(),
+        _provider_circuit_probe_log_ddl(),
+        _provider_circuit_close_log_ddl(),
         *_index_ddls(),
     ]
 
@@ -657,6 +660,60 @@ def _detection_events_ddl() -> str:
     """
 
 
+def _provider_circuit_open_log_ddl() -> str:
+    # spec 015 alembic 023: circuit open audit rows (FR-012, US3 AS1).
+    # Append-only; no FK constraints (audit survives session deletion per 007 pattern).
+    return """
+        CREATE TABLE provider_circuit_open_log (
+            id              BIGSERIAL PRIMARY KEY,
+            session_id      TEXT NOT NULL,
+            participant_id  TEXT NOT NULL,
+            provider        TEXT NOT NULL,
+            api_key_fingerprint TEXT NOT NULL,
+            trigger_reason  TEXT NOT NULL,
+            failure_count   INTEGER NOT NULL,
+            window_seconds  INTEGER NOT NULL,
+            opened_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """
+
+
+def _provider_circuit_probe_log_ddl() -> str:
+    # spec 015 alembic 023: probe attempt audit rows (FR-012, US3 AS4).
+    return """
+        CREATE TABLE provider_circuit_probe_log (
+            id              BIGSERIAL PRIMARY KEY,
+            session_id      TEXT NOT NULL,
+            participant_id  TEXT NOT NULL,
+            provider        TEXT NOT NULL,
+            api_key_fingerprint TEXT NOT NULL,
+            probe_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            probe_outcome   TEXT NOT NULL,
+            probe_latency_ms INTEGER NOT NULL,
+            schedule_position INTEGER NOT NULL,
+            schedule_exhausted BOOLEAN NOT NULL DEFAULT FALSE
+        )
+    """
+
+
+def _provider_circuit_close_log_ddl() -> str:
+    # spec 015 alembic 023: circuit close audit rows (FR-012, US3 AS3).
+    return """
+        CREATE TABLE provider_circuit_close_log (
+            id              BIGSERIAL PRIMARY KEY,
+            session_id      TEXT NOT NULL,
+            participant_id  TEXT NOT NULL,
+            provider        TEXT NOT NULL,
+            api_key_fingerprint TEXT NOT NULL,
+            closed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            total_open_seconds INTEGER NOT NULL,
+            probes_attempted INTEGER NOT NULL,
+            probes_succeeded INTEGER NOT NULL,
+            trigger_reason  TEXT NOT NULL
+        )
+    """
+
+
 def _index_ddls() -> list[str]:
     return [
         *_core_index_ddls(),
@@ -664,6 +721,7 @@ def _index_ddls() -> list[str]:
         *_compression_log_index_ddls(),
         *_detection_events_index_ddls(),
         *_facilitator_notes_index_ddls(),
+        *_circuit_breaker_index_ddls(),
     ]
 
 
@@ -751,6 +809,18 @@ def _core_index_ddls() -> list[str]:
     ]
 
 
+def _circuit_breaker_index_ddls() -> list[str]:
+    """spec 015 alembic 023 mirror; indexes on the three circuit audit tables."""
+    return [
+        "CREATE INDEX idx_circuit_open_session"
+        " ON provider_circuit_open_log (session_id, opened_at DESC)",
+        "CREATE INDEX idx_circuit_probe_session"
+        " ON provider_circuit_probe_log (session_id, probe_at DESC)",
+        "CREATE INDEX idx_circuit_close_session"
+        " ON provider_circuit_close_log (session_id, closed_at DESC)",
+    ]
+
+
 def _account_index_ddls() -> list[str]:
     return [
         # spec 023 §FR-002 / research §9 — alembic 015 mirror; covers the
@@ -787,7 +857,9 @@ async def _truncate_all(pool: asyncpg.Pool) -> None:
             " usage_log, routing_log, detection_events,"
             " session_register, participant_register_override,"
             " account_participants, accounts,"
-            " messages, branches"
+            " messages, branches,"
+            " provider_circuit_open_log, provider_circuit_probe_log,"
+            " provider_circuit_close_log"
             " CASCADE"
         )
         await conn.execute("UPDATE sessions SET facilitator_id = NULL")
