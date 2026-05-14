@@ -1597,6 +1597,10 @@ def validate_sacp_tool_defer_enabled() -> ValidationFailure | None:
         return ValidationFailure(
             "SACP_TOOL_DEFER_ENABLED",
             f"must be 'true' or 'false' (case-insensitive); got {val!r}",
+        )
+    return None
+
+
 def validate_provider_failure_threshold() -> ValidationFailure | None:
     """SACP_PROVIDER_FAILURE_THRESHOLD: int in [2, 100], unset means breaker inactive.
 
@@ -1632,6 +1636,23 @@ def validate_sacp_tool_loaded_token_budget() -> ValidationFailure | None:
     rest of the prompt-tier budget (Constitution §6.1).
     """
     val = os.environ.get("SACP_TOOL_LOADED_TOKEN_BUDGET")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_TOOL_LOADED_TOKEN_BUDGET",
+            f"must be integer; got {val!r}",
+        )
+    if not 512 <= num <= 8192:
+        return ValidationFailure(
+            "SACP_TOOL_LOADED_TOKEN_BUDGET",
+            f"must be in [512, 8192] tokens; got {num}",
+        )
+    return None
+
+
 def validate_provider_failure_window_s() -> ValidationFailure | None:
     """SACP_PROVIDER_FAILURE_WINDOW_S: int in [30, 3600], unset means breaker inactive.
 
@@ -1646,13 +1667,6 @@ def validate_provider_failure_window_s() -> ValidationFailure | None:
         num = int(val)
     except ValueError:
         return ValidationFailure(
-            "SACP_TOOL_LOADED_TOKEN_BUDGET",
-            f"must be integer; got {val!r}",
-        )
-    if not 512 <= num <= 8192:
-        return ValidationFailure(
-            "SACP_TOOL_LOADED_TOKEN_BUDGET",
-            f"must be in [512, 8192] tokens; got {num}",
             "SACP_PROVIDER_FAILURE_WINDOW_S",
             f"must be integer (seconds); got {val!r}",
         )
@@ -1700,6 +1714,23 @@ def validate_sacp_tool_defer_load_timeout_s() -> ValidationFailure | None:
     turn_timeout_seconds budget (SC-003).
     """
     val = os.environ.get("SACP_TOOL_DEFER_LOAD_TIMEOUT_S")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_TOOL_DEFER_LOAD_TIMEOUT_S",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 30:
+        return ValidationFailure(
+            "SACP_TOOL_DEFER_LOAD_TIMEOUT_S",
+            f"must be in [1, 30] seconds; got {num}",
+        )
+    return None
+
+
 _PROBE_BACKOFF_VAR = "SACP_PROVIDER_RECOVERY_PROBE_BACKOFF"
 
 
@@ -1753,13 +1784,6 @@ def validate_provider_probe_timeout_s() -> ValidationFailure | None:
         num = int(val)
     except ValueError:
         return ValidationFailure(
-            "SACP_TOOL_DEFER_LOAD_TIMEOUT_S",
-            f"must be integer; got {val!r}",
-        )
-    if not 1 <= num <= 30:
-        return ValidationFailure(
-            "SACP_TOOL_DEFER_LOAD_TIMEOUT_S",
-            f"must be in [1, 30] seconds; got {num}",
             "SACP_PROVIDER_PROBE_TIMEOUT_S",
             f"must be integer (seconds); got {val!r}",
         )
