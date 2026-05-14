@@ -9,7 +9,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from src.mcp_protocol.dispatcher import DispatchError, dispatch
 from src.mcp_protocol.errors import (
@@ -171,8 +171,13 @@ def _build_tools_list_response(req_id: object) -> JSONResponse:
 
 async def _route_method(
     request: Request, body: dict, method: str, req_id: object, session_id_header: str | None
-) -> JSONResponse:
+) -> Response:
     """Route a non-initialize method to the correct handler."""
+    # JSON-RPC notifications (no `id`) must be ack'd with 202 No Content per MCP Streamable
+    # HTTP. `notifications/initialized` is sent by clients (e.g. mcp-remote) immediately
+    # after a successful `initialize` handshake and MUST NOT receive a JSON-RPC envelope.
+    if method.startswith("notifications/"):
+        return Response(status_code=202)
     if method == "tools/list":
         return _build_tools_list_response(req_id)
     if method == "ping":
@@ -220,7 +225,7 @@ async def _check_auth_and_session(
 
 
 @mcp_router.post("/mcp")
-async def mcp_endpoint(request: Request) -> JSONResponse:
+async def mcp_endpoint(request: Request) -> Response:
     """Single POST endpoint for MCP Streamable HTTP. Returns 404 when switch off."""
     if not _is_enabled():
         return JSONResponse(status_code=404, content={"detail": "MCP protocol not enabled"})
