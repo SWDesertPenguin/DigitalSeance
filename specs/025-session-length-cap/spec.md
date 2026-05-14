@@ -2,7 +2,7 @@
 
 **Feature Branch**: `025-session-length-cap`
 **Created**: 2026-05-07
-**Status**: Implemented 2026-05-08 (Phase 3 declared 2026-05-05; full implementation through close-out via PR #313 — US1–US4, V14 perf timing, Phase 8 polish, frontend cap_config + cap_disambiguation modules; doc-deliverables catch-up via PR #319; recon-scrub continuation through public docs)
+**Status**: Implemented 2026-05-08 (Phase 3 declared 2026-05-05; full implementation through close-out via PR #313 — US1–US4, V14 perf timing, Phase 8 polish, frontend cap_config + cap_disambiguation modules; doc-deliverables catch-up via PR #319; recon-scrub continuation through public docs). **Accepted residuals** (per `/speckit.analyze` finding 25-F1, 2026-05-13): a tranche of DB-gated end-to-end acceptance-scenario tests (T026/T027/T029 US1; T039/T040/T041/T043/T048/T049 US2; T062 US3; T066/T067/T068 US4) and Playwright frontend e2e tests (T074..T078, T082 US13) remain unchecked in tasks.md and are deferred to subsequent Phase 8 polish passes filling the [tests/test_025_loop_integration.py](../../tests/test_025_loop_integration.py) placeholders. Code paths and unit-level coverage are in place; the deferred work is the DB+Playwright integration tier, gated on a Postgres-available test fixture.
 **Input**: User description: "Phase 3 session-length cap with auto-conclude phase. Unbounded sessions accumulate cost as transcripts grow and rarely produce clean endings; operators stop the loop under budget/context pressure and lose the chance for AIs to hand off coherent conclusions. Configurable cap turns 'ran out of budget' into 'got planned closure'. Default: no cap. Two cap dimensions (OR'd, whichever fires first): wall-clock time since loop start, total AI turn count. Presets: Short / Medium / Long / Custom. At ~80% of the configured cap, the orchestrator transitions the session into a conclude phase: a Tier 4 prompt delta tells AIs the session is wrapping and asks each for a position summary + final conclusion. After every active AI has produced a conclusion turn, the existing spec 005 summarizer fires one final time and the loop pauses. Facilitator can extend the cap or stop_loop manually at any point. Applies to topologies 1-6 (orchestrator-mediated state); incompatible with topology 7. Primary use cases: consulting (§3), research co-authorship (§2), technical review and audit (§5)."
 
 ## Overview
@@ -78,6 +78,12 @@ gate; this spec stays scaffold-only until tasks land and
 implementation reaches Implemented status.
 
 ## Clarifications
+
+### Session 2026-05-14 (residuals annotation per `/speckit.analyze` 25-F1)
+
+- Q: Why is spec status "Implemented" when tasks.md has 18 unchecked acceptance-scenario and Playwright tasks? → A: Functional implementation is complete: the FSM transitions (T037), pause-aware accumulator (T052), endpoint surface, frontend modules (T083, cap_config + cap_disambiguation), and integration-test scaffold (T090) all landed in PR #313. The unchecked tasks are the DB-gated end-to-end test bodies and the Playwright frontend e2e tests; their parent infrastructure tasks (T037/T052/T083/T090) are all `[X]`. They are accepted-deferred to subsequent Phase 8 polish passes, gated on a Postgres-available test fixture. Status line amended to make this residuals taxonomy explicit at the spec.md surface (previously documented only in tasks.md inline annotations).
+- Q: When do the residuals close? → A: As Phase 8 polish-pass capacity is allocated, OR earlier on operator demand. Each task carries an inline "deferred to Phase 8 (T090)" or "pending T0XX" annotation; the test bodies fill the six placeholders in [tests/test_025_loop_integration.py](../../tests/test_025_loop_integration.py).
+- Q: Does this amendment change behavior? → A: No. Doc-consistency fix only; the implementation has not changed.
 
 ### Session 2026-05-07
 
