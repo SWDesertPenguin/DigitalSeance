@@ -81,6 +81,7 @@ class ContextAssembler:
         budget = _available_budget(participant)
         context: list[ContextMessage] = []
         register_delta = await self._resolve_register_delta(session_id, participant.id)
+        await self._maybe_trigger_deferred_partition(session_id, participant)
         used = _add_system_prompt(
             context,
             participant,
@@ -100,6 +101,49 @@ class ContextAssembler:
             roster=roster,
         )
         return _reorder_chronologically(context)
+
+    async def _maybe_trigger_deferred_partition(
+        self,
+        session_id: str,
+        participant: Participant,
+    ) -> None:
+        """Spec 018 Phase 2 — fire the initial partition on first turn-prep.
+
+        Resolves the participant's `DeferredToolIndex`; if it's a live
+        index (master switch on) and has never been computed, kicks off
+        `compute_partition`. The tool list comes from the spec 018
+        tool-list-provider hook (set externally by spec 017's
+        ParticipantToolRegistry once that lands on main). Until then,
+        the provider returns an empty list and the partition records a
+        zero-tools decision — observable via the audit log as the
+        signal that deferral is active for this participant.
+
+        Best-effort: any failure here is logged and swallowed so the
+        rest of context assembly proceeds unblocked.
+        """
+        from src.orchestrator.deferred_tool_index import (
+            _LiveIndex,
+            get_deferred_index_for_participant,
+            get_tool_list_provider,
+        )
+
+        try:
+            idx = get_deferred_index_for_participant(session_id, participant.id)
+            if not isinstance(idx, _LiveIndex):
+                return
+            if not idx.is_empty():
+                return
+            provider = get_tool_list_provider()
+            tools = await provider(session_id, participant.id) if provider else []
+            tokenizer = get_tokenizer_for_model(participant.model)
+            budget = _read_loaded_token_budget()
+            await idx.compute_partition(tools, budget=budget, tokenizer=tokenizer)
+        except Exception:
+            log.exception(
+                "deferred_tool_partition trigger failed (session=%s participant=%s)",
+                session_id,
+                participant.id,
+            )
 
     async def _resolve_register_delta(
         self,
@@ -252,6 +296,32 @@ def _estimate_tokens(text: str) -> int:
     return max(default_estimator().count_tokens(text), 1)
 
 
+def _read_deferred_index_max_tokens() -> int:
+    """Spec 018 SACP_TOOL_DEFER_INDEX_MAX_TOKENS reader; default 256."""
+    import os as _os
+
+    raw = _os.environ.get("SACP_TOOL_DEFER_INDEX_MAX_TOKENS", "").strip()
+    if not raw:
+        return 256
+    try:
+        return int(raw)
+    except ValueError:
+        return 256
+
+
+def _read_loaded_token_budget() -> int:
+    """Spec 018 SACP_TOOL_LOADED_TOKEN_BUDGET reader; default 1500."""
+    import os as _os
+
+    raw = _os.environ.get("SACP_TOOL_LOADED_TOKEN_BUDGET", "").strip()
+    if not raw:
+        return 1500
+    try:
+        return int(raw)
+    except ValueError:
+        return 1500
+
+
 def _add_system_prompt(
     context: list[ContextMessage],
     participant: Participant,
@@ -272,12 +342,24 @@ def _add_system_prompt(
 
     Spec 027 FR-015: when ``always_mode_wait_active=True``, the
     standby-ack delta appends LAST in the Tier 4 composition chain.
+
+    Spec 018 FR-014: the participant's `DeferredToolIndex` is consulted
+    once per turn-prep; its compact index entries (empty in Phase 1) are
+    threaded through to ``assemble_prompt`` so the deferred-tool list
+    surfaces in the system prompt when Phase 2's working partition is
+    active. Phase 1 (the v1 default) sees an empty list and the prompt
+    is byte-identical to the pre-feature baseline.
     """
+    from src.orchestrator.deferred_tool_index import (
+        get_deferred_index_for_participant,
+    )
     from src.prompts.conclude_delta import conclude_delta
     from src.prompts.standby_ack_delta import standby_ack_delta
 
     delta = conclude_delta(active=(phase == "conclude"))
     standby_delta = standby_ack_delta(active=always_mode_wait_active)
+    deferred_index = get_deferred_index_for_participant(participant.session_id, participant.id)
+    deferred_entries, _ = deferred_index.render_index_entries(_read_deferred_index_max_tokens())
     prompt = assemble_prompt(
         prompt_tier=participant.prompt_tier,
         custom_prompt=participant.system_prompt,
@@ -285,6 +367,7 @@ def _add_system_prompt(
         register_delta_text=register_delta_text,
         conclude_delta=delta,
         standby_ack_delta=standby_delta,
+        deferred_index_entries=deferred_entries or None,
     )
     ctx = ContextMessage("system", prompt, None)
     context.append(ctx)

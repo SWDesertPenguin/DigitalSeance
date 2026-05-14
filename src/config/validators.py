@@ -1581,6 +1581,22 @@ def validate_scratch_retention_days_after_archive() -> ValidationFailure | None:
     return None
 
 
+def validate_sacp_tool_defer_enabled() -> ValidationFailure | None:
+    """SACP_TOOL_DEFER_ENABLED: bool true/false case-insensitive, default false. 018 §FR-013.
+
+    Master switch for deferred tool loading. When false (the v1 default
+    and the Phase-1-cut state), the partition module returns an empty
+    DeferredToolIndex and the discovery MCP tools return a documented
+    stub response. When true, the working partition + discovery
+    mechanism activates.
+    """
+    val = os.environ.get("SACP_TOOL_DEFER_ENABLED")
+    if val is None or val.strip() == "":
+        return None
+    if val.strip().lower() not in {"true", "false"}:
+        return ValidationFailure(
+            "SACP_TOOL_DEFER_ENABLED",
+            f"must be 'true' or 'false' (case-insensitive); got {val!r}",
 def validate_provider_failure_threshold() -> ValidationFailure | None:
     """SACP_PROVIDER_FAILURE_THRESHOLD: int in [2, 100], unset means breaker inactive.
 
@@ -1607,6 +1623,15 @@ def validate_provider_failure_threshold() -> ValidationFailure | None:
     return None
 
 
+def validate_sacp_tool_loaded_token_budget() -> ValidationFailure | None:
+    """SACP_TOOL_LOADED_TOKEN_BUDGET: int in [512, 8192], default 1500. 018 §FR-013.
+
+    Token budget for the loaded subset of a participant's tool definitions.
+    Below 512, no realistic tool fits; above 8192, the partition commitment
+    dominates the system prompt budget. Default 1500 leaves room for the
+    rest of the prompt-tier budget (Constitution §6.1).
+    """
+    val = os.environ.get("SACP_TOOL_LOADED_TOKEN_BUDGET")
 def validate_provider_failure_window_s() -> ValidationFailure | None:
     """SACP_PROVIDER_FAILURE_WINDOW_S: int in [30, 3600], unset means breaker inactive.
 
@@ -1621,6 +1646,13 @@ def validate_provider_failure_window_s() -> ValidationFailure | None:
         num = int(val)
     except ValueError:
         return ValidationFailure(
+            "SACP_TOOL_LOADED_TOKEN_BUDGET",
+            f"must be integer; got {val!r}",
+        )
+    if not 512 <= num <= 8192:
+        return ValidationFailure(
+            "SACP_TOOL_LOADED_TOKEN_BUDGET",
+            f"must be in [512, 8192] tokens; got {num}",
             "SACP_PROVIDER_FAILURE_WINDOW_S",
             f"must be integer (seconds); got {val!r}",
         )
@@ -1632,6 +1664,42 @@ def validate_provider_failure_window_s() -> ValidationFailure | None:
     return None
 
 
+def validate_sacp_tool_defer_index_max_tokens() -> ValidationFailure | None:
+    """SACP_TOOL_DEFER_INDEX_MAX_TOKENS: int in [64, 1024], default 256. 018 §FR-013.
+
+    Cap on the deferred-index size emitted into the system prompt.
+    At 256 tokens (default), ~20 deferred tools fit before truncation;
+    beyond, tools.list_deferred pagination delivers the rest. Below 64,
+    even a handful of tools cannot fit; above 1024, the index itself
+    dominates the budget the partition is supposed to protect.
+    """
+    val = os.environ.get("SACP_TOOL_DEFER_INDEX_MAX_TOKENS")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        num = int(val)
+    except ValueError:
+        return ValidationFailure(
+            "SACP_TOOL_DEFER_INDEX_MAX_TOKENS",
+            f"must be integer; got {val!r}",
+        )
+    if not 64 <= num <= 1024:
+        return ValidationFailure(
+            "SACP_TOOL_DEFER_INDEX_MAX_TOKENS",
+            f"must be in [64, 1024] tokens; got {num}",
+        )
+    return None
+
+
+def validate_sacp_tool_defer_load_timeout_s() -> ValidationFailure | None:
+    """SACP_TOOL_DEFER_LOAD_TIMEOUT_S: int in [1, 30]. 018 §FR-013.
+
+    Per-call timeout for tools.load_deferred. Unset means the load
+    inherits the existing MCP client request timeout. Bounded at 30s
+    because deferred-load latency MUST stay within the participant's
+    turn_timeout_seconds budget (SC-003).
+    """
+    val = os.environ.get("SACP_TOOL_DEFER_LOAD_TIMEOUT_S")
 _PROBE_BACKOFF_VAR = "SACP_PROVIDER_RECOVERY_PROBE_BACKOFF"
 
 
@@ -1685,6 +1753,13 @@ def validate_provider_probe_timeout_s() -> ValidationFailure | None:
         num = int(val)
     except ValueError:
         return ValidationFailure(
+            "SACP_TOOL_DEFER_LOAD_TIMEOUT_S",
+            f"must be integer; got {val!r}",
+        )
+    if not 1 <= num <= 30:
+        return ValidationFailure(
+            "SACP_TOOL_DEFER_LOAD_TIMEOUT_S",
+            f"must be in [1, 30] seconds; got {num}",
             "SACP_PROVIDER_PROBE_TIMEOUT_S",
             f"must be integer (seconds); got {val!r}",
         )
@@ -1834,6 +1909,11 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     # validate_sacp_oauth_cimd_allowed_hosts,
     # validate_sacp_mcp_token_cache_ttl_seconds,          # FR-094 analysis I1
     # validate_sacp_oauth_previous_signing_key_path,      # optional rotation key
+    # ── spec 018 (deferred tool loading) ── FR-013 ──────────────────────────
+    validate_sacp_tool_defer_enabled,
+    validate_sacp_tool_loaded_token_budget,
+    validate_sacp_tool_defer_index_max_tokens,
+    validate_sacp_tool_defer_load_timeout_s,
 )
 
 

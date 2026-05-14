@@ -2,7 +2,7 @@
 
 **Feature Branch**: `018-deferred-tool-loading`
 **Created**: 2026-05-06
-**Status**: Draft
+**Status**: Implemented 2026-05-13 (Phase 1 + Phase 2 — design hooks + working partition + discovery capability + audit emission. Live wiring of the partition to a participant tool-list source is the spec 017 integration point; the `set_tool_list_provider` hook is in place awaiting spec 017's `ParticipantToolRegistry` reaching main.)
 **Input**: User description: "Deferred tool loading for participants with large MCP tool counts. When a participant registers multiple MCP servers each exposing several tools, the combined tool definitions can dominate the system prompt budget, crowding out conversation history and current-turn content. This is a different problem from the [NEED:] proxy mechanism (which addresses low-capability models that cannot do tool calling at all): deferred loading addresses high-capability models that can do tool calling but should not have to carry every tool definition in every turn. The mechanism should defer tool definitions above a measured threshold and provide a discovery capability the model invokes when it needs an unloaded tool. Per-participant scoping is required — each participant's deferred set is private. The loaded subset participates in the cached prefix for that participant, so tool-set changes interact with the freshness mechanism. Phase 2 scope for the working implementation. Phase 1 ships only the design hooks (system-prompt assembly knows about deferral, the index interface is defined, no-op default). Cross-references the MCP tool-list freshness feature."
 
 ## Overview
@@ -83,51 +83,64 @@ This spec is layered over **two phases**:
 
 ## Clarifications
 
-### Initial draft assumptions requiring confirmation
+### Session 2026-05-13
 
-- **Phase split structure.** User input says "Phase 2 scope for the
-  working implementation. Phase 1 ships only the design hooks."
-  Drafted as a single spec with three user stories: P1 = Phase-1
-  hooks (no-op default), P2 = Phase-2 partition (working impl),
-  P3 = Phase-2 discovery capability. Phases 1 and 2 in this spec
-  refer to the two deliverable cuts, not the SACP project phases
-  (Phase 1 / Phase 2 / Phase 3) which closed 2026-04-20 / 2026-05-04
-  per memory and Phase 3 in flight. [NEEDS CLARIFICATION:
-  confirm the cuts are intended to land as separate specs (017-style
-  layered approach) vs. a single multi-phase spec.]
-- **Threshold metric.** User input says "defer tool definitions
-  above a measured threshold." Drafted as: token budget allocated
-  to tools (e.g., `SACP_TOOL_LOADED_TOKEN_BUDGET=1500`). The
-  partition fits as many tool definitions as possible under the
-  budget, deferring the rest. Alternative: tool count, or a
-  hybrid (count cap + token cap). [NEEDS CLARIFICATION: confirm
-  token budget is the right primary metric vs. count-based or
-  hybrid.]
-- **Selection policy.** Once a threshold exists, which tools land
-  in the loaded subset? Three reasonable defaults:
-  (a) registration order (first N until budget exhausted),
-  (b) recency (tools used most recently in this session),
-  (c) relevance (semantic match between conversation topic and
-  tool description). Drafted as registration order for v1
-  simplicity (deterministic, no embedding cost on hot path);
-  recency / relevance are documented as Phase-3 follow-up.
-  [NEEDS CLARIFICATION: confirm registration order is acceptable
-  for v1.]
-- **Discovery tool naming.** Drafted as `sacp_list_deferred_tools`
-  (returns the index of deferred tools the model can request) and
-  `sacp_load_tool(name)` (loads one specific deferred tool). Both
-  are facilitator-tier from the orchestrator's perspective but
-  participant-callable on the participant's own deferred set
-  only. [NEEDS CLARIFICATION: confirm tool naming and
-  participant-only-on-own-set scoping.]
-- **Sticky vs. per-turn loading.** When a model loads a deferred
-  tool via discovery, does it stay loaded for the rest of the
-  session, or only for the current turn? Drafted as: sticky
-  within the current session (one load = loaded for the rest of
-  the session) but not persisted across session restart, because
-  intra-session re-deferral introduces complex churn around the
-  prompt cache. [NEEDS CLARIFICATION: confirm sticky-in-session
-  is acceptable.]
+All seven open questions resolved per operator direction:
+
+- **Phase split structure**: Single spec, three user stories.
+  US1 = Phase-1 design hooks (no-op default, ships in this spec's
+  initial PR). US2 = Phase-2 partition (working implementation,
+  ships in a follow-up PR cut of this same spec). US3 = Phase-2
+  discovery capability (working impl, same follow-up PR or
+  immediately after US2). Phase 1 and Phase 2 here refer to the
+  deliverable cuts of this spec, NOT the SACP project phases.
+- **Threshold metric**: Token budget is the primary partition
+  metric. `SACP_TOOL_LOADED_TOKEN_BUDGET` caps the loaded subset
+  in tokens. Count-based or hybrid policies are deferred to a
+  future spec; the v1 partition algorithm is deterministically
+  driven by token consumption.
+- **Selection policy**: Registration order for v1. Tools are
+  partitioned in the order they appear in the participant's
+  registry (which itself is ordered by tool-list freshness arrival
+  per spec 017). First N tools that fit the budget land in the
+  loaded subset; the rest are deferred. Recency- and
+  relevance-based policies are deferred to a future spec.
+- **Discovery tool naming**: The two discovery tools follow the
+  spec 030 tool-registry naming convention (domain.action
+  snake_case): `tools.list_deferred` (returns the deferred index)
+  and `tools.load_deferred` (loads one specific deferred tool by
+  name). Both are SACP-orchestrator-provided (NOT
+  participant-MCP-server-provided), are participant-callable on
+  their own deferred set only, and always sit in the loaded subset
+  (never themselves deferred — per FR-011).
+- **Sticky vs. per-turn loading**: Sticky-within-session. One
+  successful `tools.load_deferred` call promotes the tool into
+  the loaded subset for the remainder of the session. State is
+  not persisted across session restart (session-local model
+  matches spec 015 and spec 017 stance). On restart, the
+  partition recomputes from scratch with the registration-order
+  policy.
+- **Single-tool-exceeds-budget pathology**: Graceful degradation.
+  If a single tool's full definition exceeds
+  `SACP_TOOL_LOADED_TOKEN_BUDGET` on its own, the loaded subset
+  may be empty (or contain only the two discovery tools per
+  FR-011); ALL participant tools are deferred. The
+  `tool_partition_decided` audit entry MUST set a
+  `pathological_partition=true` flag so operators see this state
+  in the audit log. The model is forced through discovery for
+  every tool call. No fail-closed (refusing to start the session
+  on this pathology would be worse — the operator has chosen the
+  budget and the participant has chosen the tools; deferral
+  graceful-degrades).
+- **Tokenizer**: At partition time, the orchestrator uses the
+  participant-model-specific tokenizer if one is available
+  through the existing `src/api_bridge/` adapter (e.g., per
+  provider, tiktoken for OpenAI-family, model-specific for
+  Anthropic, etc.). If no model-specific tokenizer is available,
+  the orchestrator falls back to a coarse character-based estimate
+  (`len(s) / 4` rounded up, matching the estimate used elsewhere
+  for budget enforcement). The fallback case MUST be logged at
+  partition time at WARN level so operators can investigate.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -300,11 +313,13 @@ invalidation event).
   identical to v1. No audit entries other than the initial
   `tool_partition_decided` (with `deferred_count=0`).
 - **Single tool exceeds the entire budget.** Pathological case;
-  the loaded subset is empty and EVERY tool is deferred. The
-  audit entry MUST flag this state for operator visibility. The
-  model is forced to use discovery for any tool call.
-  [NEEDS CLARIFICATION: confirm we don't fail-closed here vs.
-  this graceful-degradation drafting.]
+  the loaded subset contains only the two discovery tools (or is
+  empty if discovery is not yet registered) and EVERY participant
+  tool is deferred. The audit entry MUST flag this state for
+  operator visibility (`pathological_partition=true` per Session
+  2026-05-13). The model is forced to use discovery for any tool
+  call. Graceful-degradation per Session 2026-05-13 clarification;
+  no fail-closed.
 - **Tool removed from the registry while in the loaded subset.**
   Spec 017's freshness mechanism removes the tool from the
   registry; the partition recomputes and the loaded/deferred
@@ -625,11 +640,12 @@ working-implementation cut (per V16 deliverable gate).
   tool definition variation does not require per-server custom
   serialization.
 - Token counting against the budget uses the same tokenizer as
-  the participant's model. SACP MUST NOT use a one-size-fits-all
-  token estimate that would over- or under-count for specific
-  models. [NEEDS CLARIFICATION: confirm we use the
-  participant-model tokenizer at partition time vs. a coarse
-  estimate.]
+  the participant's model — resolved via
+  `src.api_bridge.tokenizer.get_tokenizer_for_participant` per
+  Session 2026-05-13. Fallback to the `_DefaultTokenizer`
+  (cl100k_base) when no model-specific adapter exists; fallback
+  emits a WARN log and sets `tokenizer_fallback_used=true` in the
+  partition audit row.
 - The Phase-1 design-hooks cut and the Phase-2 working-
   implementation cut share a single SACP_TOOL_DEFER_* env-var
   namespace (not separate namespaces). Phase 1 ships with all
