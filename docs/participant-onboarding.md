@@ -94,7 +94,38 @@ Linux MCP client onboarding is out of scope for v1; no current debug-session dat
 
 ## Phase 4 OAuth Migration
 
-*This section is reserved for the OAuth 2.1 + PKCE onboarding flow introduced in Phase 4. Content will be added when Phase 4 ships.*
+Phase 4 introduces OAuth 2.1 + PKCE on the MCP endpoint. Static bearer tokens on the participant API routes remain valid; OAuth is layered onto MCP-client connections, not the existing `/sse/{session_id}` participant API surface.
+
+**Master switch:** `SACP_OAUTH_ENABLED` (default `false`). When `false`, the MCP endpoint accepts the legacy bearer-token model and OAuth endpoints are not advertised. When `true`, MCP clients must complete the authorization-code flow described below.
+
+**Endpoints (when `SACP_OAUTH_ENABLED=true`):**
+
+| Path | Method | Purpose |
+|---|---|---|
+| `/.well-known/oauth-protected-resource` | GET | Discovery metadata per MCP authorization spec; advertises authorization server, token endpoint, supported scopes |
+| `/oauth/register-cimd` | POST | Client registration via Client Identity Metadata Document |
+| `/authorize` | GET | Authorization code request with PKCE challenge |
+| `/token` | POST | Token exchange (authorization code → access + refresh; refresh → rotated pair) |
+| `/revoke` | POST | Refresh-token revocation |
+
+**Flow:**
+
+1. Client fetches `/.well-known/oauth-protected-resource` to learn the authorization server URL and supported scopes.
+2. Client registers (or re-registers) by POSTing its CIMD to `/oauth/register-cimd`. Registration may be auto-approved or held for facilitator review depending on `SACP_OAUTH_CLIENT_REGISTRATION_MODE`.
+3. Client generates a PKCE code verifier + challenge (S256) and redirects the participant to `/authorize?client_id=…&redirect_uri=…&code_challenge=…&code_challenge_method=S256&scope=…&state=…`.
+4. Participant authenticates with the orchestrator (existing session-bound token model) and consents to the requested scope set.
+5. Authorization server redirects to the client with a short-lived code.
+6. Client POSTs the code + PKCE verifier to `/token`, receiving an ES256-signed JWT access token plus a Fernet-encrypted opaque refresh token.
+7. Client uses `Authorization: Bearer <access-token>` on MCP requests. On token expiry, client POSTs the refresh token to `/token` (rotating the refresh token in the process — refresh-token reuse triggers a family-wide revocation).
+8. Logout / device revocation: client POSTs the refresh token to `/revoke`.
+
+**Scopes:** Bound to the three-role model (facilitator / participant / pending). Scope set granted on the access token determines which MCP tools the client may invoke.
+
+**Token lifetimes:** Access tokens default to 15 minutes (`SACP_OAUTH_ACCESS_TOKEN_TTL_MINUTES`); refresh tokens default to 30 days (`SACP_OAUTH_REFRESH_TOKEN_TTL_DAYS`); authorization codes expire after 60 seconds (`SACP_OAUTH_AUTH_CODE_TTL_SECONDS`).
+
+**Migration from static bearer tokens:** During the grace period set by `SACP_OAUTH_STATIC_TOKEN_GRACE_DAYS` (default 30 days), MCP requests may continue to use the legacy static bearer token. After the grace window, the MCP endpoint requires an OAuth access token. The participant API at `/sse/{session_id}` is unaffected.
+
+**Key rotation:** The ES256 signing key path is `SACP_OAUTH_SIGNING_KEY_PATH`. An optional `SACP_OAUTH_PREVIOUS_SIGNING_KEY_PATH` enables overlap-window verification during rotation — tokens signed by the previous key remain verifiable until they expire.
 
 ## CSRF and Origin Requirements
 
