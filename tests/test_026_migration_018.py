@@ -31,7 +31,6 @@ Asserts:
 
 from __future__ import annotations
 
-import contextlib
 import importlib.util
 import inspect
 from pathlib import Path
@@ -52,15 +51,8 @@ def _upgrade_source() -> str:
 
 
 def _all_source() -> str:
-    """Concatenated source of every helper called by upgrade()."""
-    mod = _load()
-    parts: list[str] = []
-    for name in dir(mod):
-        obj = getattr(mod, name)
-        if callable(obj) and not name.startswith("__"):
-            with contextlib.suppress(OSError, TypeError):
-                parts.append(inspect.getsource(obj))
-    return "\n".join(parts)
+    """Full migration module source, including module-level CHECK constants."""
+    return _MIGRATION_PATH.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
