@@ -469,3 +469,31 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-027 | tests/test_027_standby_evaluator.py | participants.standby_cycle_count durable column; increments on still-standby ticks; resets on exit transition |
 | FR-028 | tests/test_027_architectural.py | Four SACP_STANDBY_* validators registered in VALIDATORS tuple per spec naming convention |
 | FR-029 | tests/test_027_architectural.py | Five new audit-action labels registered in both audit_labels.py mirrors (parity gate enforced via architectural test + scripts/check_audit_label_parity.py) |
+
+## 018-deferred-tool-loading
+
+| FR | Test path(s) | Notes |
+|---|---|---|
+| FR-001 | tests/test_018_partition.py | _LiveIndex.compute_partition splits tool set into loaded + deferred when master switch on |
+| FR-002 | tests/test_018_partition.py | Loaded subset stays at or below SACP_TOOL_LOADED_TOKEN_BUDGET; registration-order selection policy |
+| FR-003 | tests/test_018_partition.py, tests/test_018_phase1_hooks.py | Compact one-line index entries with `tools.load_deferred(name=...)` invocation hint |
+| FR-004 | tests/test_018_partition.py | Index truncation under SACP_TOOL_DEFER_INDEX_MAX_TOKENS with pagination banner |
+| FR-005 | tests/test_018_phase1_hooks.py | Discovery tool registrations: tools.list_deferred + tools.load_deferred; DISCOVERY_TOOL_NAMES frozenset |
+| FR-006 | tests/test_018_partition.py | Per-participant scoping — A's partition independent of B's; instances distinct per (session_id, participant_id) |
+| FR-007 | tests/test_018_partition.py | tool_partition_decided audit row at session start + on every recomputation |
+| FR-008 | tests/test_018_discovery.py | tool_loaded_on_demand + paired tool_re_deferred audit rows on LRU eviction |
+| FR-009 | tests/test_018_discovery.py | prompt_cache_invalidated=true exactly once per load (audit payload assertion) |
+| FR-010 | tests/test_018_partition.py | recompute_on_freshness preserves promoted-and-still-present tools; audit row reason="freshness_refresh" |
+| FR-011 | tests/test_018_partition.py, tests/test_018_discovery.py | Discovery tools always appear in loaded subset regardless of budget; never eligible for LRU eviction |
+| FR-012 | untested | No-function-calling capability flag is future-spec; every currently-supported model supports native function calling so the disabling path is a no-op today |
+| FR-013 | tests/test_018_validators.py | Four V16 validators (defer_enabled / loaded_token_budget / defer_index_max_tokens / defer_load_timeout_s) registered in VALIDATORS; out-of-range exits at startup |
+| FR-014 | tests/test_018_phase1_hooks.py | Phase-1 hooks: deferral-aware assembly path + DeferredToolIndex interface (empty in v1) + stub discovery tools all observable |
+| FR-015 | tests/test_018_phase1_hooks.py | Byte-identical pre-feature behavior when SACP_TOOL_DEFER_ENABLED=false (regression contract across all tiers) |
+| SC-001 | tests/test_018_phase1_hooks.py | Pre-feature acceptance suite passes byte-identically with deferral disabled (representative-sample regression) |
+| SC-002 | tests/test_018_partition.py | System-prompt total tokens stay at or below SACP_TOOL_LOADED_TOKEN_BUDGET + SACP_TOOL_DEFER_INDEX_MAX_TOKENS per turn |
+| SC-003 | untested | Discovery-driven load latency within turn_timeout_seconds — integration test pending spec 017 ParticipantToolRegistry on main |
+| SC-004 | tests/test_018_partition.py | Per-participant scoping contract — A's loads/evictions produce zero state changes on B |
+| SC-005 | tests/test_018_partition.py | Spec-017 freshness coordination — partition recompute within one turn-prep; prompt-cache prefix invalidates once for combined event |
+| SC-006 | tests/test_018_validators.py | V16 startup-exit on invalid env-var values, error message names offending var |
+| SC-007 | untested | Participant with no-function-calling model uses [NEED:] proxy; same future-spec dependency as FR-012 |
+| SC-008 | tests/test_018_partition.py | Loaded + deferred tool name lists in tool_partition_decided audit payload — reconstructable from audit log alone |
