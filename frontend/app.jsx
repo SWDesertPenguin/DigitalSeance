@@ -264,16 +264,12 @@ function initialState() {
     scratchPanelOpen: false,
     scratchPayload: null,  // { scope, account_id, notes, summaries, review_gate_events }
     // Spec 028 CAPCOM master switch (FR-021 / spec 011 FR-065). Null = not
-    // yet probed; true/false reflects the route mount state. The probe
-    // sends a harmless DELETE that returns 404 when off (master switch
-    // gates the route) OR 409 when on but no CAPCOM is assigned —
-    // either response confirms the route is mounted; only a 404 with
-    // "CAPCOM surface disabled" detail means the master switch is off.
-    // Default true so the controls render; a master-switch-off deployment
-    // returns 404 from the assign/rotate/disable calls and the user sees
-    // an inline error on first use. A side-effect-free probe (e.g., a
-    // dedicated GET introspection endpoint) is a tracked follow-up.
-    capcomEnabled: true,
+    // yet probed; true/false reflects the route-mount state. The probe
+    // is a side-effect-free GET /tools/session/capcom — 200 means the
+    // master switch is on; 404 means it's off. The response payload
+    // also seeds capcom_participant_id so the SPA renders the current
+    // assignment without a separate session-snapshot refresh.
+    capcomEnabled: null,
   };
 }
 
@@ -495,6 +491,37 @@ function reducer(state, action) {
       return { ...state, auditLogPanelOpen: !!action.value };
     case "scratch_enabled":
       return { ...state, scratchEnabled: !!action.value };
+    case "capcom_status_loaded":
+      return {
+        ...state,
+        capcomEnabled: !!action.enabled,
+        session: state.session
+          ? { ...state.session, capcom_participant_id: action.capcom_participant_id || null }
+          : state.session,
+      };
+    case "capcom_assigned":
+    case "capcom_rotated":
+      // Spec 028 FR-007 / FR-008 — WS event carries the new participant id.
+      return {
+        ...state,
+        session: state.session
+          ? {
+              ...state.session,
+              capcom_participant_id: action.event?.participant_id
+                ?? action.participant_id
+                ?? null,
+            }
+          : state.session,
+      };
+    case "capcom_disabled":
+    case "capcom_departed_no_replacement":
+      // Spec 028 FR-009 / FR-022 — clear the assignment.
+      return {
+        ...state,
+        session: state.session
+          ? { ...state.session, capcom_participant_id: null }
+          : state.session,
+      };
     case "scratch_panel_set_open":
       return { ...state, scratchPanelOpen: !!action.value };
     case "scratch_payload_loaded":
@@ -4651,6 +4678,27 @@ function SessionView({ auth, onLogout, onAuthExpired }) {
       .then(() => dispatch({ type: "detection_history_enabled", value: true }))
       .catch(() => dispatch({ type: "detection_history_enabled", value: false }));
   }, [isFacilitator, auth.session_id, state.detectionHistoryEnabled]);
+
+  // Spec 028 CAPCOM master-switch probe (spec 011 FR-065). Side-effect-
+  // free GET /tools/session/capcom — 200 carries the current assignment
+  // payload; 404 means SACP_CAPCOM_ENABLED=false and the controls stay
+  // hidden. The probe doubles as a session-state seed for
+  // capcom_participant_id without a separate snapshot refresh.
+  useEffect(() => {
+    if (!isFacilitator || !auth.session_id) return;
+    if (state.capcomEnabled !== null) return;
+    mcpCall("/tools/session/capcom")
+      .then((payload) => dispatch({
+        type: "capcom_status_loaded",
+        enabled: true,
+        capcom_participant_id: payload?.capcom_participant_id || null,
+      }))
+      .catch(() => dispatch({
+        type: "capcom_status_loaded",
+        enabled: false,
+        capcom_participant_id: null,
+      }));
+  }, [isFacilitator, auth.session_id, state.capcomEnabled]);
 
 
   const fetchDetectionHistoryPage = async () => {

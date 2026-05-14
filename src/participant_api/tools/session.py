@@ -1014,6 +1014,35 @@ class _CapcomRotateBody(BaseModel):
     new_participant_id: str
 
 
+@router.get("/capcom")
+async def capcom_status(
+    request: Request,
+    participant: Participant = Depends(get_current_participant),
+) -> dict:
+    """Spec 028 §FR-021 — side-effect-free introspection.
+
+    Returns the master-switch status and the current CAPCOM assignment
+    for the session. Facilitator-only. When ``SACP_CAPCOM_ENABLED=false``
+    the route returns HTTP 404 (master switch gates the entire surface)
+    so the SPA's probe can distinguish "off" from "on-but-unassigned"
+    without side effects.
+    """
+    _require_capcom_master_switch()
+    _require_facilitator(participant)
+    session_repo = request.app.state.session_repo
+    session = await session_repo.get_session(participant.session_id)
+    capcom_id = session.capcom_participant_id if session else None
+    display_name: str | None = None
+    if capcom_id:
+        target = await request.app.state.participant_repo.get_participant(capcom_id)
+        display_name = target.display_name if target else None
+    return {
+        "enabled": True,
+        "capcom_participant_id": capcom_id,
+        "capcom_display_name": display_name,
+    }
+
+
 @router.post("/capcom/assign")
 async def capcom_assign(
     request: Request,

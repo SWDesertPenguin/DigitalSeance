@@ -151,3 +151,43 @@ def test_invariants_allow_capcom_ai_capcom_only():
 def test_invariants_allow_human_capcom_only():
     """Humans can emit capcom_only when a CAPCOM is assigned."""
     _enforce_capcom_only_invariants(_human(), capcom_id="ai-capcom")
+
+
+# ---- Spec 028 §FR-021 — side-effect-free GET /tools/session/capcom probe ----
+
+
+def test_capcom_status_endpoint_is_registered():
+    """The route exists on the session router as a GET (no body, no mutation)."""
+    from src.participant_api.tools.session import router
+
+    routes = [
+        (getattr(r, "path", None), tuple(sorted(getattr(r, "methods", set()) or set())))
+        for r in router.routes
+    ]
+    assert ("/tools/session/capcom", ("GET",)) in routes
+
+
+def test_capcom_status_handler_has_no_side_effects():
+    """The GET handler MUST NOT call log_admin_action, broadcast, or any
+    repo mutation. Inspect the source to enforce — the body should only
+    issue read queries and assemble a response.
+    """
+    import inspect
+
+    from src.participant_api.tools.session import capcom_status
+
+    src = inspect.getsource(capcom_status)
+    forbidden = (
+        "log_admin_action",
+        "broadcast_to_session",
+        "assign_capcom",
+        "rotate_capcom",
+        "disable_capcom",
+        "UPDATE",
+        "INSERT",
+        "DELETE",
+    )
+    for token in forbidden:
+        assert (
+            token not in src
+        ), f"GET /tools/session/capcom must be side-effect-free; found {token!r}"
