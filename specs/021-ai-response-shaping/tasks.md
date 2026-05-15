@@ -175,7 +175,7 @@ Single project, paths under repo root. Backend code under [src/](src/); tests un
   - spec 008 Tier 4 hook: `assemble_prompt` extension with `register_delta_text` and `shaping_retry_delta_text` (T030 / T042) lands at the existing hook; no security-pipeline change (V3 / V10 preserved)
   - spec 001 §FR-008 immutability: persisted retry output is immutable like any other message; pre-persistence retry replacement is the only mutation (FR-016)
   - spec 001 §FR-011 atomic-delete: `participant_register_override` cascades on participant or session delete (T012 schema; T048 / T049 tests)
-- [ ] T059 [P] Spec 011 amendment alignment: per memory `reminder_spec_011_amendments_at_impl_time`, ASK before drafting the register-slider UI surface in spec 011. Frontend module work for the slider control widget is spec 011's deliverable, not this spec's. The `/me` field extension (T041) is the only client-visible surface that lands here
+- [X] T059 [P] Spec 011 amendment alignment: drafted FR-067 (session-level slider in AdminPanel) + FR-068 (per-participant override widget on participant card, facilitator-only) + FR-069 (state_snapshot + participant_update payload extension carrying register_slider / register_preset / register_source). Implementation of the SPA widgets themselves lands at spec 011 Phase F testability batch alongside the other UI follow-ups.
 - [X] T060 [P] ruff + standards-lint pass: every commit on this branch passes the full pre-commit hook chain (gitleaks + 2ms + ruff + ruff-format + bandit + standards-lint 25/5)
 
 ---

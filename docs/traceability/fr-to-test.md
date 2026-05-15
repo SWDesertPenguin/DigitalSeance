@@ -104,6 +104,9 @@ Format per row: `| FR-NN | test path(s) | Notes |`
 | FR-064 | tests/test_028_visibility_filter.py | Spec 028 amendment: per-message visibility indicator on transcript rows; underlying visibility column emission covered. SPA render confirmed by visual inspection (no e2e Playwright in scope) |
 | FR-065 | tests/test_028_capcom_endpoints.py | Spec 028 amendment: facilitator assign/rotate/disable controls; CapcomControls component calls the same endpoints covered by the DB-bound endpoint tests |
 | FR-066 | tests/test_028_inject_handler.py | Spec 028 amendment: composer visibility toggle threads visibility into inject_message; validator covers HTTP 409/422 invariant checks |
+| FR-067 | untested | Spec 021 amendment: session-level register slider in AdminPanel; trigger: SPA widget implementation at the spec 011 Phase F testability batch (endpoint shape already covered by spec 021's own tests) |
+| FR-068 | untested | Spec 021 amendment: per-participant register override widget on participant card; trigger: SPA widget implementation at the spec 011 Phase F testability batch |
+| FR-069 | untested | Spec 021 amendment: state_snapshot + participant_update payload extension for register fields; trigger: SPA widget implementation requires the extension to be wired |
 | SR-001 | tests/test_web_ui_app.py, tests/test_011_testability.py | Security headers present; CSP report-uri; per-directive coverage (14 fragments) |
 | SR-001a | untested | WS frame cap (256KB); WS layer max_size not yet wired; trigger: Phase E ops |
 | SR-002 | tests/test_web_ui_app.py | Strict-Transport-Security header present |
