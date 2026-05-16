@@ -1240,7 +1240,15 @@ async def debug_set_timeouts(
     Why: T3.6 reset verification otherwise needs server-side SQL. This
     lets the facilitator set the counter to 2 (one-away-from-trip) via
     Swagger, then watch it reset to 0 on the next successful turn.
+
+    Sovereignty: the consecutive_timeouts counter is a spec 015
+    circuit-breaker primitive (auto-pause input for failing AIs).
+    Mutating it for another participant is a session-control action,
+    not a sponsor-of-AI action — so the guard is facilitator-only
+    rather than the inviter-OR-facilitator pattern used by
+    ``set_budget``.
     """
+    _require_facilitator(participant)
     if body.consecutive_timeouts < 0:
         raise HTTPException(400, "consecutive_timeouts must be >= 0")
     await _update_timeouts(request, participant.session_id, body)
