@@ -12,8 +12,25 @@ services:
       # kics-scan ignore-line
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env or environment}
       POSTGRES_DB: ${POSTGRES_DB:-sacp}
+      # Audit Critical-4: per-role bootstrap secrets consumed only by
+      # scripts/db-init/00-create-sacp-roles.sh on first cluster init. The
+      # `:?` form refuses to start the postgres container if any of the
+      # four passwords are unset, so the role-creation step cannot silently
+      # fall back to an empty / default credential.
+      # kics-scan ignore-line
+      SACP_ADMIN_PASSWORD: ${SACP_ADMIN_PASSWORD:?SACP_ADMIN_PASSWORD must be set in .env or environment}
+      # kics-scan ignore-line
+      SACP_APP_PASSWORD: ${SACP_APP_PASSWORD:?SACP_APP_PASSWORD must be set in .env or environment}
+      # kics-scan ignore-line
+      SACP_CLEANUP_PASSWORD: ${SACP_CLEANUP_PASSWORD:?SACP_CLEANUP_PASSWORD must be set in .env or environment}
+      # kics-scan ignore-line
+      SACP_AUDIT_READER_PASSWORD: ${SACP_AUDIT_READER_PASSWORD:?SACP_AUDIT_READER_PASSWORD must be set in .env or environment}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Read-only mount: postgres image runs *.sh under this directory once
+      # on first init. Re-running the script after the volume is created
+      # requires `psql -f` against the live container (see runbook).
+      - ./scripts/db-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sacp}"]
       interval: 5s
@@ -31,6 +48,29 @@ services:
       - SETGID
       - DAC_READ_SEARCH
 
+  # Audit Critical-4: one-shot migration runner. Same image as `sacp` so
+  # the alembic chain at HEAD ships in the same artifact, but invoked with
+  # an explicit `alembic upgrade head` command + the elevated sacp_admin
+  # DSN. The runtime `sacp` container waits on this service via
+  # service_completed_successfully, then connects as sacp_app (the
+  # restricted runtime role). Runs once per `docker compose up` cycle.
+  sacp-migrate:
+    image: ghcr.io/swdesertpenguin/digitalseance:latest
+    command: ["alembic", "upgrade", "head"]
+    env_file:
+      - .env
+    environment:
+      # kics-scan ignore-line
+      SACP_DATABASE_URL_MIGRATIONS: postgresql://sacp_admin:${SACP_ADMIN_PASSWORD:?SACP_ADMIN_PASSWORD must be set in .env or environment}@postgres:5432/${POSTGRES_DB:-sacp}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
   sacp:
     image: ghcr.io/swdesertpenguin/digitalseance:latest
     ports:
@@ -44,8 +84,11 @@ services:
     env_file:
       - .env
     environment:
+      # Audit Critical-4: runtime DSN connects as the restricted sacp_app
+      # role, NOT the bootstrap superuser. Per-table grants land via
+      # alembic migration 026 (run separately by sacp-migrate above).
       # kics-scan ignore-line
-      SACP_DATABASE_URL: postgresql://${POSTGRES_USER:-sacp}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env or environment}@postgres:5432/${POSTGRES_DB:-sacp}
+      SACP_DATABASE_URL: postgresql://sacp_app:${SACP_APP_PASSWORD:?SACP_APP_PASSWORD must be set in .env or environment}@postgres:5432/${POSTGRES_DB:-sacp}
       # kics-scan ignore-line
       SACP_ENCRYPTION_KEY: ${SACP_ENCRYPTION_KEY:?SACP_ENCRYPTION_KEY must be set in .env or environment}
       SACP_AUTH_LOOKUP_KEY: ${SACP_AUTH_LOOKUP_KEY:?SACP_AUTH_LOOKUP_KEY must be set in .env or environment}
@@ -58,6 +101,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      sacp-migrate:
+        condition: service_completed_successfully
     # host-gateway makes ``host.docker.internal`` resolve to the Docker
     # bridge gateway from inside the sacp container. Required so operators
     # can point an Ollama participant at an Ollama daemon running on the

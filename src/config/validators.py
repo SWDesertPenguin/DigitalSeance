@@ -96,8 +96,61 @@ def _validate_url_list(name: str) -> ValidationFailure | None:
     return None
 
 
+def _validate_postgres_dsn_role(
+    name: str,
+    expected_role: str | None,
+    *,
+    required: bool,
+) -> ValidationFailure | None:
+    """Shared validator: postgresql:// URL, no placeholder, optional role-name assertion."""
+    val = os.environ.get(name)
+    if not val:
+        if required:
+            return ValidationFailure(name, "required but not set")
+        return None
+    parsed = urllib.parse.urlparse(val)
+    if parsed.scheme not in ("postgresql", "postgres"):
+        return ValidationFailure(
+            name,
+            f"must be postgresql:// URL; got scheme {parsed.scheme!r}",
+        )
+    if not parsed.netloc:
+        return ValidationFailure(name, "missing host")
+    placeholder = _contains_placeholder(val)
+    if placeholder:
+        return ValidationFailure(
+            name,
+            f"contains placeholder {placeholder!r} - replace with a real secret",
+        )
+    if expected_role is not None and parsed.username != expected_role:
+        return ValidationFailure(
+            name,
+            f"username must be {expected_role!r}; got {parsed.username!r}",
+        )
+    return None
+
+
+def _validate_app_role_assertion(parsed: urllib.parse.ParseResult) -> ValidationFailure | None:
+    """Critical-4: in prod mode, SACP_DATABASE_URL username must be sacp_app."""
+    if os.environ.get("SACP_DEV_MODE", "0") == "1":
+        return None
+    if parsed.username == "sacp_app":
+        return None
+    return ValidationFailure(
+        "SACP_DATABASE_URL",
+        (
+            f"username must be 'sacp_app' (got {parsed.username!r}); "
+            "set SACP_DEV_MODE=1 to bypass for local development"
+        ),
+    )
+
+
 def validate_database_url() -> ValidationFailure | None:
-    """SACP_DATABASE_URL must be a postgresql:// URL with no placeholder secrets."""
+    """SACP_DATABASE_URL must be a postgresql:// URL with no placeholder secrets.
+
+    Audit Critical-4: in non-dev mode (``SACP_DEV_MODE != '1'``) the
+    username MUST be ``sacp_app`` -- the restricted runtime role.
+    """
     val = os.environ.get("SACP_DATABASE_URL")
     if not val:
         return ValidationFailure("SACP_DATABASE_URL", "required but not set")
@@ -115,7 +168,29 @@ def validate_database_url() -> ValidationFailure | None:
             "SACP_DATABASE_URL",
             f"contains placeholder {placeholder!r} — replace with a real secret",
         )
-    return None
+    return _validate_app_role_assertion(parsed)
+
+
+def validate_database_url_migrations() -> ValidationFailure | None:
+    """SACP_DATABASE_URL_MIGRATIONS optional; if set, must use sacp_admin."""
+    return _validate_postgres_dsn_role("SACP_DATABASE_URL_MIGRATIONS", "sacp_admin", required=False)
+
+
+def validate_database_url_cleanup() -> ValidationFailure | None:
+    """SACP_DATABASE_URL_CLEANUP optional; if set, must use sacp_cleanup."""
+    return _validate_postgres_dsn_role("SACP_DATABASE_URL_CLEANUP", "sacp_cleanup", required=False)
+
+
+def validate_database_url_audit() -> ValidationFailure | None:
+    """SACP_DATABASE_URL_AUDIT optional; if set, must use sacp_audit_reader."""
+    return _validate_postgres_dsn_role(
+        "SACP_DATABASE_URL_AUDIT", "sacp_audit_reader", required=False
+    )
+
+
+def validate_dev_mode() -> ValidationFailure | None:
+    """SACP_DEV_MODE: '0' (default) or '1'."""
+    return _validate_bool_enum("SACP_DEV_MODE")
 
 
 def validate_encryption_key() -> ValidationFailure | None:
@@ -2872,6 +2947,11 @@ VALIDATORS: tuple[Callable[[], ValidationFailure | None], ...] = (
     # ── spec 028 (CAPCOM-like routing scope) ── FR-020 ──────────────────────
     validate_sacp_capcom_enabled,
     validate_sacp_capcom_default_on_human_join,
+    # ── Audit Critical-4 (least-privilege DB roles) ─────────────────────────
+    validate_database_url_migrations,
+    validate_database_url_cleanup,
+    validate_database_url_audit,
+    validate_dev_mode,
 )
 
 

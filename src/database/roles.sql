@@ -1,5 +1,20 @@
 -- SACP Database Role Setup
--- Run once per database to configure application-level access control.
+--
+-- REFERENCE ONLY -- as of audit Critical-4 the authoritative role
+-- bootstrap is `scripts/db-init/00-create-sacp-roles.sh` (mounted into
+-- the postgres image at /docker-entrypoint-initdb.d/) and per-table
+-- grants ship in alembic migration 026. This file is retained so the
+-- bare GRANT vocabulary can be code-reviewed in one place without
+-- threading through the shell heredoc + the migration; it is no longer
+-- expected to be executed by deployment.
+--
+-- The schema below is also stale relative to the post-001 chain --
+-- newer tables (security_events, session_register, accounts, oauth_*,
+-- detection_events, compression_log, facilitator_notes, provider_*
+-- audit logs, etc.) are covered by alembic 026's per-table grant list,
+-- not by this file. Treat any drift between this file and migration
+-- 026 as the migration being canonical.
+--
 -- Constitution §6.2: Append-only log tables restricted to INSERT and SELECT.
 
 -- Application role (normal operations).
