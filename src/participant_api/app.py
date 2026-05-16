@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from src.api_bridge.adapter import initialize_adapter
 from src.config import load_settings
 from src.database.connection import close_pool, create_pool
+from src.participant_api.agent_card import agent_card_router
 from src.participant_api.metrics_router import is_metrics_enabled
 from src.participant_api.metrics_router import router as metrics_router
 from src.participant_api.sse import get_connection_manager
@@ -229,7 +230,7 @@ def _add_lan_cors(app: FastAPI) -> None:
 
 
 def _include_routers(app: FastAPI) -> None:
-    """Register all tool routers."""
+    """Register all tool routers (always-on + env-gated)."""
     app.include_router(sse_router)
     app.include_router(participant_router)
     app.include_router(facilitator_router)
@@ -237,27 +238,29 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(proposal_router)
     app.include_router(provider_router)
     app.include_router(debug_router)
-    # Spec 018 FR-014: the two discovery MCP tools (tools.list_deferred,
-    # tools.load_deferred) MUST be registered regardless of the
-    # SACP_TOOL_DEFER_ENABLED master switch — when disabled, handlers
-    # return the documented stub. Mounted unconditionally per FR-014.
+    # /.well-known/agent-card.json — A2A discovery (static, secret-free).
+    app.include_router(agent_card_router)
+    # Spec 018 FR-014: deferred-tools discovery MCP tools mount
+    # unconditionally; the SACP_TOOL_DEFER_ENABLED master switch is
+    # honored inside the handlers, not at the route layer.
     app.include_router(deferred_tools_router)
-    # Spec 029 §FR-018 — master switch hides the audit-log viewer surface
-    # at the route layer when SACP_AUDIT_VIEWER_ENABLED is unset/false, so
-    # disabled deployments return HTTP 404 from absence of the route rather
-    # than a 200 with empty data.
+    _include_gated_routers(app)
+
+
+def _include_gated_routers(app: FastAPI) -> None:
+    """Register routers whose mount is gated on an env-var master switch.
+
+    Spec 029 FR-018 (audit viewer), spec 022 FR-016 (detection-event
+    history), and spec 016 FR-001/FR-007 (metrics) all enforce the
+    same pattern: when disabled, the route is absent and returns HTTP
+    404 from route absence rather than a 200 with empty data. Spec
+    024 FR-019 (scratch) follows the same shape inside its helper.
+    """
     if is_audit_viewer_enabled():
         app.include_router(admin_router)
-    # Spec 022 FR-016 — master switch hides the detection-event history
-    # surface at the route layer when SACP_DETECTION_HISTORY_ENABLED is
-    # unset/false, so disabled deployments return HTTP 404 from absence
-    # of the route rather than a 200 with empty data.
     if is_detection_history_enabled():
         app.include_router(detection_events_router)
     _maybe_include_scratch_router(app)
-    # Spec 016 §FR-001 / FR-007 -- metrics surface gated by SACP_METRICS_ENABLED.
-    # When disabled (default), the route is absent and /metrics returns HTTP 404
-    # from route absence -- byte-identical to the pre-feature baseline (SC-005).
     if is_metrics_enabled():
         app.include_router(metrics_router)
 
