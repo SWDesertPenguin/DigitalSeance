@@ -32,6 +32,13 @@ dependencies = [
     #     x41-dsec advisory confirms SDK-only consumers are not exposed.
     "litellm>=1.83.0,<1.83.8",
     "sentence-transformers>=3.0.0",
+    # torch is a transitive dep of sentence-transformers (and the optional
+    # compression-phase2 llmlingua extra). Declared here as a direct dep so
+    # the [tool.uv.sources] redirect below pins it to PyTorch's CPU-only
+    # index — uv only applies source overrides to direct dependencies.
+    # Version floor matches what sentence-transformers requires; uv.lock
+    # records the exact wheel hash.
+    "torch>=2.0.0",
     "numpy>=1.26.0",
     "psycopg2-binary>=2.9.12",
     "itsdangerous>=2.2.0",
@@ -108,3 +115,24 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
 ]
+
+# Pin torch to PyTorch's CPU-only wheel index. SACP runs inference on CPU
+# (spec 004 SC-001 "~80ms on CPU"); the default PyPI torch wheel pulls
+# ~3.5 GB of nvidia-* / cuda-* / triton transitive deps SACP never uses,
+# busting the GHCR 5GB layer threshold with "unknown blob" errors.
+#
+# Per Constitution §6.3 supply-chain rationale, the PyTorch CPU index is
+# single-publisher (the PyTorch project itself) — a narrower trust posture
+# than multi-publisher PyPI for the same wheel set. Wheel hashes still
+# land in uv.lock and `uv sync --frozen` refuses to install any wheel
+# whose content doesn't match.
+#
+# `explicit = true` keeps the index restricted to packages declared in
+# `[tool.uv.sources]` below; every other dep still resolves from PyPI.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
