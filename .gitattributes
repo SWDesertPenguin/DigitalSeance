@@ -8,7 +8,8 @@
 *.lock text eol=lf
 
 # Shell scripts must stay LF so they remain executable inside Linux
-# containers after a Windows checkout. The 00-create-sacp-roles.sh init
-# script is mounted into the Postgres image; CRLF line endings break `bash
-# /docker-entrypoint-initdb.d/...` invocation.
+# containers after a Windows checkout. Affects scripts/db-init/*.sh
+# (mounted into the Postgres init dir) and .claude/hooks/*.sh (Claude
+# Code edit hooks). CRLF endings break bash invocation via shebang or
+# entrypoint mount.
 *.sh text eol=lf

@@ -117,7 +117,9 @@ def test_service_endpoint_derived_from_request() -> None:
     """AgentInterface.url tracks the request base URL (no hard-coded host)."""
     client = TestClient(_make_app(), base_url="http://orchestrator.example:8750")
     body = client.get("/.well-known/agent-card.json").json()
-    assert body["supportedInterfaces"][0]["url"].startswith("http://orchestrator.example:8750")
+    # Equality, not startswith — py/incomplete-url-substring-sanitization treats
+    # substring URL checks as a broken-allowlist shape; equality also tighter.
+    assert body["supportedInterfaces"][0]["url"] == "http://orchestrator.example:8750"
 
 
 def test_default_modes_are_json_compatible() -> None:
