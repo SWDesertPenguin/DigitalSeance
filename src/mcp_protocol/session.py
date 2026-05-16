@@ -41,7 +41,7 @@ class MCPSessionStore:
     def create(
         self,
         bearer_token_hash: str,
-        negotiated_protocol_version: str = "2025-11-25",
+        negotiated_protocol_version: str,
         bound_sacp_session_id: str | None = None,
         bound_participant_id: str | None = None,
     ) -> MCPSession:

@@ -8,6 +8,8 @@ import os
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from src.mcp_protocol.handshake import PREFERRED_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS
+
 discovery_router = APIRouter(tags=["mcp-discovery"])
 
 _SERVER_VERSION = "0.1.0"
@@ -35,7 +37,8 @@ async def mcp_discovery_metadata(request: Request) -> JSONResponse:
     base_url = str(request.base_url).rstrip("/")
     body: dict = {
         "enabled": True,
-        "protocol_version": "2025-11-25",
+        "protocol_version": PREFERRED_PROTOCOL_VERSION,
+        "supported_protocol_versions": list(SUPPORTED_PROTOCOL_VERSIONS),
         "endpoint_url": f"{base_url}/mcp",
         "auth": {
             "scheme": "bearer",
