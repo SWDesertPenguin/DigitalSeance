@@ -133,6 +133,8 @@ Click **+ Add participant** in the left sidebar.
 
 ### 3.1.1 Adding an Ollama participant
 
+> See also: [`docs/security/local-model-deployment.md`](security/local-model-deployment.md) for the security responsibility boundary, the reverse-proxy + Bearer pattern, hostile-network warnings, and a verification checklist. The instructions below cover the day-to-day "how do I add an Ollama participant" path; the security doc covers what the orchestrator does not enforce on your behalf.
+
 Ollama runs outside the SACP container. **Ollama has no built-in authentication** — anything that can reach `:11434` can call its API and load arbitrary models, and Ollama has shipped multiple RCE-class CVEs (CVE-2024-37032 and follow-ons). **Never bind `OLLAMA_HOST=0.0.0.0` on a network you don't fully trust.** Use the most restricted topology that works for your setup.
 
 **Option A — Same Docker Compose stack (recommended).** Add an `ollama` service to your compose file. SACP reaches it at `http://ollama:11434` over the internal Docker network. Nothing on the host network can talk to Ollama unless you publish a port (don't):

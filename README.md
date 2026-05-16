@@ -41,6 +41,8 @@ SACP handles API keys and auth tokens from multiple participants. Security contr
 
 The codebase enforces a secure development pipeline: pre-commit hooks (gitleaks, bandit SAST, ruff, coding-standards lint), parameterized SQL throughout, and a red-team runbook keyed to the seven-layer pipeline.
 
+The orchestrator treats every configured `api_endpoint` as an untrusted upstream and applies SSRF defenses on its side. It does NOT enforce TLS, Bearer auth, or version checks on the endpoint itself — those are the operator's responsibility. Operators planning Phase 4 local-model participants (Ollama, vLLM) should read [`docs/security/local-model-deployment.md`](docs/security/local-model-deployment.md) before standing up the model server.
+
 ## Status
 
 **Phase 1 — complete.** Core engine: data model, participant auth, turn loop, convergence detection, summarization, MCP server, AI security pipeline, rate limiting.
@@ -49,7 +51,7 @@ The codebase enforces a secure development pipeline: pre-commit hooks (gitleaks,
 
 **Phase 3 — in progress.** Audit hardening, high-traffic scalability, dynamic routing, AI response shaping, user accounts, session-length caps, context compression, participant standby modes, and a human-readable audit log viewer.
 
-**Phase 4 — planned.** Federation, multi-orchestrator linking, OAuth 2.1, local model support (Ollama/vLLM), and step-up authorization.
+**Phase 4 — planned.** Federation, multi-orchestrator linking, OAuth 2.1, local model support (Ollama/vLLM), and step-up authorization. Operators planning Ollama or vLLM participants should review [`docs/security/local-model-deployment.md`](docs/security/local-model-deployment.md) before standing up the model server.
 
 ## License
 

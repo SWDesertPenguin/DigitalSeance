@@ -127,6 +127,12 @@ Phase 4 introduces OAuth 2.1 + PKCE on the MCP endpoint. Static bearer tokens on
 
 **Key rotation:** The ES256 signing key path is `SACP_OAUTH_SIGNING_KEY_PATH`. An optional `SACP_OAUTH_PREVIOUS_SIGNING_KEY_PATH` enables overlap-window verification during rotation — tokens signed by the previous key remain verifiable until they expire.
 
+## Phase 4 local-model deployment
+
+Phase 4 introduces support for participants backed by local inference servers — Ollama and vLLM. The orchestrator treats those endpoints as untrusted upstreams (same SSRF defenses as any other provider) but does NOT probe the listener for auth, enforce TLS, or check the version banner against known-vulnerable releases. Local-model deployment is operator-side responsibility.
+
+Before standing up an Ollama or vLLM listener for a SACP participant, read [`docs/security/local-model-deployment.md`](security/local-model-deployment.md). It covers the default-bind problem (Ollama on `127.0.0.1:11434`, vLLM on `--host`), single-host and multi-host patterns, a Caddy reverse-proxy + Bearer template, hostile-network guidance, and a verification checklist for the listener itself.
+
 ## CSRF and Origin Requirements
 
 The current SACP participant API does **not** require `Origin` or `Referer` headers on the `/sse/{session_id}` endpoint. The Web UI's `X-SACP-Request` CSRF middleware is scoped exclusively to Web UI routes and does not apply to participant API routes. If you are scripting a connection directly (e.g., with `curl` or a custom client), you do not need to set these headers. Phase 4 will tighten the authentication surface on the MCP endpoint when OAuth ships; the CSRF posture for the participant API routes is unchanged in the interim.
