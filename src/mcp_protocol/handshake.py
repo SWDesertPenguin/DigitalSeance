@@ -15,7 +15,8 @@ from src.mcp_protocol.errors import (
 )
 from src.mcp_protocol.session import CapacityError, MCPSession, get_session_store
 
-_SUPPORTED_VERSION = "2025-11-25"
+SUPPORTED_PROTOCOL_VERSIONS: tuple[str, ...] = ("2025-03-26", "2025-06-18", "2025-11-25")
+PREFERRED_PROTOCOL_VERSION: str = SUPPORTED_PROTOCOL_VERSIONS[-1]
 _RETRY_AFTER_SECONDS = 30
 
 
@@ -46,24 +47,34 @@ def _check_bearer(request: Request, req_id: object) -> str | JSONResponse:
     return bearer
 
 
-def _check_protocol_version(params: dict, req_id: object) -> JSONResponse | None:
+def _negotiate_protocol_version(params: dict, req_id: object) -> str | JSONResponse:
+    """Pick the version to use for this session.
+
+    Per MCP lifecycle spec: if the client's requested version is one we support,
+    echo it back. If not (or omitted), return our preferred version and let the
+    client decide whether to proceed. Only error on a structurally invalid value.
+    """
     protocol_version = params.get("protocolVersion")
-    if protocol_version != _SUPPORTED_VERSION:
+    if protocol_version is None:
+        return PREFERRED_PROTOCOL_VERSION
+    if not isinstance(protocol_version, str) or not protocol_version:
         return JSONResponse(
             status_code=400,
             content=_error_body(
                 JSONRPC_INVALID_PARAMS,
-                "Unsupported protocol version; server speaks 2025-11-25",
+                "protocolVersion must be a non-empty string",
                 req_id,
-                {"requested": protocol_version, "supported": _SUPPORTED_VERSION},
+                {"requested": protocol_version, "supported": list(SUPPORTED_PROTOCOL_VERSIONS)},
             ),
         )
-    return None
+    if protocol_version in SUPPORTED_PROTOCOL_VERSIONS:
+        return protocol_version
+    return PREFERRED_PROTOCOL_VERSION
 
 
-def _capability_result() -> dict:
+def _capability_result(negotiated_version: str) -> dict:
     return {
-        "protocolVersion": _SUPPORTED_VERSION,
+        "protocolVersion": negotiated_version,
         "capabilities": {
             "tools": {"listChanged": False},
             "logging": {},
@@ -72,12 +83,17 @@ def _capability_result() -> dict:
     }
 
 
-def _create_session(bearer: str, req_id: object) -> MCPSession | JSONResponse:
+def _create_session(
+    bearer: str, negotiated_version: str, req_id: object
+) -> MCPSession | JSONResponse:
     """Create a new MCPSession or return a 503 JSONResponse when at capacity."""
     token_hash = hashlib.sha256(bearer.encode()).hexdigest()
     store = get_session_store()
     try:
-        return store.create(bearer_token_hash=token_hash)
+        return store.create(
+            bearer_token_hash=token_hash,
+            negotiated_protocol_version=negotiated_version,
+        )
     except CapacityError:
         return JSONResponse(
             status_code=503,
@@ -93,14 +109,18 @@ async def handle_initialize(request: Request, body: dict) -> JSONResponse:
     bearer_or_resp = _check_bearer(request, req_id)
     if isinstance(bearer_or_resp, JSONResponse):
         return bearer_or_resp
-    version_err = _check_protocol_version(params, req_id)
-    if version_err is not None:
-        return version_err
-    session_or_resp = _create_session(bearer_or_resp, req_id)
+    version_or_resp = _negotiate_protocol_version(params, req_id)
+    if isinstance(version_or_resp, JSONResponse):
+        return version_or_resp
+    session_or_resp = _create_session(bearer_or_resp, version_or_resp, req_id)
     if isinstance(session_or_resp, JSONResponse):
         return session_or_resp
     return JSONResponse(
         status_code=200,
         headers={"Mcp-Session-Id": session_or_resp.mcp_session_id},
-        content={"jsonrpc": "2.0", "result": _capability_result(), "id": req_id},
+        content={
+            "jsonrpc": "2.0",
+            "result": _capability_result(version_or_resp),
+            "id": req_id,
+        },
     )

@@ -24,6 +24,7 @@ def test_discovery_enabled_shape(monkeypatch) -> None:
     body = resp.json()
     assert body["enabled"] is True
     assert body["protocol_version"] == "2025-11-25"
+    assert body["supported_protocol_versions"] == ["2025-03-26", "2025-06-18", "2025-11-25"]
     assert "/mcp" in body["endpoint_url"]
     assert body["auth"]["scheme"] == "bearer"
     assert body["server"]["name"] == "SACP"
@@ -39,6 +40,7 @@ def test_discovery_disabled_shape(monkeypatch) -> None:
     assert body["enabled"] is False
     assert body["server"]["name"] == "SACP"
     assert "protocol_version" not in body
+    assert "supported_protocol_versions" not in body
 
 
 def test_discovery_defaults_to_disabled() -> None:

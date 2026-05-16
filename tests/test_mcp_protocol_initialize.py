@@ -70,8 +70,26 @@ def test_initialize_happy_path(enabled_env) -> None:
     assert result["serverInfo"]["name"] == "SACP"
 
 
-def test_initialize_wrong_protocol_version(enabled_env) -> None:
-    """Wrong protocolVersion returns -32602 with helpful message."""
+@pytest.mark.parametrize("client_version", ["2025-03-26", "2025-06-18", "2025-11-25"])
+def test_initialize_echoes_supported_version(enabled_env, client_version: str) -> None:
+    """Each supported protocolVersion is echoed back in the result."""
+    app = _make_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/mcp",
+        json=_init_body(client_version),
+        headers={"Authorization": "Bearer test-token-abc123"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["result"]["protocolVersion"] == client_version
+
+
+def test_initialize_unsupported_version_returns_preferred(enabled_env) -> None:
+    """Unknown protocolVersion: server returns its preferred version, no error.
+
+    Per MCP lifecycle spec, the client decides whether to proceed with the
+    server's response. No graceful-downgrade error.
+    """
     app = _make_app()
     client = TestClient(app)
     resp = client.post(
@@ -79,10 +97,42 @@ def test_initialize_wrong_protocol_version(enabled_env) -> None:
         json=_init_body("2024-01-01"),
         headers={"Authorization": "Bearer test-token-abc123"},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 200
     body = resp.json()
-    assert body["error"]["code"] == -32602
-    assert "2025-11-25" in body["error"]["message"]
+    assert "error" not in body
+    assert body["result"]["protocolVersion"] == "2025-11-25"
+
+
+def test_initialize_missing_protocol_version_returns_preferred(enabled_env) -> None:
+    """Omitted protocolVersion is treated as 'no preference' and gets the preferred."""
+    app = _make_app()
+    client = TestClient(app)
+    body = _init_body()
+    del body["params"]["protocolVersion"]
+    resp = client.post(
+        "/mcp",
+        json=body,
+        headers={"Authorization": "Bearer test-token-abc123"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["result"]["protocolVersion"] == "2025-11-25"
+
+
+def test_initialize_malformed_protocol_version_errors(enabled_env) -> None:
+    """A non-string protocolVersion is a structural error returning -32602."""
+    app = _make_app()
+    client = TestClient(app)
+    body = _init_body()
+    body["params"]["protocolVersion"] = 12345
+    resp = client.post(
+        "/mcp",
+        json=body,
+        headers={"Authorization": "Bearer test-token-abc123"},
+    )
+    assert resp.status_code == 400
+    err = resp.json()["error"]
+    assert err["code"] == -32602
+    assert "supported" in err["data"]
 
 
 def test_initialize_missing_bearer() -> None:
