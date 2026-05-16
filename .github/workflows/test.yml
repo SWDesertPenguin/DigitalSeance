@@ -46,6 +46,21 @@ jobs:
       # against this format (.github/dependabot.yml).
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
+      # Install uv to gate uv.lock vs pyproject.toml drift. Pinned to the
+      # same uv minor the Dockerfile pulls from ghcr.io/astral-sh/uv so
+      # the resolver behavior CI exercises matches what the image build
+      # gets. Bump as a deliberate PR — never silently.
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+        with:
+          version: "0.11.6"
+
+      - name: uv lockfile sync check
+        # Fails if uv.lock is stale vs pyproject.toml. The Dockerfile
+        # runs `uv sync --frozen` which would also fail at build time,
+        # but catching it here surfaces the gap on every PR instead of
+        # only when someone rebuilds the image.
+        run: uv lock --check
+
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           # Match the Python minor the production image uses

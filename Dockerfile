@@ -12,59 +12,54 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc libpq-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# Bootstrap uv only to expand uv.lock into a hash-pinned requirements file.
-# uv does not ship in the runtime image — pip is the actual installer.
-# pip >=26.1 closes CVE-2026-3219 (concatenated tar/ZIP confusion) and
-# CVE-2026-6357 (self-update timing), both flagged by Trivy on the base
-# image's stock pip.
-RUN pip install --no-cache-dir --upgrade 'pip>=26.1' && \
-    pip install --no-cache-dir uv
+# Copy uv from the official Astral distroless image (single-publisher,
+# digest-stable). Pinning the uv minor here is deliberate — bumps land
+# as their own PR so a compromised astral-sh maintainer can't quietly
+# retag :latest. Closes the supply-chain class flagged by the LiteLLM
+# 1.82.7-1.82.8 compromise: uv never lands via pip on the builder,
+# which removes the entire pip-resolves-PyPI-fresh code path.
+COPY --from=ghcr.io/astral-sh/uv:0.11.6 /uv /uvx /usr/local/bin/
 
+# UV_LINK_MODE=copy: avoid hardlinks across mountpoints in the layered FS.
+# UV_COMPILE_BYTECODE=1: precompile .pyc files in-place so first-request
+#   latency on the running container isn't paying compile cost.
+# UV_PYTHON_DOWNLOADS=never: refuse to download an interpreter; uv must
+#   use the python:3.14.4-slim-bookworm one we picked above. Catches a
+#   bad UV_PYTHON env override at build time.
+# UV_NO_CACHE=1: don't write the global uv cache into the layer. The
+#   sync below uses --no-cache too; the env var belts the same braces
+#   for any sub-invocation (e.g. `uvx`).
+# UV_PROJECT_ENVIRONMENT=/opt/sacp-venv: build the venv directly at the
+#   runtime path. Console-script shebangs bake in the venv's python path
+#   at install time; if the builder writes /build/.venv and the runtime
+#   stage COPYs to /opt/sacp-venv, every script (alembic, uvicorn, ...)
+#   carries a dangling `#!/build/.venv/bin/python` shebang and fails at
+#   exec with "command not found". Building at the final path skips the
+#   relocation problem entirely.
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_NO_CACHE=1 \
+    UV_PROJECT_ENVIRONMENT=/opt/sacp-venv
+
+# Hash-verified install of every dep from uv.lock. `--frozen` refuses to
+# re-resolve — if uv.lock is out of date vs pyproject.toml the build
+# fails fast (CI gate `uv lock --check` catches this earlier). Every
+# wheel hash in uv.lock is verified before install; a tampered wheel
+# aborts the build, closing the supply-chain class flagged by the
+# LiteLLM 1.82.7-1.82.8 compromise. `--no-install-project` skips the
+# project itself (source ships via COPY into the runtime stage); `--no-dev`
+# excludes the dev dependency group.
 COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-cache --no-dev --no-install-project
 
-# Install torch from PyTorch's CPU-only index BEFORE the locked deps so
-# sentence-transformers picks up the CPU build instead of the default CUDA
-# wheels. CUDA wheels pull in ~4GB of nvidia-* libraries we never use
-# (SACP runs inference on CPU per spec 004 SC-001 "~80ms on CPU"); the bloat
-# blew the GHCR push past the 5GB layer threshold and triggered "unknown blob"
-# errors. PyTorch's CPU index is single-publisher (the PyTorch project
-# itself), so skipping --require-hashes here is a narrower trust posture
-# than the multi-publisher PyPI risk model the next step closes off.
-RUN pip install --no-cache-dir --prefix=/install \
-        --index-url https://download.pytorch.org/whl/cpu torch
-
-# Make the previously-installed torch visible to subsequent pip invocations
-# so they don't try to re-resolve torch from PyPI (which would land the
-# 4GB CUDA build and bust the GHCR layer cap).
-ENV PYTHONPATH=/install/lib/python3.14/site-packages
-
-# Generate a hash-pinned requirements file from uv.lock, excluding torch
-# (handled above) plus the GPU stack (nvidia-*, cuda-*, triton) that
-# uv.lock pins as torch transitive deps even though our torch wheel is
-# CPU-only. Leaving them in adds ~3.5 GB to the image and pushed the
-# GHCR upload past its EOF threshold. The exported file lists every
-# remaining transitive dependency with the exact wheel hash recorded in
-# uv.lock; --require-hashes refuses to install any wheel whose content
-# doesn't match, closing the supply-chain class flagged by the LiteLLM
-# 1.82.7-1.82.8 compromise.
-RUN uv export \
-        --no-dev \
-        --no-emit-project \
-        --format requirements-txt \
-        --output-file /tmp/requirements-all.txt && \
-    awk '/^[a-zA-Z]/ { \
-            name = $1; sub(/==.*/, "", name); \
-            skip = (name == "torch" || name == "triton" || \
-                    name ~ /^nvidia-/ || name ~ /^cuda-/) ? 1 : 0 \
-         } !skip' \
-        /tmp/requirements-all.txt > /tmp/requirements.txt
-
-# Hash-verified install of every other dep from uv.lock. Without the
-# --require-hashes flag, pip resolves PyPI fresh on every build and
-# accepts any wheel claiming the right version — the LiteLLM compromise
-# vector. With it, a tampered wheel fails install and the build aborts.
-RUN pip install --no-cache-dir --prefix=/install \
-        --require-hashes -r /tmp/requirements.txt
+# Smoke-test the installed venv before promoting to the runtime stage.
+# Catches resolver edge cases (missing markers, broken wheel installs,
+# silent partial installs) at build time instead of at container start.
+# Imports are restricted to packages declared in uv.lock — LiteLLM's
+# per-provider SDKs (anthropic, etc.) are loaded lazily at dispatch time
+# and aren't bundled.
+RUN /opt/sacp-venv/bin/python -c "import litellm, fastapi, asyncpg, openai, mcp, sentence_transformers, torch, prometheus_client, jwt; print('smoke-test ok')"
 
 # ---- Runtime stage: slim base, no build tools ----
 FROM python:3.14.4-slim-bookworm
@@ -88,31 +83,13 @@ RUN apt-get update && \
 RUN groupadd --system --gid 10001 sacp && \
     useradd --system --uid 10001 --gid sacp --no-create-home --shell /usr/sbin/nologin sacp
 
-# Copy the installed site-packages + console scripts from the builder.
-# /install/lib/python3.14/site-packages -> /usr/local/lib/python3.14/site-packages
-# /install/bin/uvicorn etc. -> /usr/local/bin/
-COPY --from=builder /install /usr/local
-
-# Explicitly remove every setuptools-related directory after the COPY,
-# THEN install a clean fixed version. Two sources contribute vulnerable
-# setuptools 70.2.0 (CVE-2025-47273): the runtime base image AND pip's
-# transitive resolution in the builder. After the COPY both have landed
-# their own setuptools-*.dist-info dirs side-by-side in site-packages.
-# PR #158 (pre-COPY rm) handled only the base. PR #160 (post-COPY pip
-# --force-reinstall) cleaned only one of the two duplicate dist-info
-# dirs because pip's uninstaller can't reliably handle two installed
-# copies of the same package — it finds one via importlib.metadata and
-# leaves the other as orphan metadata. Wipe the slate first, then
-# install fresh: only one dist-info dir exists when pip is done.
-# Capped <81 to keep pkg_resources available for transitive deps that
-# may lazy-import it.
-RUN rm -rf /usr/local/lib/python3.14/site-packages/setuptools \
-           /usr/local/lib/python3.14/site-packages/setuptools-*.dist-info \
-           /usr/local/lib/python3.14/site-packages/pkg_resources \
-           /usr/local/lib/python3.14/site-packages/_distutils_hack && \
-    pip install --no-cache-dir --upgrade 'pip>=26.1' && \
-    pip install --no-cache-dir 'setuptools>=78.1.1,<81' && \
-    rm -rf /root/.cache/pip
+# Copy the builder's venv (hash-verified install tree) into the same path
+# it was built at. UV_PROJECT_ENVIRONMENT in the builder ensured every
+# console-script shebang points here, so `alembic`, `uvicorn`, etc. work
+# at exec time without a venv-relocation pass.
+COPY --from=builder --chown=sacp:sacp /opt/sacp-venv /opt/sacp-venv
+ENV PATH="/opt/sacp-venv/bin:$PATH" \
+    VIRTUAL_ENV="/opt/sacp-venv"
 
 COPY --chown=sacp:sacp src/ src/
 COPY --chown=sacp:sacp frontend/ frontend/

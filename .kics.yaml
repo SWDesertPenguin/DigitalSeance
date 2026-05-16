@@ -46,14 +46,3 @@ exclude-queries:
   # the runtime user; root-owned files would need post-hoc chmod
   # workarounds for runtime writes (e.g. alembic migration runs).
   - aa93e17f-b6db-4162-9334-c70334e7ac28
-
-  # Unpinned Package Version in Pip Install (Dockerfile, MEDIUM)
-  # Affects two RUN pip install lines: bootstrap of uv (used only to
-  # expand uv.lock into a hash-pinned requirements file, not shipped)
-  # and torch (CPU-only wheel from PyTorch's index, version comes from
-  # uv.lock indirectly). Deferred — to be removed when the Dockerfile
-  # migrates to `uv sync --frozen`, which dissolves both lines into a
-  # single hash-verified sync step. Tracked: roadmap item "uv sync
-  # --frozen migration" — natural next step on the supply-chain
-  # hardening line that started with --require-hashes.
-  - 02d9c71f-3ee8-4986-9c27-1a20d0d19bfc
