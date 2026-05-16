@@ -44,6 +44,7 @@ async def export_session(
     request: Request,
     session_id: str,
     participant: Participant = Depends(get_current_participant),
+    include_sponsored: bool = False,
 ) -> dict:
     """Dump everything we know about a session for troubleshooting.
 
@@ -55,8 +56,17 @@ async def export_session(
     forensic trail. The audit row uses action='debug_export' with the
     requesting facilitator as both actor and target_id (the action operates
     on the session as a whole, not a specific participant).
+
+    Sovereignty (themes B of facilitator-sovereignty audit, 2026-05-15):
+    the per-participant ``spend`` and ``logs.usage`` arrays are scoped
+    to (a) participants the caller invited or (b) the caller's own row.
+    Session-level aggregates (``session_totals``) sum across every
+    participant so the facilitator retains cost-control visibility.
+    ``include_sponsored=true`` is reserved for a future sponsor-consent
+    flow (spec 031) and returns 403 today.
     """
     _authorize(participant, session_id)
+    _reject_unwired_include_sponsored(include_sponsored)
     state = request.app.state
     session = await state.session_repo.get_session(session_id)
     if session is None:
@@ -69,6 +79,28 @@ async def export_session(
         broadcast_session_id=session_id,
     )
     return await _build_dump(state, session, session_id, participant.id)
+
+
+def _reject_unwired_include_sponsored(include_sponsored: bool) -> None:
+    """Return 403 for ``include_sponsored=true`` until spec 031 lands.
+
+    Theme B of the facilitator-sovereignty audit (2026-05-15): cross-
+    participant spend/usage requires a sponsor-recorded
+    ``debug_export_consent_for_sponsor`` row. That table belongs to
+    spec 031, so the path is wired with the response shape it will
+    use but returns 403 until the consent flow exists.
+    """
+    if include_sponsored:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "sponsor_consent_required",
+                "message": (
+                    "cross-participant spend/usage requires per-sponsor consent;"
+                    " the consent flow lands in spec 031"
+                ),
+            },
+        )
 
 
 def _authorize(participant: Participant, session_id: str) -> None:
@@ -86,18 +118,32 @@ async def _build_dump(
     requester_id: str,
 ) -> dict:
     """Collect all session data into a single JSON-safe dict."""
-    sections = await _collect_dump_sections(state, session, session_id)
+    sections = await _collect_dump_sections(state, session, session_id, requester_id)
     return _assemble_dump(sections, session, requester_id)
 
 
-async def _collect_dump_sections(state: Any, session: Any, session_id: str) -> dict:
-    """Pull every per-session collection in one place."""
+async def _collect_dump_sections(
+    state: Any,
+    session: Any,
+    session_id: str,
+    caller_id: str,
+) -> dict:
+    """Pull every per-session collection in one place.
+
+    ``caller_id`` scopes the per-participant ``logs.usage`` + ``spend``
+    sections (theme B): only rows for the caller's sponsored AIs or the
+    caller's own participant_id are surfaced. ``session_totals`` (the
+    cross-participant aggregate) is computed unconditionally so the
+    facilitator retains cost-control visibility.
+    """
     branch_id = await get_main_branch_id(state.pool, session_id)
     participants = await state.participant_repo.list_participants(session_id)
+    scoped = _scoped_for_spend(participants, caller_id)
     messages = await state.message_repo.get_recent(session_id, branch_id, 10_000)
     interrupts = await _fetch_all_interrupts(state.pool, session_id)
-    logs = await _fetch_logs(state.pool, session_id, participants)
-    spend = await _fetch_spend(state.pool, participants)
+    logs = await _fetch_logs(state.pool, session_id, scoped)
+    spend = await _fetch_spend(state.pool, scoped)
+    session_totals = await _fetch_session_totals(state.pool, participants)
     detection_events = await _fetch_detection_events(state, session_id)
     return {
         "branch_id": branch_id,
@@ -106,8 +152,26 @@ async def _collect_dump_sections(state: Any, session: Any, session_id: str) -> d
         "interrupts": interrupts,
         "logs": logs,
         "spend": spend,
+        "session_totals": session_totals,
         "detection_events": detection_events,
     }
+
+
+def _scoped_for_spend(participants: list, caller_id: str) -> list:
+    """Restrict per-participant wallet reads to sponsored-or-self rows.
+
+    Theme B: facilitator default visibility narrows to the caller's
+    own row and AIs they sponsored (``invited_by == caller_id``).
+    Returns a filtered copy of the participant list; the unfiltered
+    list is still used for ``session_totals`` and for the participants
+    listing (which carries no per-participant wallet data).
+    """
+    return [p for p in participants if p.id == caller_id or _sponsored_by(p, caller_id)]
+
+
+def _sponsored_by(participant: Any, caller_id: str) -> bool:
+    """True when ``participant`` was invited by ``caller_id``."""
+    return getattr(participant, "invited_by", None) == caller_id
 
 
 def _assemble_dump(sections: dict, session: Any, requester_id: str) -> dict:
@@ -126,6 +190,7 @@ def _assemble_dump(sections: dict, session: Any, requester_id: str) -> dict:
         "logs": sections["logs"],
         "detection_events": sections["detection_events"],
         "spend": sections["spend"],
+        "session_totals": sections["session_totals"],
         "config_snapshot": _config_snapshot(),
     }
 
@@ -224,7 +289,14 @@ async def _fetch_usage_for_participants(conn: Any, participants: list) -> list:
 
 
 async def _fetch_spend(pool: Any, participants: list) -> list:
-    """Per-participant spend totals vs budget limits."""
+    """Per-participant spend totals vs budget limits (sponsored-or-self only).
+
+    Caller-side scoping is applied upstream in ``_scoped_for_spend`` so
+    this function emits one row per ``participants`` entry without
+    re-checking sponsorship. The participants list is already the
+    sponsor-or-self subset for theme B of the facilitator-sovereignty
+    audit (2026-05-15).
+    """
     async with pool.acquire() as conn:
         out: list[dict] = []
         for p in participants:
@@ -244,6 +316,39 @@ async def _fetch_spend(pool: Any, participants: list) -> list:
                 }
             )
     return out
+
+
+async def _fetch_session_totals(pool: Any, participants: list) -> dict:
+    """Sum cost + tokens across every participant in the session.
+
+    Theme B compensates the facilitator's lost per-participant
+    visibility (when the caller did not invite the AI) with a session-
+    level aggregate so cost-control remains visible without exposing
+    individual wallets. Returns ``total_cost_usd``,
+    ``total_input_tokens``, ``total_output_tokens`` — one summary
+    object, no per-participant breakdown.
+    """
+    if not participants:
+        return {
+            "total_cost_usd": 0.0,
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+        }
+    participant_ids = [p.id for p in participants]
+    sql = (
+        "SELECT COALESCE(SUM(cost_usd), 0) AS total_cost,"
+        " COALESCE(SUM(input_tokens), 0) AS total_input,"
+        " COALESCE(SUM(output_tokens), 0) AS total_output"
+        " FROM usage_log"
+        " WHERE participant_id = ANY($1::text[])"
+    )
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(sql, participant_ids)
+    return {
+        "total_cost_usd": float(row["total_cost"]) if row else 0.0,
+        "total_input_tokens": int(row["total_input"]) if row else 0,
+        "total_output_tokens": int(row["total_output"]) if row else 0,
+    }
 
 
 def _serialize(obj: Any) -> Any:
