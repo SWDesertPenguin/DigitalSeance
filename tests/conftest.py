@@ -289,7 +289,9 @@ _PARTICIPANTS_TABLE_DDL = """
         wait_mode TEXT NOT NULL DEFAULT 'wait_for_human',
         standby_cycle_count INTEGER NOT NULL DEFAULT 0,
         wait_mode_metadata TEXT NOT NULL DEFAULT '{}',
-        mcp_oauth_migration_prompted_at TIMESTAMPTZ
+        mcp_oauth_migration_prompted_at TIMESTAMPTZ,
+        CONSTRAINT ck_participants_lookup_when_hash
+            CHECK (auth_token_hash IS NULL OR auth_token_lookup IS NOT NULL)
     )
 """
 
@@ -965,7 +967,7 @@ def _account_index_ddls() -> list[str]:
         "CREATE UNIQUE INDEX accounts_email_active_uidx"
         " ON accounts (email)"
         " WHERE status IN ('pending_verification', 'active')",
-        "CREATE INDEX account_participants_account_idx" " ON account_participants (account_id)",
+        "CREATE INDEX account_participants_account_idx ON account_participants (account_id)",
         # spec 023 FR-013 — alembic 016 mirror; grace-period lookup of
         # deleted rows by HMAC of original email (the email column itself
         # is zeroed at delete time per FR-012).

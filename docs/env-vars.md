@@ -16,9 +16,46 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 
 - **Default**: `<required>`
 - **Type**: PostgreSQL URL (`postgresql://...` or `postgres://...`)
-- **Valid range**: scheme must be `postgresql` or `postgres`; netloc (host[:port]) must be non-empty
+- **Valid range**: scheme must be `postgresql` or `postgres`; netloc (host[:port]) must be non-empty; username MUST be `sacp_app` unless `SACP_DEV_MODE=1`
 - **Validation rule**: `validators.validate_database_url`
-- **Source spec(s)**: 001 §FR-020 (encryption-at-rest scope), 003 §FR-019 (advisory-lock provider)
+- **Source spec(s)**: 001 §FR-020 (encryption-at-rest scope), 003 §FR-019 (advisory-lock provider), audit Critical-4 (least-privilege runtime role)
+- **Note**: The orchestrator runtime DSN MUST connect as the restricted `sacp_app` role (created by `scripts/db-init/00-create-sacp-roles.sh`, with per-table grants applied by alembic 026). Migrations run separately via the `sacp-migrate` compose service under `SACP_DATABASE_URL_MIGRATIONS`. For local development, `SACP_DEV_MODE=1` lifts the username check so the legacy single-superuser DSN keeps working without bootstrapping the four roles. Rotation: `ALTER ROLE sacp_app WITH ENCRYPTED PASSWORD '<new>';` then update `.env` and restart the stack. See [`docs/runbooks/db-role-bootstrap.md`](runbooks/db-role-bootstrap.md).
+
+### `SACP_DATABASE_URL_MIGRATIONS`
+
+- **Default**: unset (falls back to `SACP_DATABASE_URL` for non-compose / legacy paths)
+- **Type**: PostgreSQL URL (`postgresql://...` or `postgres://...`)
+- **Valid range**: when set, scheme must be `postgresql` or `postgres`; netloc must be non-empty; username MUST be `sacp_admin`
+- **Validation rule**: `validators.validate_database_url_migrations`
+- **Source spec(s)**: audit Critical-4 (least-privilege DB roles)
+- **Note**: DSN used exclusively by alembic for DDL. Read by `alembic/env.py`; takes priority over `SACP_DATABASE_URL` when both are set so the runtime container's image-baked `alembic upgrade head` chain remains a no-op while the dedicated `sacp-migrate` service runs DDL under the elevated role. The fallback to `SACP_DATABASE_URL` exists so non-compose deploys (e.g. dev laptop without role bootstrap) continue to work.
+
+### `SACP_DATABASE_URL_CLEANUP`
+
+- **Default**: unset
+- **Type**: PostgreSQL URL (`postgresql://...` or `postgres://...`)
+- **Valid range**: when set, scheme must be `postgresql` or `postgres`; netloc must be non-empty; username MUST be `sacp_cleanup`
+- **Validation rule**: `validators.validate_database_url_cleanup`
+- **Source spec(s)**: audit Critical-4 (least-privilege DB roles), 007 §SC-009 (security_events retention)
+- **Note**: DSN used by retention sweep scripts (`scripts/purge_security_events.py`, `scripts/scratch_retention_sweep.py`). The `sacp_cleanup` role has SELECT + DELETE on every table plus INSERT on `admin_audit_log` and `security_events` for purge audit rows. Not read by the orchestrator runtime.
+
+### `SACP_DATABASE_URL_AUDIT`
+
+- **Default**: unset
+- **Type**: PostgreSQL URL (`postgresql://...` or `postgres://...`)
+- **Valid range**: when set, scheme must be `postgresql` or `postgres`; netloc must be non-empty; username MUST be `sacp_audit_reader`
+- **Validation rule**: `validators.validate_database_url_audit`
+- **Source spec(s)**: audit Critical-4 (least-privilege DB roles)
+- **Note**: Reserved read-only DSN for out-of-band audit / forensic tooling. The `sacp_audit_reader` role has SELECT on every table and no write capability anywhere. Not currently consumed by orchestrator code; exposed for operators to point auditors at the data without sharing the runtime DSN.
+
+### `SACP_DEV_MODE`
+
+- **Default**: `0`
+- **Type**: bool-string enum (`0` or `1`)
+- **Valid range**: exactly `0` or `1`
+- **Validation rule**: `validators.validate_dev_mode`
+- **Source spec(s)**: audit Critical-4 (least-privilege DB roles)
+- **Note**: Set to `1` for local development against a database that has NOT had the SACP roles bootstrapped (e.g. the host pytest fixture connecting as `postgres`). Lifts the `username must be 'sacp_app'` assertion on `SACP_DATABASE_URL`. MUST remain `0` in any deployment serving real participants -- a misconfigured prod stack with `SACP_DEV_MODE=1` and a superuser DSN restores the pre-audit-Critical-4 over-privileged path.
 
 ### `SACP_ENCRYPTION_KEY`
 
@@ -35,7 +72,7 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Valid range**: `len() >= 32` AND not equal to any documented placeholder
 - **Validation rule**: `validators.validate_auth_lookup_key`
 - **Source spec(s)**: 002 audit C-02 (HMAC-keyed token lookup)
-- **Note**: Distinct from `SACP_ENCRYPTION_KEY`. Used as the HMAC key for the token-lookup index. Rotate by re-issuing every active token (force re-login).
+- **Note**: Distinct from `SACP_ENCRYPTION_KEY`. Used as the HMAC key for the token-lookup index. Rotation procedure: [`docs/runbooks/auth-token-lookup-key-rotation.md`](runbooks/auth-token-lookup-key-rotation.md). Migration 025 finalization (close the legacy O(N) fallback) requires the pre-sweep documented in [`docs/runbooks/auth-token-lookup-finalization.md`](runbooks/auth-token-lookup-finalization.md).
 
 ### `SACP_WEB_UI_COOKIE_KEY`
 
@@ -1180,6 +1217,40 @@ These vars appear in the debug-export config snapshot allowlist but are NOT cons
 - **Validation rule**: `validators.validate_sacp_capcom_default_on_human_join`
 - **Source spec(s)**: 028 §FR-015 (human-message visibility default when CAPCOM is assigned)
 - **Note**: Controls the default `messages.visibility` for human-emitted messages when a CAPCOM is assigned for the session. With the default `false`, humans publish to `public` (direct to panel) unless they explicitly opt the message into `capcom_only` via the UI toggle. With `true`, humans default to `capcom_only` (CAPCOM-mediated) and explicitly opt OUT to `public`. The var is only consulted when `SACP_CAPCOM_ENABLED=true` AND `sessions.capcom_participant_id IS NOT NULL`; otherwise every human message defaults to `public` regardless. Reply scope for `capcom_query` responses does NOT consult this var — those default to `capcom_only` per FR-014 irrespective.
+
+## Role bootstrap secrets (Postgres init only)
+
+These four passwords are consumed exclusively by the postgres container's first-init script (`scripts/db-init/00-create-sacp-roles.sh`). They are NOT read by the orchestrator runtime and therefore do NOT have entries in `VALIDATORS` -- the validator inventory covers vars consumed by application code, not by container init scripts. The `:?` substitution in `docker-compose.yml` enforces fail-closed behavior at compose time: the postgres container refuses to start if any of the four are unset.
+
+### `SACP_ADMIN_PASSWORD`
+
+- **Default**: `<required>`
+- **Type**: ASCII secret
+- **Consumed by**: `scripts/db-init/00-create-sacp-roles.sh` (creates `sacp_admin`); `SACP_DATABASE_URL_MIGRATIONS` in compose interpolates the same value
+- **Source spec(s)**: audit Critical-4
+- **Note**: `sacp_admin` owns the public schema and runs alembic migrations. Rotate by `ALTER ROLE sacp_admin WITH ENCRYPTED PASSWORD '<new>';` then update `.env` and restart `sacp-migrate`.
+
+### `SACP_APP_PASSWORD`
+
+- **Default**: `<required>`
+- **Type**: ASCII secret
+- **Consumed by**: `scripts/db-init/00-create-sacp-roles.sh` (creates `sacp_app`); `SACP_DATABASE_URL` in compose interpolates the same value
+- **Source spec(s)**: audit Critical-4
+- **Note**: `sacp_app` is the orchestrator runtime role. Rotation same pattern as `SACP_ADMIN_PASSWORD`, restart `sacp`.
+
+### `SACP_CLEANUP_PASSWORD`
+
+- **Default**: `<required>`
+- **Type**: ASCII secret
+- **Consumed by**: `scripts/db-init/00-create-sacp-roles.sh` (creates `sacp_cleanup`); operators wire `SACP_DATABASE_URL_CLEANUP` against the same password for retention sweep scripts
+- **Source spec(s)**: audit Critical-4
+
+### `SACP_AUDIT_READER_PASSWORD`
+
+- **Default**: `<required>`
+- **Type**: ASCII secret
+- **Consumed by**: `scripts/db-init/00-create-sacp-roles.sh` (creates `sacp_audit_reader`); operators wire `SACP_DATABASE_URL_AUDIT` for read-only forensic queries
+- **Source spec(s)**: audit Critical-4
 
 ## CI enforcement
 

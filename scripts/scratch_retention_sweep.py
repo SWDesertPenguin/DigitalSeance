@@ -6,9 +6,12 @@ externally (cron / Ofelia / k8s CronJob); v1 ships the script and NOT an
 in-process scheduler per the spec assumptions.
 
 Reads:
-- ``SACP_DATABASE_URL`` (required)
+- ``SACP_DATABASE_URL_CLEANUP`` (required) -- DSN connecting as the
+  ``sacp_cleanup`` role. See ``docs/env-vars.md`` for the variable
+  definition and ``docs/runbooks/db-role-bootstrap.md`` for the
+  bootstrap procedure.
 - ``SACP_SCRATCH_RETENTION_DAYS_AFTER_ARCHIVE`` (optional; empty/unset
-  means indefinite retention — the sweep no-ops and exits 0)
+  means indefinite retention -- the sweep no-ops and exits 0)
 
 Exits 0 on success (including the indefinite-retention no-op); non-zero on
 configuration / connection failure. Prints the purged row count to stdout
@@ -56,9 +59,12 @@ def _retention_days(arg_override: int | None) -> int | None:
 
 
 async def _run(retention_days: int) -> int:
-    dsn = os.environ.get("SACP_DATABASE_URL")
+    dsn = os.environ.get("SACP_DATABASE_URL_CLEANUP")
     if not dsn:
-        print("SACP_DATABASE_URL not set", file=sys.stderr)
+        print(
+            "SACP_DATABASE_URL_CLEANUP not set (see docs/env-vars.md)",
+            file=sys.stderr,
+        )
         return 2
     pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=2)
     try:

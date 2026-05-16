@@ -6,3 +6,9 @@
 # phantom modification that fails the hook on every commit. eol=lf pins the
 # checkout to match what tools write back.
 *.lock text eol=lf
+
+# Shell scripts must stay LF so they remain executable inside Linux
+# containers after a Windows checkout. The 00-create-sacp-roles.sh init
+# script is mounted into the Postgres image; CRLF line endings break `bash
+# /docker-entrypoint-initdb.d/...` invocation.
+*.sh text eol=lf

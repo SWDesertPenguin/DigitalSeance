@@ -34,6 +34,12 @@ jobs:
     env:
       SACP_DATABASE_URL: postgresql://sacp_test:testpass@localhost:5432/sacp_test
       SACP_TEST_DATABASE_URL: postgresql://sacp_test:testpass@localhost:5432/sacp_test
+      # Audit Critical-4: the CI test stack uses the bootstrap superuser
+      # (sacp_test) rather than the four production roles, so the
+      # validator's `username must be 'sacp_app'` assertion would refuse
+      # to bind. SACP_DEV_MODE=1 lifts that check; the assertion fires
+      # only in real deployments where the role bootstrap script ran.
+      SACP_DEV_MODE: "1"
       # Spec 020 SC-001: byte-identical regression with the default LiteLLM
       # adapter. Setting the var explicitly documents the contract; the
       # default would also resolve to "litellm" if unset.

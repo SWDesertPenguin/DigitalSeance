@@ -26,11 +26,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Generated per process so no committable Fernet-shaped string lives in the tree.
 _VALID_FERNET = Fernet.generate_key().decode()
-_VALID_DB = "postgresql://user:pass@localhost:5432/db"
+_VALID_DB = "postgresql://sacp_app:pass@localhost:5432/db"
 
 
 def _valid_env() -> dict[str, str]:
-    """Minimum env that passes every validator."""
+    """Minimum env that passes every validator.
+
+    Audit Critical-4: SACP_DATABASE_URL now requires `sacp_app` username
+    in production mode. The minimum-valid env uses that role-name; tests
+    that want to exercise the dev-mode escape set SACP_DEV_MODE=1
+    themselves.
+    """
     return {
         "SACP_DATABASE_URL": _VALID_DB,
         "SACP_ENCRYPTION_KEY": _VALID_FERNET,
@@ -325,11 +331,127 @@ def test_encryption_key_rejects_replace_me_placeholder(_restore_env: None):
 
 
 def test_database_url_accepts_real_credentials(_restore_env: None):
-    """Sanity check: a non-placeholder URL passes."""
+    """Sanity check: a non-placeholder URL passes when the role matches."""
     from src.config.validators import validate_database_url
 
-    os.environ["SACP_DATABASE_URL"] = "postgresql://user:realpassword@localhost:5432/sacp"
+    os.environ["SACP_DATABASE_URL"] = "postgresql://sacp_app:realpassword@localhost:5432/sacp"
     assert validate_database_url() is None
+
+
+# ---------------------------------------------------------------------------
+# Audit Critical-4 -- least-privilege DB roles
+# ---------------------------------------------------------------------------
+
+
+def test_database_url_rejects_non_app_role_in_prod_mode(_restore_env: None):
+    """SACP_DATABASE_URL must use sacp_app when SACP_DEV_MODE is unset / 0."""
+    from src.config.validators import validate_database_url
+
+    os.environ["SACP_DATABASE_URL"] = "postgresql://postgres:realpassword@localhost:5432/sacp"
+    os.environ.pop("SACP_DEV_MODE", None)
+    failure = validate_database_url()
+    assert failure is not None
+    assert "sacp_app" in failure.reason
+    assert "SACP_DEV_MODE" in failure.reason
+
+
+def test_database_url_dev_mode_allows_any_role(_restore_env: None):
+    """SACP_DEV_MODE=1 bypasses the role-name assertion for local dev."""
+    from src.config.validators import validate_database_url
+
+    os.environ["SACP_DATABASE_URL"] = "postgresql://postgres:realpassword@localhost:5432/sacp"
+    os.environ["SACP_DEV_MODE"] = "1"
+    assert validate_database_url() is None
+
+
+def test_database_url_migrations_rejects_non_admin(_restore_env: None):
+    """SACP_DATABASE_URL_MIGRATIONS must use sacp_admin when set."""
+    from src.config.validators import validate_database_url_migrations
+
+    os.environ["SACP_DATABASE_URL_MIGRATIONS"] = "postgresql://sacp_app:pw@localhost:5432/sacp"
+    failure = validate_database_url_migrations()
+    assert failure is not None
+    assert "sacp_admin" in failure.reason
+
+
+def test_database_url_migrations_accepts_admin(_restore_env: None):
+    from src.config.validators import validate_database_url_migrations
+
+    os.environ["SACP_DATABASE_URL_MIGRATIONS"] = "postgresql://sacp_admin:pw@localhost:5432/sacp"
+    assert validate_database_url_migrations() is None
+
+
+def test_database_url_migrations_optional_when_unset(_restore_env: None):
+    from src.config.validators import validate_database_url_migrations
+
+    os.environ.pop("SACP_DATABASE_URL_MIGRATIONS", None)
+    assert validate_database_url_migrations() is None
+
+
+def test_database_url_cleanup_rejects_non_cleanup(_restore_env: None):
+    from src.config.validators import validate_database_url_cleanup
+
+    os.environ["SACP_DATABASE_URL_CLEANUP"] = "postgresql://sacp_app:pw@localhost:5432/sacp"
+    failure = validate_database_url_cleanup()
+    assert failure is not None
+    assert "sacp_cleanup" in failure.reason
+
+
+def test_database_url_cleanup_accepts_cleanup(_restore_env: None):
+    from src.config.validators import validate_database_url_cleanup
+
+    os.environ["SACP_DATABASE_URL_CLEANUP"] = "postgresql://sacp_cleanup:pw@localhost:5432/sacp"
+    assert validate_database_url_cleanup() is None
+
+
+def test_database_url_audit_rejects_non_audit(_restore_env: None):
+    from src.config.validators import validate_database_url_audit
+
+    os.environ["SACP_DATABASE_URL_AUDIT"] = "postgresql://sacp_app:pw@localhost:5432/sacp"
+    failure = validate_database_url_audit()
+    assert failure is not None
+    assert "sacp_audit_reader" in failure.reason
+
+
+def test_database_url_audit_accepts_audit_reader(_restore_env: None):
+    from src.config.validators import validate_database_url_audit
+
+    os.environ["SACP_DATABASE_URL_AUDIT"] = "postgresql://sacp_audit_reader:pw@localhost:5432/sacp"
+    assert validate_database_url_audit() is None
+
+
+def test_dev_mode_rejects_invalid_value(_restore_env: None):
+    from src.config.validators import validate_dev_mode
+
+    os.environ["SACP_DEV_MODE"] = "true"
+    failure = validate_dev_mode()
+    assert failure is not None
+    assert "'0' or '1'" in failure.reason
+
+
+def test_dev_mode_accepts_zero_and_one(_restore_env: None):
+    from src.config.validators import validate_dev_mode
+
+    os.environ["SACP_DEV_MODE"] = "0"
+    assert validate_dev_mode() is None
+    os.environ["SACP_DEV_MODE"] = "1"
+    assert validate_dev_mode() is None
+
+
+def test_database_url_role_dsns_in_validators_tuple():
+    """The four Critical-4 validators are wired into VALIDATORS."""
+    from src.config.validators import (
+        VALIDATORS,
+        validate_database_url_audit,
+        validate_database_url_cleanup,
+        validate_database_url_migrations,
+        validate_dev_mode,
+    )
+
+    assert validate_database_url_migrations in VALIDATORS
+    assert validate_database_url_cleanup in VALIDATORS
+    assert validate_database_url_audit in VALIDATORS
+    assert validate_dev_mode in VALIDATORS
 
 
 def test_encryption_key_accepts_real_fernet(_restore_env: None):
