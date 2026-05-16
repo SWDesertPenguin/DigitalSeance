@@ -35,7 +35,7 @@ Authoritative reference for every `SACP_*` environment variable consumed by the 
 - **Valid range**: `len() >= 32` AND not equal to any documented placeholder
 - **Validation rule**: `validators.validate_auth_lookup_key`
 - **Source spec(s)**: 002 audit C-02 (HMAC-keyed token lookup)
-- **Note**: Distinct from `SACP_ENCRYPTION_KEY`. Used as the HMAC key for the token-lookup index. Rotate by re-issuing every active token (force re-login).
+- **Note**: Distinct from `SACP_ENCRYPTION_KEY`. Used as the HMAC key for the token-lookup index. Rotation procedure: [`docs/runbooks/auth-token-lookup-key-rotation.md`](runbooks/auth-token-lookup-key-rotation.md). Migration 025 finalization (close the legacy O(N) fallback) requires the pre-sweep documented in [`docs/runbooks/auth-token-lookup-finalization.md`](runbooks/auth-token-lookup-finalization.md).
 
 ### `SACP_WEB_UI_COOKIE_KEY`
 

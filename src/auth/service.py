@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import hmac as _hmac
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -28,6 +29,18 @@ from src.repositories.log_repo import LogRepository
 from src.repositories.participant_repo import ParticipantRepository
 
 DEFAULT_TOKEN_EXPIRY_DAYS = 30
+
+# Audit C-02 v2. Pre-computed bcrypt of a random sentinel. The failure
+# path runs bcrypt.checkpw against this dummy so wall-clock time stays
+# the same whether the HMAC missed (no row) or hit a row whose bcrypt
+# did not verify. Without this an attacker can distinguish "no such
+# token" from "wrong token" via timing and enumerate valid HMAC
+# lookups offline against a captured key.
+_DUMMY_BCRYPT_HASH = bcrypt.hashpw(
+    secrets.token_bytes(32),
+    bcrypt.gensalt(),
+).decode()
+_DUMMY_BCRYPT_INPUT = secrets.token_bytes(32)
 
 
 class AuthService:
@@ -133,16 +146,21 @@ class AuthService:
         session_id: str,
         participant_id: str,
     ) -> None:
-        """Force-revoke a participant's token (facilitator only)."""
+        """Force-revoke a participant's token (facilitator only).
+
+        Audit C-02 v2: both hash and lookup are NULLed together so the
+        migration 025 CHECK constraint
+        (``auth_token_hash IS NULL OR auth_token_lookup IS NOT NULL``)
+        holds across the revoke transition. The earlier random-bcrypt
+        placeholder served no security purpose -- nothing
+        authenticates a revoked row -- and would now violate the
+        invariant.
+        """
         await require_facilitator(self._pool, session_id, facilitator_id)
         await require_target_in_session(self._pool, participant_id, session_id)
-        random_hash = bcrypt.hashpw(
-            secrets.token_bytes(32),
-            bcrypt.gensalt(),
-        ).decode()
         await self._participant_repo.update_auth_token(
             participant_id,
-            new_hash=random_hash,
+            new_hash=None,
             new_lookup=None,
             expires_at=None,
         )
@@ -238,15 +256,17 @@ async def _find_by_token(
 ) -> Participant:
     """Resolve a plaintext token to its participant.
 
-    Audit C-02. Indexed-lookup-first: HMAC the plaintext, probe the
-    auth_token_lookup column (O(log N) on the partial index), then
-    bcrypt-verify the matched row. The bcrypt verify is still required
-    -- a leaked HMAC key alone never authenticates, only narrows.
+    Audit C-02 v2. HMAC the plaintext, probe ``auth_token_lookup``
+    (O(log N) on the partial index). If a row matches, bcrypt-verify.
+    The bcrypt verify is still required -- a leaked HMAC key alone
+    never authenticates, only narrows.
 
-    Falls back to the legacy O(N) bcrypt scan only for grandfathered
-    rows whose lookup column is NULL (tokens issued before migration
-    009). Every rotation populates the lookup column, so the fallback
-    path drains naturally as participants re-auth.
+    Failure paths run a dummy bcrypt so wall-clock time matches the
+    success path; an attacker cannot distinguish "no such HMAC" from
+    "wrong token" via timing. ``hmac.compare_digest`` is used on the
+    verify result so even the success / fail branch decision is
+    constant-time. Migration 025 enforces the hash-implies-lookup
+    invariant, so the legacy O(N) scan branch is gone.
     """
     lookup = compute_token_lookup(token)
     async with pool.acquire() as conn:
@@ -254,17 +274,12 @@ async def _find_by_token(
             "SELECT * FROM participants WHERE auth_token_lookup = $1",
             lookup,
         )
-        if row is not None:
-            if bcrypt.checkpw(token.encode(), row["auth_token_hash"].encode()):
-                return Participant.from_record(row)
-            raise TokenInvalidError("Invalid authentication token")
-        legacy_rows = await conn.fetch(
-            "SELECT * FROM participants "
-            "WHERE auth_token_hash IS NOT NULL AND auth_token_lookup IS NULL",
-        )
-    for legacy in legacy_rows:
-        if bcrypt.checkpw(token.encode(), legacy["auth_token_hash"].encode()):
-            return Participant.from_record(legacy)
+    if row is None:
+        bcrypt.checkpw(_DUMMY_BCRYPT_INPUT, _DUMMY_BCRYPT_HASH.encode())
+        raise TokenInvalidError("Invalid authentication token")
+    match = bcrypt.checkpw(token.encode(), row["auth_token_hash"].encode())
+    if _hmac.compare_digest(b"\x01" if match else b"\x00", b"\x01"):
+        return Participant.from_record(row)
     raise TokenInvalidError("Invalid authentication token")
 
 

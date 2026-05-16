@@ -220,7 +220,7 @@ class ParticipantRepository(BaseRepository):
         self,
         participant_id: str,
         *,
-        new_hash: str,
+        new_hash: str | None,
         new_lookup: str | None,
         expires_at: object,
     ) -> None:
@@ -229,6 +229,9 @@ class ParticipantRepository(BaseRepository):
         ``new_lookup`` should be the HMAC-SHA256 of the plaintext token
         (compute_token_lookup) for rotations, or None for revoke (so the
         row drops out of the indexed-lookup path entirely). Audit C-02.
+        Migration 025: callers must pass ``new_hash=None`` whenever
+        ``new_lookup`` is None to satisfy the
+        ``ck_participants_lookup_when_hash`` CHECK.
         """
         await self._execute(
             "UPDATE participants"
